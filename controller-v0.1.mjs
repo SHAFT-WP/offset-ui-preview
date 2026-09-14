@@ -1,4 +1,5 @@
 import { calculateOffsetV0_2 } from "./AG/bombing/offset-bombing/offset-be-v0.2.mjs";
+import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { exportOffsetTopView, installOffsetTopViewControls, renderOffsetTopView } from "./renderer-v0.1.mjs";
 
 const locks = {};
@@ -10,18 +11,37 @@ let vipLinked = true;
 let rollBankLinked = true;
 let releaseFpaLinked = true;
 let lastResult = null;
+let initialRender = true;
+let lastResultSnapshot = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const fields = (key) => $$(`[data-key="${key}"]`);
 const firstField = (key) => fields(key)[0];
+const valueStates = createValueStateController({ root: document, transientMs: 1200 });
 const numberValue = (key) => {
   const value = Number.parseFloat(firstField(key)?.value ?? "");
   if (!Number.isFinite(value)) throw new TypeError(`${key} must be numeric`);
   return value;
 };
 const value = (key) => firstField(key)?.value;
-const setValue = (key, next) => fields(key).forEach((field) => { field.value = String(next); });
+const valuesEquivalent = (current, next) => {
+  const a = Number.parseFloat(current);
+  const b = Number.parseFloat(next);
+  if (Number.isFinite(a) && Number.isFinite(b)) return Math.abs(a - b) <= 1e-9;
+  return String(current) === String(next);
+};
+const setValue = (key, next) => {
+  const nextText = String(next);
+  const changed = fields(key).some((field) => !valuesEquivalent(field.value, nextText));
+  fields(key).forEach((field) => { field.value = nextText; });
+  return changed;
+};
+const setAutoValue = (key, next, sourceKey = null) => {
+  const changed = setValue(key, next);
+  if (changed && !initialRender && sourceKey !== key) valueStates.markDependentInput(key);
+  return changed;
+};
 const fmt = (value, digits = 2) => Number.isFinite(value) ? Number(value).toFixed(digits) : "-";
 const fmtHeading = (value) => {
   if (!Number.isFinite(value)) return "-";
@@ -49,9 +69,10 @@ function buildInput() {
   };
 }
 
-function setIfUnlocked(key, value, digits = null) {
-  if (locks[key]) return;
-  setValue(key, digits === null ? value : Number(value).toFixed(digits));
+function setIfUnlocked(key, value, digits = null, sourceKey = driver) {
+  if (locks[key]) return false;
+  const next = digits === null ? value : Number(value).toFixed(digits);
+  return setAutoValue(key, next, sourceKey);
 }
 
 function applyResolved(result) {
@@ -59,42 +80,48 @@ function applyResolved(result) {
   setIfUnlocked("offsetAngleDeg", result.resolved.offsetAngleDeg, 2);
   setIfUnlocked("actionRangeNm", result.resolved.actionRangeNm, 3);
   setIfUnlocked("ipRangeNm", result.resolved.ipRangeNm, 3);
-  setIfUnlocked("offsetG", result.resolved.offsetG, 3);
-  setIfUnlocked("offsetBankDeg", result.resolved.offsetBankDeg, 2);
-  setIfUnlocked("offsetRadiusNm", result.resolved.offsetRadiusNm, 3);
-  if (result.referenceMode === "VRP" && vrpLinked && !locks.vrpRangeNm) setValue("vrpRangeNm", fmt(result.resolved.vrpRangeNm, 3));
-  if (result.referenceMode === "VIP" && vipLinked && !locks.vipRangeNm) setValue("vipRangeNm", fmt(result.resolved.vipRangeNm, 3));
+  setIfUnlocked("offsetG", result.resolved.offsetG, 3, turnDriver);
+  setIfUnlocked("offsetBankDeg", result.resolved.offsetBankDeg, 2, turnDriver);
+  setIfUnlocked("offsetRadiusNm", result.resolved.offsetRadiusNm, 3, turnDriver);
+  if (result.referenceMode === "VRP" && vrpLinked && !locks.vrpRangeNm) setAutoValue("vrpRangeNm", fmt(result.resolved.vrpRangeNm, 3), "actionRangeNm");
+  if (result.referenceMode === "VIP" && vipLinked && !locks.vipRangeNm) setAutoValue("vipRangeNm", fmt(result.resolved.vipRangeNm, 3), "ipRangeNm");
   $("#offset-heading-out").textContent = fmtHeading(result.resolved.actionHeadingDeg);
   $("#turn-time-out").textContent = `${fmt(result.timing.offsetTurnSec, 1)} sec`;
   $("#driver-out").textContent = `DRIVER · ${driver}`;
   $("#lock-count").textContent = `LOCK ${Object.values(locks).filter(Boolean).length}`;
 }
 
-function row(label, value) { return `<tr><td>${label}</td><td>${value}</td></tr>`; }
+function row(label, value, resultKey = null) {
+  const rendered = resultKey
+    ? `<span class="value-result" data-result-key="${resultKey}">${value}</span>`
+    : value;
+  return `<tr><td>${label}</td><td>${rendered}</td></tr>`;
+}
+
 function renderOffsetResult(result) {
   const g = result.geometry;
   const t = result.timing;
   $("#offset-result-body").innerHTML = [
-    row("State", result.state), row("Run-In / Attack", `${fmtHeading(g.runInHeadingDeg)} → ${fmtHeading(g.attackHeadingDeg)}`),
-    row("Offset Heading", fmtHeading(g.actionHeadingDeg)), row("Offset Angle", `${fmt(g.offsetAngleDeg, 2)}°`), row("Angle-Off (Heading)", `${fmt(g.angleOffDeg, 2)}°`),
-    row("Action Range", `${fmt(g.actionRangeNm, 3)} NM`), row("IP Range", `${fmt(result.resolved.ipRangeNm, 3)} NM`), row("Offset Radius", `${fmt(result.resolved.offsetRadiusNm, 3)} NM`),
-    row("Offset TAS", `${fmt(result.resolved.offsetTasKt, 1)} kt`), row("Turn End → Roll In", `${fmt(g.actionLegDistanceNm, 3)} NM`),
-    row("Reference", `${result.referenceMode} · ${fmt(result.reference.displayRangeNm, 3)} NM${result.reference.linked ? " · LINKED" : ""}`),
-    row("IP → Action Point", `${fmt(t.ingressDistanceNm, 3)} NM / ${fmt(t.ingressSec, 1)} sec`), row("Offset Turn", `${fmt(t.offsetTurnSec, 1)} sec`),
-    row("Action Leg", `${fmt(t.actionLegSec, 1)} sec`), row("Roll-in → Release", `${fmt(t.rollToReleaseSec, 1)} sec`),
-    row("Legacy ΔTOS", `${t.legacyDeltaTosSec >= 0 ? "+" : ""}${fmt(t.legacyDeltaTosSec, 1)} sec`),
+    row("State", result.state), row("Run-In / Attack", `${fmtHeading(g.runInHeadingDeg)} → ${fmtHeading(g.attackHeadingDeg)}`, "runAttackSummary"),
+    row("Offset Heading", fmtHeading(g.actionHeadingDeg), "actionHeadingDeg"), row("Offset Angle", `${fmt(g.offsetAngleDeg, 2)}°`, "offsetAngleDeg"), row("Angle-Off (Heading)", `${fmt(g.angleOffDeg, 2)}°`, "angleOffDeg"),
+    row("Action Range", `${fmt(g.actionRangeNm, 3)} NM`, "actionRangeNm"), row("IP Range", `${fmt(result.resolved.ipRangeNm, 3)} NM`, "ipRangeNm"), row("Offset Radius", `${fmt(result.resolved.offsetRadiusNm, 3)} NM`, "offsetRadiusNm"),
+    row("Offset TAS", `${fmt(result.resolved.offsetTasKt, 1)} kt`, "offsetTasKt"), row("Turn End → Roll In", `${fmt(g.actionLegDistanceNm, 3)} NM`, "actionLegDistanceNm"),
+    row("Reference", `${result.referenceMode} · ${fmt(result.reference.displayRangeNm, 3)} NM${result.reference.linked ? " · LINKED" : ""}`, "referenceSummary"),
+    row("IP → Action Point", `${fmt(t.ingressDistanceNm, 3)} NM / ${fmt(t.ingressSec, 1)} sec`, "ingressSummary"), row("Offset Turn", `${fmt(t.offsetTurnSec, 1)} sec`, "offsetTurnSec"),
+    row("Action Leg", `${fmt(t.actionLegSec, 1)} sec`, "actionLegSec"), row("Roll-in → Release", `${fmt(t.rollToReleaseSec, 1)} sec`, "rollToReleaseSec"),
+    row("Legacy ΔTOS", `${t.legacyDeltaTosSec >= 0 ? "+" : ""}${fmt(t.legacyDeltaTosSec, 1)} sec`, "legacyDeltaTosSec"),
   ].join("");
 }
 
 function renderProfileResult(result) {
   const p = result.profile.public;
   $("#profile-result-body").innerHTML = [
-    row("Effective Release Altitude", `${fmt(p.effectiveReleaseAltitudeMslFt, 0)} ft MSL`), row("Resolved Initial Altitude", `${fmt(p.resolvedInitialAltitudeMslFt, 0)} ft MSL`),
-    row("Track Point Altitude", `${fmt(p.trackPointAltitudeMslFt, 0)} ft MSL`), row("Tracking Time", `${fmt(p.trackingTimeSec, 2)} sec`),
-    row("Roll-in Range", `${fmt(p.rollInRangeNm, 3)} NM`), row("Ground Range", `${fmt(p.groundRangeNm, 3)} NM`), row("Roll-in Radius", `${fmt(p.rollInRadiusNm, 3)} NM`),
-    row("Roll-in Time", `${fmt(p.rollInTimeSec, 2)} sec`), row("Roll-in Ground Arc", `${fmt(p.rollInGroundArcNm, 3)} NM`), row("Roll-in Altitude Loss", `${fmt(p.rollInAltitudeLossFt, 0)} ft`),
-    row("Lead Angle", `${fmt(p.leadAngleDeg, 2)}°`), row("MINALT", `${fmt(p.minAltMslFt, 0)} ft MSL`), row("NLT Release", `${fmt(p.nltReleaseMslFt, 0)} ft MSL`),
-    row("Bomb Range / TOF", `${fmt(p.bombRangeNm, 3)} NM / ${fmt(p.bombTofSec, 2)} sec`),
+    row("Effective Release Altitude", `${fmt(p.effectiveReleaseAltitudeMslFt, 0)} ft MSL`, "effectiveReleaseAltitudeMslFt"), row("Resolved Initial Altitude", `${fmt(p.resolvedInitialAltitudeMslFt, 0)} ft MSL`, "resolvedInitialAltitudeMslFt"),
+    row("Track Point Altitude", `${fmt(p.trackPointAltitudeMslFt, 0)} ft MSL`, "trackPointAltitudeMslFt"), row("Tracking Time", `${fmt(p.trackingTimeSec, 2)} sec`, "trackingTimeSecResult"),
+    row("Roll-in Range", `${fmt(p.rollInRangeNm, 3)} NM`, "rollInRangeNm"), row("Ground Range", `${fmt(p.groundRangeNm, 3)} NM`, "groundRangeNm"), row("Roll-in Radius", `${fmt(p.rollInRadiusNm, 3)} NM`, "rollInRadiusNm"),
+    row("Roll-in Time", `${fmt(p.rollInTimeSec, 2)} sec`, "rollInTimeSec"), row("Roll-in Ground Arc", `${fmt(p.rollInGroundArcNm, 3)} NM`, "rollInGroundArcNm"), row("Roll-in Altitude Loss", `${fmt(p.rollInAltitudeLossFt, 0)} ft`, "rollInAltitudeLossFt"),
+    row("Lead Angle", `${fmt(p.leadAngleDeg, 2)}°`, "leadAngleDeg"), row("MINALT", `${fmt(p.minAltMslFt, 0)} ft MSL`, "minAltMslFt"), row("NLT Release", `${fmt(p.nltReleaseMslFt, 0)} ft MSL`, "nltReleaseMslFt"),
+    row("Bomb Range / TOF", `${fmt(p.bombRangeNm, 3)} NM / ${fmt(p.bombTofSec, 2)} sec`, "bombRangeTofSummary"),
   ].join("");
 }
 
@@ -111,6 +138,58 @@ function renderStatus(result) {
   message.className = `status-message ${result.state.toLowerCase()}`;
 }
 
+function collectResultSnapshot(result) {
+  const g = result.geometry;
+  const t = result.timing;
+  const p = result.profile.public;
+  return {
+    runAttackSummary: `${fmtHeading(g.runInHeadingDeg)}|${fmtHeading(g.attackHeadingDeg)}`,
+    actionHeadingDeg: g.actionHeadingDeg,
+    offsetAngleDeg: g.offsetAngleDeg,
+    angleOffDeg: g.angleOffDeg,
+    actionRangeNm: g.actionRangeNm,
+    ipRangeNm: result.resolved.ipRangeNm,
+    offsetRadiusNm: result.resolved.offsetRadiusNm,
+    offsetTasKt: result.resolved.offsetTasKt,
+    actionLegDistanceNm: g.actionLegDistanceNm,
+    referenceSummary: `${result.referenceMode}|${result.reference.displayRangeNm}|${result.reference.linked}`,
+    ingressSummary: `${t.ingressDistanceNm}|${t.ingressSec}`,
+    offsetTurnSec: t.offsetTurnSec,
+    actionLegSec: t.actionLegSec,
+    rollToReleaseSec: t.rollToReleaseSec,
+    legacyDeltaTosSec: t.legacyDeltaTosSec,
+    effectiveReleaseAltitudeMslFt: p.effectiveReleaseAltitudeMslFt,
+    resolvedInitialAltitudeMslFt: p.resolvedInitialAltitudeMslFt,
+    trackPointAltitudeMslFt: p.trackPointAltitudeMslFt,
+    trackingTimeSecResult: p.trackingTimeSec,
+    rollInRangeNm: p.rollInRangeNm,
+    groundRangeNm: p.groundRangeNm,
+    rollInRadiusNm: p.rollInRadiusNm,
+    rollInTimeSec: p.rollInTimeSec,
+    rollInGroundArcNm: p.rollInGroundArcNm,
+    rollInAltitudeLossFt: p.rollInAltitudeLossFt,
+    leadAngleDeg: p.leadAngleDeg,
+    minAltMslFt: p.minAltMslFt,
+    nltReleaseMslFt: p.nltReleaseMslFt,
+    bombRangeTofSummary: `${p.bombRangeNm}|${p.bombTofSec}`,
+  };
+}
+
+function sameSnapshotValue(a, b) {
+  if (Number.isFinite(a) && Number.isFinite(b)) return Math.abs(a - b) <= 1e-9;
+  return Object.is(a, b);
+}
+
+function applyResultChangeStates(result) {
+  const next = collectResultSnapshot(result);
+  if (lastResultSnapshot && !initialRender) {
+    Object.entries(next).forEach(([key, current]) => {
+      if (!sameSnapshotValue(lastResultSnapshot[key], current)) valueStates.markResultChange(key);
+    });
+  }
+  lastResultSnapshot = next;
+}
+
 function calculate() {
   try {
     const result = calculateOffsetV0_2(buildInput());
@@ -120,6 +199,7 @@ function calculate() {
     renderOffsetResult(result);
     renderProfileResult(result);
     renderOffsetTopView($("#offset-top-view"), result);
+    applyResultChangeStates(result);
   } catch (error) {
     const message = $("#constraint-message");
     message.textContent = `INVALID · ${error.message}`;
@@ -148,8 +228,8 @@ function handleFieldChange(event) {
   if (key === "rollInBankAngleDeg") { rollBankLinked = false; $("#link-roll-bank").checked = false; }
   if (key === "releaseFpaDeg") { releaseFpaLinked = false; $("#link-release-fpa").checked = false; }
   if (key === "diveAngleDeg") {
-    if (rollBankLinked) setValue("rollInBankAngleDeg", Math.round(90 + numberValue("diveAngleDeg") / 2));
-    if (releaseFpaLinked) setValue("releaseFpaDeg", -numberValue("diveAngleDeg"));
+    if (rollBankLinked) setAutoValue("rollInBankAngleDeg", Math.round(90 + numberValue("diveAngleDeg") / 2), key);
+    if (releaseFpaLinked) setAutoValue("releaseFpaDeg", -numberValue("diveAngleDeg"), key);
   }
   driver = ["angleOffDeg", "offsetAngleDeg", "actionRangeNm", "ipRangeNm", "diveAngleDeg"].includes(key) ? key : "profile";
   calculate();
@@ -177,7 +257,7 @@ function installModeButtons() {
     driver = "angleOffDeg"; calculate();
   });
   $("#vip-btn").addEventListener("click", () => {
-    referenceMode = "VIP"; vipLinked = true; setValue("vipRangeNm", numberValue("ipRangeNm"));
+    referenceMode = "VIP"; vipLinked = true; setAutoValue("vipRangeNm", numberValue("ipRangeNm"), "ipRangeNm");
     $("#vip-btn").classList.add("active"); $("#vrp-btn").classList.remove("active"); $("#vip-pane").classList.remove("hidden"); $("#vrp-pane").classList.add("hidden");
     driver = "ipRangeNm"; calculate();
   });
@@ -186,13 +266,29 @@ function installModeButtons() {
 function installProfileLinks() {
   $("#link-roll-bank").addEventListener("change", (event) => {
     rollBankLinked = event.target.checked;
-    if (rollBankLinked) setValue("rollInBankAngleDeg", Math.round(90 + numberValue("diveAngleDeg") / 2));
+    if (rollBankLinked) setAutoValue("rollInBankAngleDeg", Math.round(90 + numberValue("diveAngleDeg") / 2), "diveAngleDeg");
     driver = "profile"; calculate();
   });
   $("#link-release-fpa").addEventListener("change", (event) => {
     releaseFpaLinked = event.target.checked;
-    if (releaseFpaLinked) setValue("releaseFpaDeg", -numberValue("diveAngleDeg"));
+    if (releaseFpaLinked) setAutoValue("releaseFpaDeg", -numberValue("diveAngleDeg"), "diveAngleDeg");
     driver = "profile"; calculate();
+  });
+}
+
+function installValueStateBindings() {
+  const heading = $("#offset-heading-out");
+  heading.classList.add("value-result");
+  heading.dataset.resultKey = "actionHeadingDeg";
+  const turnTime = $("#turn-time-out");
+  turnTime.classList.add("value-result");
+  turnTime.dataset.resultKey = "offsetTurnSec";
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    const field = event.target.closest?.("[data-key]");
+    if (!field?.dataset?.key) return;
+    valueStates.confirmDependentInput(field.dataset.key);
   });
 }
 
@@ -205,7 +301,7 @@ function populateWeapons() {
 }
 
 function install() {
-  populateWeapons(); installLocks(); installModeButtons(); installProfileLinks();
+  populateWeapons(); installLocks(); installModeButtons(); installProfileLinks(); installValueStateBindings();
   document.addEventListener("input", handleFieldChange);
   document.addEventListener("change", (event) => { if (event.target.matches("[data-key]")) handleFieldChange(event); });
   const svg = $("#offset-top-view");
@@ -214,6 +310,7 @@ function install() {
   setValue("rollInBankAngleDeg", Math.round(90 + numberValue("diveAngleDeg") / 2));
   setValue("releaseFpaDeg", -numberValue("diveAngleDeg"));
   calculate();
+  initialRender = false;
 }
 
 install();
