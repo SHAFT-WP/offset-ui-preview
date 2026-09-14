@@ -155,12 +155,29 @@ export function renderOffsetTopView(svg, result) {
     reservePolyline(labels, [p.trackPoint, p.rollCenter], 4);
   }
 
-  labels.append(p.ip, result.referenceMode === "VIP" ? `IP / ACTION POINT · ${fmt(result.resolved.ipRangeNm, 2)} NM` : `IP · ${fmt(result.resolved.ipRangeNm, 2)} NM`, { color: COLORS.run, leader: false, leaderMarkerId: "offset-arrow-label" });
-  if (result.referenceMode === "VRP") labels.append(p.realActionPoint, `ACTION POINT · ${fmt(geometry.actionRangeNm, 2)} NM`, { color: COLORS.offset, leaderMarkerId: "offset-arrow-label" });
-  else if (!vipMatch) labels.append(p.realActionPoint, `CALC ACTION POINT · ${fmt(geometry.actionRangeNm, 2)} NM`, { color: COLORS.invalid, leaderMarkerId: "offset-arrow-label" });
+  labels.append(p.ip, result.referenceMode === "VIP" ? `IP / ACTION POINT · ${fmt(result.resolved.ipRangeNm, 2)} NM` : `IP · ${fmt(result.resolved.ipRangeNm, 2)} NM`, {
+    color: COLORS.run,
+    leader: false,
+    leaderMarkerId: "offset-arrow-label",
+    textAttributes: { "data-result-key": "ipRangeNm" },
+  });
+  if (result.referenceMode === "VRP") labels.append(p.realActionPoint, `ACTION POINT · ${fmt(geometry.actionRangeNm, 2)} NM`, {
+    color: COLORS.offset,
+    leaderMarkerId: "offset-arrow-label",
+    textAttributes: { "data-result-key": "actionRangeNm" },
+  });
+  else if (!vipMatch) labels.append(p.realActionPoint, `CALC ACTION POINT · ${fmt(geometry.actionRangeNm, 2)} NM`, {
+    color: COLORS.invalid,
+    leaderMarkerId: "offset-arrow-label",
+    textAttributes: { "data-result-key": "actionRangeNm" },
+  });
 
   const actionMid = project(add(points.turnEnd, mul(sub(points.rollStart, points.turnEnd), 0.5)));
-  labels.append(actionMid, `OFFSET ${fmt(geometry.offsetAngleDeg, 0)}° · HEADING ${fmtHeading(geometry.actionHeadingDeg)}`, { color: geometry.actionLegDistanceNm < 0 ? COLORS.invalid : COLORS.offset, leaderMarkerId: "offset-arrow-label" });
+  labels.append(actionMid, `OFFSET ${fmt(geometry.offsetAngleDeg, 0)}° · HEADING ${fmtHeading(geometry.actionHeadingDeg)}`, {
+    color: geometry.actionLegDistanceNm < 0 ? COLORS.invalid : COLORS.offset,
+    leaderMarkerId: "offset-arrow-label",
+    textAttributes: { "data-result-key": "actionHeadingDeg" },
+  });
   labels.append(p.rollStart, "ROLL IN", { color: COLORS.roll, leaderMarkerId: "offset-arrow-label" });
   labels.append(p.trackPoint, "TRACK POINT", { color: COLORS.roll, leaderMarkerId: "offset-arrow-label" });
   const attackMid = project(add(points.trackPoint, mul(sub(points.target, points.trackPoint), 0.5)));
@@ -168,10 +185,20 @@ export function renderOffsetTopView(svg, result) {
   labels.append(p.target, "TARGET", { color: COLORS.target, fontSize: 12, leaderMarkerId: "offset-arrow-label" });
 
   const offsetRadiusMid = project(add(points.offsetCenter, mul(sub(points.realActionPoint, points.offsetCenter), 0.5)));
-  labels.append(offsetRadiusMid, `OFFSET R · ${fmt(result.resolved.offsetRadiusNm, 2)} NM`, { color: COLORS.offset, fontSize: 10, leaderMarkerId: "offset-arrow-label" });
+  labels.append(offsetRadiusMid, `OFFSET R · ${fmt(result.resolved.offsetRadiusNm, 2)} NM`, {
+    color: COLORS.offset,
+    fontSize: 10,
+    leaderMarkerId: "offset-arrow-label",
+    textAttributes: { "data-result-key": "offsetRadiusNm" },
+  });
   if (p.rollCenter) {
     const rollRadiusMid = project(add(points.rollCenter, mul(sub(points.rollStart, points.rollCenter), 0.5)));
-    labels.append(rollRadiusMid, `ROLL-IN R(EFF) · ${fmt(geometry.rollInRadiusNm, 2)} NM`, { color: COLORS.roll, fontSize: 10, leaderMarkerId: "offset-arrow-label" });
+    labels.append(rollRadiusMid, `ROLL-IN R(EFF) · ${fmt(geometry.rollInRadiusNm, 2)} NM`, {
+      color: COLORS.roll,
+      fontSize: 10,
+      leaderMarkerId: "offset-arrow-label",
+      textAttributes: { "data-result-key": "rollInRadiusNm" },
+    });
   }
 
   if (result.referenceMode === "VRP" && !sameVrpAp) labels.append(referencePoint, `VRP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { color: COLORS.reference, fontSize: 10, leaderMarkerId: "offset-arrow-label" });

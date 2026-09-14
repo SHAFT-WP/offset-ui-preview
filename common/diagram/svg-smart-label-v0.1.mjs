@@ -134,7 +134,11 @@ export function createSmartLabelLayout(root, options = {}) {
       }));
     }
 
+    const textAttributes = labelOptions.textAttributes && typeof labelOptions.textAttributes === "object"
+      ? labelOptions.textAttributes
+      : {};
     root.append(svgNode("text", {
+      ...textAttributes,
       x: selected.box.textX,
       y: selected.box.textY,
       "text-anchor": selected.candidate.anchor,
