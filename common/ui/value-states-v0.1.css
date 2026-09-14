@@ -1,0 +1,39 @@
+/*
+ * Common FE value-state presentation.
+ * Consumers define value foreground/background tokens in their theme.
+ */
+
+.value-result {
+  color: var(--value-result);
+  background-color: var(--value-result-bg, transparent);
+}
+
+.value-dependent-input {
+  color: var(--value-dependent-input) !important;
+  background-color: var(--value-dependent-input-bg, transparent) !important;
+}
+
+.value-dependent-change {
+  color: var(--value-dependent-change) !important;
+  background-color: var(--value-dependent-change-bg, transparent) !important;
+  transition: color 1.2s ease, background-color 1.2s ease;
+}
+
+svg .value-result {
+  fill: var(--value-result);
+  background-color: transparent;
+}
+
+svg .value-dependent-change {
+  fill: var(--value-dependent-change) !important;
+  background-color: transparent !important;
+  transition: fill 1.2s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .value-dependent-input,
+  .value-dependent-change,
+  svg .value-dependent-change {
+    transition: none;
+  }
+}
