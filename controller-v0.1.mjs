@@ -2,14 +2,14 @@ import { calculateOffsetV0_2 } from "./AG/bombing/offset-bombing/offset-be-v0.2.
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { exportOffsetTopView, installOffsetTopViewControls, renderOffsetTopView } from "./renderer-v0.1.mjs";
 
+const LOW_ANGLE_BOUNDARY_DEG = 10;
 const locks = {};
 let driver = "angleOffDeg";
 let turnDriver = "offsetG";
 let referenceMode = "VRP";
 let vrpLinked = true;
 let vipLinked = true;
-let rollBankLinked = true;
-let releaseFpaLinked = true;
+let rollBankAuto = true;
 let lastResult = null;
 let initialRender = true;
 let lastResultSnapshot = null;
@@ -49,36 +49,60 @@ const fmtHeading = (value) => {
   return String(h === 0 ? 360 : h).padStart(3, "0") + "°";
 };
 
+function coordinatedBankForG(g) {
+  if (!(g > 1)) throw new RangeError("Low-angle level-turn Roll-in requires Roll-in G > 1");
+  return Math.acos(1 / g) * 180 / Math.PI;
+}
+
+function coordinatedGForBank(bankDeg) {
+  const bankRad = bankDeg * Math.PI / 180;
+  const cosine = Math.cos(bankRad);
+  if (!(bankDeg > 0 && bankDeg < 89.9) || !(cosine > 0)) throw new RangeError("Low-angle level-turn Bank must be > 0 and < 89.9 deg");
+  return 1 / cosine;
+}
+
+function automaticRollInBankDeg() {
+  const diveAngleDeg = numberValue("diveAngleDeg");
+  if (diveAngleDeg < LOW_ANGLE_BOUNDARY_DEG) return coordinatedBankForG(numberValue("rollInG")).toFixed(1);
+  return String(Math.round(90 + diveAngleDeg / 2));
+}
+
+function applyAutomaticRollBank(sourceKey = "diveAngleDeg") {
+  if (!rollBankAuto) return false;
+  return setAutoValue("rollInBankAngleDeg", automaticRollInBankDeg(), sourceKey);
+}
+
 function buildInput() {
   return {
     driver, turnDriver, locks: { ...locks }, referenceMode, vrpLinked, vipLinked,
     runInHeadingDeg: numberValue("runInHeadingDeg"), attackHeadingDeg: numberValue("attackHeadingDeg"), angleOffDeg: numberValue("angleOffDeg"),
-    diveAngleDeg: numberValue("diveAngleDeg"), offsetAngleDeg: numberValue("offsetAngleDeg"), actionRangeNm: numberValue("actionRangeNm"), ipRangeNm: numberValue("ipRangeNm"),
+    diveAngleDeg: numberValue("diveAngleDeg"), offsetAngleDeg: numberValue("offsetAngleDeg"), actionRangeNm: numberValue("actionRangeNm"), offsetRangeNm: numberValue("offsetRangeNm"), ipRangeNm: numberValue("ipRangeNm"),
     vrpRangeNm: numberValue("vrpRangeNm"), vipRangeNm: numberValue("vipRangeNm"),
     offsetAltitudeMslFt: numberValue("offsetAltitudeMslFt"), offsetSpeedValue: numberValue("offsetSpeedValue"), offsetSpeedMode: value("offsetSpeedMode") ?? "CAS",
     offsetG: numberValue("offsetG"), offsetBankDeg: numberValue("offsetBankDeg"), offsetRadiusNm: numberValue("offsetRadiusNm"),
     profile: {
       weaponId: value("weaponId") ?? "M82", targetElevationMslFt: numberValue("targetElevationMslFt"), releaseSpeedKcas: numberValue("releaseSpeedKcas"),
-      speedOvershootKcas: numberValue("speedOvershootKcas"), maneuverInitiationDelaySec: numberValue("maneuverInitiationDelaySec"), recoveryG: numberValue("recoveryG"),
-      gOnsetTimeSec: numberValue("gOnsetTimeSec"), diveAngleDeg: numberValue("diveAngleDeg"), releaseFpaDeg: numberValue("releaseFpaDeg"),
-      windDirectionDeg: numberValue("windDirectionDeg"), windSpeedKt: numberValue("windSpeedKt"), initialSpeedValue: numberValue("initialSpeedValue"),
-      initialSpeedMode: value("initialSpeedMode") ?? "CAS", initialAltitudeMslFt: numberValue("initialAltitudeMslFt"), solveMode: value("solveMode") ?? "height",
-      trackingTimeSec: numberValue("trackingTimeSec"), releaseAltitudeMslFt: numberValue("releaseAltitudeMslFt"), angleOffDeg: numberValue("angleOffDeg"),
-      rollInBankAngleDeg: numberValue("rollInBankAngleDeg"), rollInG: numberValue("rollInG"),
+      speedOvershootKcas: numberValue("speedOvershootKcas"), recoveryG: numberValue("recoveryG"), gOnsetTimeSec: numberValue("gOnsetTimeSec"),
+      diveAngleDeg: numberValue("diveAngleDeg"), windDirectionDeg: numberValue("windDirectionDeg"), windSpeedKt: numberValue("windSpeedKt"),
+      initialSpeedValue: numberValue("initialSpeedValue"), initialSpeedMode: value("initialSpeedMode") ?? "CAS", initialAltitudeMslFt: numberValue("initialAltitudeMslFt"),
+      solveMode: value("solveMode") ?? "height", trackingTimeSec: numberValue("trackingTimeSec"), releaseAltitudeMslFt: numberValue("releaseAltitudeMslFt"),
+      angleOffDeg: numberValue("angleOffDeg"), rollInBankAngleDeg: numberValue("rollInBankAngleDeg"), rollInG: numberValue("rollInG"),
     },
   };
 }
 
-function setIfUnlocked(key, value, digits = null, sourceKey = driver) {
+function setIfUnlocked(key, nextValue, digits = null, sourceKey = driver) {
   if (locks[key]) return false;
-  const next = digits === null ? value : Number(value).toFixed(digits);
+  const next = digits === null ? nextValue : Number(nextValue).toFixed(digits);
   return setAutoValue(key, next, sourceKey);
 }
 
 function applyResolved(result) {
+  setIfUnlocked("attackHeadingDeg", result.resolved.attackHeadingDeg, 2);
   setIfUnlocked("angleOffDeg", result.resolved.angleOffDeg, 2);
   setIfUnlocked("offsetAngleDeg", result.resolved.offsetAngleDeg, 2);
   setIfUnlocked("actionRangeNm", result.resolved.actionRangeNm, 3);
+  setIfUnlocked("offsetRangeNm", result.resolved.offsetRangeNm, 3);
   setIfUnlocked("ipRangeNm", result.resolved.ipRangeNm, 3);
   setIfUnlocked("offsetG", result.resolved.offsetG, 3, turnDriver);
   setIfUnlocked("offsetBankDeg", result.resolved.offsetBankDeg, 2, turnDriver);
@@ -92,9 +116,7 @@ function applyResolved(result) {
 }
 
 function row(label, value, resultKey = null) {
-  const rendered = resultKey
-    ? `<span class="value-result" data-result-key="${resultKey}">${value}</span>`
-    : value;
+  const rendered = resultKey ? `<span class="value-result" data-result-key="${resultKey}">${value}</span>` : value;
   return `<tr><td>${label}</td><td>${rendered}</td></tr>`;
 }
 
@@ -102,13 +124,21 @@ function renderOffsetResult(result) {
   const g = result.geometry;
   const t = result.timing;
   $("#offset-result-body").innerHTML = [
-    row("State", result.state), row("Run-In / Attack", `${fmtHeading(g.runInHeadingDeg)} → ${fmtHeading(g.attackHeadingDeg)}`, "runAttackSummary"),
-    row("Offset Heading", fmtHeading(g.actionHeadingDeg), "actionHeadingDeg"), row("Offset Angle", `${fmt(g.offsetAngleDeg, 2)}°`, "offsetAngleDeg"), row("Angle-Off (Heading)", `${fmt(g.angleOffDeg, 2)}°`, "angleOffDeg"),
-    row("Action Range", `${fmt(g.actionRangeNm, 3)} NM`, "actionRangeNm"), row("IP Range", `${fmt(result.resolved.ipRangeNm, 3)} NM`, "ipRangeNm"), row("Offset Radius", `${fmt(result.resolved.offsetRadiusNm, 3)} NM`, "offsetRadiusNm"),
-    row("Offset TAS", `${fmt(result.resolved.offsetTasKt, 1)} kt`, "offsetTasKt"), row("Turn End → Roll In", `${fmt(g.actionLegDistanceNm, 3)} NM`, "actionLegDistanceNm"),
+    row("State", result.state),
+    row("Run-In / Attack", `${fmtHeading(g.runInHeadingDeg)} → ${fmtHeading(g.attackHeadingDeg)}`, "runAttackSummary"),
+    row("Offset Heading", fmtHeading(g.actionHeadingDeg), "actionHeadingDeg"),
+    row("Offset Angle", `${fmt(g.offsetAngleDeg, 2)}°`, "offsetAngleDeg"),
+    row("Angle-Off (Heading)", `${fmt(g.angleOffDeg, 2)}°`, "angleOffDeg"),
+    row("Action Range", `${fmt(g.actionRangeNm, 3)} NM`, "actionRangeNm"),
+    row("Offset Range", `${fmt(result.resolved.offsetRangeNm, 3)} NM`, "offsetRangeNm"),
+    row("IP Range", `${fmt(result.resolved.ipRangeNm, 3)} NM`, "ipRangeNm"),
+    row("Offset Radius", `${fmt(result.resolved.offsetRadiusNm, 3)} NM`, "offsetRadiusNm"),
+    row("Offset TAS", `${fmt(result.resolved.offsetTasKt, 1)} kt`, "offsetTasKt"),
     row("Reference", `${result.referenceMode} · ${fmt(result.reference.displayRangeNm, 3)} NM${result.reference.linked ? " · LINKED" : ""}`, "referenceSummary"),
-    row("IP → Action Point", `${fmt(t.ingressDistanceNm, 3)} NM / ${fmt(t.ingressSec, 1)} sec`, "ingressSummary"), row("Offset Turn", `${fmt(t.offsetTurnSec, 1)} sec`, "offsetTurnSec"),
-    row("Action Leg", `${fmt(t.actionLegSec, 1)} sec`, "actionLegSec"), row("Roll-in → Release", `${fmt(t.rollToReleaseSec, 1)} sec`, "rollToReleaseSec"),
+    row("IP → Action Point", `${fmt(t.ingressDistanceNm, 3)} NM / ${fmt(t.ingressSec, 1)} sec`, "ingressSummary"),
+    row("Offset Turn", `${fmt(t.offsetTurnSec, 1)} sec`, "offsetTurnSec"),
+    row("Offset Range Time", `${fmt(t.actionLegSec, 1)} sec`, "actionLegSec"),
+    row("Roll-in → Release", `${fmt(t.rollToReleaseSec, 1)} sec`, "rollToReleaseSec"),
     row("Legacy ΔTOS", `${t.legacyDeltaTosSec >= 0 ? "+" : ""}${fmt(t.legacyDeltaTosSec, 1)} sec`, "legacyDeltaTosSec"),
   ].join("");
 }
@@ -116,11 +146,19 @@ function renderOffsetResult(result) {
 function renderProfileResult(result) {
   const p = result.profile.public;
   $("#profile-result-body").innerHTML = [
-    row("Effective Release Altitude", `${fmt(p.effectiveReleaseAltitudeMslFt, 0)} ft MSL`, "effectiveReleaseAltitudeMslFt"), row("Resolved Initial Altitude", `${fmt(p.resolvedInitialAltitudeMslFt, 0)} ft MSL`, "resolvedInitialAltitudeMslFt"),
-    row("Track Point Altitude", `${fmt(p.trackPointAltitudeMslFt, 0)} ft MSL`, "trackPointAltitudeMslFt"), row("Tracking Time", `${fmt(p.trackingTimeSec, 2)} sec`, "trackingTimeSecResult"),
-    row("Roll-in Range", `${fmt(p.rollInRangeNm, 3)} NM`, "rollInRangeNm"), row("Ground Range", `${fmt(p.groundRangeNm, 3)} NM`, "groundRangeNm"), row("Roll-in Radius", `${fmt(p.rollInRadiusNm, 3)} NM`, "rollInRadiusNm"),
-    row("Roll-in Time", `${fmt(p.rollInTimeSec, 2)} sec`, "rollInTimeSec"), row("Roll-in Ground Arc", `${fmt(p.rollInGroundArcNm, 3)} NM`, "rollInGroundArcNm"), row("Roll-in Altitude Loss", `${fmt(p.rollInAltitudeLossFt, 0)} ft`, "rollInAltitudeLossFt"),
-    row("Lead Angle", `${fmt(p.leadAngleDeg, 2)}°`, "leadAngleDeg"), row("MINALT", `${fmt(p.minAltMslFt, 0)} ft MSL`, "minAltMslFt"), row("NLT Release", `${fmt(p.nltReleaseMslFt, 0)} ft MSL`, "nltReleaseMslFt"),
+    row("Effective Release Altitude", `${fmt(p.effectiveReleaseAltitudeMslFt, 0)} ft MSL`, "effectiveReleaseAltitudeMslFt"),
+    row("Resolved Initial Altitude", `${fmt(p.resolvedInitialAltitudeMslFt, 0)} ft MSL`, "resolvedInitialAltitudeMslFt"),
+    row("Track Point Altitude", `${fmt(p.trackPointAltitudeMslFt, 0)} ft MSL`, "trackPointAltitudeMslFt"),
+    row("Tracking Time", `${fmt(p.trackingTimeSec, 2)} sec`, "trackingTimeSecResult"),
+    row("Roll-in Range", `${fmt(p.rollInRangeNm, 3)} NM`, "rollInRangeNm"),
+    row("Ground Range", `${fmt(p.groundRangeNm, 3)} NM`, "groundRangeNm"),
+    row("Roll-in Radius", `${fmt(p.rollInRadiusNm, 3)} NM`, "rollInRadiusNm"),
+    row("Roll-in Time", `${fmt(p.rollInTimeSec, 2)} sec`, "rollInTimeSec"),
+    row("Roll-in Ground Arc", `${fmt(p.rollInGroundArcNm, 3)} NM`, "rollInGroundArcNm"),
+    row("Roll-in Altitude Loss", `${fmt(p.rollInAltitudeLossFt, 0)} ft`, "rollInAltitudeLossFt"),
+    row("Lead Angle", `${fmt(p.leadAngleDeg, 2)}°`, "leadAngleDeg"),
+    row("MINALT", `${fmt(p.minAltMslFt, 0)} ft MSL`, "minAltMslFt"),
+    row("NLT Release", `${fmt(p.nltReleaseMslFt, 0)} ft MSL`, "nltReleaseMslFt"),
     row("Bomb Range / TOF", `${fmt(p.bombRangeNm, 3)} NM / ${fmt(p.bombTofSec, 2)} sec`, "bombRangeTofSummary"),
   ].join("");
 }
@@ -133,7 +171,7 @@ function renderStatus(result) {
   const parts = [];
   if (result.errors.length) parts.push(`INVALID · ${result.errors.join(" / ")}`);
   if (result.warnings.length) parts.push(`WARNING · ${result.warnings.join(" / ")}`);
-  if (!parts.length) parts.push(referenceMode === "VIP" ? "VALID · VIP mode: IP = Action Point." : "VALID · VRP mode: Action Point is between IP and Target. VRP cannot project beyond Target.");
+  if (!parts.length) parts.push(referenceMode === "VIP" ? "VALID · VIP mode: IP = Action Point." : "VALID · VRP mode: Action Point is between IP and Target. VRP stays on the IP–Target segment.");
   message.textContent = parts.join("  ");
   message.className = `status-message ${result.state.toLowerCase()}`;
 }
@@ -148,10 +186,10 @@ function collectResultSnapshot(result) {
     offsetAngleDeg: g.offsetAngleDeg,
     angleOffDeg: g.angleOffDeg,
     actionRangeNm: g.actionRangeNm,
+    offsetRangeNm: result.resolved.offsetRangeNm,
     ipRangeNm: result.resolved.ipRangeNm,
     offsetRadiusNm: result.resolved.offsetRadiusNm,
     offsetTasKt: result.resolved.offsetTasKt,
-    actionLegDistanceNm: g.actionLegDistanceNm,
     referenceSummary: `${result.referenceMode}|${result.reference.displayRangeNm}|${result.reference.linked}`,
     ingressSummary: `${t.ingressDistanceNm}|${t.ingressSec}`,
     offsetTurnSec: t.offsetTurnSec,
@@ -225,13 +263,24 @@ function handleFieldChange(event) {
   if (["offsetG", "offsetBankDeg", "offsetRadiusNm"].includes(key)) turnDriver = key;
   if (key === "vrpRangeNm") vrpLinked = false;
   if (key === "vipRangeNm") vipLinked = false;
-  if (key === "rollInBankAngleDeg") { rollBankLinked = false; $("#link-roll-bank").checked = false; }
-  if (key === "releaseFpaDeg") { releaseFpaLinked = false; $("#link-release-fpa").checked = false; }
-  if (key === "diveAngleDeg") {
-    if (rollBankLinked) setAutoValue("rollInBankAngleDeg", Math.round(90 + numberValue("diveAngleDeg") / 2), key);
-    if (releaseFpaLinked) setAutoValue("releaseFpaDeg", -numberValue("diveAngleDeg"), key);
+
+  const diveAngleDeg = numberValue("diveAngleDeg");
+  if (key === "rollInBankAngleDeg") {
+    rollBankAuto = false;
+    if (diveAngleDeg < LOW_ANGLE_BOUNDARY_DEG) {
+      setAutoValue("rollInG", coordinatedGForBank(numberValue("rollInBankAngleDeg")).toFixed(3), key);
+    }
   }
-  driver = ["angleOffDeg", "offsetAngleDeg", "actionRangeNm", "ipRangeNm", "diveAngleDeg"].includes(key) ? key : "profile";
+  if (key === "diveAngleDeg") {
+    rollBankAuto = true;
+    applyAutomaticRollBank(key);
+  }
+  if (key === "rollInG" && diveAngleDeg < LOW_ANGLE_BOUNDARY_DEG) {
+    rollBankAuto = true;
+    applyAutomaticRollBank(key);
+  }
+
+  driver = ["runInHeadingDeg", "attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "offsetRangeNm", "ipRangeNm", "diveAngleDeg"].includes(key) ? key : "profile";
   calculate();
 }
 
@@ -263,19 +312,6 @@ function installModeButtons() {
   });
 }
 
-function installProfileLinks() {
-  $("#link-roll-bank").addEventListener("change", (event) => {
-    rollBankLinked = event.target.checked;
-    if (rollBankLinked) setAutoValue("rollInBankAngleDeg", Math.round(90 + numberValue("diveAngleDeg") / 2), "diveAngleDeg");
-    driver = "profile"; calculate();
-  });
-  $("#link-release-fpa").addEventListener("change", (event) => {
-    releaseFpaLinked = event.target.checked;
-    if (releaseFpaLinked) setAutoValue("releaseFpaDeg", -numberValue("diveAngleDeg"), "diveAngleDeg");
-    driver = "profile"; calculate();
-  });
-}
-
 function installValueStateBindings() {
   const heading = $("#offset-heading-out");
   heading.classList.add("value-result");
@@ -283,7 +319,6 @@ function installValueStateBindings() {
   const turnTime = $("#turn-time-out");
   turnTime.classList.add("value-result");
   turnTime.dataset.resultKey = "offsetTurnSec";
-
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
     const field = event.target.closest?.("[data-key]");
@@ -301,14 +336,13 @@ function populateWeapons() {
 }
 
 function install() {
-  populateWeapons(); installLocks(); installModeButtons(); installProfileLinks(); installValueStateBindings();
+  populateWeapons(); installLocks(); installModeButtons(); installValueStateBindings();
   document.addEventListener("input", handleFieldChange);
   document.addEventListener("change", (event) => { if (event.target.matches("[data-key]")) handleFieldChange(event); });
   const svg = $("#offset-top-view");
   installOffsetTopViewControls(svg, { zoomInButton: $("#zoom-in"), zoomOutButton: $("#zoom-out"), fitButton: $("#zoom-fit"), resetButton: $("#zoom-reset") });
   $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg));
-  setValue("rollInBankAngleDeg", Math.round(90 + numberValue("diveAngleDeg") / 2));
-  setValue("releaseFpaDeg", -numberValue("diveAngleDeg"));
+  setValue("rollInBankAngleDeg", automaticRollInBankDeg());
   calculate();
   initialRender = false;
 }

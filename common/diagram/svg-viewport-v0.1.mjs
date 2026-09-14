@@ -1,6 +1,6 @@
 export const SVG_VIEWPORT_V0_1 = Object.freeze({
   id: "svg-viewport-v0.1",
-  version: "0.1.0",
+  version: "0.1.1",
   purpose: "Generic SVG viewBox zoom, mouse/touch pan, and pinch interaction",
 });
 
@@ -16,6 +16,7 @@ export function installSvgViewport(svg, options = {}) {
   const aspect = base.h / base.w;
   const minW = base.w / (options.maxZoom ?? 12);
   const maxW = base.w * (options.maxZoomOut ?? 3);
+  const panOnlyWhenZoomed = options.panOnlyWhenZoomed === true;
   let box = { ...base };
   let userAdjusted = false;
   let mouse = null;
@@ -23,11 +24,18 @@ export function installSvgViewport(svg, options = {}) {
   let lastTouchCenter = null;
   let lastTouchDistance = null;
 
+  const isZoomedIn = () => box.w < base.w - 1e-6;
+  const canPan = () => !panOnlyWhenZoomed || isZoomedIn();
+  const updateInteractionState = () => {
+    svg.dataset.panEnabled = canPan() ? "true" : "false";
+    svg.style.cursor = canPan() ? "grab" : "default";
+  };
   const apply = (next) => {
     const w = Math.max(minW, Math.min(maxW, next.w));
     const h = w * aspect;
     box = { x: next.x, y: next.y, w, h };
     svg.setAttribute("viewBox", `${box.x} ${box.y} ${box.w} ${box.h}`);
+    updateInteractionState();
   };
   const reset = (markUser = false) => { box = { ...base }; apply(box); userAdjusted = markUser; };
   const clientToView = (clientX, clientY) => {
@@ -48,9 +56,11 @@ export function installSvgViewport(svg, options = {}) {
     zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor);
   };
   const panBy = (dx, dy) => {
+    if (!canPan()) return false;
     const rect = svg.getBoundingClientRect();
     apply({ x: box.x - (dx / rect.width) * box.w, y: box.y - (dy / rect.height) * box.h, w: box.w, h: box.h });
     userAdjusted = true;
+    return true;
   };
 
   const onWheel = (event) => { event.preventDefault(); zoomAt(event.clientX, event.clientY, event.deltaY < 0 ? 0.86 : 1.16); };
@@ -67,7 +77,10 @@ export function installSvgViewport(svg, options = {}) {
       }
       return;
     }
-    if (event.button === 0) mouse = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    if (event.button === 0 && canPan()) {
+      mouse = { id: event.pointerId, x: event.clientX, y: event.clientY };
+      svg.style.cursor = "grabbing";
+    }
   };
   const onPointerMove = (event) => {
     if (event.pointerType === "touch" && touches.has(event.pointerId)) {
@@ -80,8 +93,8 @@ export function installSvgViewport(svg, options = {}) {
       } else {
         const center = { x: (values[0].x + values[1].x) / 2, y: (values[0].y + values[1].y) / 2 };
         const distance = Math.hypot(values[1].x - values[0].x, values[1].y - values[0].y);
-        if (lastTouchCenter) panBy(center.x - lastTouchCenter.x, center.y - lastTouchCenter.y);
         if (lastTouchDistance && distance > 0) zoomAt(center.x, center.y, lastTouchDistance / distance);
+        if (lastTouchCenter) panBy(center.x - lastTouchCenter.x, center.y - lastTouchCenter.y);
         lastTouchCenter = center; lastTouchDistance = distance;
       }
       return;
@@ -97,9 +110,11 @@ export function installSvgViewport(svg, options = {}) {
       const values = [...touches.values()];
       if (!values.length) { lastTouchCenter = null; lastTouchDistance = null; }
       else if (values.length === 1) { lastTouchCenter = { ...values[0] }; lastTouchDistance = null; }
+      updateInteractionState();
       return;
     }
     if (mouse?.id === event.pointerId) mouse = null;
+    updateInteractionState();
   };
 
   svg.style.touchAction = "none";
@@ -116,5 +131,14 @@ export function installSvgViewport(svg, options = {}) {
   options.resetButton?.addEventListener("click", () => reset(false));
   reset(false);
 
-  return { reset, fit: () => reset(true), zoomCenter, getViewBox: () => ({ ...box }), isUserAdjusted: () => userAdjusted, ensureBaseWhenUnadjusted: () => { if (!userAdjusted) reset(false); } };
+  return {
+    reset,
+    fit: () => reset(true),
+    zoomCenter,
+    getViewBox: () => ({ ...box }),
+    isZoomedIn,
+    canPan,
+    isUserAdjusted: () => userAdjusted,
+    ensureBaseWhenUnadjusted: () => { if (!userAdjusted) reset(false); },
+  };
 }

@@ -3,6 +3,7 @@ import { casToTas, machToTas } from "../../../common/airspeed/airspeed-v0.1.mjs"
 const G_FTPS2 = 32.174;
 const KT_TO_FPS = 1.687809857;
 const INTEGRATION_STEP_SEC = 0.01;
+const LOW_ANGLE_BOUNDARY_DEG = 10;
 
 function inputToTas(speedValue, speedMode, altitudeMslFt) {
   return speedMode === "MACH" ? machToTas(speedValue, altitudeMslFt) : casToTas(speedValue, altitudeMslFt);
@@ -12,7 +13,7 @@ export function integrateRollIn(params, initialAltitudeMslFt) {
   const bankRad = (params.rollInBankAngleDeg * Math.PI) / 180;
   const targetHeadingRad = (params.angleOffDeg * Math.PI) / 180;
   const targetDiveRad = (params.diveAngleDeg * Math.PI) / 180;
-  const levelDelivery = Math.abs(params.diveAngleDeg) < 1e-9;
+  const levelTurn = params.diveAngleDeg < LOW_ANGLE_BOUNDARY_DEG;
   const initialSpeedFps = inputToTas(params.initialSpeedValue, params.initialSpeedMode, initialAltitudeMslFt) * KT_TO_FPS;
   const initialTasKt = initialSpeedFps / KT_TO_FPS;
 
@@ -24,6 +25,15 @@ export function integrateRollIn(params, initialAltitudeMslFt) {
 
   function rawRates(velocityFps, flightPathRad) {
     const cosFlightPath = Math.max(0.08, Math.cos(flightPathRad));
+    if (levelTurn) {
+      return {
+        speed: 0,
+        gamma: 0,
+        heading:
+          (G_FTPS2 * params.rollInG * Math.abs(Math.sin(bankRad))) /
+          velocityFps,
+      };
+    }
     return {
       speed: -G_FTPS2 * Math.sin(flightPathRad),
       gamma:
@@ -52,9 +62,9 @@ export function integrateRollIn(params, initialAltitudeMslFt) {
 
   if (rawHeading < targetHeadingRad - 1e-6) throw new Error("Angle Off was not reached");
   const rawFinalDive = raw[raw.length - 1].dive;
-  if (!levelDelivery && !(rawFinalDive > 0)) throw new Error("Roll-in does not produce a descending slice turn");
+  if (!levelTurn && !(rawFinalDive > 0)) throw new Error("Roll-in does not produce a descending slice turn");
 
-  const diveScale = levelDelivery ? 0 : targetDiveRad / rawFinalDive;
+  const diveScale = levelTurn ? 0 : targetDiveRad / rawFinalDive;
   let speed = initialSpeedFps;
   let altitudeLossFt = 0;
   let spatialArcFt = 0;
@@ -70,7 +80,7 @@ export function integrateRollIn(params, initialAltitudeMslFt) {
     const diveMid = (dive0 + dive1) / 2;
     const headingMid = (raw[j - 1].heading + raw[j].heading) / 2;
     const segmentTime = raw[j].t - raw[j - 1].t;
-    const speedRate = G_FTPS2 * Math.sin(diveMid);
+    const speedRate = levelTurn ? 0 : G_FTPS2 * Math.sin(diveMid);
     const speedMid = speed + (speedRate * segmentTime) / 2;
     speed += speedRate * segmentTime;
     const groundSegment = speedMid * Math.cos(diveMid) * segmentTime;
@@ -98,6 +108,7 @@ export function integrateRollIn(params, initialAltitudeMslFt) {
   const equivalentRadiusFt = groundArcFt / targetHeadingRad;
 
   return {
+    mode: levelTurn ? "LEVEL_TURN" : "SLICE_TURN",
     initialTasKt,
     finalTasKt: speed / KT_TO_FPS,
     finalDiveAngleDeg: params.diveAngleDeg,
@@ -111,7 +122,7 @@ export function integrateRollIn(params, initialAltitudeMslFt) {
     spatialArcFt,
     equivalentRadiusFt,
     averageTurnRateDegSec: params.angleOffDeg / rawTime,
-    dynamicFinalDiveDeg: (rawFinalDive * 180) / Math.PI,
+    dynamicFinalDiveDeg: levelTurn ? 0 : (rawFinalDive * 180) / Math.PI,
     samples,
   };
 }

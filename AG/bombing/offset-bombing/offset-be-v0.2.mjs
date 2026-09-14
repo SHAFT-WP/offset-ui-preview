@@ -1,22 +1,23 @@
 import { casToTas, machToTas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { calculateBombDeliveryV0_3 } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
 import {
-  angleOffFromOffset,
+  actionHeadingFromOffset,
+  angleOffFromAction,
   buildOffsetCandidate,
   buildReferenceState,
   directionRule,
   offsetAngleFromAngleOff,
-  solveOffsetAngleForActionRange,
   validateOffsetCandidate,
 } from "./offset-geometry-v0.2.mjs";
 
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.0", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.1", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
 const G = 32.174;
 const rad = (deg) => (deg * Math.PI) / 180;
 const deg = (radians) => (radians * 180) / Math.PI;
+const norm = (headingDeg) => ((headingDeg % 360) + 360) % 360;
 const near = (a, b, tolerance) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= tolerance;
 
 function finite(name, value) {
@@ -75,11 +76,10 @@ function canonicalProfileInput(input, angleOffDeg) {
     targetElevationMslFt: finite("targetElevationMslFt", profile.targetElevationMslFt),
     releaseSpeedKcas: finite("releaseSpeedKcas", profile.releaseSpeedKcas),
     speedOvershootKcas: profile.speedOvershootKcas ?? 50,
-    maneuverInitiationDelaySec: profile.maneuverInitiationDelaySec ?? 2,
     recoveryG: profile.recoveryG ?? 5,
     gOnsetTimeSec: profile.gOnsetTimeSec ?? 2,
     diveAngleDeg,
-    releaseFpaDeg: profile.releaseFpaDeg ?? -diveAngleDeg,
+    releaseFpaDeg: -diveAngleDeg,
     windDirectionDeg: profile.windDirectionDeg ?? 0,
     windSpeedKt: profile.windSpeedKt ?? 0,
     initialSpeedValue: finite("initialSpeedValue", profile.initialSpeedValue),
@@ -95,37 +95,71 @@ function canonicalProfileInput(input, angleOffDeg) {
   };
 }
 
-function chooseAngularConstraint(input, locks, driver, direction, errors) {
-  const offsetLocked = !!locks.offsetAngleDeg;
-  const angleLocked = !!locks.angleOffDeg;
-  const fromOffset = () => Math.abs(finite("offsetAngleDeg", input.offsetAngleDeg));
-  const fromAngle = () => offsetAngleFromAngleOff(input.runInHeadingDeg, input.attackHeadingDeg, Math.abs(finite("angleOffDeg", input.angleOffDeg)), direction);
-  if (offsetLocked && angleLocked) {
-    const offsetAngleDeg = fromOffset();
-    const expectedAngleOff = angleOffFromOffset(input.runInHeadingDeg, input.attackHeadingDeg, offsetAngleDeg, direction);
-    if (!near(expectedAngleOff, input.angleOffDeg, 0.02)) errors.push("LOCK conflict: Offset Angle and Angle-Off cannot both be satisfied");
-    return { fixed: true, offsetAngleDeg, source: "locked-offset-angle" };
+function attackHeadingFromOffsetAndAngleOff(runInHeadingDeg, offsetAngleDeg, angleOffDeg, direction) {
+  const actionHeadingDeg = actionHeadingFromOffset(runInHeadingDeg, offsetAngleDeg, direction);
+  return norm(direction.rollDirection === "RIGHT" ? actionHeadingDeg + angleOffDeg : actionHeadingDeg - angleOffDeg);
+}
+
+function resolveHeadingForOffset({ input, locks, driver, direction, runInHeadingDeg, offsetAngleDeg }) {
+  const inputAttackHeadingDeg = norm(finite("attackHeadingDeg", input.attackHeadingDeg));
+  const inputAngleOffDeg = Math.abs(finite("angleOffDeg", input.angleOffDeg));
+  const holdAngleOff = !!locks.angleOffDeg || (!locks.attackHeadingDeg && driver === "angleOffDeg");
+  if (holdAngleOff && !locks.attackHeadingDeg) {
+    const attackHeadingDeg = attackHeadingFromOffsetAndAngleOff(runInHeadingDeg, offsetAngleDeg, inputAngleOffDeg, direction);
+    return { attackHeadingDeg, angleOffDeg: inputAngleOffDeg };
   }
-  if (offsetLocked) return { fixed: true, offsetAngleDeg: fromOffset(), source: "locked-offset-angle" };
-  if (angleLocked) return { fixed: true, offsetAngleDeg: fromAngle(), source: "locked-angle-off" };
-  if (driver === "offsetAngleDeg") return { fixed: true, offsetAngleDeg: fromOffset(), source: "driver-offset-angle" };
-  if (driver === "angleOffDeg" || driver === "diveAngleDeg" || driver === "profile") return { fixed: true, offsetAngleDeg: fromAngle(), source: "driver-angle-off" };
-  return { fixed: false, offsetAngleDeg: null, source: null };
+  const attackHeadingDeg = inputAttackHeadingDeg;
+  const actionHeadingDeg = actionHeadingFromOffset(runInHeadingDeg, offsetAngleDeg, direction);
+  return { attackHeadingDeg, angleOffDeg: angleOffFromAction(actionHeadingDeg, attackHeadingDeg, direction) };
+}
+
+function solveOffsetAngleForMetric({ targetValue, evaluate, metric, minOffsetAngleDeg = 0.05, maxOffsetAngleDeg = 120, tolerance = 0.002 }) {
+  finite("targetValue", targetValue);
+  if (!(targetValue >= 0)) throw new RangeError("Range constraint must be >= 0 NM");
+  let previous = null;
+  let best = null;
+  let bracket = null;
+  for (let angle = minOffsetAngleDeg; angle <= maxOffsetAngleDeg + 1e-9; angle += 1) {
+    try {
+      const candidate = evaluate(angle);
+      const residual = metric(candidate) - targetValue;
+      if (!best || Math.abs(residual) < Math.abs(best.residual)) best = { candidate, residual, angle };
+      if (previous && previous.residual * residual <= 0) { bracket = { lo: previous.angle, hi: angle, flo: previous.residual }; break; }
+      previous = { angle, residual };
+    } catch (_) {}
+  }
+  if (!bracket) return { candidate: best?.candidate ?? null, residualNm: best?.residual ?? null, exact: !!best && Math.abs(best.residual) <= tolerance };
+
+  let lo = bracket.lo;
+  let hi = bracket.hi;
+  let flo = bracket.flo;
+  let candidate = null;
+  let residual = null;
+  for (let index = 0; index < 40; index += 1) {
+    const mid = (lo + hi) / 2;
+    candidate = evaluate(mid);
+    residual = metric(candidate) - targetValue;
+    if (Math.abs(residual) <= tolerance) break;
+    if (flo * residual <= 0) hi = mid;
+    else { lo = mid; flo = residual; }
+  }
+  return { candidate, residualNm: residual, exact: !!candidate && Math.abs(residual) <= tolerance };
 }
 
 function chooseRangeConstraint(input, locks, driver, referenceMode, errors) {
   const actionLocked = !!locks.actionRangeNm;
+  const offsetRangeLocked = !!locks.offsetRangeNm;
   const ipLocked = !!locks.ipRangeNm;
-  if (referenceMode === "VIP") {
-    if (actionLocked && ipLocked && !near(input.actionRangeNm, input.ipRangeNm, 0.002)) errors.push("LOCK conflict: VIP requires locked IP Range = locked Action Range");
-    if (actionLocked) return { fixed: true, targetRangeNm: finite("actionRangeNm", input.actionRangeNm), source: "locked-action-range" };
-    if (ipLocked) return { fixed: true, targetRangeNm: finite("ipRangeNm", input.ipRangeNm), source: "locked-ip-range" };
-    if (driver === "actionRangeNm") return { fixed: true, targetRangeNm: finite("actionRangeNm", input.actionRangeNm), source: "driver-action-range" };
-    if (driver === "ipRangeNm") return { fixed: true, targetRangeNm: finite("ipRangeNm", input.ipRangeNm), source: "driver-ip-range" };
-    return { fixed: false, targetRangeNm: null, source: null };
-  }
-  if (actionLocked || driver === "actionRangeNm") return { fixed: true, targetRangeNm: finite("actionRangeNm", input.actionRangeNm), source: actionLocked ? "locked-action-range" : "driver-action-range" };
-  return { fixed: false, targetRangeNm: null, source: null };
+  if (referenceMode === "VIP" && actionLocked && ipLocked && !near(input.actionRangeNm, input.ipRangeNm, 0.002)) errors.push("LOCK conflict: VIP requires locked IP Range = locked Action Range");
+
+  // LOCK has priority over the currently edited driver. A driver may move only the remaining unlocked variables.
+  if (actionLocked) return { fixed: true, kind: "action", targetRangeNm: finite("actionRangeNm", input.actionRangeNm), source: "locked-action-range" };
+  if (offsetRangeLocked) return { fixed: true, kind: "offset", targetRangeNm: finite("offsetRangeNm", input.offsetRangeNm), source: "locked-offset-range" };
+  if (referenceMode === "VIP" && ipLocked) return { fixed: true, kind: "action", targetRangeNm: finite("ipRangeNm", input.ipRangeNm), source: "locked-ip-range" };
+  if (driver === "offsetRangeNm") return { fixed: true, kind: "offset", targetRangeNm: finite("offsetRangeNm", input.offsetRangeNm), source: "driver-offset-range" };
+  if (driver === "actionRangeNm") return { fixed: true, kind: "action", targetRangeNm: finite("actionRangeNm", input.actionRangeNm), source: "driver-action-range" };
+  if (referenceMode === "VIP" && driver === "ipRangeNm") return { fixed: true, kind: "action", targetRangeNm: finite("ipRangeNm", input.ipRangeNm), source: "driver-ip-range" };
+  return { fixed: false, kind: null, targetRangeNm: null, source: null };
 }
 
 export function calculateOffsetV0_2(input) {
@@ -136,9 +170,10 @@ export function calculateOffsetV0_2(input) {
   const referenceMode = input.referenceMode === "VIP" ? "VIP" : "VRP";
   const driver = input.driver ?? "angleOffDeg";
   const runInHeadingDeg = finite("runInHeadingDeg", input.runInHeadingDeg);
-  const attackHeadingDeg = finite("attackHeadingDeg", input.attackHeadingDeg);
+  const enteredAttackHeadingDeg = finite("attackHeadingDeg", input.attackHeadingDeg);
+  const enteredAngleOffDeg = Math.abs(finite("angleOffDeg", input.angleOffDeg));
   let ipRangeNm = finite("ipRangeNm", input.ipRangeNm);
-  const direction = directionRule(runInHeadingDeg, attackHeadingDeg);
+  const direction = directionRule(runInHeadingDeg, enteredAttackHeadingDeg);
   if (direction.ambiguous) throw new Error("Run-In / Attack relation is directionally ambiguous");
 
   const turn = resolveOffsetTurn(input, locks, input.turnDriver ?? "offsetG");
@@ -146,41 +181,52 @@ export function calculateOffsetV0_2(input) {
   warnings.push(...turn.warnings);
 
   const evaluate = (offsetAngleDeg) => {
-    const angleOffDeg = angleOffFromOffset(runInHeadingDeg, attackHeadingDeg, offsetAngleDeg, direction);
-    if (!(angleOffDeg > 0 && angleOffDeg < 179.5)) throw new Error("Angle-Off outside supported range");
-    const profile = calculateBombDeliveryV0_3(canonicalProfileInput(input, angleOffDeg));
-    return buildOffsetCandidate({ runInHeadingDeg, attackHeadingDeg, offsetAngleDeg, offsetRadiusNm: turn.offsetRadiusNm, ipRangeNm, profile });
+    const headings = resolveHeadingForOffset({ input, locks, driver, direction, runInHeadingDeg, offsetAngleDeg });
+    if (!(headings.angleOffDeg > 0 && headings.angleOffDeg < 179.5)) throw new Error("Angle-Off outside supported range");
+    const derivedDirection = directionRule(runInHeadingDeg, headings.attackHeadingDeg);
+    if (derivedDirection.ambiguous || derivedDirection.attackSide !== direction.attackSide) throw new Error("Heading solve would switch the fixed Offset/Roll-in side");
+    const profile = calculateBombDeliveryV0_3(canonicalProfileInput(input, headings.angleOffDeg));
+    return buildOffsetCandidate({ runInHeadingDeg, attackHeadingDeg: headings.attackHeadingDeg, offsetAngleDeg, offsetRadiusNm: turn.offsetRadiusNm, ipRangeNm, profile });
   };
 
-  const angular = chooseAngularConstraint({ ...input, runInHeadingDeg, attackHeadingDeg }, locks, driver, direction, errors);
+  let initialOffsetAngleDeg;
+  if (locks.offsetAngleDeg || driver === "offsetAngleDeg") initialOffsetAngleDeg = Math.abs(finite("offsetAngleDeg", input.offsetAngleDeg));
+  else initialOffsetAngleDeg = offsetAngleFromAngleOff(runInHeadingDeg, enteredAttackHeadingDeg, enteredAngleOffDeg, direction);
+
   const range = chooseRangeConstraint(input, locks, driver, referenceMode, errors);
+  const offsetCanVary = !locks.offsetAngleDeg && driver !== "offsetAngleDeg" && !(locks.attackHeadingDeg && locks.angleOffDeg);
   let candidate = null;
   let residualNm = null;
   let exact = true;
 
-  if (angular.fixed) {
-    candidate = evaluate(angular.offsetAngleDeg);
-    if (range.fixed) {
-      residualNm = candidate.actionRangeNm - range.targetRangeNm;
-      exact = Math.abs(residualNm) <= 0.002;
-      if (!exact) errors.push(`CONSTRAINT CONFLICT: locked/driver range residual ${residualNm.toFixed(3)} NM`);
-    }
-  } else if (range.fixed) {
+  if (range.fixed && offsetCanVary) {
     const maxAngle = Math.max(0.1, Math.min(120, 179.4 - Math.abs(direction.deltaDeg)));
-    const solved = solveOffsetAngleForActionRange({ targetRangeNm: range.targetRangeNm, evaluate, maxOffsetAngleDeg: maxAngle, toleranceNm: 0.002 });
+    const metric = range.kind === "offset" ? (item) => item.actionLegDistanceNm : (item) => item.actionRangeNm;
+    const solved = solveOffsetAngleForMetric({ targetValue: range.targetRangeNm, evaluate, metric, maxOffsetAngleDeg: maxAngle, tolerance: 0.002 });
     candidate = solved.candidate;
     residualNm = solved.residualNm;
     exact = solved.exact;
-    if (!candidate) throw new Error("No valid Offset Angle candidate for requested Action Range");
-    if (!exact) warnings.push(`Action Range root is best-effort; residual ${Number(residualNm).toFixed(3)} NM`);
+    if (!candidate) throw new Error(`No valid Offset Angle candidate for requested ${range.kind === "offset" ? "Offset Range" : "Action Range"}`);
+    if (!exact) warnings.push(`${range.kind === "offset" ? "Offset Range" : "Action Range"} root is best-effort; residual ${Number(residualNm).toFixed(3)} NM`);
   } else {
-    const fallbackOffsetAngleDeg = offsetAngleFromAngleOff(runInHeadingDeg, attackHeadingDeg, Math.abs(finite("angleOffDeg", input.angleOffDeg)), direction);
-    candidate = evaluate(fallbackOffsetAngleDeg);
+    candidate = evaluate(initialOffsetAngleDeg);
+    if (range.fixed) {
+      const actual = range.kind === "offset" ? candidate.actionLegDistanceNm : candidate.actionRangeNm;
+      residualNm = actual - range.targetRangeNm;
+      exact = Math.abs(residualNm) <= 0.002;
+      if (!exact) errors.push(`CONSTRAINT CONFLICT: ${range.kind === "offset" ? "Offset Range" : "Action Range"} residual ${residualNm.toFixed(3)} NM`);
+    }
   }
   if (!candidate) throw new Error("Offset geometry was not produced");
 
+  if (locks.attackHeadingDeg && !near(norm(input.attackHeadingDeg), norm(candidate.attackHeadingDeg), 0.02)) errors.push("LOCK conflict: Attack Heading cannot be satisfied");
+  if (locks.angleOffDeg && !near(Math.abs(input.angleOffDeg), candidate.angleOffDeg, 0.02)) errors.push("LOCK conflict: Angle-Off cannot be satisfied");
+  if (locks.offsetAngleDeg && !near(Math.abs(input.offsetAngleDeg), candidate.offsetAngleDeg, 0.02)) errors.push("LOCK conflict: Offset Angle cannot be satisfied");
+  if (locks.actionRangeNm && !near(input.actionRangeNm, candidate.actionRangeNm, 0.002)) errors.push("LOCK conflict: Action Range cannot be satisfied");
+  if (locks.offsetRangeNm && !near(input.offsetRangeNm, candidate.actionLegDistanceNm, 0.002)) errors.push("LOCK conflict: Offset Range cannot be satisfied");
+
   if (referenceMode === "VIP") {
-    if (range.fixed) ipRangeNm = range.targetRangeNm;
+    if (range.fixed && range.kind === "action") ipRangeNm = range.targetRangeNm;
     else if (locks.ipRangeNm) {
       ipRangeNm = input.ipRangeNm;
       const mismatch = candidate.actionRangeNm - ipRangeNm;
@@ -193,7 +239,6 @@ export function calculateOffsetV0_2(input) {
   const candidateValidation = validateOffsetCandidate(candidate, { referenceMode, ipRangeNm, vipEqualityToleranceNm: 0.002 });
   errors.push(...candidateValidation.errors);
   warnings.push(...candidateValidation.warnings);
-
   const reference = buildReferenceState(candidate, { referenceMode, vrpRangeNm: input.vrpRangeNm, vipRangeNm: input.vipRangeNm, vrpLinked: input.vrpLinked, vipLinked: input.vipLinked, ipRangeNm });
   errors.push(...reference.errors);
   warnings.push(...reference.warnings);
@@ -202,7 +247,8 @@ export function calculateOffsetV0_2(input) {
   const ingressDistanceNm = referenceMode === "VIP" ? 0 : Math.max(0, ipRangeNm - candidate.actionRangeNm);
   const ingressSec = ingressDistanceNm * FT_PER_NM / speedFps;
   const turnSec = turn.offsetRadiusNm * FT_PER_NM * rad(candidate.offsetAngleDeg) / speedFps;
-  const actionLegSec = Math.max(0, candidate.actionLegDistanceNm) * FT_PER_NM / speedFps;
+  const offsetRangeNm = candidate.actionLegDistanceNm;
+  const actionLegSec = Math.max(0, offsetRangeNm) * FT_PER_NM / speedFps;
   const rollToReleaseSec = candidate.profile.public.rollInTimeSec + candidate.profile.public.trackingTimeSec;
   const offsetIpToReleaseSec = ingressSec + turnSec + actionLegSec + rollToReleaseSec;
   const legacyDirectIpTargetSec = ipRangeNm * FT_PER_NM / speedFps;
@@ -212,8 +258,8 @@ export function calculateOffsetV0_2(input) {
     state: errors.length ? "INVALID" : warnings.length ? "WARNING" : "VALID",
     errors, warnings, locks: { ...locks }, driver, turnDriver: input.turnDriver ?? "offsetG", referenceMode,
     resolved: {
-      runInHeadingDeg, attackHeadingDeg, angleOffDeg: candidate.angleOffDeg, offsetAngleDeg: candidate.offsetAngleDeg,
-      actionHeadingDeg: candidate.actionHeadingDeg, actionRangeNm: candidate.actionRangeNm, ipRangeNm,
+      runInHeadingDeg, attackHeadingDeg: candidate.attackHeadingDeg, angleOffDeg: candidate.angleOffDeg, offsetAngleDeg: candidate.offsetAngleDeg,
+      actionHeadingDeg: candidate.actionHeadingDeg, actionRangeNm: candidate.actionRangeNm, offsetRangeNm, ipRangeNm,
       vrpRangeNm: referenceMode === "VRP" && reference.linked ? candidate.actionRangeNm : input.vrpRangeNm,
       vipRangeNm: referenceMode === "VIP" && reference.linked ? ipRangeNm : input.vipRangeNm,
       offsetAltitudeMslFt: input.offsetAltitudeMslFt, offsetSpeedValue: input.offsetSpeedValue, offsetSpeedMode: input.offsetSpeedMode ?? "CAS",
@@ -221,6 +267,6 @@ export function calculateOffsetV0_2(input) {
     },
     timing: { ingressDistanceNm, ingressSec, offsetTurnSec: turnSec, actionLegSec, rollToReleaseSec, offsetIpToReleaseSec, legacyDirectIpTargetSec, legacyDeltaTosSec: offsetIpToReleaseSec - legacyDirectIpTargetSec },
     geometry: candidate, reference, profile: candidate.profile,
-    solve: { angularSource: angular.source, rangeSource: range.source, residualNm, exact },
+    solve: { rangeSource: range.source, residualNm, exact },
   };
 }

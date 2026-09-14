@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Offset Bombing · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=2ded2c72073d">
+<link rel="stylesheet" href="./offset.css?v=16c0a7668d3e">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -25,19 +25,17 @@
         <label class="field"><span>Initial Speed</span><span class="compound"><input data-key="initialSpeedValue" type="text" inputmode="decimal" value="350"><select data-key="initialSpeedMode"><option value="CAS" selected>kcas</option><option value="MACH">mach</option></select></span><span class="unit">Roll-in start speed input</span></label>
         <label class="field"><span>Initial Altitude (ft msl)</span><input data-key="initialAltitudeMslFt" type="text" inputmode="decimal" value="16000"><span class="unit">BDP solve input</span></label>
         <label class="field"><span>Dive Angle (deg)</span><input data-key="diveAngleDeg" type="text" inputmode="decimal" value="45"><span class="unit">Shared with Offset item 5</span></label>
-        <label class="field"><span>Angle-Off (Heading) (deg)</span><input data-key="angleOffDeg" type="text" inputmode="decimal" value="70"><span class="unit">Shared with Offset item 4</span></label>
+        <label class="field"><span>Angle-Off (Heading) (deg)</span><input data-key="angleOffDeg" type="text" inputmode="decimal" value="70"><span class="unit">Same BDP / Offset parameter</span></label>
         <label class="field"><span>Tracking Time (sec)</span><input data-key="trackingTimeSec" type="text" inputmode="decimal" value="18.25"><span class="unit">Track Point → Release</span></label>
         <label class="field"><span>Release Altitude (ft msl)</span><input data-key="releaseAltitudeMslFt" type="text" inputmode="decimal" value="6800"><span class="unit">NLT clamp is BDP-owned</span></label>
         <label class="field"><span>Release Speed (kcas)</span><input data-key="releaseSpeedKcas" type="text" inputmode="decimal" value="450"><span class="unit">Release speed</span></label>
         <label class="field"><span>Recovery G (G)</span><input data-key="recoveryG" type="text" inputmode="decimal" value="5"><span class="unit">V2 canonical safety input</span></label>
         <label class="field"><span>Speed Overshoot (kcas)</span><input data-key="speedOvershootKcas" type="text" inputmode="decimal" value="50"><span class="unit">BDP safety input</span></label>
-        <label class="field"><span>Maneuver Initiation Delay (sec)</span><input data-key="maneuverInitiationDelaySec" type="text" inputmode="decimal" value="2"><span class="unit">Release → recovery onset delay</span></label>
-        <label class="field"><span>G Onset Time (sec)</span><input data-key="gOnsetTimeSec" type="text" inputmode="decimal" value="2"><span class="unit">V2 SEM/NLT input</span></label>
+        <label class="field"><span>G Onset Time (sec)</span><input data-key="gOnsetTimeSec" type="text" inputmode="decimal" value="2"><span class="unit">V2 SEM/NLT input · onset starts at Release</span></label>
         <label class="field"><span>Wind Direction FROM (deg)</span><input data-key="windDirectionDeg" type="text" inputmode="decimal" value="0"><span class="unit">Attack-axis reference</span></label>
         <label class="field"><span>Wind Speed (kt)</span><input data-key="windSpeedKt" type="text" inputmode="decimal" value="0"><span class="unit">V2 canonical unit</span></label>
         <label class="field"><span>Solve Mode</span><select data-key="solveMode"><option value="height" selected>Initial Altitude</option><option value="time">Tracking Time</option></select><span class="unit">BDP solve mode</span></label>
-        <label class="field"><span>Release FPA (deg)</span><input data-key="releaseFpaDeg" type="text" inputmode="decimal" value="-45"><span class="unit"><input id="link-release-fpa" type="checkbox" checked> link to −Dive Angle</span></label>
-        <label class="field"><span>Roll-in Bank Angle (deg)</span><input data-key="rollInBankAngleDeg" type="text" inputmode="decimal" value="113"><span class="unit"><input id="link-roll-bank" type="checkbox" checked> link to round(90 + Dive/2)</span></label>
+        <label class="field"><span>Roll-in Bank Angle (deg)</span><input data-key="rollInBankAngleDeg" type="text" inputmode="decimal" value="113"><span class="unit">AUTO: &lt;10° level turn · ≥10° round(90 + Dive/2) · manual edit allowed</span></label>
         <label class="field"><span>Roll-in G (G)</span><input data-key="rollInG" type="text" inputmode="decimal" value="4"><span class="unit">BDP roll-in input</span></label>
       </div></div>
     </details>
@@ -55,17 +53,18 @@
         <div id="vip-pane" class="mode-pane hidden"><label class="field"><span class="lock-title"><span>VIP Range (NM)</span><button class="lock-button" type="button" data-lock-key="vipRangeNm" aria-pressed="false">LOCK</button></span><input data-key="vipRangeNm" type="text" inputmode="decimal" value="7.0"><span class="unit">Default linked to IP.</span></label></div>
       </div>
 
-      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">2</b>Run-In Heading</span><button class="lock-button" type="button" data-lock-key="runInHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="runInHeadingDeg" type="text" inputmode="decimal" value="060"><span class="unit">IP → Target line · Top View is north-up</span></label>
-      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">3</b>Attack Heading</span><button class="lock-button" type="button" data-lock-key="attackHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="attackHeadingDeg" type="text" inputmode="decimal" value="090"><span class="unit">Final attack axis</span></label>
-      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">4</b>Angle-Off (Heading)</span><button class="lock-button" type="button" data-lock-key="angleOffDeg" aria-pressed="false">LOCK</button></span><input data-key="angleOffDeg" type="text" inputmode="decimal" value="70"><span class="unit">Offset Heading → Attack Heading</span></label>
+      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">2</b>Run-In Heading</span><button class="lock-button" type="button" data-lock-key="runInHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="runInHeadingDeg" type="text" inputmode="decimal" value="060"><span class="unit">IP → Target line · north-up canvas heading</span></label>
+      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">3</b>Attack Heading</span><button class="lock-button" type="button" data-lock-key="attackHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="attackHeadingDeg" type="text" inputmode="decimal" value="090"><span class="unit">Final attack axis · coupled heading constraint</span></label>
+      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">4</b>Angle-Off (Heading)</span><button class="lock-button" type="button" data-lock-key="angleOffDeg" aria-pressed="false">LOCK</button></span><input data-key="angleOffDeg" type="text" inputmode="decimal" value="70"><span class="unit">Offset Heading → Attack Heading · same BDP parameter</span></label>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">5</b>Dive Angle</span><button class="lock-button" type="button" data-lock-key="diveAngleDeg" aria-pressed="false">LOCK</button></span><input data-key="diveAngleDeg" type="text" inputmode="decimal" value="45"><span class="unit">Shared BDP input</span></label>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">6</b>Offset Angle</span><button class="lock-button" type="button" data-lock-key="offsetAngleDeg" aria-pressed="false">LOCK</button></span><input data-key="offsetAngleDeg" type="text" inputmode="decimal" value="40"><span class="unit">Run-In → Offset Heading change</span></label>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">7</b>Action Range</span><button class="lock-button" type="button" data-lock-key="actionRangeNm" aria-pressed="false">LOCK</button></span><input data-key="actionRangeNm" type="text" inputmode="decimal" value="3.0"><span class="unit">Target → Real Action Point</span></label>
-      <div class="offset-card"><span class="offset-title"><b class="step">8</b>Offset Heading</span><output id="offset-heading-out" class="readout offset-heading">-</output><span class="alias-note">UI alias only: internal canonical field remains Action Heading.</span></div>
-      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">9</b>IP</span><button class="lock-button" type="button" data-lock-key="ipRangeNm" aria-pressed="false">LOCK</button></span><input data-key="ipRangeNm" type="text" inputmode="decimal" value="7.0"><span class="unit">VRP mode: Action Range ≤ IP Range · VIP mode: IP = Action Point</span></label>
+      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">8</b>Offset Range</span><button class="lock-button" type="button" data-lock-key="offsetRangeNm" aria-pressed="false">LOCK</button></span><input data-key="offsetRangeNm" type="text" inputmode="decimal" value="1.0"><span class="unit">Offset Turn End → Roll-in Start straight distance</span></label>
+      <div class="offset-card"><span class="offset-title"><b class="step">9</b>Offset Heading</span><output id="offset-heading-out" class="readout offset-heading">-</output><span class="alias-note">UI alias only: internal canonical field remains Action Heading.</span></div>
+      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">10</b>IP</span><button class="lock-button" type="button" data-lock-key="ipRangeNm" aria-pressed="false">LOCK</button></span><input data-key="ipRangeNm" type="text" inputmode="decimal" value="7.0"><span class="unit">VRP mode: Action Range ≤ IP Range · VIP mode: IP = Action Point</span></label>
 
       <div class="offset-card span2">
-        <div class="offset-title"><b class="step">10</b>Offset Turn Condition</div>
+        <div class="offset-title"><b class="step">11</b>Offset Turn Condition</div>
         <div class="input-grid">
           <label class="field"><span class="lock-title"><span>Altitude (ft msl)</span><button class="lock-button" type="button" data-lock-key="offsetAltitudeMslFt" aria-pressed="false">LOCK</button></span><input data-key="offsetAltitudeMslFt" type="text" inputmode="decimal" value="16000"></label>
           <label class="field"><span class="lock-title"><span>Speed</span><button class="lock-button" type="button" data-lock-key="offsetSpeedValue" aria-pressed="false">LOCK</button></span><span class="compound"><input data-key="offsetSpeedValue" type="text" inputmode="decimal" value="350"><select data-key="offsetSpeedMode"><option value="CAS" selected>kcas</option><option value="MACH">mach</option></select></span></label>
@@ -82,8 +81,8 @@
 
   <section class="section" aria-labelledby="top-view-title">
     <div class="section-head"><h2 id="top-view-title">Top View</h2><div class="diagram-actions"><button class="capture-button" id="zoom-out" type="button">−</button><button class="capture-button" id="zoom-fit" type="button">FIT</button><button class="capture-button" id="zoom-reset" type="button">RESET</button><button class="capture-button" id="zoom-in" type="button">＋</button><button class="capture-button" id="capture-top-view" type="button">PNG 저장</button></div></div>
-    <div class="top-view-shell"><svg id="offset-top-view" viewBox="0 0 1180 560" role="img" aria-label="Offset Bombing V2 north-up top view"><defs></defs><g id="offset-plot"></g></svg></div>
-    <div class="diagram-legend"><span><i class="legend-dot" style="background:#4c5966"></i>Run-In</span><span><i class="legend-dot" style="background:#a35d00"></i>Offset / Action leg</span><span><i class="legend-dot" style="background:#176dac"></i>BDP Roll-in</span><span><i class="legend-dot" style="background:#087b4c"></i>Attack track</span><span>North-up · Target fixed at plot center for heading comparison</span><span>Offset R: Action Point + Turn End → center · Roll-in R(EFF): Roll In + Track Point → center</span><span>Wheel/drag/pinch zoom supported · labels avoid route geometry and use thin leaders when moved</span></div>
+    <div class="top-view-shell"><svg id="offset-top-view" viewBox="0 0 1180 720" role="img" aria-label="Offset Bombing V2 north-up top view"><defs></defs><g id="offset-plot"></g></svg></div>
+    <div class="diagram-legend"><span><i class="legend-dot" style="background:#4c5966"></i>Run-In</span><span><i class="legend-dot" style="background:#a35d00"></i>Offset / Action leg</span><span><i class="legend-dot" style="background:#176dac"></i>BDP Roll-in</span><span><i class="legend-dot" style="background:#087b4c"></i>Attack track</span><span>North-up · 000 top / 090 right / 180 bottom / 270 left</span><span>FIT is the default maximum geometry fit · pan activates only after zoom-in</span><span>Offset R: Action Point + Turn End → center · Roll-in R(EFF): Roll In + Track Point → center</span></div>
   </section>
 
   <section class="section result-stack" aria-label="Results">
@@ -91,6 +90,6 @@
     <details class="input-panel"><summary>Bomb Profile Authoritative Result · BDP v0.3</summary><div class="input-panel-body table-wrap"><table class="result-table"><tbody id="profile-result-body"></tbody></table></div></details>
   </section>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=2ded2c72073d"></script>
+<script type="module" src="./controller-v0.1.mjs?v=16c0a7668d3e"></script>
 </body>
 </html>
