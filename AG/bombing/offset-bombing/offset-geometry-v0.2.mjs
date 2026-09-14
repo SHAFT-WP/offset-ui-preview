@@ -166,12 +166,18 @@ export function buildReferenceState(candidate, input) {
     requestedRangeNm = linked ? input.ipRangeNm : input.vipRangeNm;
   }
   if (!Number.isFinite(requestedRangeNm)) requestedRangeNm = mode === "VRP" ? candidate.actionRangeNm : input.ipRangeNm;
+  const ipRangeNm = Number.isFinite(input.ipRangeNm) ? Math.max(0, input.ipRangeNm) : Infinity;
   if (requestedRangeNm < 0) errors.push(`${mode} cannot be placed beyond Target; range must be >= 0 NM`);
-  const displayRangeNm = Math.max(0, requestedRangeNm);
+  if (mode === "VRP" && requestedRangeNm > ipRangeNm) errors.push("VRP must be between IP and Target; range must be <= IP Range");
+  const clampedAtTarget = requestedRangeNm < 0;
+  const clampedAtIp = mode === "VRP" && requestedRangeNm > ipRangeNm;
+  const displayRangeNm = mode === "VRP"
+    ? Math.min(ipRangeNm, Math.max(0, requestedRangeNm))
+    : Math.max(0, requestedRangeNm);
   const point = mul(candidate.vectors.runVector, -displayRangeNm);
   const projectionOnRun = dot(point, candidate.vectors.runVector);
   if (projectionOnRun > 1e-9) errors.push(`${mode} reference projection passed Target`);
-  return { mode, linked, requestedRangeNm, displayRangeNm, point, clampedAtTarget: requestedRangeNm < 0, errors, warnings };
+  return { mode, linked, requestedRangeNm, displayRangeNm, point, clampedAtTarget, clampedAtIp, errors, warnings };
 }
 
 export function validateOffsetCandidate(candidate, input = {}) {

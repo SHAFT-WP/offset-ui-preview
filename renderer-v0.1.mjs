@@ -14,7 +14,7 @@ export const OFFSET_RENDERER_V0_1 = Object.freeze({
 });
 
 const WIDTH = 1180;
-const HEIGHT = 720;
+const HEIGHT = 560;
 const COLORS = Object.freeze({ run: "#4c5966", offset: "#a35d00", roll: "#176dac", attack: "#087b4c", target: "#bd3333", reference: "#5b6f82", invalid: "#bd3333", helper: "#7a8793" });
 const viewports = new WeakMap();
 
@@ -28,14 +28,14 @@ function fmtHeading(value) { const h = ((Math.round(value) % 360) + 360) % 360; 
 
 function projectFactory(points) {
   const valid = points.filter(finitePoint);
-  const minX = Math.min(...valid.map((p) => p.x)) - 0.4;
-  const maxX = Math.max(...valid.map((p) => p.x)) + 0.4;
-  const minY = Math.min(...valid.map((p) => p.y)) - 0.4;
-  const maxY = Math.max(...valid.map((p) => p.y)) + 0.4;
-  const margins = { left: 105, right: 35, top: 54, bottom: 35 };
-  const scale = Math.min((WIDTH - margins.left - margins.right) / Math.max(0.2, maxX - minX), (HEIGHT - margins.top - margins.bottom) / Math.max(0.2, maxY - minY));
-  const ox = margins.left - minX * scale;
-  const oy = margins.top + maxY * scale;
+  const maxAbsX = Math.max(0.5, ...valid.map((p) => Math.abs(p.x))) + 0.35;
+  const maxAbsY = Math.max(0.5, ...valid.map((p) => Math.abs(p.y))) + 0.35;
+  const margins = { left: 58, right: 58, top: 56, bottom: 38 };
+  const halfWidth = (WIDTH - margins.left - margins.right) / 2;
+  const halfHeight = (HEIGHT - margins.top - margins.bottom) / 2;
+  const scale = Math.min(halfWidth / maxAbsX, halfHeight / maxAbsY);
+  const ox = WIDTH / 2;
+  const oy = margins.top + halfHeight;
   return (point) => ({ x: ox + point.x * scale, y: oy - point.y * scale });
 }
 
@@ -114,6 +114,9 @@ export function renderOffsetTopView(svg, result) {
     createOpenArrowMarker("offset-arrow-label", COLORS.helper, { markerWidth: 6, markerHeight: 6, refX: 5.5, refY: 3, strokeWidth: 1.3, path: "M1,1 L5.5,3 L1,5" }),
   );
 
+  root.append(svgNode("line", { x1: WIDTH - 42, y1: 71, x2: WIDTH - 42, y2: 43, stroke: COLORS.helper, "stroke-width": 1.5, "marker-end": "url(#offset-arrow-label)" }));
+  root.append(svgNode("text", { x: WIDTH - 42, y: 36, "text-anchor": "middle", "font-size": 11, "font-weight": 900, fill: COLORS.helper }, "N"));
+
   const vipMatch = result.referenceMode === "VIP" && Math.abs(result.resolved.ipRangeNm - geometry.actionRangeNm) <= 0.01;
   if (result.referenceMode === "VRP") appendDirectedLine(root, p.ip, p.realActionPoint, { color: COLORS.run, width: 5, markerEndId: "offset-arrow-run", fromGap: 13, toGap: 8 });
   else if (!vipMatch) appendDirectedLine(root, p.ip, p.realActionPoint, { color: COLORS.invalid, width: 2.5, dasharray: "7 6", fromGap: 13, toGap: 8 });
@@ -138,8 +141,9 @@ export function renderOffsetTopView(svg, result) {
   appendCircle(root, p.target, 14, COLORS.target);
 
   const sameVrpAp = result.referenceMode === "VRP" && Math.abs(result.reference.displayRangeNm - geometry.actionRangeNm) <= 0.01;
+  const sameVrpIp = result.referenceMode === "VRP" && Math.abs(result.reference.displayRangeNm - result.resolved.ipRangeNm) <= 0.01;
   const sameVipIp = result.referenceMode === "VIP" && Math.abs(result.reference.displayRangeNm - result.resolved.ipRangeNm) <= 0.01;
-  if ((result.referenceMode === "VRP" && !sameVrpAp) || (result.referenceMode === "VIP" && !sameVipIp)) appendCircle(root, referencePoint, 4.5, COLORS.reference);
+  if ((result.referenceMode === "VRP" && !sameVrpAp && !sameVrpIp) || (result.referenceMode === "VIP" && !sameVipIp)) appendCircle(root, referencePoint, 4.5, COLORS.reference);
 
   const labels = createSmartLabelLayout(root, { width: WIDTH, height: HEIGHT, labelPad: 10, pathPad: 7 });
   [p.ip, p.realActionPoint, p.rollStart, p.trackPoint, p.target].filter(Boolean).forEach((point) => labels.reservePoint(point, 14));
@@ -172,6 +176,15 @@ export function renderOffsetTopView(svg, result) {
     textAttributes: { "data-result-key": "actionRangeNm" },
   });
 
+  if (result.referenceMode === "VRP" && len(sub(points.realActionPoint, points.ip)) > 0.05) {
+    const runMid = project(add(points.ip, mul(sub(points.realActionPoint, points.ip), 0.5)));
+    labels.append(runMid, `RUN-IN · ${fmtHeading(geometry.runInHeadingDeg)}`, {
+      color: COLORS.run,
+      leaderMarkerId: "offset-arrow-label",
+      textAttributes: { "data-result-key": "runInHeadingDeg" },
+    });
+  }
+
   const actionMid = project(add(points.turnEnd, mul(sub(points.rollStart, points.turnEnd), 0.5)));
   labels.append(actionMid, `OFFSET ${fmt(geometry.offsetAngleDeg, 0)}° · HEADING ${fmtHeading(geometry.actionHeadingDeg)}`, {
     color: geometry.actionLegDistanceNm < 0 ? COLORS.invalid : COLORS.offset,
@@ -201,9 +214,10 @@ export function renderOffsetTopView(svg, result) {
     });
   }
 
-  if (result.referenceMode === "VRP" && !sameVrpAp) labels.append(referencePoint, `VRP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { color: COLORS.reference, fontSize: 10, leaderMarkerId: "offset-arrow-label" });
+  if (result.referenceMode === "VRP" && !sameVrpAp && !sameVrpIp) labels.append(referencePoint, `VRP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { color: COLORS.reference, fontSize: 10, leaderMarkerId: "offset-arrow-label" });
   if (result.referenceMode === "VIP" && !sameVipIp) labels.append(referencePoint, `VIP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { color: COLORS.reference, fontSize: 10, leaderMarkerId: "offset-arrow-label" });
   if (result.reference.clampedAtTarget) labels.append(p.target, "VRP CONSTRAINED AT TARGET", { color: COLORS.invalid, fontSize: 10, leaderMarkerId: "offset-arrow-label" });
+  if (result.reference.clampedAtIp) labels.append(p.ip, "VRP CONSTRAINED AT IP", { color: COLORS.invalid, fontSize: 10, leaderMarkerId: "offset-arrow-label" });
 }
 
 export function exportOffsetTopView(svg, filename = "offset-bombing-v2-top-view.png") {
