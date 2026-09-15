@@ -11,7 +11,7 @@ const MIN_NLT_DIVE_ANGLE_DEG = 10;
 
 export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
   id: "bomb-delivery-planner-v0.2-sem-nlt",
-  version: "0.2.3",
+  version: "0.2.4",
   legacyGeometrySource: "Bomb Profile REV.1.9 · R_20260830",
   applicability: Object.freeze({
     minAltOnlyBelowDiveAngleDeg: MIN_NLT_DIVE_ANGLE_DEG,
