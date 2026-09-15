@@ -4,12 +4,13 @@ import { installOffsetTopViewControls } from "./renderer-v0.1.mjs";
 
 export const OFFSET_PLOT_UI_V0_1 = Object.freeze({
   id: "offset-plot-ui-v0.1",
-  version: "0.1.0",
+  version: "0.1.1",
   purpose: "Offset Top View bridge to Common Text/Size/Reset controls and BDP Lead Angle presentation",
 });
 
 const $ = (selector) => document.querySelector(selector);
 const svg = $("#offset-top-view");
+const plotRoot = $("#offset-plot");
 
 function syncRollInLead() {
   const group = svg?.querySelector('[data-label-key="roll-in"]');
@@ -46,7 +47,12 @@ function syncRollInLead() {
   if (detail.textContent !== next) detail.textContent = next;
 }
 
-if (svg) {
+function installAfterInitialRender() {
+  if (!svg || !plotRoot || plotRoot.childElementCount === 0) return false;
+
+  // The Offset controller owns initial renderer/viewport installation.  This
+  // bridge attaches only after that first render so it cannot win a module
+  // execution race and leave the renderer with a partially installed viewport.
   const viewport = installOffsetTopViewControls(svg, {});
   const controls = installSvgPlotControls({
     svg,
@@ -71,13 +77,27 @@ if (svg) {
     },
   });
 
-  const plotRoot = $("#offset-plot");
   const observer = new MutationObserver(() => {
     syncRollInLead();
     controls.refreshTextScale();
   });
-  if (plotRoot) observer.observe(plotRoot, { childList: true, subtree: true, characterData: true });
+  observer.observe(plotRoot, { childList: true, subtree: true });
 
   syncRollInLead();
   controls.refreshTextScale();
+  return true;
+}
+
+if (svg && plotRoot) {
+  let attempts = 0;
+  const waitForRenderer = () => {
+    if (installAfterInitialRender()) return;
+    attempts += 1;
+    // Failsafe: never interfere with the base Offset controller if its first
+    // render did not complete.  The calculation/status surface can then expose
+    // the originating error instead of this optional presentation bridge
+    // becoming the failure source.
+    if (attempts < 180) requestAnimationFrame(waitForRenderer);
+  };
+  requestAnimationFrame(waitForRenderer);
 }
