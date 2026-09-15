@@ -1,4 +1,4 @@
-@import url("./common/ui/value-states-v0.1.css?v=f5982f77d39c");
+@import url("./common/ui/value-states-v0.1.css?v=da0939f87141");
 
 :root{
   color-scheme:light dark;
@@ -77,6 +77,16 @@ body.show-advanced section.advanced-only,body.show-advanced details.advanced-onl
 .canvas{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:#fff}
 svg{display:block;width:100%;background:#fff}
 svg text{font-family:inherit}
+.plot-control-row{display:flex;align-items:center;gap:8px;overflow-x:auto;white-space:nowrap;margin:0 0 10px;padding-bottom:2px;scrollbar-width:thin}
+.plot-control-group{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto}
+.plot-control-label{font-size:11px;font-weight:850;color:var(--muted);padding-right:2px}
+.plot-control-button,.plot-control-value,.plot-control-reset{min-height:30px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:11px;font-weight:850;cursor:pointer}
+.plot-control-button{min-width:32px;padding:4px 8px}
+.plot-control-value{min-width:54px;padding:4px 8px;color:var(--blue);background:var(--blue-soft)}
+.plot-control-reset{padding:4px 10px;border-radius:8px}
+.plot-control-button:first-of-type{border-radius:8px 0 0 8px}.plot-control-button:last-of-type{border-radius:0 8px 8px 0}.plot-control-value{border-radius:0}
+.plot-control-button:disabled{opacity:.45;cursor:not-allowed}
+.legacy-plot-controls{display:none!important}
 .remark{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .remark-item{border:1px solid var(--line);border-radius:11px;padding:12px;background:var(--panel)}
 .remark-item b{display:block;margin-bottom:5px}
@@ -91,4 +101,4 @@ svg text{font-family:inherit}
 .zoom-control{min-width:46px}
 @media(max-width:1040px){.grid,.grid.profile,.input-grid,.input-grid.profile{grid-template-columns:repeat(3,minmax(0,1fr))}.remark{grid-template-columns:1fr 1fr}}
 @media(max-width:760px){.canvas svg{width:760px;min-width:760px}}
-@media(max-width:620px){.app{width:min(100% - 16px,1680px)}.topbar{flex-direction:column}.toolbar{justify-content:flex-start}.grid,.grid.profile,.input-grid,.input-grid.profile{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.compound{grid-template-columns:minmax(0,1fr) 68px}input,select,.readout{min-height:46px;padding:8px 9px;border-radius:9px;font-size:16px}.compound input{border-radius:9px 0 0 9px}.compound select{border-radius:0 9px 9px 0;padding-inline:5px;font-size:14px}.remark{grid-template-columns:1fr}.panel-body,.input-panel-body{padding:10px}.panel summary,.input-panel summary{padding:11px 12px;font-size:13px}.field{gap:4px}.field-label,.field>span:first-child{font-size:11px}.unit{font-size:10px;min-height:16px}}
+@media(max-width:620px){.app{width:min(100% - 16px,1680px)}.topbar{flex-direction:column}.toolbar{justify-content:flex-start}.grid,.grid.profile,.input-grid,.input-grid.profile{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.compound{grid-template-columns:minmax(0,1fr) 68px}input,select,.readout{min-height:46px;padding:8px 9px;border-radius:9px;font-size:16px}.compound input{border-radius:9px 0 0 9px}.compound select{border-radius:0 9px 9px 0;padding-inline:5px;font-size:14px}.remark{grid-template-columns:1fr}.panel-body,.input-panel-body{padding:10px}.panel summary,.input-panel summary{padding:11px 12px;font-size:13px}.field{gap:4px}.field-label,.field>span:first-child{font-size:11px}.unit{font-size:10px;min-height:16px}.plot-control-row{gap:6px}.plot-control-label{font-size:10px}.plot-control-button,.plot-control-value,.plot-control-reset{min-height:28px;font-size:10px}}
