@@ -31,10 +31,11 @@ const valuesEquivalent = (current, next) => {
   if (Number.isFinite(a) && Number.isFinite(b)) return Math.abs(a - b) <= 1e-9;
   return String(current) === String(next);
 };
-const setValue = (key, next) => {
+const setValue = (key, next, { includeActive = false } = {}) => {
   const nextText = String(next);
-  const changed = fields(key).some((field) => !valuesEquivalent(field.value, nextText));
-  fields(key).forEach((field) => { field.value = nextText; });
+  const active = document.activeElement;
+  const changed = fields(key).some((field) => (includeActive || field !== active) && !valuesEquivalent(field.value, nextText));
+  if (changed) valueStates.setInputValue(key, nextText, { includeActive });
   return changed;
 };
 const setAutoValue = (key, next, sourceKey = null) => {
@@ -252,7 +253,7 @@ function calculate() {
 function syncDuplicates(source) {
   const key = source.dataset.key;
   if (!key) return;
-  fields(key).forEach((field) => { if (field !== source) field.value = source.value; });
+  valueStates.syncInputMirrors(key, source);
 }
 
 function handleFieldChange(event) {
@@ -342,7 +343,7 @@ function install() {
   const svg = $("#offset-top-view");
   installOffsetTopViewControls(svg, { zoomInButton: $("#zoom-in"), zoomOutButton: $("#zoom-out"), fitButton: $("#zoom-fit"), resetButton: $("#zoom-reset") });
   $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg));
-  setValue("rollInBankAngleDeg", automaticRollInBankDeg());
+  setValue("rollInBankAngleDeg", automaticRollInBankDeg(), { includeActive: true });
   calculate();
   initialRender = false;
 }

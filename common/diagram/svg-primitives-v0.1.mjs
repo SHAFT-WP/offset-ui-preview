@@ -1,7 +1,25 @@
 export const SVG_DIAGRAM_PRIMITIVES_V0_1 = Object.freeze({
   id: "svg-diagram-primitives-v0.1",
-  version: "0.1.0",
-  purpose: "Policy-free SVG drawing primitives shared by BE diagram renderers",
+  version: "0.1.1",
+  purpose: "Policy-free SVG drawing primitives and normalized visual metrics shared by BE diagram renderers",
+});
+
+export const SVG_DIAGRAM_STYLE_V0_1 = Object.freeze({
+  font: Object.freeze({
+    primaryPx: 14,
+    lineTitlePx: 13,
+    dimensionTitlePx: 12.5,
+    detailPx: 11.5,
+    smartLabelPx: 11,
+    compactPx: 10,
+    majorValuePx: 19,
+  }),
+  arrow: Object.freeze({
+    tactical: Object.freeze({ markerWidth: 14, markerHeight: 14, refX: 12, refY: 7, strokeWidth: 2.7, path: "M2,2 L12,7 L2,12" }),
+    leader: Object.freeze({ markerWidth: 6, markerHeight: 6, refX: 5.5, refY: 3, strokeWidth: 1.3, path: "M1,1 L5.5,3 L1,5" }),
+  }),
+  line: Object.freeze({ directedPx: 1.7, dimensionPx: 1.6, leaderPx: 1 }),
+  label: Object.freeze({ haloPx: 3, edgePadPx: 10, labelPadPx: 8, pathPadPx: 6, longPressMs: 500, dragCancelPx: 8 }),
 });
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
@@ -30,20 +48,21 @@ export function trimSegment(from, to, fromGap = 0, toGap = 0) {
 }
 
 export function createOpenArrowMarker(id, color, options = {}) {
+  const standard = SVG_DIAGRAM_STYLE_V0_1.arrow.tactical;
   const marker = svgNode("marker", {
     id,
-    markerWidth: options.markerWidth ?? 14,
-    markerHeight: options.markerHeight ?? 14,
-    refX: options.refX ?? 12,
-    refY: options.refY ?? 7,
+    markerWidth: options.markerWidth ?? standard.markerWidth,
+    markerHeight: options.markerHeight ?? standard.markerHeight,
+    refX: options.refX ?? standard.refX,
+    refY: options.refY ?? standard.refY,
     orient: "auto-start-reverse",
     markerUnits: "userSpaceOnUse",
   });
   marker.append(svgNode("path", {
-    d: options.path ?? "M2,2 L12,7 L2,12",
+    d: options.path ?? standard.path,
     fill: "none",
     stroke: color,
-    "stroke-width": options.strokeWidth ?? 2.7,
+    "stroke-width": options.strokeWidth ?? standard.strokeWidth,
     "stroke-linecap": "round",
     "stroke-linejoin": "round",
   }));
@@ -72,7 +91,7 @@ export function appendDirectedLine(root, from, to, options = {}) {
     x2: trimmed.to.x,
     y2: trimmed.to.y,
     stroke: options.color ?? "#14202c",
-    "stroke-width": options.width ?? 1.7,
+    "stroke-width": options.width ?? SVG_DIAGRAM_STYLE_V0_1.line.directedPx,
     "stroke-linecap": options.linecap ?? "round",
     "stroke-dasharray": options.dasharray,
     "marker-start": options.markerStartId ? `url(#${options.markerStartId})` : undefined,
@@ -92,7 +111,7 @@ export function appendText(root, x, y, value, options = {}) {
     x,
     y,
     fill: options.color ?? "#14202c",
-    "font-size": options.size ?? 14,
+    "font-size": options.size ?? SVG_DIAGRAM_STYLE_V0_1.font.primaryPx,
     "font-weight": options.weight ?? (options.detail ? 650 : 850),
     "text-anchor": options.anchor ?? "start",
     class: className || undefined,
@@ -109,7 +128,7 @@ export function appendLineLabel(root, from, to, offset, title, detail, options =
   const midY = (from.y + to.y) / 2 + (dx / length) * offset;
   appendText(root, midX, midY - 4, title, {
     anchor: "middle",
-    size: options.titleSize ?? 13,
+    size: options.titleSize ?? SVG_DIAGRAM_STYLE_V0_1.font.lineTitlePx,
     color: options.color,
     className: options.className,
     weight: options.titleWeight ?? 850,
@@ -117,7 +136,7 @@ export function appendLineLabel(root, from, to, offset, title, detail, options =
   if (detail !== undefined && detail !== null && detail !== "") {
     appendText(root, midX, midY + 14, detail, {
       anchor: "middle",
-      size: options.detailSize ?? 11.5,
+      size: options.detailSize ?? SVG_DIAGRAM_STYLE_V0_1.font.detailPx,
       color: options.color,
       className: options.className,
       detail: true,
@@ -131,7 +150,7 @@ export function appendHorizontalDimension(root, options) {
   const y = options.y;
   appendDirectedLine(root, { x: options.x1, y }, { x: options.x2, y }, {
     color: options.color,
-    width: options.width ?? 1.6,
+    width: options.width ?? SVG_DIAGRAM_STYLE_V0_1.line.dimensionPx,
     markerStartId: options.markerId,
     markerEndId: options.markerId,
   });
@@ -142,10 +161,10 @@ export function appendHorizontalDimension(root, options) {
   })));
   const labelX = (options.x1 + options.x2) / 2;
   if (options.title) appendText(root, labelX, y + (options.titleOffsetY ?? -9), options.title, {
-    anchor: "middle", size: options.titleSize ?? 12.5, color: options.color, weight: options.titleWeight ?? 850,
+    anchor: "middle", size: options.titleSize ?? SVG_DIAGRAM_STYLE_V0_1.font.dimensionTitlePx, color: options.color, weight: options.titleWeight ?? 850,
   });
   if (options.detail) appendText(root, labelX, y + (options.detailOffsetY ?? 14), options.detail, {
-    anchor: "middle", size: options.detailSize ?? 11.5, color: options.color, detail: true,
+    anchor: "middle", size: options.detailSize ?? SVG_DIAGRAM_STYLE_V0_1.font.detailPx, color: options.color, detail: true,
   });
 }
 
@@ -153,7 +172,7 @@ export function appendVerticalDimension(root, options) {
   const x = options.x;
   appendDirectedLine(root, { x, y: options.y1 }, { x, y: options.y2 }, {
     color: options.color,
-    width: options.width ?? 1.6,
+    width: options.width ?? SVG_DIAGRAM_STYLE_V0_1.line.dimensionPx,
     markerStartId: options.markerId,
     markerEndId: options.markerId,
   });
@@ -168,10 +187,10 @@ export function appendVerticalDimension(root, options) {
   const labelX = x + (options.labelOffsetX ?? -14);
   const anchor = options.anchor ?? "end";
   if (options.title) appendText(root, labelX, labelY - 5, options.title, {
-    anchor, size: options.titleSize ?? 12.5, color: options.color, weight: options.titleWeight ?? 850,
+    anchor, size: options.titleSize ?? SVG_DIAGRAM_STYLE_V0_1.font.dimensionTitlePx, color: options.color, weight: options.titleWeight ?? 850,
   });
   if (options.detail) appendText(root, labelX, labelY + 14, options.detail, {
-    anchor, size: options.detailSize ?? 11.5, color: options.color, detail: true,
+    anchor, size: options.detailSize ?? SVG_DIAGRAM_STYLE_V0_1.font.detailPx, color: options.color, detail: true,
   });
 }
 
@@ -189,7 +208,7 @@ export function appendAngleArc(root, center, radius, startAngleRad, endAngleRad,
     d: `M${start.x.toFixed(2)},${start.y.toFixed(2)} A${radius},${radius} 0 ${largeArc} ${sweep} ${end.x.toFixed(2)},${end.y.toFixed(2)}`,
     fill: "none",
     stroke: options.color ?? "#14202c",
-    "stroke-width": options.width ?? 1.7,
+    "stroke-width": options.width ?? SVG_DIAGRAM_STYLE_V0_1.line.directedPx,
     "stroke-linecap": "round",
   });
   root.append(path);
@@ -198,7 +217,7 @@ export function appendAngleArc(root, center, radius, startAngleRad, endAngleRad,
   const labelPoint = polar(center, labelRadius, middleAngle);
   if (options.label) appendText(root, labelPoint.x, labelPoint.y, options.label, {
     anchor: "middle",
-    size: options.labelSize ?? 11.5,
+    size: options.labelSize ?? SVG_DIAGRAM_STYLE_V0_1.font.detailPx,
     color: options.color,
     weight: options.labelWeight ?? 850,
   });

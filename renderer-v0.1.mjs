@@ -1,15 +1,16 @@
 import {
   appendDirectedLine,
   createOpenArrowMarker,
+  SVG_DIAGRAM_STYLE_V0_1,
   svgNode,
 } from "./common/diagram/svg-primitives-v0.1.mjs";
-import { createSmartLabelLayout } from "./common/diagram/svg-smart-label-v0.1.mjs";
+import { createSmartLabelLayout, installSmartLabelDrag } from "./common/diagram/svg-smart-label-v0.1.mjs";
 import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.2",
+  version: "0.1.3",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
@@ -17,27 +18,37 @@ const WIDTH = 1180;
 const HEIGHT = 720;
 const COLORS = Object.freeze({ run: "#4c5966", offset: "#a35d00", roll: "#176dac", attack: "#087b4c", target: "#bd3333", reference: "#5b6f82", invalid: "#bd3333", helper: "#7a8793" });
 const viewports = new WeakMap();
+const labelDrags = new WeakMap();
 
 function finitePoint(point) { return point && Number.isFinite(point.x) && Number.isFinite(point.y); }
 function add(a, b) { return { x: a.x + b.x, y: a.y + b.y }; }
 function sub(a, b) { return { x: a.x - b.x, y: a.y - b.y }; }
 function mul(a, k) { return { x: a.x * k, y: a.y * k }; }
 function len(a) { return Math.hypot(a.x, a.y); }
-function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
 function fmt(value, digits = 2) { return Number.isFinite(value) ? Number(value).toFixed(digits) : "-"; }
 function fmtHeading(value) { const h = ((Math.round(value) % 360) + 360) % 360; return String(h === 0 ? 360 : h).padStart(3, "0") + "°"; }
 
 function projectFactory(points) {
   const valid = points.filter(finitePoint);
-  const maxAbsX = Math.max(0.5, ...valid.map((p) => Math.abs(p.x))) + 0.12;
-  const maxAbsY = Math.max(0.5, ...valid.map((p) => Math.abs(p.y))) + 0.12;
-  const margins = { left: 48, right: 48, top: 54, bottom: 46 };
-  const halfWidth = (WIDTH - margins.left - margins.right) / 2;
-  const halfHeight = (HEIGHT - margins.top - margins.bottom) / 2;
-  const scale = Math.min(halfWidth / maxAbsX, halfHeight / maxAbsY);
-  const ox = WIDTH / 2;
-  const oy = margins.top + halfHeight;
-  return (point) => ({ x: ox + point.x * scale, y: oy - point.y * scale });
+  if (!valid.length) return (point) => ({ x: WIDTH / 2 + point.x, y: HEIGHT / 2 - point.y });
+  const minX = Math.min(...valid.map((point) => point.x));
+  const maxX = Math.max(...valid.map((point) => point.x));
+  const minY = Math.min(...valid.map((point) => point.y));
+  const maxY = Math.max(...valid.map((point) => point.y));
+  const margins = { left: 48, right: 48, top: 48, bottom: 48 };
+  const usableWidth = WIDTH - margins.left - margins.right;
+  const usableHeight = HEIGHT - margins.top - margins.bottom;
+  const spanX = Math.max(0.5, maxX - minX);
+  const spanY = Math.max(0.5, maxY - minY);
+  const scale = Math.min(usableWidth / spanX, usableHeight / spanY);
+  const usedWidth = spanX * scale;
+  const usedHeight = spanY * scale;
+  const left = margins.left + (usableWidth - usedWidth) / 2;
+  const top = margins.top + (usableHeight - usedHeight) / 2;
+  return (point) => ({
+    x: left + (point.x - minX) * scale,
+    y: top + (maxY - point.y) * scale,
+  });
 }
 
 function sampleArc(center, start, end, turnDirection, steps = 48) {
@@ -72,32 +83,6 @@ function appendCircle(root, point, radius, fill, stroke = "#fff") { root.append(
 function appendSquare(root, point, size, fill, stroke = "#fff") { root.append(svgNode("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, rx: 2, ry: 2, fill, stroke, "stroke-width": 2 })); }
 function reservePolyline(layout, points, pad = 7) { for (let i = 1; i < points.length; i += 1) layout.reserveSegment(points[i - 1], points[i], pad); }
 
-function appendCompactCompass(root, target, projectedPoints) {
-  const valid = projectedPoints.filter(finitePoint);
-  const centroid = valid.length
-    ? valid.reduce((sum, point) => add(sum, point), { x: 0, y: 0 })
-    : { x: WIDTH / 2, y: HEIGHT / 2 };
-  const average = valid.length ? mul(centroid, 1 / valid.length) : centroid;
-  let away = sub(target, average);
-  if (len(away) < 1) away = { x: 1, y: -1 };
-  const unit = mul(away, 1 / len(away));
-  const center = {
-    x: clamp(target.x + unit.x * 92, 58, WIDTH - 58),
-    y: clamp(target.y + unit.y * 92, 58, HEIGHT - 58),
-  };
-  const arm = 18;
-  const label = 31;
-  root.append(svgNode("line", { x1: center.x - arm, y1: center.y, x2: center.x + arm, y2: center.y, stroke: "#c4ccd4", "stroke-width": 1.2 }));
-  root.append(svgNode("line", { x1: center.x, y1: center.y - arm, x2: center.x, y2: center.y + arm, stroke: "#c4ccd4", "stroke-width": 1.2 }));
-  root.append(svgNode("circle", { cx: center.x, cy: center.y, r: 2.5, fill: COLORS.helper }));
-  const compassText = { "font-size": 10, "font-weight": 900, fill: COLORS.helper };
-  root.append(svgNode("text", { x: center.x, y: center.y - label, "text-anchor": "middle", ...compassText }, "000°"));
-  root.append(svgNode("text", { x: center.x + label + 2, y: center.y + 4, "text-anchor": "start", ...compassText }, "090°"));
-  root.append(svgNode("text", { x: center.x, y: center.y + label + 7, "text-anchor": "middle", ...compassText }, "180°"));
-  root.append(svgNode("text", { x: center.x - label - 2, y: center.y + 4, "text-anchor": "end", ...compassText }, "270°"));
-  return center;
-}
-
 export function installOffsetTopViewControls(svg, controls = {}) {
   let viewport = viewports.get(svg);
   if (!viewport) {
@@ -110,6 +95,11 @@ export function installOffsetTopViewControls(svg, controls = {}) {
       resetButton: controls.resetButton,
     });
     viewports.set(svg, viewport);
+  }
+  if (!labelDrags.has(svg)) {
+    const labelDrag = installSmartLabelDrag(svg);
+    labelDrags.set(svg, labelDrag);
+    controls.resetButton?.addEventListener("click", () => labelDrag.reset());
   }
   return viewport;
 }
@@ -133,11 +123,11 @@ export function renderOffsetTopView(svg, result) {
 
   const defs = svg.querySelector("defs") ?? svg.insertBefore(svgNode("defs"), svg.firstChild);
   defs.replaceChildren(
-    createOpenArrowMarker("offset-arrow-run", COLORS.run, { markerWidth: 9, markerHeight: 9, refX: 8, refY: 4.5, strokeWidth: 1.8, path: "M1,1 L8,4.5 L1,8" }),
-    createOpenArrowMarker("offset-arrow-offset", COLORS.offset, { markerWidth: 9, markerHeight: 9, refX: 8, refY: 4.5, strokeWidth: 1.8, path: "M1,1 L8,4.5 L1,8" }),
-    createOpenArrowMarker("offset-arrow-roll", COLORS.roll, { markerWidth: 9, markerHeight: 9, refX: 8, refY: 4.5, strokeWidth: 1.8, path: "M1,1 L8,4.5 L1,8" }),
-    createOpenArrowMarker("offset-arrow-attack", COLORS.attack, { markerWidth: 9, markerHeight: 9, refX: 8, refY: 4.5, strokeWidth: 1.8, path: "M1,1 L8,4.5 L1,8" }),
-    createOpenArrowMarker("offset-arrow-label", COLORS.helper, { markerWidth: 6, markerHeight: 6, refX: 5.5, refY: 3, strokeWidth: 1.3, path: "M1,1 L5.5,3 L1,5" }),
+    createOpenArrowMarker("offset-arrow-run", COLORS.run),
+    createOpenArrowMarker("offset-arrow-offset", COLORS.offset),
+    createOpenArrowMarker("offset-arrow-roll", COLORS.roll),
+    createOpenArrowMarker("offset-arrow-attack", COLORS.attack),
+    createOpenArrowMarker("offset-arrow-label", COLORS.helper, SVG_DIAGRAM_STYLE_V0_1.arrow.leader),
   );
 
   const vipMatch = result.referenceMode === "VIP" && Math.abs(result.resolved.ipRangeNm - geometry.actionRangeNm) <= 0.01;
@@ -168,12 +158,8 @@ export function renderOffsetTopView(svg, result) {
   const sameVipIp = result.referenceMode === "VIP" && Math.abs(result.reference.displayRangeNm - result.resolved.ipRangeNm) <= 0.01;
   if ((result.referenceMode === "VRP" && !sameVrpAp && !sameVrpIp) || (result.referenceMode === "VIP" && !sameVipIp)) appendCircle(root, referencePoint, 4.5, COLORS.reference);
 
-  const projectedMainPoints = [p.ip, p.realActionPoint, p.turnEnd, p.offsetCenter, p.rollStart, p.trackPoint, p.rollCenter, p.target, ...rollPath, ...offsetArc].filter(finitePoint);
-  const compassCenter = appendCompactCompass(root, p.target, projectedMainPoints);
-
   const labels = createSmartLabelLayout(root, { width: WIDTH, height: HEIGHT, labelPad: 10, pathPad: 7 });
   [p.ip, p.realActionPoint, p.rollStart, p.trackPoint, p.target].filter(Boolean).forEach((point) => labels.reservePoint(point, 14));
-  labels.reservePoint(compassCenter, 42);
   reservePolyline(labels, [p.ip, p.realActionPoint]);
   reservePolyline(labels, offsetArc);
   reservePolyline(labels, [p.turnEnd, p.rollStart]);
@@ -187,56 +173,60 @@ export function renderOffsetTopView(svg, result) {
   }
 
   labels.append(p.ip, result.referenceMode === "VIP" ? `IP / ACTION POINT · ${fmt(result.resolved.ipRangeNm, 2)} NM` : `IP · ${fmt(result.resolved.ipRangeNm, 2)} NM`, {
-    color: COLORS.run, leader: false, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "ipRangeNm" },
+    labelKey: "ip", color: COLORS.run, leader: false, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "ipRangeNm" },
   });
   if (result.referenceMode === "VRP") labels.append(p.realActionPoint, `ACTION POINT · ${fmt(geometry.actionRangeNm, 2)} NM`, {
-    color: COLORS.offset, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "actionRangeNm" },
+    labelKey: "action-point", color: COLORS.offset, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "actionRangeNm" },
   });
   else if (!vipMatch) labels.append(p.realActionPoint, `CALC ACTION POINT · ${fmt(geometry.actionRangeNm, 2)} NM`, {
-    color: COLORS.invalid, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "actionRangeNm" },
+    labelKey: "action-point", color: COLORS.invalid, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "actionRangeNm" },
   });
 
   if (len(sub(points.realActionPoint, points.ip)) > 0.05) {
     const runMid = project(add(points.ip, mul(sub(points.realActionPoint, points.ip), 0.5)));
     labels.append(runMid, `RUN-IN · ${fmtHeading(geometry.runInHeadingDeg)}`, {
-      color: COLORS.run, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "runInHeadingDeg" },
+      labelKey: "run-in", color: COLORS.run, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "runInHeadingDeg" },
     });
   }
 
   const actionMid = project(add(points.turnEnd, mul(sub(points.rollStart, points.turnEnd), 0.5)));
   labels.append(actionMid, `OFFSET ${fmt(geometry.offsetAngleDeg, 0)}° · HEADING ${fmtHeading(geometry.actionHeadingDeg)}`, {
+    labelKey: "action-heading",
     color: geometry.actionLegDistanceNm < 0 ? COLORS.invalid : COLORS.offset,
     leaderMarkerId: "offset-arrow-label",
     textAttributes: { "data-result-key": "actionHeadingDeg" },
   });
   const offsetRangeAnchor = project(add(points.turnEnd, mul(sub(points.rollStart, points.turnEnd), 0.72)));
   labels.append(offsetRangeAnchor, `OFFSET RANGE · ${fmt(result.resolved.offsetRangeNm, 2)} NM`, {
+    labelKey: "offset-range",
     color: geometry.actionLegDistanceNm < 0 ? COLORS.invalid : COLORS.offset,
-    fontSize: 10,
+    fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx,
     leaderMarkerId: "offset-arrow-label",
     textAttributes: { "data-result-key": "offsetRangeNm" },
   });
-  labels.append(p.rollStart, "ROLL IN", { color: COLORS.roll, leaderMarkerId: "offset-arrow-label" });
-  labels.append(p.trackPoint, "TRACK POINT", { color: COLORS.roll, leaderMarkerId: "offset-arrow-label" });
+  labels.append(p.rollStart, "ROLL IN", { labelKey: "roll-in", color: COLORS.roll, leaderMarkerId: "offset-arrow-label" });
+  labels.append(p.trackPoint, "TRACK POINT", { labelKey: "track-point", color: COLORS.roll, leaderMarkerId: "offset-arrow-label" });
   const attackMid = project(add(points.trackPoint, mul(sub(points.target, points.trackPoint), 0.5)));
-  labels.append(attackMid, `ATTACK · ${fmtHeading(geometry.attackHeadingDeg)}`, { color: COLORS.attack, leaderMarkerId: "offset-arrow-label" });
-  labels.append(p.target, "TARGET", { color: COLORS.target, fontSize: 12, leaderMarkerId: "offset-arrow-label" });
+  labels.append(attackMid, `ATTACK · ${fmtHeading(geometry.attackHeadingDeg)}`, { labelKey: "attack", color: COLORS.attack, leaderMarkerId: "offset-arrow-label" });
+  labels.append(p.target, "TARGET", { labelKey: "target", color: COLORS.target, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.lineTitlePx, leaderMarkerId: "offset-arrow-label" });
 
   const offsetRadiusMid = project(add(points.offsetCenter, mul(sub(points.realActionPoint, points.offsetCenter), 0.5)));
   labels.append(offsetRadiusMid, `OFFSET R · ${fmt(result.resolved.offsetRadiusNm, 2)} NM`, {
-    color: COLORS.offset, fontSize: 10, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "offsetRadiusNm" },
+    labelKey: "offset-radius", color: COLORS.offset, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "offsetRadiusNm" },
   });
   if (p.rollCenter) {
     const rollRadiusMid = project(add(points.rollCenter, mul(sub(points.rollStart, points.rollCenter), 0.5)));
     labels.append(rollRadiusMid, `ROLL-IN R(EFF) · ${fmt(geometry.rollInRadiusNm, 2)} NM`, {
-      color: COLORS.roll, fontSize: 10, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "rollInRadiusNm" },
+      labelKey: "roll-radius", color: COLORS.roll, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "rollInRadiusNm" },
     });
   }
 
-  if (result.referenceMode === "VRP" && !sameVrpAp && !sameVrpIp) labels.append(referencePoint, `VRP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { color: COLORS.reference, fontSize: 10, leaderMarkerId: "offset-arrow-label" });
-  if (result.referenceMode === "VIP" && !sameVipIp) labels.append(referencePoint, `VIP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { color: COLORS.reference, fontSize: 10, leaderMarkerId: "offset-arrow-label" });
-  if (result.reference.clampedAtTarget) labels.append(p.target, "VRP CONSTRAINED AT TARGET", { color: COLORS.invalid, fontSize: 10, leaderMarkerId: "offset-arrow-label" });
-  if (result.reference.clampedAtIp) labels.append(p.ip, "VRP CONSTRAINED AT IP", { color: COLORS.invalid, fontSize: 10, leaderMarkerId: "offset-arrow-label" });
+  if (result.referenceMode === "VRP" && !sameVrpAp && !sameVrpIp) labels.append(referencePoint, `VRP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { labelKey: "reference", color: COLORS.reference, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx, leaderMarkerId: "offset-arrow-label" });
+  if (result.referenceMode === "VIP" && !sameVipIp) labels.append(referencePoint, `VIP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { labelKey: "reference", color: COLORS.reference, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx, leaderMarkerId: "offset-arrow-label" });
+  if (result.reference.clampedAtTarget) labels.append(p.target, "VRP CONSTRAINED AT TARGET", { labelKey: "reference-constraint", color: COLORS.invalid, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx, leaderMarkerId: "offset-arrow-label" });
+  if (result.reference.clampedAtIp) labels.append(p.ip, "VRP CONSTRAINED AT IP", { labelKey: "reference-constraint", color: COLORS.invalid, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx, leaderMarkerId: "offset-arrow-label" });
+
+  labelDrags.get(svg)?.applyStoredPositions();
 }
 
 export function exportOffsetTopView(svg, filename = "offset-bombing-v2-top-view.png") {
