@@ -1,6 +1,6 @@
 export const OFFSET_GEOMETRY_V0_2 = Object.freeze({
   id: "offset-geometry-v0.2",
-  version: "0.2.0",
+  version: "0.2.1",
   purpose: "Pure Offset Bombing heading/action-point geometry independent of DOM and rendering",
 });
 
@@ -186,10 +186,16 @@ export function validateOffsetCandidate(candidate, input = {}) {
   if (candidate.actionLegDistanceNm < 0) errors.push("Offset Turn End has passed Roll-in Start");
   else if (candidate.actionLegDistanceNm < 0.25) warnings.push("Offset Turn End to Roll-in Start straight leg is very short");
   if (candidate.offsetAngleDeg >= 120) warnings.push("Offset Angle is 120 deg or greater");
+
+  const actionPointRunRangeNm = -dot(candidate.points.realActionPoint, candidate.vectors.runVector);
+  if (actionPointRunRangeNm < -0.001) {
+    errors.push("Action Point must be between IP and Target; Action Point has passed Target");
+  } else if (Number.isFinite(input.ipRangeNm) && actionPointRunRangeNm > input.ipRangeNm + 0.001) {
+    errors.push("Action Point must be between IP and Target; Action Point has passed IP");
+  }
+
   if (input.referenceMode === "VIP") {
     if (Math.abs(candidate.actionRangeNm - input.ipRangeNm) > (input.vipEqualityToleranceNm ?? 0.002)) errors.push("VIP mode requires IP = Action Point (Action Range = IP Range)");
-  } else if (Number.isFinite(input.ipRangeNm) && candidate.actionRangeNm > input.ipRangeNm + 0.001) {
-    errors.push("VRP mode requires Action Point between IP and Target (Action Range <= IP Range)");
   }
   return { errors, warnings };
 }

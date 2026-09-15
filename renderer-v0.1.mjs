@@ -9,7 +9,7 @@ import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.1",
+  version: "0.1.2",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
@@ -23,6 +23,7 @@ function add(a, b) { return { x: a.x + b.x, y: a.y + b.y }; }
 function sub(a, b) { return { x: a.x - b.x, y: a.y - b.y }; }
 function mul(a, k) { return { x: a.x * k, y: a.y * k }; }
 function len(a) { return Math.hypot(a.x, a.y); }
+function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
 function fmt(value, digits = 2) { return Number.isFinite(value) ? Number(value).toFixed(digits) : "-"; }
 function fmtHeading(value) { const h = ((Math.round(value) % 360) + 360) % 360; return String(h === 0 ? 360 : h).padStart(3, "0") + "°"; }
 
@@ -71,6 +72,32 @@ function appendCircle(root, point, radius, fill, stroke = "#fff") { root.append(
 function appendSquare(root, point, size, fill, stroke = "#fff") { root.append(svgNode("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, rx: 2, ry: 2, fill, stroke, "stroke-width": 2 })); }
 function reservePolyline(layout, points, pad = 7) { for (let i = 1; i < points.length; i += 1) layout.reserveSegment(points[i - 1], points[i], pad); }
 
+function appendCompactCompass(root, target, projectedPoints) {
+  const valid = projectedPoints.filter(finitePoint);
+  const centroid = valid.length
+    ? valid.reduce((sum, point) => add(sum, point), { x: 0, y: 0 })
+    : { x: WIDTH / 2, y: HEIGHT / 2 };
+  const average = valid.length ? mul(centroid, 1 / valid.length) : centroid;
+  let away = sub(target, average);
+  if (len(away) < 1) away = { x: 1, y: -1 };
+  const unit = mul(away, 1 / len(away));
+  const center = {
+    x: clamp(target.x + unit.x * 92, 58, WIDTH - 58),
+    y: clamp(target.y + unit.y * 92, 58, HEIGHT - 58),
+  };
+  const arm = 18;
+  const label = 31;
+  root.append(svgNode("line", { x1: center.x - arm, y1: center.y, x2: center.x + arm, y2: center.y, stroke: "#c4ccd4", "stroke-width": 1.2 }));
+  root.append(svgNode("line", { x1: center.x, y1: center.y - arm, x2: center.x, y2: center.y + arm, stroke: "#c4ccd4", "stroke-width": 1.2 }));
+  root.append(svgNode("circle", { cx: center.x, cy: center.y, r: 2.5, fill: COLORS.helper }));
+  const compassText = { "font-size": 10, "font-weight": 900, fill: COLORS.helper };
+  root.append(svgNode("text", { x: center.x, y: center.y - label, "text-anchor": "middle", ...compassText }, "000°"));
+  root.append(svgNode("text", { x: center.x + label + 2, y: center.y + 4, "text-anchor": "start", ...compassText }, "090°"));
+  root.append(svgNode("text", { x: center.x, y: center.y + label + 7, "text-anchor": "middle", ...compassText }, "180°"));
+  root.append(svgNode("text", { x: center.x - label - 2, y: center.y + 4, "text-anchor": "end", ...compassText }, "270°"));
+  return center;
+}
+
 export function installOffsetTopViewControls(svg, controls = {}) {
   let viewport = viewports.get(svg);
   if (!viewport) {
@@ -103,8 +130,6 @@ export function renderOffsetTopView(svg, result) {
   const offsetArc = sampleArc(points.offsetCenter, points.realActionPoint, points.turnEnd, geometry.direction.offsetDirection).map(project);
 
   root.append(svgNode("rect", { x: 0, y: 0, width: WIDTH, height: HEIGHT, fill: "#fff" }));
-  root.append(svgNode("text", { x: 18, y: 32, "font-size": 16, "font-weight": 900, fill: "#14202c" }, "OFFSET BOMBING V2 · WORK"));
-  root.append(svgNode("text", { x: 420, y: 32, "font-size": 12.5, "font-weight": 850, fill: result.state === "VALID" ? COLORS.attack : result.state === "WARNING" ? COLORS.offset : COLORS.invalid }, result.state));
 
   const defs = svg.querySelector("defs") ?? svg.insertBefore(svgNode("defs"), svg.firstChild);
   defs.replaceChildren(
@@ -114,12 +139,6 @@ export function renderOffsetTopView(svg, result) {
     createOpenArrowMarker("offset-arrow-attack", COLORS.attack, { markerWidth: 9, markerHeight: 9, refX: 8, refY: 4.5, strokeWidth: 1.8, path: "M1,1 L8,4.5 L1,8" }),
     createOpenArrowMarker("offset-arrow-label", COLORS.helper, { markerWidth: 6, markerHeight: 6, refX: 5.5, refY: 3, strokeWidth: 1.3, path: "M1,1 L5.5,3 L1,5" }),
   );
-
-  const compassText = { "font-size": 10, "font-weight": 900, fill: COLORS.helper };
-  root.append(svgNode("text", { x: WIDTH / 2, y: 15, "text-anchor": "middle", ...compassText }, "000°"));
-  root.append(svgNode("text", { x: WIDTH - 7, y: HEIGHT / 2 + 4, "text-anchor": "end", ...compassText }, "090°"));
-  root.append(svgNode("text", { x: WIDTH / 2, y: HEIGHT - 7, "text-anchor": "middle", ...compassText }, "180°"));
-  root.append(svgNode("text", { x: 7, y: HEIGHT / 2 + 4, "text-anchor": "start", ...compassText }, "270°"));
 
   const vipMatch = result.referenceMode === "VIP" && Math.abs(result.resolved.ipRangeNm - geometry.actionRangeNm) <= 0.01;
   if (result.referenceMode === "VRP") appendDirectedLine(root, p.ip, p.realActionPoint, { color: COLORS.run, width: 5, markerEndId: "offset-arrow-run", fromGap: 13, toGap: 8 });
@@ -149,8 +168,12 @@ export function renderOffsetTopView(svg, result) {
   const sameVipIp = result.referenceMode === "VIP" && Math.abs(result.reference.displayRangeNm - result.resolved.ipRangeNm) <= 0.01;
   if ((result.referenceMode === "VRP" && !sameVrpAp && !sameVrpIp) || (result.referenceMode === "VIP" && !sameVipIp)) appendCircle(root, referencePoint, 4.5, COLORS.reference);
 
+  const projectedMainPoints = [p.ip, p.realActionPoint, p.turnEnd, p.offsetCenter, p.rollStart, p.trackPoint, p.rollCenter, p.target, ...rollPath, ...offsetArc].filter(finitePoint);
+  const compassCenter = appendCompactCompass(root, p.target, projectedMainPoints);
+
   const labels = createSmartLabelLayout(root, { width: WIDTH, height: HEIGHT, labelPad: 10, pathPad: 7 });
   [p.ip, p.realActionPoint, p.rollStart, p.trackPoint, p.target].filter(Boolean).forEach((point) => labels.reservePoint(point, 14));
+  labels.reservePoint(compassCenter, 42);
   reservePolyline(labels, [p.ip, p.realActionPoint]);
   reservePolyline(labels, offsetArc);
   reservePolyline(labels, [p.turnEnd, p.rollStart]);
