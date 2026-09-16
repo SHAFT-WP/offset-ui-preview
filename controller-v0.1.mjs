@@ -6,6 +6,7 @@ const LOW_ANGLE_BOUNDARY_DEG = 10;
 const TOP_VIEW_FONT_SCALE_DESKTOP_DEFAULT = 1.5;
 const TOP_VIEW_FONT_SCALE_MOBILE_DEFAULT = 2.0;
 const TOP_VIEW_MOBILE_MAX_WIDTH_PX = 620;
+const FT_PER_NM = 6076.11549;
 const resolveTopViewFontScaleDefault = () => globalThis.matchMedia?.(`(max-width: ${TOP_VIEW_MOBILE_MAX_WIDTH_PX}px)`)?.matches
   ? TOP_VIEW_FONT_SCALE_MOBILE_DEFAULT
   : TOP_VIEW_FONT_SCALE_DESKTOP_DEFAULT;
@@ -14,12 +15,12 @@ let driver = "angleOffDeg";
 let turnDriver = "offsetG";
 let referenceMode = "VRP";
 let vrpLinked = true;
-let vipLinked = true;
 let rollBankAuto = true;
 let topViewFontScale = resolveTopViewFontScaleDefault();
 let lastResult = null;
 let initialRender = true;
 let lastResultSnapshot = null;
+let dedPage = "VRP";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -56,6 +57,7 @@ const fmtHeading = (value) => {
   const h = ((Math.round(value) % 360) + 360) % 360;
   return String(h === 0 ? 360 : h).padStart(3, "0") + "°";
 };
+const normHeading = (value) => ((value % 360) + 360) % 360;
 
 function coordinatedBankForG(g) {
   if (!(g > 1)) throw new RangeError("Low-angle level-turn Roll-in requires Roll-in G > 1");
@@ -82,10 +84,10 @@ function applyAutomaticRollBank(sourceKey = "diveAngleDeg") {
 
 function buildInput() {
   return {
-    driver, turnDriver, locks: { ...locks }, referenceMode, vrpLinked, vipLinked,
+    driver, turnDriver, locks: { ...locks }, referenceMode, vrpLinked, vipLinked: true,
     runInHeadingDeg: numberValue("runInHeadingDeg"), attackHeadingDeg: numberValue("attackHeadingDeg"), angleOffDeg: numberValue("angleOffDeg"),
     diveAngleDeg: numberValue("diveAngleDeg"), offsetAngleDeg: numberValue("offsetAngleDeg"), actionRangeNm: numberValue("actionRangeNm"), offsetRangeNm: numberValue("offsetRangeNm"), ipRangeNm: numberValue("ipRangeNm"),
-    vrpRangeNm: numberValue("vrpRangeNm"), vipRangeNm: numberValue("vipRangeNm"),
+    vrpRangeNm: numberValue("vrpRangeNm"), vipRangeNm: numberValue("ipRangeNm"),
     offsetAltitudeMslFt: numberValue("offsetAltitudeMslFt"), offsetSpeedValue: numberValue("offsetSpeedValue"), offsetSpeedMode: value("offsetSpeedMode") ?? "CAS",
     offsetG: numberValue("offsetG"), offsetBankDeg: numberValue("offsetBankDeg"), offsetRadiusNm: numberValue("offsetRadiusNm"),
     profile: {
@@ -116,7 +118,6 @@ function applyResolved(result) {
   setIfUnlocked("offsetBankDeg", result.resolved.offsetBankDeg, 2, turnDriver);
   setIfUnlocked("offsetRadiusNm", result.resolved.offsetRadiusNm, 3, turnDriver);
   if (result.referenceMode === "VRP" && vrpLinked && !locks.vrpRangeNm) setAutoValue("vrpRangeNm", fmt(result.resolved.vrpRangeNm, 3), "actionRangeNm");
-  if (result.referenceMode === "VIP" && vipLinked && !locks.vipRangeNm) setAutoValue("vipRangeNm", fmt(result.resolved.vipRangeNm, 3), "ipRangeNm");
   $("#offset-heading-out").textContent = fmtHeading(result.resolved.actionHeadingDeg);
   $("#turn-time-out").textContent = `${fmt(result.timing.offsetTurnSec, 1)} sec`;
   $("#driver-out").textContent = `DRIVER · ${driver}`;
@@ -139,13 +140,13 @@ function renderOffsetResult(result) {
     row("Angle-Off (Heading)", `${fmt(g.angleOffDeg, 2)}°`, "angleOffDeg"),
     row("Action Range", `${fmt(g.actionRangeNm, 3)} NM`, "actionRangeNm"),
     row("Offset Range", `${fmt(result.resolved.offsetRangeNm, 3)} NM`, "offsetRangeNm"),
-    row("IP Range", `${fmt(result.resolved.ipRangeNm, 3)} NM`, "ipRangeNm"),
+    row("VIP Range", `${fmt(result.resolved.ipRangeNm, 3)} NM`, "ipRangeNm"),
     row("Offset Radius", `${fmt(result.resolved.offsetRadiusNm, 3)} NM`, "offsetRadiusNm"),
     row("Offset TAS", `${fmt(result.resolved.offsetTasKt, 1)} kt`, "offsetTasKt"),
     row("Reference", `${result.referenceMode} · ${fmt(result.reference.displayRangeNm, 3)} NM${result.reference.linked ? " · LINKED" : ""}`, "referenceSummary"),
-    row("IP → Action Point", `${fmt(t.ingressDistanceNm, 3)} NM / ${fmt(t.ingressSec, 1)} sec`, "ingressSummary"),
+    row("VIP → Action Point", `${fmt(t.ingressDistanceNm, 3)} NM / ${fmt(t.ingressSec, 1)} sec`, "ingressSummary"),
     row("Offset Turn", `${fmt(t.offsetTurnSec, 1)} sec`, "offsetTurnSec"),
-    row("Offset Range Time", `${fmt(t.actionLegSec, 1)} sec`, "actionLegSec"),
+    row("Approach Time", `${fmt(t.actionLegSec, 1)} sec`, "actionLegSec"),
     row("Roll-in → Release", `${fmt(t.rollToReleaseSec, 1)} sec`, "rollToReleaseSec"),
     row("Legacy ΔTOS", `${t.legacyDeltaTosSec >= 0 ? "+" : ""}${fmt(t.legacyDeltaTosSec, 1)} sec`, "legacyDeltaTosSec"),
   ].join("");
@@ -179,9 +180,76 @@ function renderStatus(result) {
   const parts = [];
   if (result.errors.length) parts.push(`INVALID · ${result.errors.join(" / ")}`);
   if (result.warnings.length) parts.push(`WARNING · ${result.warnings.join(" / ")}`);
-  if (!parts.length) parts.push(referenceMode === "VIP" ? "VALID · VIP mode: IP = Action Point." : "VALID · VRP mode: Action Point is between IP and Target. VRP stays on the IP–Target segment.");
+  if (!parts.length) parts.push(referenceMode === "VIP"
+    ? "VALID · VIP is the Initial Point. Run-In is VIP → Target; Action Point remains independent."
+    : "VALID · VRP is Target-referenced. Action Point remains between VIP and Target.");
   message.textContent = parts.join("  ");
   message.className = `status-message ${result.state.toLowerCase()}`;
+}
+
+function pointDistanceNm(a, b) { return Math.hypot(b.x - a.x, b.y - a.y); }
+function bearingBetween(a, b) {
+  const heading = Math.atan2(b.x - a.x, b.y - a.y) * 180 / Math.PI;
+  return normHeading(heading);
+}
+function dedRangeText(rangeNm) { return `${Math.round(rangeNm * FT_PER_NM)} FT (${fmt(rangeNm, 2)} NM)`; }
+function dedElevationText(elevationFt) { return `${Math.round(elevationFt)} FT MSL`; }
+
+function renderDed(result) {
+  const referencePage = result.referenceMode;
+  if ((dedPage === "VRP" || dedPage === "VIP") && dedPage !== referencePage) dedPage = referencePage;
+
+  const vrpTab = $("#ded-vrp-tab");
+  const vipTab = $("#ded-vip-tab");
+  vrpTab.hidden = referencePage !== "VRP";
+  vipTab.hidden = referencePage !== "VIP";
+  $$("[data-ded-page]").forEach((button) => {
+    const active = button.dataset.dedPage === dedPage;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+
+  const points = result.geometry.points;
+  const targetElevationMslFt = result.profile.canonicalInputs?.targetElevationMslFt ?? numberValue("targetElevationMslFt");
+  const initialAltitudeMslFt = result.profile.public.resolvedInitialAltitudeMslFt;
+  let title;
+  let bearingDeg;
+  let rangeNm;
+  let elevationMslFt;
+  let note;
+
+  if (dedPage === "VIP") {
+    title = "VIP-TO-TGT";
+    bearingDeg = result.geometry.runInHeadingDeg;
+    rangeNm = result.resolved.ipRangeNm;
+    elevationMslFt = targetElevationMslFt;
+    note = "VIP REFERENCE · TO-TARGET";
+  } else if (dedPage === "VRP") {
+    title = "TGT-TO-VRP";
+    bearingDeg = bearingBetween(points.target, result.reference.point);
+    rangeNm = result.reference.displayRangeNm;
+    elevationMslFt = targetElevationMslFt;
+    note = "TARGET REFERENCE · VRP ELEV CURRENTLY FOLLOWS TARGET ELEV";
+  } else if (dedPage === "OA1") {
+    const base = result.referenceMode === "VIP" ? points.ip : points.target;
+    title = "DEST OA1";
+    bearingDeg = bearingBetween(base, points.rollStart);
+    rangeNm = pointDistanceNm(base, points.rollStart);
+    elevationMslFt = initialAltitudeMslFt;
+    note = `ROLL-IN POINT · ${result.referenceMode === "VIP" ? "VIP" : "TARGET"} REFERENCE`;
+  } else {
+    title = "DEST OA2";
+    bearingDeg = 0;
+    rangeNm = 0;
+    elevationMslFt = 0;
+    note = "UNASSIGNED";
+  }
+
+  $("#ded-page-title").textContent = title;
+  $("#ded-bearing").textContent = `${fmt(bearingDeg, 1)}°`;
+  $("#ded-range").textContent = dedRangeText(rangeNm);
+  $("#ded-elevation").textContent = dedElevationText(elevationMslFt);
+  $("#ded-reference-note").textContent = note;
 }
 
 function collectResultSnapshot(result) {
@@ -249,6 +317,7 @@ function calculate() {
     renderOffsetResult(result);
     renderProfileResult(result);
     renderTopView(result);
+    renderDed(result);
     applyResultChangeStates(result);
   } catch (error) {
     const message = $("#constraint-message");
@@ -257,7 +326,7 @@ function calculate() {
     const pill = $("#state-pill");
     pill.textContent = "INVALID";
     pill.className = "status bad";
-    if (lastResult) renderTopView(lastResult);
+    if (lastResult) { renderTopView(lastResult); renderDed(lastResult); }
   }
 }
 
@@ -274,7 +343,6 @@ function handleFieldChange(event) {
   const key = field.dataset.key;
   if (["offsetG", "offsetBankDeg", "offsetRadiusNm"].includes(key)) turnDriver = key;
   if (key === "vrpRangeNm") vrpLinked = false;
-  if (key === "vipRangeNm") vipLinked = false;
 
   const diveAngleDeg = numberValue("diveAngleDeg");
   if (key === "rollInBankAngleDeg") {
@@ -303,9 +371,8 @@ function installLocks() {
     button.addEventListener("click", () => {
       locks[key] = !locks[key];
       button.setAttribute("aria-pressed", String(locks[key]));
-      button.textContent = locks[key] ? "LOCKED" : "LOCK";
+      button.textContent = locks[key] ? "LOCKED" : (key === "ipRangeNm" ? "LOCK RANGE" : "LOCK");
       if (locks[key] && key === "vrpRangeNm") vrpLinked = false;
-      if (locks[key] && key === "vipRangeNm") vipLinked = false;
       calculate();
     });
   });
@@ -314,13 +381,25 @@ function installLocks() {
 function installModeButtons() {
   $("#vrp-btn").addEventListener("click", () => {
     referenceMode = "VRP"; vrpLinked = true;
-    $("#vrp-btn").classList.add("active"); $("#vip-btn").classList.remove("active"); $("#vrp-pane").classList.remove("hidden"); $("#vip-pane").classList.add("hidden");
+    $("#vrp-btn").classList.add("active"); $("#vip-btn").classList.remove("active");
+    if (dedPage === "VIP") dedPage = "VRP";
     driver = "angleOffDeg"; calculate();
   });
   $("#vip-btn").addEventListener("click", () => {
-    referenceMode = "VIP"; vipLinked = true; setAutoValue("vipRangeNm", numberValue("ipRangeNm"), "ipRangeNm");
-    $("#vip-btn").classList.add("active"); $("#vrp-btn").classList.remove("active"); $("#vip-pane").classList.remove("hidden"); $("#vrp-pane").classList.add("hidden");
+    referenceMode = "VIP";
+    $("#vip-btn").classList.add("active"); $("#vrp-btn").classList.remove("active");
+    if (dedPage === "VRP") dedPage = "VIP";
     driver = "ipRangeNm"; calculate();
+  });
+}
+
+function installDedTabs() {
+  $$("[data-ded-page]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.hidden) return;
+      dedPage = button.dataset.dedPage;
+      if (lastResult) renderDed(lastResult);
+    });
   });
 }
 
@@ -348,7 +427,7 @@ function populateWeapons() {
 }
 
 function install() {
-  populateWeapons(); installLocks(); installModeButtons(); installValueStateBindings();
+  populateWeapons(); installLocks(); installModeButtons(); installDedTabs(); installValueStateBindings();
   document.addEventListener("input", handleFieldChange);
   document.addEventListener("change", (event) => { if (event.target.matches("[data-key]")) handleFieldChange(event); });
   const svg = $("#offset-top-view");
