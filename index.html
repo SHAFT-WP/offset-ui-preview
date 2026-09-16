@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Offset Bombing · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=0c7cb00863bd">
+<link rel="stylesheet" href="./offset.css?v=2af953b74c91">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -69,7 +69,7 @@
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">4</b>Attack Heading</span><button class="lock-button" type="button" data-lock-key="attackHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="attackHeadingDeg" type="text" inputmode="decimal" value="090"><span class="unit">Final attack axis · coupled heading constraint</span></label>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">5</b>Offset Angle</span><button class="lock-button" type="button" data-lock-key="offsetAngleDeg" aria-pressed="false">LOCK</button></span><input data-key="offsetAngleDeg" type="text" inputmode="decimal" value="40"><span class="unit">Run-In → Offset Heading change</span></label>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">6</b>Action Range</span><button class="lock-button" type="button" data-lock-key="actionRangeNm" aria-pressed="false">LOCK</button></span><input data-key="actionRangeNm" type="text" inputmode="decimal" value="3.0"><span class="unit">Target → Real Action Point · must remain between Target and IP</span></label>
-      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">7</b>Offset Range</span><button class="lock-button" type="button" data-lock-key="offsetRangeNm" aria-pressed="false">LOCK</button></span><input data-key="offsetRangeNm" type="text" inputmode="decimal" value="1.0"><span class="unit">Offset Turn End → Roll-in Start straight distance</span></label>
+      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">7</b>Offset Range</span><button class="lock-button" type="button" data-lock-key="offsetRangeNm" aria-pressed="false">LOCK</button></span><input data-key="offsetRangeNm" type="text" inputmode="decimal" value="1.0"><span class="unit">Approach · Offset Turn End → Roll-in Start straight distance</span></label>
       <div class="offset-card"><span class="offset-title"><b class="step">8</b>Offset Heading</span><output id="offset-heading-out" class="readout offset-heading">-</output><span class="alias-note">UI alias only: internal canonical field remains Action Heading.</span></div>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">9</b>IP</span><button class="lock-button" type="button" data-lock-key="ipRangeNm" aria-pressed="false">LOCK</button></span><input data-key="ipRangeNm" type="text" inputmode="decimal" value="7.0"><span class="unit">Action Point must remain on the IP↔Target segment</span></label>
 
@@ -112,7 +112,7 @@
       </div>
     </div>
     <div class="top-view-shell"><svg id="offset-top-view" viewBox="0 0 1180 1440" role="img" aria-label="Offset Bombing V2 north-up top view"><defs></defs><g id="offset-plot"></g></svg></div>
-    <div class="diagram-legend"><span><i class="legend-dot" style="background:#4c5966"></i>Run-In</span><span><i class="legend-dot" style="background:#a35d00"></i>Offset / Action leg</span><span><i class="legend-dot" style="background:#176dac"></i>BDP Roll-in</span><span><i class="legend-dot" style="background:#087b4c"></i>Attack track</span><span>North-up · canvas top = North / bottom = South</span><span>Parameter changes auto-fit the complete geometry · manual VIEW zoom is preserved until geometry changes</span><span>Offset R: Action Point + Turn End → center · Roll-in R(EFF): Roll In + Track Point → center</span></div>
+    <div class="diagram-legend"><span><i class="legend-dot" style="background:#4c5966"></i>Run-In</span><span><i class="legend-dot" style="background:#a35d00"></i>Offset / Approach</span><span><i class="legend-dot" style="background:#176dac"></i>BDP Roll-in</span><span><i class="legend-dot" style="background:#087b4c"></i>Attack track</span><span>North-up · canvas top = North / bottom = South</span><span>Parameter changes auto-fit the complete geometry · manual VIEW zoom is preserved until geometry changes</span><span>Offset R: Action Point + Turn End → center · Roll-in R(EFF): Roll In + Track Point → center</span></div>
   </section>
 
   <section class="section result-stack" aria-label="Results">
@@ -120,7 +120,7 @@
     <details class="input-panel"><summary>Bomb Profile Authoritative Result · BDP v0.3</summary><div class="input-panel-body table-wrap"><table class="result-table"><tbody id="profile-result-body"></tbody></table></div></details>
   </section>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=0c7cb00863bd"></script>
+<script type="module" src="./controller-v0.1.mjs?v=2af953b74c91"></script>
 <script>
 window.addEventListener("DOMContentLoaded", () => {
   const select = document.querySelector("#top-view-font-scale");
