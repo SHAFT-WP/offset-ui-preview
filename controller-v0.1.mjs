@@ -3,6 +3,7 @@ import { createValueStateController } from "./common/ui/value-state-controller-v
 import { exportOffsetTopView, installOffsetTopViewControls, renderOffsetTopView } from "./renderer-v0.1.mjs";
 
 const LOW_ANGLE_BOUNDARY_DEG = 10;
+const TOP_VIEW_FONT_SCALE_DEFAULT = 1.5;
 const locks = {};
 let driver = "angleOffDeg";
 let turnDriver = "offsetG";
@@ -10,6 +11,7 @@ let referenceMode = "VRP";
 let vrpLinked = true;
 let vipLinked = true;
 let rollBankAuto = true;
+let topViewFontScale = TOP_VIEW_FONT_SCALE_DEFAULT;
 let lastResult = null;
 let initialRender = true;
 let lastResultSnapshot = null;
@@ -229,6 +231,10 @@ function applyResultChangeStates(result) {
   lastResultSnapshot = next;
 }
 
+function renderTopView(result) {
+  renderOffsetTopView($("#offset-top-view"), result, { fontScale: topViewFontScale });
+}
+
 function calculate() {
   try {
     const result = calculateOffsetV0_2(buildInput());
@@ -237,7 +243,7 @@ function calculate() {
     renderStatus(result);
     renderOffsetResult(result);
     renderProfileResult(result);
-    renderOffsetTopView($("#offset-top-view"), result);
+    renderTopView(result);
     applyResultChangeStates(result);
   } catch (error) {
     const message = $("#constraint-message");
@@ -246,7 +252,7 @@ function calculate() {
     const pill = $("#state-pill");
     pill.textContent = "INVALID";
     pill.className = "status bad";
-    if (lastResult) renderOffsetTopView($("#offset-top-view"), lastResult);
+    if (lastResult) renderTopView(lastResult);
   }
 }
 
@@ -342,6 +348,15 @@ function install() {
   document.addEventListener("change", (event) => { if (event.target.matches("[data-key]")) handleFieldChange(event); });
   const svg = $("#offset-top-view");
   installOffsetTopViewControls(svg, { zoomInButton: $("#zoom-in"), zoomOutButton: $("#zoom-out"), fitButton: $("#zoom-fit"), resetButton: $("#zoom-reset") });
+  const fontScaleSelect = $("#top-view-font-scale");
+  if (fontScaleSelect) {
+    fontScaleSelect.value = String(topViewFontScale);
+    fontScaleSelect.addEventListener("change", () => {
+      const next = Number.parseFloat(fontScaleSelect.value);
+      topViewFontScale = Number.isFinite(next) ? next : TOP_VIEW_FONT_SCALE_DEFAULT;
+      if (lastResult) renderTopView(lastResult);
+    });
+  }
   $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg));
   setValue("rollInBankAngleDeg", automaticRollInBankDeg(), { includeActive: true });
   calculate();
