@@ -10,7 +10,7 @@ import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.6",
+  version: "0.1.7",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
@@ -171,6 +171,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   };
   [p.ip, p.realActionPoint, p.rollStart, p.trackPoint, p.target].filter(Boolean).forEach((point) => labels.reservePoint(point, 14));
   reservePolyline(labels, [p.ip, p.realActionPoint]);
+  reservePolyline(labels, [p.realActionPoint, p.target], 4);
   reservePolyline(labels, offsetArc);
   reservePolyline(labels, [p.turnEnd, p.rollStart]);
   reservePolyline(labels, rollPath);
@@ -182,14 +183,23 @@ export function renderOffsetTopView(svg, result, options = {}) {
     reservePolyline(labels, [p.trackPoint, p.rollCenter], 4);
   }
 
-  appendLabel(p.ip, result.referenceMode === "VIP" ? `IP / ACTION POINT · ${fmt(result.resolved.ipRangeNm, 2)} NM` : `IP · ${fmt(result.resolved.ipRangeNm, 2)} NM`, {
-    labelKey: "ip", color: COLORS.run, leader: false, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "ipRangeNm" },
+  appendLabel(p.ip, result.referenceMode === "VIP" ? "IP / ACTION POINT" : `IP · ${fmt(result.resolved.ipRangeNm, 2)} NM`, {
+    labelKey: "ip", color: COLORS.run, leader: false, leaderMarkerId: "offset-arrow-label", textAttributes: result.referenceMode === "VIP" ? undefined : { "data-result-key": "ipRangeNm" },
   });
-  if (result.referenceMode === "VRP") appendLabel(p.realActionPoint, `ACTION POINT · ${fmt(geometry.actionRangeNm, 2)} NM`, {
-    labelKey: "action-point", color: COLORS.offset, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "actionRangeNm" },
+  if (result.referenceMode === "VRP") appendLabel(p.realActionPoint, "ACTION POINT", {
+    labelKey: "action-point", color: COLORS.offset, leaderMarkerId: "offset-arrow-label",
   });
-  else if (!vipMatch) appendLabel(p.realActionPoint, `CALC ACTION POINT · ${fmt(geometry.actionRangeNm, 2)} NM`, {
-    labelKey: "action-point", color: COLORS.invalid, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "actionRangeNm" },
+  else if (!vipMatch) appendLabel(p.realActionPoint, "CALC ACTION POINT", {
+    labelKey: "action-point", color: COLORS.invalid, leaderMarkerId: "offset-arrow-label",
+  });
+
+  const actionRangeMid = project(add(points.realActionPoint, mul(sub(points.target, points.realActionPoint), 0.5)));
+  appendLabel(actionRangeMid, `${fmt(geometry.actionRangeNm, 2)} NM`, {
+    labelKey: "action-range",
+    color: result.referenceMode === "VIP" && !vipMatch ? COLORS.invalid : COLORS.offset,
+    fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx,
+    leaderMarkerId: "offset-arrow-label",
+    textAttributes: { "data-result-key": "actionRangeNm" },
   });
 
   if (len(sub(points.realActionPoint, points.ip)) > 0.05) {
