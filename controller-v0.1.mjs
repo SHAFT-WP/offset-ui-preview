@@ -192,8 +192,8 @@ function bearingBetween(a, b) {
   const heading = Math.atan2(b.x - a.x, b.y - a.y) * 180 / Math.PI;
   return normHeading(heading);
 }
-function dedRangeText(rangeNm) { return `${Math.round(rangeNm * FT_PER_NM)} FT (${fmt(rangeNm, 2)} NM)`; }
-function dedElevationText(elevationFt) { return `${Math.round(elevationFt)} FT MSL`; }
+function dedRangeText(rangeNm) { return `${Math.round(rangeNm * FT_PER_NM)} ft (${fmt(rangeNm, 2)} NM)`; }
+function dedElevationText(elevationFt) { return `${Math.round(elevationFt)} ft`; }
 
 function renderDed(result) {
   const referencePage = result.referenceMode;
