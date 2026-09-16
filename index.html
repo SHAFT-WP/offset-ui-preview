@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Offset Bombing · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=170e09c1f848">
+<link rel="stylesheet" href="./offset.css?v=e2740974938a">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -82,9 +82,29 @@
   </section>
 
   <section class="section" aria-labelledby="top-view-title">
-    <div class="section-head"><h2 id="top-view-title">Top View</h2><div class="diagram-actions"><select class="capture-button" id="top-view-font-scale" aria-label="Top View font size"><option value="1">FONT 100%</option><option value="1.25">FONT 125%</option><option value="1.5" selected>FONT 150%</option><option value="1.75">FONT 175%</option><option value="2">FONT 200%</option></select><button class="capture-button" id="zoom-out" type="button">−</button><button class="capture-button" id="zoom-fit" type="button">FIT</button><button class="capture-button" id="zoom-reset" type="button">RESET</button><button class="capture-button" id="zoom-in" type="button">＋</button><button class="capture-button" id="capture-top-view" type="button">PNG 저장</button></div></div>
+    <div class="section-head">
+      <h2 id="top-view-title">Top View</h2>
+      <div class="diagram-actions">
+        <div class="diagram-action-row">
+          <div class="font-scale-control" role="group" aria-label="Top View font size">
+            <span class="diagram-control-label">FONT</span>
+            <button class="capture-button" id="top-view-font-down" type="button" aria-label="Top View font smaller">−</button>
+            <output class="diagram-scale-output" id="top-view-font-scale-output" aria-live="polite">150%</output>
+            <button class="capture-button" id="top-view-font-up" type="button" aria-label="Top View font larger">＋</button>
+            <select id="top-view-font-scale" hidden aria-hidden="true" tabindex="-1"><option value="1">100%</option><option value="1.25">125%</option><option value="1.5" selected>150%</option><option value="1.75">175%</option><option value="2">200%</option></select>
+          </div>
+          <button class="capture-button" id="capture-top-view" type="button">PNG 저장</button>
+        </div>
+        <div class="diagram-action-row" role="group" aria-label="Top View zoom controls">
+          <button class="capture-button" id="zoom-out" type="button" aria-label="Zoom out">−</button>
+          <button class="capture-button" id="zoom-fit" type="button">FIT</button>
+          <button class="capture-button" id="zoom-reset" type="button">RESET</button>
+          <button class="capture-button" id="zoom-in" type="button" aria-label="Zoom in">＋</button>
+        </div>
+      </div>
+    </div>
     <div class="top-view-shell"><svg id="offset-top-view" viewBox="0 0 1180 720" role="img" aria-label="Offset Bombing V2 north-up top view"><defs></defs><g id="offset-plot"></g></svg></div>
-    <div class="diagram-legend"><span><i class="legend-dot" style="background:#4c5966"></i>Run-In</span><span><i class="legend-dot" style="background:#a35d00"></i>Offset / Action leg</span><span><i class="legend-dot" style="background:#176dac"></i>BDP Roll-in</span><span><i class="legend-dot" style="background:#087b4c"></i>Attack track</span><span>North-up · compact 000/090/180/270 reference moves with the main tactical plot</span><span>FIT is the default maximum geometry fit · pan activates only after zoom-in</span><span>Offset R: Action Point + Turn End → center · Roll-in R(EFF): Roll In + Track Point → center</span></div>
+    <div class="diagram-legend"><span><i class="legend-dot" style="background:#4c5966"></i>Run-In</span><span><i class="legend-dot" style="background:#a35d00"></i>Offset / Action leg</span><span><i class="legend-dot" style="background:#176dac"></i>BDP Roll-in</span><span><i class="legend-dot" style="background:#087b4c"></i>Attack track</span><span>North-up · canvas top = North / bottom = South</span><span>FIT is the default maximum geometry fit · pan activates only after zoom-in</span><span>Offset R: Action Point + Turn End → center · Roll-in R(EFF): Roll In + Track Point → center</span></div>
   </section>
 
   <section class="section result-stack" aria-label="Results">
@@ -92,6 +112,42 @@
     <details class="input-panel"><summary>Bomb Profile Authoritative Result · BDP v0.3</summary><div class="input-panel-body table-wrap"><table class="result-table"><tbody id="profile-result-body"></tbody></table></div></details>
   </section>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=170e09c1f848"></script>
+<script type="module" src="./controller-v0.1.mjs?v=e2740974938a"></script>
+<script>
+window.addEventListener("DOMContentLoaded", () => {
+  const select = document.querySelector("#top-view-font-scale");
+  const output = document.querySelector("#top-view-font-scale-output");
+  const smaller = document.querySelector("#top-view-font-down");
+  const larger = document.querySelector("#top-view-font-up");
+  const scales = [1, 1.25, 1.5, 1.75, 2];
+  if (!select || !output || !smaller || !larger) return;
+
+  const currentIndex = () => {
+    const value = Number.parseFloat(select.value);
+    const exact = scales.findIndex((scale) => Math.abs(scale - value) < 1e-9);
+    return exact >= 0 ? exact : 2;
+  };
+  const sync = () => {
+    const index = currentIndex();
+    output.textContent = `${Math.round(scales[index] * 100)}%`;
+    smaller.disabled = index === 0;
+    larger.disabled = index === scales.length - 1;
+  };
+  const step = (delta) => {
+    const index = Math.max(0, Math.min(scales.length - 1, currentIndex() + delta));
+    const next = String(scales[index]);
+    if (select.value !== next) {
+      select.value = next;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    sync();
+  };
+
+  smaller.addEventListener("click", () => step(-1));
+  larger.addEventListener("click", () => step(1));
+  select.addEventListener("change", sync);
+  sync();
+}, { once: true });
+</script>
 </body>
 </html>
