@@ -10,7 +10,7 @@ import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.7",
+  version: "0.1.8",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
@@ -132,9 +132,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
     createOpenArrowMarker("offset-arrow-label", COLORS.helper, SVG_DIAGRAM_STYLE_V0_1.arrow.leader),
   );
 
-  const vipMatch = result.referenceMode === "VIP" && Math.abs(result.resolved.ipRangeNm - geometry.actionRangeNm) <= 0.01;
-  if (result.referenceMode === "VRP") appendDirectedLine(root, p.ip, p.realActionPoint, { color: COLORS.run, width: 5, markerEndId: "offset-arrow-run", fromGap: 13, toGap: 8 });
-  else if (!vipMatch) appendDirectedLine(root, p.ip, p.realActionPoint, { color: COLORS.invalid, width: 2.5, dasharray: "7 6", fromGap: 13, toGap: 8 });
+  if (len(sub(points.realActionPoint, points.ip)) > 0.001) appendDirectedLine(root, p.ip, p.realActionPoint, { color: COLORS.run, width: 5, markerEndId: "offset-arrow-run", fromGap: 13, toGap: 8 });
   appendDirectedLine(root, p.realActionPoint, p.target, { color: "#b1bbc4", width: 1.4, dasharray: "7 6" });
   appendPolyline(root, offsetArc, { color: COLORS.offset, width: 6, markerEndId: "offset-arrow-offset" });
   appendDirectedLine(root, p.turnEnd, p.rollStart, { color: geometry.actionLegDistanceNm < 0 ? COLORS.invalid : COLORS.offset, width: geometry.actionLegDistanceNm < 0 ? 3 : 5, dasharray: geometry.actionLegDistanceNm < 0 ? "7 6" : undefined });
@@ -150,15 +148,14 @@ export function renderOffsetTopView(svg, result, options = {}) {
   }
 
   appendSquare(root, p.ip, 24, COLORS.run, result.referenceMode === "VIP" ? COLORS.offset : "#fff");
-  if (result.referenceMode === "VRP" || !vipMatch) appendCircle(root, p.realActionPoint, 7, result.state === "INVALID" && result.referenceMode === "VIP" ? COLORS.invalid : COLORS.offset);
+  appendCircle(root, p.realActionPoint, 7, COLORS.offset);
   appendCircle(root, p.rollStart, 6, COLORS.roll);
   appendCircle(root, p.trackPoint, 5, COLORS.roll);
   appendCircle(root, p.target, 14, COLORS.target);
 
   const sameVrpAp = result.referenceMode === "VRP" && Math.abs(result.reference.displayRangeNm - geometry.actionRangeNm) <= 0.01;
-  const sameVrpIp = result.referenceMode === "VRP" && Math.abs(result.reference.displayRangeNm - result.resolved.ipRangeNm) <= 0.01;
-  const sameVipIp = result.referenceMode === "VIP" && Math.abs(result.reference.displayRangeNm - result.resolved.ipRangeNm) <= 0.01;
-  if ((result.referenceMode === "VRP" && !sameVrpAp && !sameVrpIp) || (result.referenceMode === "VIP" && !sameVipIp)) appendCircle(root, referencePoint, 4.5, COLORS.reference);
+  const sameVrpVip = result.referenceMode === "VRP" && Math.abs(result.reference.displayRangeNm - result.resolved.ipRangeNm) <= 0.01;
+  if (result.referenceMode === "VRP" && !sameVrpAp && !sameVrpVip) appendCircle(root, referencePoint, 4.5, COLORS.reference);
 
   const labels = createSmartLabelLayout(root, { width: WIDTH, height: HEIGHT, labelPad: 10, pathPad: 7 });
   const appendLabel = (point, text, labelOptions = {}) => {
@@ -183,20 +180,17 @@ export function renderOffsetTopView(svg, result, options = {}) {
     reservePolyline(labels, [p.trackPoint, p.rollCenter], 4);
   }
 
-  appendLabel(p.ip, result.referenceMode === "VIP" ? "IP / ACTION POINT" : `IP · ${fmt(result.resolved.ipRangeNm, 2)} NM`, {
-    labelKey: "ip", color: COLORS.run, leader: false, leaderMarkerId: "offset-arrow-label", textAttributes: result.referenceMode === "VIP" ? undefined : { "data-result-key": "ipRangeNm" },
+  appendLabel(p.ip, `VIP · ${fmt(result.resolved.ipRangeNm, 2)} NM`, {
+    labelKey: "vip", color: COLORS.run, leader: false, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "ipRangeNm" },
   });
-  if (result.referenceMode === "VRP") appendLabel(p.realActionPoint, "ACTION POINT", {
+  appendLabel(p.realActionPoint, "ACTION POINT", {
     labelKey: "action-point", color: COLORS.offset, leaderMarkerId: "offset-arrow-label",
-  });
-  else if (!vipMatch) appendLabel(p.realActionPoint, "CALC ACTION POINT", {
-    labelKey: "action-point", color: COLORS.invalid, leaderMarkerId: "offset-arrow-label",
   });
 
   const actionRangeMid = project(add(points.realActionPoint, mul(sub(points.target, points.realActionPoint), 0.5)));
   appendLabel(actionRangeMid, `${fmt(geometry.actionRangeNm, 2)} NM`, {
     labelKey: "action-range",
-    color: result.referenceMode === "VIP" && !vipMatch ? COLORS.invalid : COLORS.offset,
+    color: COLORS.offset,
     fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx,
     leaderMarkerId: "offset-arrow-label",
     textAttributes: { "data-result-key": "actionRangeNm" },
@@ -241,10 +235,9 @@ export function renderOffsetTopView(svg, result, options = {}) {
     });
   }
 
-  if (result.referenceMode === "VRP" && !sameVrpAp && !sameVrpIp) appendLabel(referencePoint, `VRP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { labelKey: "reference", color: COLORS.reference, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx, leaderMarkerId: "offset-arrow-label" });
-  if (result.referenceMode === "VIP" && !sameVipIp) appendLabel(referencePoint, `VIP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { labelKey: "reference", color: COLORS.reference, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx, leaderMarkerId: "offset-arrow-label" });
+  if (result.referenceMode === "VRP" && !sameVrpAp && !sameVrpVip) appendLabel(referencePoint, `VRP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { labelKey: "reference", color: COLORS.reference, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx, leaderMarkerId: "offset-arrow-label" });
   if (result.reference.clampedAtTarget) appendLabel(p.target, "VRP CONSTRAINED AT TARGET", { labelKey: "reference-constraint", color: COLORS.invalid, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx, leaderMarkerId: "offset-arrow-label" });
-  if (result.reference.clampedAtIp) appendLabel(p.ip, "VRP CONSTRAINED AT IP", { labelKey: "reference-constraint", color: COLORS.invalid, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx, leaderMarkerId: "offset-arrow-label" });
+  if (result.reference.clampedAtIp) appendLabel(p.ip, "VRP CONSTRAINED AT VIP", { labelKey: "reference-constraint", color: COLORS.invalid, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx, leaderMarkerId: "offset-arrow-label" });
 
   labelDrags.get(svg)?.applyStoredPositions();
 }
