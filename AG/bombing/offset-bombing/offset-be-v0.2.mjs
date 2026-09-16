@@ -10,7 +10,7 @@ import {
   validateOffsetCandidate,
 } from "./offset-geometry-v0.2.mjs";
 
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.1", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.2", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -146,19 +146,15 @@ function solveOffsetAngleForMetric({ targetValue, evaluate, metric, minOffsetAng
   return { candidate, residualNm: residual, exact: !!candidate && Math.abs(residual) <= tolerance };
 }
 
-function chooseRangeConstraint(input, locks, driver, referenceMode, errors) {
+function chooseRangeConstraint(input, locks, driver) {
   const actionLocked = !!locks.actionRangeNm;
   const offsetRangeLocked = !!locks.offsetRangeNm;
-  const ipLocked = !!locks.ipRangeNm;
-  if (referenceMode === "VIP" && actionLocked && ipLocked && !near(input.actionRangeNm, input.ipRangeNm, 0.002)) errors.push("LOCK conflict: VIP requires locked IP Range = locked Action Range");
 
-  // LOCK has priority over the currently edited driver. A driver may move only the remaining unlocked variables.
+  // VIP/IP range defines the ingress reference point only. It never drives Action Point geometry.
   if (actionLocked) return { fixed: true, kind: "action", targetRangeNm: finite("actionRangeNm", input.actionRangeNm), source: "locked-action-range" };
   if (offsetRangeLocked) return { fixed: true, kind: "offset", targetRangeNm: finite("offsetRangeNm", input.offsetRangeNm), source: "locked-offset-range" };
-  if (referenceMode === "VIP" && ipLocked) return { fixed: true, kind: "action", targetRangeNm: finite("ipRangeNm", input.ipRangeNm), source: "locked-ip-range" };
   if (driver === "offsetRangeNm") return { fixed: true, kind: "offset", targetRangeNm: finite("offsetRangeNm", input.offsetRangeNm), source: "driver-offset-range" };
   if (driver === "actionRangeNm") return { fixed: true, kind: "action", targetRangeNm: finite("actionRangeNm", input.actionRangeNm), source: "driver-action-range" };
-  if (referenceMode === "VIP" && driver === "ipRangeNm") return { fixed: true, kind: "action", targetRangeNm: finite("ipRangeNm", input.ipRangeNm), source: "driver-ip-range" };
   return { fixed: false, kind: null, targetRangeNm: null, source: null };
 }
 
@@ -172,7 +168,7 @@ export function calculateOffsetV0_2(input) {
   const runInHeadingDeg = finite("runInHeadingDeg", input.runInHeadingDeg);
   const enteredAttackHeadingDeg = finite("attackHeadingDeg", input.attackHeadingDeg);
   const enteredAngleOffDeg = Math.abs(finite("angleOffDeg", input.angleOffDeg));
-  let ipRangeNm = finite("ipRangeNm", input.ipRangeNm);
+  const ipRangeNm = finite("ipRangeNm", input.ipRangeNm);
   const direction = directionRule(runInHeadingDeg, enteredAttackHeadingDeg);
   if (direction.ambiguous) throw new Error("Run-In / Attack relation is directionally ambiguous");
 
@@ -193,7 +189,7 @@ export function calculateOffsetV0_2(input) {
   if (locks.offsetAngleDeg || driver === "offsetAngleDeg") initialOffsetAngleDeg = Math.abs(finite("offsetAngleDeg", input.offsetAngleDeg));
   else initialOffsetAngleDeg = offsetAngleFromAngleOff(runInHeadingDeg, enteredAttackHeadingDeg, enteredAngleOffDeg, direction);
 
-  const range = chooseRangeConstraint(input, locks, driver, referenceMode, errors);
+  const range = chooseRangeConstraint(input, locks, driver);
   const offsetCanVary = !locks.offsetAngleDeg && driver !== "offsetAngleDeg" && !(locks.attackHeadingDeg && locks.angleOffDeg);
   let candidate = null;
   let residualNm = null;
@@ -225,26 +221,15 @@ export function calculateOffsetV0_2(input) {
   if (locks.actionRangeNm && !near(input.actionRangeNm, candidate.actionRangeNm, 0.002)) errors.push("LOCK conflict: Action Range cannot be satisfied");
   if (locks.offsetRangeNm && !near(input.offsetRangeNm, candidate.actionLegDistanceNm, 0.002)) errors.push("LOCK conflict: Offset Range cannot be satisfied");
 
-  if (referenceMode === "VIP") {
-    if (range.fixed && range.kind === "action") ipRangeNm = range.targetRangeNm;
-    else if (locks.ipRangeNm) {
-      ipRangeNm = input.ipRangeNm;
-      const mismatch = candidate.actionRangeNm - ipRangeNm;
-      if (Math.abs(mismatch) > 0.002) errors.push(`VIP locked IP residual ${mismatch.toFixed(3)} NM`);
-    } else ipRangeNm = candidate.actionRangeNm;
-    if (!near(candidate.actionRangeNm, ipRangeNm, 0.002)) errors.push("VIP mode requires IP = Action Point");
-    candidate = { ...candidate, points: { ...candidate.points, ip: { ...candidate.points.realActionPoint } } };
-  }
-
-  const candidateValidation = validateOffsetCandidate(candidate, { referenceMode, ipRangeNm, vipEqualityToleranceNm: 0.002 });
+  const candidateValidation = validateOffsetCandidate(candidate, { referenceMode, ipRangeNm });
   errors.push(...candidateValidation.errors);
   warnings.push(...candidateValidation.warnings);
-  const reference = buildReferenceState(candidate, { referenceMode, vrpRangeNm: input.vrpRangeNm, vipRangeNm: input.vipRangeNm, vrpLinked: input.vrpLinked, vipLinked: input.vipLinked, ipRangeNm });
+  const reference = buildReferenceState(candidate, { referenceMode, vrpRangeNm: input.vrpRangeNm, vrpLinked: input.vrpLinked, ipRangeNm });
   errors.push(...reference.errors);
   warnings.push(...reference.warnings);
 
   const speedFps = turn.offsetTasKt * KT_TO_FPS;
-  const ingressDistanceNm = referenceMode === "VIP" ? 0 : Math.max(0, ipRangeNm - candidate.actionRangeNm);
+  const ingressDistanceNm = Math.max(0, ipRangeNm - candidate.actionRangeNm);
   const ingressSec = ingressDistanceNm * FT_PER_NM / speedFps;
   const turnSec = turn.offsetRadiusNm * FT_PER_NM * rad(candidate.offsetAngleDeg) / speedFps;
   const offsetRangeNm = candidate.actionLegDistanceNm;
@@ -261,7 +246,7 @@ export function calculateOffsetV0_2(input) {
       runInHeadingDeg, attackHeadingDeg: candidate.attackHeadingDeg, angleOffDeg: candidate.angleOffDeg, offsetAngleDeg: candidate.offsetAngleDeg,
       actionHeadingDeg: candidate.actionHeadingDeg, actionRangeNm: candidate.actionRangeNm, offsetRangeNm, ipRangeNm,
       vrpRangeNm: referenceMode === "VRP" && reference.linked ? candidate.actionRangeNm : input.vrpRangeNm,
-      vipRangeNm: referenceMode === "VIP" && reference.linked ? ipRangeNm : input.vipRangeNm,
+      vipRangeNm: ipRangeNm,
       offsetAltitudeMslFt: input.offsetAltitudeMslFt, offsetSpeedValue: input.offsetSpeedValue, offsetSpeedMode: input.offsetSpeedMode ?? "CAS",
       offsetG: turn.offsetG, offsetBankDeg: turn.offsetBankDeg, offsetRadiusNm: turn.offsetRadiusNm, offsetTasKt: turn.offsetTasKt,
     },

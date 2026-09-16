@@ -1,6 +1,6 @@
 export const OFFSET_GEOMETRY_V0_2 = Object.freeze({
   id: "offset-geometry-v0.2",
-  version: "0.2.1",
+  version: "0.2.2",
   purpose: "Pure Offset Bombing heading/action-point geometry independent of DOM and rendering",
 });
 
@@ -87,7 +87,7 @@ export function buildOffsetCandidate(input) {
   ].forEach(([name, value]) => requireFinite(name, value));
   if (!(offsetAngleDeg > 0 && offsetAngleDeg < 179.5)) throw new RangeError("Offset Angle must be > 0 and < 179.5 deg");
   if (!(offsetRadiusNm > 0)) throw new RangeError("Offset Radius must be > 0 NM");
-  if (!(ipRangeNm >= 0)) throw new RangeError("IP Range must be >= 0 NM");
+  if (!(ipRangeNm >= 0)) throw new RangeError("VIP Range must be >= 0 NM");
   if (!profile?.public || !profile?.diagnostics || !profile?.visualization) throw new TypeError("profile must be a BDP semantic result");
 
   const direction = directionRule(runInHeadingDeg, attackHeadingDeg);
@@ -145,7 +145,7 @@ export function buildOffsetCandidate(input) {
     rollInRangeNm: profile.public.rollInRangeNm,
     rollInRadiusNm,
     groundRangeNm: profile.public.groundRangeNm,
-    points: { target: { x: 0, y: 0 }, ip: ipPoint, rollStart, trackPoint, temporaryActionPoint, realActionPoint, turnEnd, offsetCenter, rollCenter },
+    points: { target: { x: 0, y: 0 }, ip: ipPoint, vip: ipPoint, rollStart, trackPoint, temporaryActionPoint, realActionPoint, turnEnd, offsetCenter, rollCenter },
     vectors: { runVector, actionVector },
     rollInTrajectorySamples,
     profile,
@@ -156,27 +156,35 @@ export function buildReferenceState(candidate, input) {
   const mode = input.referenceMode === "VIP" ? "VIP" : "VRP";
   const warnings = [];
   const errors = [];
-  let requestedRangeNm;
-  let linked;
-  if (mode === "VRP") {
-    linked = input.vrpLinked !== false;
-    requestedRangeNm = linked ? candidate.actionRangeNm : input.vrpRangeNm;
-  } else {
-    linked = input.vipLinked !== false;
-    requestedRangeNm = linked ? input.ipRangeNm : input.vipRangeNm;
-  }
-  if (!Number.isFinite(requestedRangeNm)) requestedRangeNm = mode === "VRP" ? candidate.actionRangeNm : input.ipRangeNm;
   const ipRangeNm = Number.isFinite(input.ipRangeNm) ? Math.max(0, input.ipRangeNm) : Infinity;
-  if (requestedRangeNm < 0) errors.push(`${mode} cannot be placed beyond Target; range must be >= 0 NM`);
-  if (mode === "VRP" && requestedRangeNm > ipRangeNm) errors.push("VRP must be between IP and Target; range must be <= IP Range");
+
+  if (mode === "VIP") {
+    const displayRangeNm = Number.isFinite(input.ipRangeNm) ? Math.max(0, input.ipRangeNm) : 0;
+    if (Number.isFinite(input.ipRangeNm) && input.ipRangeNm < 0) errors.push("VIP-to-Target range must be >= 0 NM");
+    return {
+      mode,
+      linked: true,
+      requestedRangeNm: displayRangeNm,
+      displayRangeNm,
+      point: { ...candidate.points.ip },
+      clampedAtTarget: false,
+      clampedAtIp: false,
+      errors,
+      warnings,
+    };
+  }
+
+  const linked = input.vrpLinked !== false;
+  let requestedRangeNm = linked ? candidate.actionRangeNm : input.vrpRangeNm;
+  if (!Number.isFinite(requestedRangeNm)) requestedRangeNm = candidate.actionRangeNm;
+  if (requestedRangeNm < 0) errors.push("VRP cannot be placed beyond Target; range must be >= 0 NM");
+  if (requestedRangeNm > ipRangeNm) errors.push("VRP must be between VIP and Target; range must be <= VIP Range");
   const clampedAtTarget = requestedRangeNm < 0;
-  const clampedAtIp = mode === "VRP" && requestedRangeNm > ipRangeNm;
-  const displayRangeNm = mode === "VRP"
-    ? Math.min(ipRangeNm, Math.max(0, requestedRangeNm))
-    : Math.max(0, requestedRangeNm);
+  const clampedAtIp = requestedRangeNm > ipRangeNm;
+  const displayRangeNm = Math.min(ipRangeNm, Math.max(0, requestedRangeNm));
   const point = mul(candidate.vectors.runVector, -displayRangeNm);
   const projectionOnRun = dot(point, candidate.vectors.runVector);
-  if (projectionOnRun > 1e-9) errors.push(`${mode} reference projection passed Target`);
+  if (projectionOnRun > 1e-9) errors.push("VRP reference projection passed Target");
   return { mode, linked, requestedRangeNm, displayRangeNm, point, clampedAtTarget, clampedAtIp, errors, warnings };
 }
 
@@ -184,18 +192,14 @@ export function validateOffsetCandidate(candidate, input = {}) {
   const errors = [];
   const warnings = [];
   if (candidate.actionLegDistanceNm < 0) errors.push("Offset Turn End has passed Roll-in Start");
-  else if (candidate.actionLegDistanceNm < 0.25) warnings.push("Offset Turn End to Roll-in Start straight leg is very short");
+  else if (candidate.actionLegDistanceNm < 0.25) warnings.push("Offset Turn End to Roll-in Start Approach is very short");
   if (candidate.offsetAngleDeg >= 120) warnings.push("Offset Angle is 120 deg or greater");
 
   const actionPointRunRangeNm = -dot(candidate.points.realActionPoint, candidate.vectors.runVector);
   if (actionPointRunRangeNm < -0.001) {
-    errors.push("Action Point must be between IP and Target; Action Point has passed Target");
+    errors.push("Action Point must be between VIP and Target; Action Point has passed Target");
   } else if (Number.isFinite(input.ipRangeNm) && actionPointRunRangeNm > input.ipRangeNm + 0.001) {
-    errors.push("Action Point must be between IP and Target; Action Point has passed IP");
-  }
-
-  if (input.referenceMode === "VIP") {
-    if (Math.abs(candidate.actionRangeNm - input.ipRangeNm) > (input.vipEqualityToleranceNm ?? 0.002)) errors.push("VIP mode requires IP = Action Point (Action Range = IP Range)");
+    errors.push("Action Point must be between VIP and Target; Action Point has passed VIP");
   }
   return { errors, warnings };
 }
