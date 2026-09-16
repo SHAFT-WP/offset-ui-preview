@@ -196,13 +196,10 @@ function dedRangeText(rangeNm) { return `${Math.round(rangeNm * FT_PER_NM)} ft (
 function dedElevationText(elevationFt) { return `${Math.round(elevationFt)} ft`; }
 
 function renderDed(result) {
-  const referencePage = result.referenceMode;
-  if ((dedPage === "VRP" || dedPage === "VIP") && dedPage !== referencePage) dedPage = referencePage;
+  const selectedStpt = result.referenceMode === "VIP" ? "VIP" : "TARGET";
+  const selectedStptOutput = $("#ded-selected-stpt");
+  if (selectedStptOutput) selectedStptOutput.textContent = `SELECTED STPT · ${selectedStpt}`;
 
-  const vrpTab = $("#ded-vrp-tab");
-  const vipTab = $("#ded-vip-tab");
-  vrpTab.hidden = referencePage !== "VRP";
-  vipTab.hidden = referencePage !== "VIP";
   $$("[data-ded-page]").forEach((button) => {
     const active = button.dataset.dedPage === dedPage;
     button.classList.toggle("active", active);
@@ -223,26 +220,33 @@ function renderDed(result) {
     bearingDeg = result.geometry.runInHeadingDeg;
     rangeNm = result.resolved.ipRangeNm;
     elevationMslFt = targetElevationMslFt;
-    note = "VIP REFERENCE · TO-TARGET";
+    note = `VIP REFERENCE · TO-TARGET · SELECTED STPT ${selectedStpt}`;
   } else if (dedPage === "VRP") {
+    const requestedVrpRangeNm = vrpLinked ? result.resolved.actionRangeNm : numberValue("vrpRangeNm");
+    const vrpRangeNm = Math.min(result.resolved.ipRangeNm, Math.max(0, requestedVrpRangeNm));
+    const run = result.geometry.vectors.runVector;
+    const vrpPoint = {
+      x: points.target.x - run.x * vrpRangeNm,
+      y: points.target.y - run.y * vrpRangeNm,
+    };
     title = "TGT-TO-VRP";
-    bearingDeg = bearingBetween(points.target, result.reference.point);
-    rangeNm = result.reference.displayRangeNm;
+    bearingDeg = vrpRangeNm > 1e-9 ? bearingBetween(points.target, vrpPoint) : normHeading(result.geometry.runInHeadingDeg + 180);
+    rangeNm = vrpRangeNm;
     elevationMslFt = targetElevationMslFt;
-    note = "TARGET REFERENCE · VRP ELEV CURRENTLY FOLLOWS TARGET ELEV";
-  } else if (dedPage === "OA1") {
-    const base = result.referenceMode === "VIP" ? points.ip : points.target;
-    title = "DEST OA1";
+    note = `TARGET REFERENCE · VRP ELEV FOLLOWS TARGET ELEV · SELECTED STPT ${selectedStpt}`;
+  } else if (dedPage === "OAP1") {
+    const base = result.referenceMode === "VIP" ? (points.vip ?? points.ip) : points.target;
+    title = "DEST OAP1";
     bearingDeg = bearingBetween(base, points.rollStart);
     rangeNm = pointDistanceNm(base, points.rollStart);
     elevationMslFt = initialAltitudeMslFt;
-    note = `ROLL-IN POINT · ${result.referenceMode === "VIP" ? "VIP" : "TARGET"} REFERENCE`;
+    note = `OAP1 SLOT · OA1 / ROLL-IN START · ${selectedStpt} REFERENCE`;
   } else {
-    title = "DEST OA2";
+    title = "DEST OAP2";
     bearingDeg = 0;
     rangeNm = 0;
     elevationMslFt = 0;
-    note = "UNASSIGNED";
+    note = "OAP2 SLOT · UNASSIGNED";
   }
 
   $("#ded-page-title").textContent = title;
@@ -382,13 +386,11 @@ function installModeButtons() {
   $("#vrp-btn").addEventListener("click", () => {
     referenceMode = "VRP"; vrpLinked = true;
     $("#vrp-btn").classList.add("active"); $("#vip-btn").classList.remove("active");
-    if (dedPage === "VIP") dedPage = "VRP";
     driver = "angleOffDeg"; calculate();
   });
   $("#vip-btn").addEventListener("click", () => {
     referenceMode = "VIP";
     $("#vip-btn").classList.add("active"); $("#vrp-btn").classList.remove("active");
-    if (dedPage === "VRP") dedPage = "VIP";
     driver = "ipRangeNm"; calculate();
   });
 }
@@ -396,7 +398,6 @@ function installModeButtons() {
 function installDedTabs() {
   $$("[data-ded-page]").forEach((button) => {
     button.addEventListener("click", () => {
-      if (button.hidden) return;
       dedPage = button.dataset.dedPage;
       if (lastResult) renderDed(lastResult);
     });
