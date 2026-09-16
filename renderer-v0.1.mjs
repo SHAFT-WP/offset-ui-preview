@@ -10,18 +10,19 @@ import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.4",
+  version: "0.1.5",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
 const WIDTH = 1180;
-const HEIGHT = 720;
+const HEIGHT = 1440;
 const TOP_VIEW_FONT_SCALE_DEFAULT = 1.5;
 const TOP_VIEW_FONT_SCALE_MIN = 1.0;
 const TOP_VIEW_FONT_SCALE_MAX = 2.0;
 const COLORS = Object.freeze({ run: "#4c5966", offset: "#a35d00", roll: "#176dac", attack: "#087b4c", target: "#bd3333", reference: "#5b6f82", invalid: "#bd3333", helper: "#7a8793" });
 const viewports = new WeakMap();
 const labelDrags = new WeakMap();
+const lastRenderedResults = new WeakMap();
 
 function finitePoint(point) { return point && Number.isFinite(point.x) && Number.isFinite(point.y); }
 function add(a, b) { return { x: a.x + b.x, y: a.y + b.y }; }
@@ -99,7 +100,6 @@ export function installOffsetTopViewControls(svg, controls = {}) {
       panOnlyWhenZoomed: true,
       zoomInButton: controls.zoomInButton,
       zoomOutButton: controls.zoomOutButton,
-      fitButton: controls.fitButton,
       resetButton: controls.resetButton,
     });
     viewports.set(svg, viewport);
@@ -117,7 +117,11 @@ export function renderOffsetTopView(svg, result, options = {}) {
   const fontScale = normalizeTopViewFontScale(options.fontScale);
   const root = svg.querySelector("#offset-plot") ?? svg.appendChild(svgNode("g", { id: "offset-plot" }));
   root.replaceChildren();
-  viewports.get(svg)?.ensureBaseWhenUnadjusted();
+  const viewport = viewports.get(svg);
+  const geometryChanged = lastRenderedResults.get(svg) !== result;
+  if (geometryChanged) viewport?.reset(false);
+  else viewport?.ensureBaseWhenUnadjusted();
+  lastRenderedResults.set(svg, result);
 
   const geometry = result.geometry;
   const points = geometry.points;
