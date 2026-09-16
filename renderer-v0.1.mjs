@@ -5,12 +5,12 @@ import {
   svgNode,
 } from "./common/diagram/svg-primitives-v0.1.mjs";
 import { createSmartLabelLayout, installSmartLabelDrag } from "./common/diagram/svg-smart-label-v0.1.mjs";
-import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs";
+import { createSvgAutoFitProjection, installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.5",
+  version: "0.1.6",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
@@ -35,29 +35,6 @@ function normalizeTopViewFontScale(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return TOP_VIEW_FONT_SCALE_DEFAULT;
   return Math.min(TOP_VIEW_FONT_SCALE_MAX, Math.max(TOP_VIEW_FONT_SCALE_MIN, numeric));
-}
-
-function projectFactory(points) {
-  const valid = points.filter(finitePoint);
-  if (!valid.length) return (point) => ({ x: WIDTH / 2 + point.x, y: HEIGHT / 2 - point.y });
-  const minX = Math.min(...valid.map((point) => point.x));
-  const maxX = Math.max(...valid.map((point) => point.x));
-  const minY = Math.min(...valid.map((point) => point.y));
-  const maxY = Math.max(...valid.map((point) => point.y));
-  const margins = { left: 48, right: 48, top: 48, bottom: 48 };
-  const usableWidth = WIDTH - margins.left - margins.right;
-  const usableHeight = HEIGHT - margins.top - margins.bottom;
-  const spanX = Math.max(0.5, maxX - minX);
-  const spanY = Math.max(0.5, maxY - minY);
-  const scale = Math.min(usableWidth / spanX, usableHeight / spanY);
-  const usedWidth = spanX * scale;
-  const usedHeight = spanY * scale;
-  const left = margins.left + (usableWidth - usedWidth) / 2;
-  const top = margins.top + (usableHeight - usedHeight) / 2;
-  return (point) => ({
-    x: left + (point.x - minX) * scale,
-    y: top + (maxY - point.y) * scale,
-  });
 }
 
 function sampleArc(center, start, end, turnDirection, steps = 48) {
@@ -98,6 +75,8 @@ export function installOffsetTopViewControls(svg, controls = {}) {
     viewport = installSvgViewport(svg, {
       baseViewBox: { x: 0, y: 0, w: WIDTH, h: HEIGHT },
       panOnlyWhenZoomed: true,
+      buttonOnlyZoom: true,
+      allowPageScrollWhenPanDisabled: true,
       zoomInButton: controls.zoomInButton,
       zoomOutButton: controls.zoomOutButton,
       resetButton: controls.resetButton,
@@ -119,14 +98,24 @@ export function renderOffsetTopView(svg, result, options = {}) {
   root.replaceChildren();
   const viewport = viewports.get(svg);
   const geometryChanged = lastRenderedResults.get(svg) !== result;
-  if (geometryChanged) viewport?.reset(false);
+  if (geometryChanged) viewport?.autoFit();
   else viewport?.ensureBaseWhenUnadjusted();
   lastRenderedResults.set(svg, result);
 
   const geometry = result.geometry;
   const points = geometry.points;
   const allWorldPoints = [points.target, points.ip, points.realActionPoint, points.turnEnd, points.offsetCenter, points.rollStart, points.trackPoint, points.rollCenter, result.reference.point, ...geometry.rollInTrajectorySamples].filter(finitePoint);
-  const project = projectFactory(allWorldPoints);
+  const fit = createSvgAutoFitProjection(allWorldPoints, {
+    width: WIDTH,
+    height: HEIGHT,
+    margins: 48,
+    minSpan: 0.5,
+    flipY: true,
+  });
+  const project = fit.project;
+  svg.dataset.autoFitAxis = Math.abs(fit.usedWidth - fit.usableWidth) <= Math.abs(fit.usedHeight - fit.usableHeight) ? "width" : "height";
+  svg.dataset.autoFitScale = String(fit.scale);
+
   const p = Object.fromEntries(Object.entries(points).map(([key, point]) => [key, finitePoint(point) ? project(point) : null]));
   const referencePoint = project(result.reference.point);
   const rollPath = geometry.rollInTrajectorySamples.map(project);
@@ -172,10 +161,14 @@ export function renderOffsetTopView(svg, result, options = {}) {
   if ((result.referenceMode === "VRP" && !sameVrpAp && !sameVrpIp) || (result.referenceMode === "VIP" && !sameVipIp)) appendCircle(root, referencePoint, 4.5, COLORS.reference);
 
   const labels = createSmartLabelLayout(root, { width: WIDTH, height: HEIGHT, labelPad: 10, pathPad: 7 });
-  const appendLabel = (point, text, labelOptions = {}) => labels.append(point, text, {
-    ...labelOptions,
-    fontSize: (labelOptions.fontSize ?? SVG_DIAGRAM_STYLE_V0_1.font.smartLabelPx) * fontScale,
-  });
+  const appendLabel = (point, text, labelOptions = {}) => {
+    const baseFontSize = labelOptions.fontSize ?? SVG_DIAGRAM_STYLE_V0_1.font.lineTitlePx;
+    return labels.append(point, text, {
+      background: false,
+      ...labelOptions,
+      fontSize: baseFontSize * fontScale,
+    });
+  };
   [p.ip, p.realActionPoint, p.rollStart, p.trackPoint, p.target].filter(Boolean).forEach((point) => labels.reservePoint(point, 14));
   reservePolyline(labels, [p.ip, p.realActionPoint]);
   reservePolyline(labels, offsetArc);
@@ -217,7 +210,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   appendLabel(offsetRangeAnchor, `OFFSET RANGE · ${fmt(result.resolved.offsetRangeNm, 2)} NM`, {
     labelKey: "offset-range",
     color: geometry.actionLegDistanceNm < 0 ? COLORS.invalid : COLORS.offset,
-    fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx,
+    fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx,
     leaderMarkerId: "offset-arrow-label",
     textAttributes: { "data-result-key": "offsetRangeNm" },
   });
@@ -225,23 +218,23 @@ export function renderOffsetTopView(svg, result, options = {}) {
   appendLabel(p.trackPoint, "TRACK POINT", { labelKey: "track-point", color: COLORS.roll, leaderMarkerId: "offset-arrow-label" });
   const attackMid = project(add(points.trackPoint, mul(sub(points.target, points.trackPoint), 0.5)));
   appendLabel(attackMid, `ATTACK · ${fmtHeading(geometry.attackHeadingDeg)}`, { labelKey: "attack", color: COLORS.attack, leaderMarkerId: "offset-arrow-label" });
-  appendLabel(p.target, "TARGET", { labelKey: "target", color: COLORS.target, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.lineTitlePx, leaderMarkerId: "offset-arrow-label" });
+  appendLabel(p.target, "TARGET", { labelKey: "target", color: COLORS.target, leaderMarkerId: "offset-arrow-label" });
 
   const offsetRadiusMid = project(add(points.offsetCenter, mul(sub(points.realActionPoint, points.offsetCenter), 0.5)));
   appendLabel(offsetRadiusMid, `OFFSET R · ${fmt(result.resolved.offsetRadiusNm, 2)} NM`, {
-    labelKey: "offset-radius", color: COLORS.offset, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "offsetRadiusNm" },
+    labelKey: "offset-radius", color: COLORS.offset, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "offsetRadiusNm" },
   });
   if (p.rollCenter) {
     const rollRadiusMid = project(add(points.rollCenter, mul(sub(points.rollStart, points.rollCenter), 0.5)));
     appendLabel(rollRadiusMid, `ROLL-IN R(EFF) · ${fmt(geometry.rollInRadiusNm, 2)} NM`, {
-      labelKey: "roll-radius", color: COLORS.roll, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "rollInRadiusNm" },
+      labelKey: "roll-radius", color: COLORS.roll, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx, leaderMarkerId: "offset-arrow-label", textAttributes: { "data-result-key": "rollInRadiusNm" },
     });
   }
 
-  if (result.referenceMode === "VRP" && !sameVrpAp && !sameVrpIp) appendLabel(referencePoint, `VRP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { labelKey: "reference", color: COLORS.reference, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx, leaderMarkerId: "offset-arrow-label" });
-  if (result.referenceMode === "VIP" && !sameVipIp) appendLabel(referencePoint, `VIP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { labelKey: "reference", color: COLORS.reference, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx, leaderMarkerId: "offset-arrow-label" });
-  if (result.reference.clampedAtTarget) appendLabel(p.target, "VRP CONSTRAINED AT TARGET", { labelKey: "reference-constraint", color: COLORS.invalid, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx, leaderMarkerId: "offset-arrow-label" });
-  if (result.reference.clampedAtIp) appendLabel(p.ip, "VRP CONSTRAINED AT IP", { labelKey: "reference-constraint", color: COLORS.invalid, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.compactPx, leaderMarkerId: "offset-arrow-label" });
+  if (result.referenceMode === "VRP" && !sameVrpAp && !sameVrpIp) appendLabel(referencePoint, `VRP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { labelKey: "reference", color: COLORS.reference, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx, leaderMarkerId: "offset-arrow-label" });
+  if (result.referenceMode === "VIP" && !sameVipIp) appendLabel(referencePoint, `VIP · ${fmt(result.reference.displayRangeNm, 2)} NM`, { labelKey: "reference", color: COLORS.reference, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx, leaderMarkerId: "offset-arrow-label" });
+  if (result.reference.clampedAtTarget) appendLabel(p.target, "VRP CONSTRAINED AT TARGET", { labelKey: "reference-constraint", color: COLORS.invalid, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx, leaderMarkerId: "offset-arrow-label" });
+  if (result.reference.clampedAtIp) appendLabel(p.ip, "VRP CONSTRAINED AT IP", { labelKey: "reference-constraint", color: COLORS.invalid, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx, leaderMarkerId: "offset-arrow-label" });
 
   labelDrags.get(svg)?.applyStoredPositions();
 }

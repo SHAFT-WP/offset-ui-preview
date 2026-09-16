@@ -3,7 +3,12 @@ import { createValueStateController } from "./common/ui/value-state-controller-v
 import { exportOffsetTopView, installOffsetTopViewControls, renderOffsetTopView } from "./renderer-v0.1.mjs";
 
 const LOW_ANGLE_BOUNDARY_DEG = 10;
-const TOP_VIEW_FONT_SCALE_DEFAULT = 1.5;
+const TOP_VIEW_FONT_SCALE_DESKTOP_DEFAULT = 1.5;
+const TOP_VIEW_FONT_SCALE_MOBILE_DEFAULT = 2.0;
+const TOP_VIEW_MOBILE_MAX_WIDTH_PX = 620;
+const resolveTopViewFontScaleDefault = () => globalThis.matchMedia?.(`(max-width: ${TOP_VIEW_MOBILE_MAX_WIDTH_PX}px)`)?.matches
+  ? TOP_VIEW_FONT_SCALE_MOBILE_DEFAULT
+  : TOP_VIEW_FONT_SCALE_DESKTOP_DEFAULT;
 const locks = {};
 let driver = "angleOffDeg";
 let turnDriver = "offsetG";
@@ -11,7 +16,7 @@ let referenceMode = "VRP";
 let vrpLinked = true;
 let vipLinked = true;
 let rollBankAuto = true;
-let topViewFontScale = TOP_VIEW_FONT_SCALE_DEFAULT;
+let topViewFontScale = resolveTopViewFontScaleDefault();
 let lastResult = null;
 let initialRender = true;
 let lastResultSnapshot = null;
@@ -347,13 +352,13 @@ function install() {
   document.addEventListener("input", handleFieldChange);
   document.addEventListener("change", (event) => { if (event.target.matches("[data-key]")) handleFieldChange(event); });
   const svg = $("#offset-top-view");
-  installOffsetTopViewControls(svg, { zoomInButton: $("#zoom-in"), zoomOutButton: $("#zoom-out"), fitButton: $("#zoom-fit"), resetButton: $("#zoom-reset") });
+  installOffsetTopViewControls(svg, { zoomInButton: $("#zoom-in"), zoomOutButton: $("#zoom-out"), resetButton: $("#zoom-reset") });
   const fontScaleSelect = $("#top-view-font-scale");
   if (fontScaleSelect) {
     fontScaleSelect.value = String(topViewFontScale);
     fontScaleSelect.addEventListener("change", () => {
       const next = Number.parseFloat(fontScaleSelect.value);
-      topViewFontScale = Number.isFinite(next) ? next : TOP_VIEW_FONT_SCALE_DEFAULT;
+      topViewFontScale = Number.isFinite(next) ? next : resolveTopViewFontScaleDefault();
       if (lastResult) renderTopView(lastResult);
     });
   }
