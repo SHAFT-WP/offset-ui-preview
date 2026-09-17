@@ -8,6 +8,7 @@ const TOP_VIEW_FONT_SCALE_MOBILE_DEFAULT = 2.0;
 const TOP_VIEW_MOBILE_MAX_WIDTH_PX = 620;
 const FT_PER_NM = 6076.11549;
 const DEFAULT_REFERENCE_RANGE_NM = 10;
+const STORAGE_KEY = "flight-sim-tools.offset.v2.input.v1";
 const resolveTopViewFontScaleDefault = () => globalThis.matchMedia?.(`(max-width: ${TOP_VIEW_MOBILE_MAX_WIDTH_PX}px)`)?.matches
   ? TOP_VIEW_FONT_SCALE_MOBILE_DEFAULT
   : TOP_VIEW_FONT_SCALE_DESKTOP_DEFAULT;
@@ -24,10 +25,13 @@ let vipRangeExplicit = false;
 let vrpBearingExplicit = false;
 let vrpRangeExplicit = false;
 let rollBankAuto = true;
+let rollInAltitudeLinked = true;
 let topViewFontScale = resolveTopViewFontScaleDefault();
 let lastResult = null;
 let initialRender = true;
 let lastResultSnapshot = null;
+let defaultPersistedState = null;
+let persistenceReady = false;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -249,7 +253,9 @@ function buildInput() {
       windSpeedKt: numberValue("windSpeedKt"),
       initialSpeedValue: numberValue("initialSpeedValue"),
       initialSpeedMode: value("initialSpeedMode") ?? "CAS",
-      initialAltitudeMslFt: numberValue("initialAltitudeMslFt"),
+      // BDP v0.3 still names its module-entry altitude initialAltitudeMslFt.
+      // In Offset composition that module entry is OA1 / Roll-In Altitude.
+      initialAltitudeMslFt: numberValue("rollInAltitudeMslFt"),
       solveMode: value("solveMode") ?? "height",
       trackingTimeSec: numberValue("trackingTimeSec"),
       releaseAltitudeMslFt: numberValue("releaseAltitudeMslFt"),
@@ -316,7 +322,7 @@ function renderProfileResult(result) {
   const p = result.profile.public;
   $("#profile-result-body").innerHTML = [
     row("Effective Release Altitude", `${fmt(p.effectiveReleaseAltitudeMslFt, 0)} ft MSL`, "effectiveReleaseAltitudeMslFt"),
-    row("Resolved Initial Altitude", `${fmt(p.resolvedInitialAltitudeMslFt, 0)} ft MSL`, "resolvedInitialAltitudeMslFt"),
+    row("Roll-In Altitude", `${fmt(p.resolvedInitialAltitudeMslFt, 0)} ft MSL`, "resolvedInitialAltitudeMslFt"),
     row("Track Point Altitude", `${fmt(p.trackPointAltitudeMslFt, 0)} ft MSL`, "trackPointAltitudeMslFt"),
     row("Tracking Time", `${fmt(p.trackingTimeSec, 2)} sec`, "trackingTimeSecResult"),
     row("Roll-in Range", `${fmt(p.rollInRangeNm, 3)} NM`, "rollInRangeNm"),
@@ -458,6 +464,7 @@ function calculate() {
       renderDed(lastResult);
     }
   }
+  if (persistenceReady) savePersistedState();
 }
 
 function syncDuplicates(source) {
@@ -477,6 +484,13 @@ function handleFieldChange(event) {
   if (!field || field.id === "ip-bearing-input") return;
   syncDuplicates(field);
   const key = field.dataset.key;
+
+  if (key === "initialAltitudeMslFt" && rollInAltitudeLinked) {
+    setAutoValue("rollInAltitudeMslFt", Math.round(numberValue("initialAltitudeMslFt")), key);
+  }
+  if (key === "rollInAltitudeMslFt") {
+    rollInAltitudeLinked = false;
+  }
 
   if (key === "vrpRangeNm") {
     vrpRangeExplicit = Number.isFinite(Number.parseFloat(field.value));
@@ -612,10 +626,10 @@ function installReferenceBearingControls() {
     syncIpBearingInput(canonical, { includeActive: true });
   };
 
-  $("#vip-to-target-btn").addEventListener("click", () => setVipDirection("TO_TARGET"));
-  $("#vip-from-target-btn").addEventListener("click", () => setVipDirection("FROM_TARGET"));
-  $("#ip-to-target-btn").addEventListener("click", () => setIpDirection("TO_TARGET"));
-  $("#ip-from-target-btn").addEventListener("click", () => setIpDirection("FROM_TARGET"));
+  $("#vip-to-target-btn").addEventListener("click", () => { setVipDirection("TO_TARGET"); savePersistedState(); });
+  $("#vip-from-target-btn").addEventListener("click", () => { setVipDirection("FROM_TARGET"); savePersistedState(); });
+  $("#ip-to-target-btn").addEventListener("click", () => { setIpDirection("TO_TARGET"); savePersistedState(); });
+  $("#ip-from-target-btn").addEventListener("click", () => { setIpDirection("FROM_TARGET"); savePersistedState(); });
 
   vipBearingInput.addEventListener("input", handleVipBearingInput);
   vipBearingInput.addEventListener("blur", () => syncVipBearingInput(readVipToTargetBearing(), { includeActive: true }));
@@ -656,13 +670,144 @@ function populateWeapons() {
   });
 }
 
+
+function capturePersistedState() {
+  const inputs = {};
+  $("[data-key]").forEach((control) => {
+    const key = control.dataset.key;
+    if (!key || control.id === "ip-bearing-input" || Object.hasOwn(inputs, key)) return;
+    inputs[key] = control.value;
+  });
+  return {
+    version: 1,
+    inputs,
+    vrpBearingInput: $("#vrp-bearing-input")?.value ?? "",
+    vipBearingInput: $("#vip-bearing-input")?.value ?? "",
+    vipRangeInput: $("#vip-range-input")?.value ?? "",
+    referenceMode,
+    vipBearingDirection,
+    ipBearingDirection,
+    ipLinked,
+    rollInAltitudeLinked,
+    vipBearingExplicit,
+    vipRangeExplicit,
+    vrpBearingExplicit,
+    vrpRangeExplicit,
+    rollBankAuto,
+    locks: { ...locks },
+  };
+}
+
+function applyPersistedState(saved) {
+  if (!saved || typeof saved !== "object") return false;
+  Object.entries(saved.inputs ?? {}).forEach(([key, next]) => {
+    if (firstField(key)) setValue(key, next, { includeActive: true });
+  });
+
+  if ($("#vrp-bearing-input") && typeof saved.vrpBearingInput === "string") $("#vrp-bearing-input").value = saved.vrpBearingInput;
+  if ($("#vip-bearing-input") && typeof saved.vipBearingInput === "string") $("#vip-bearing-input").value = saved.vipBearingInput;
+  if ($("#vip-range-input") && typeof saved.vipRangeInput === "string") $("#vip-range-input").value = saved.vipRangeInput;
+
+  referenceMode = saved.referenceMode === "VIP" ? "VIP" : "VRP";
+  vipBearingDirection = saved.vipBearingDirection === "FROM_TARGET" ? "FROM_TARGET" : "TO_TARGET";
+  ipBearingDirection = saved.ipBearingDirection === "FROM_TARGET" ? "FROM_TARGET" : "TO_TARGET";
+  ipLinked = saved.ipLinked !== false;
+  rollInAltitudeLinked = saved.rollInAltitudeLinked !== false;
+  vipBearingExplicit = saved.vipBearingExplicit === true;
+  vipRangeExplicit = saved.vipRangeExplicit === true;
+  vrpBearingExplicit = saved.vrpBearingExplicit === true;
+  vrpRangeExplicit = saved.vrpRangeExplicit === true;
+  rollBankAuto = saved.rollBankAuto !== false;
+
+  Object.keys(locks).forEach((key) => {
+    locks[key] = saved.locks?.[key] === true;
+  });
+  $("[data-lock-key]").forEach((button) => {
+    const key = button.dataset.lockKey;
+    const locked = locks[key] === true;
+    button.setAttribute("aria-pressed", String(locked));
+    button.textContent = locked ? "LOCKED" : "LOCK";
+  });
+
+  syncReferencePanes();
+  setDirectionButtons("vip", vipBearingDirection);
+  setDirectionButtons("ip", ipBearingDirection);
+
+  if (rollInAltitudeLinked) {
+    setValue("rollInAltitudeMslFt", Math.round(numberValue("initialAltitudeMslFt")), { includeActive: true });
+  }
+  const runInHeadingDeg = readRunInHeading();
+  syncImplicitReferenceInputs(runInHeadingDeg, { includeActive: true });
+  syncVipBearingInput(readVipToTargetBearing(), { includeActive: true });
+  syncIpBearingInput(runInHeadingDeg, { includeActive: true });
+  if (ipLinked) applyVipToLinkedIp("restore");
+  return true;
+}
+
+function loadPersistedState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    return applyPersistedState(JSON.parse(raw));
+  } catch {
+    return false;
+  }
+}
+
+function savePersistedState({ feedback = false } = {}) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(capturePersistedState()));
+  } catch {
+    // Storage may be unavailable in a restricted browser context; calculation remains usable.
+  }
+  if (!feedback) return;
+  const button = $("#save-button");
+  if (!button) return;
+  const previous = button.textContent;
+  button.textContent = "Saved";
+  window.setTimeout(() => { button.textContent = previous; }, 900);
+}
+
+function clearPendingInputStates() {
+  $(".value-dependent-input").forEach((node) => node.classList.remove("value-dependent-input"));
+}
+
+function resetDefaults() {
+  if (!defaultPersistedState) return;
+  applyPersistedState(JSON.parse(JSON.stringify(defaultPersistedState)));
+  clearPendingInputStates();
+  driver = "angleOffDeg";
+  turnDriver = "offsetG";
+  topViewFontScale = resolveTopViewFontScaleDefault();
+  const fontScaleSelect = $("#top-view-font-scale");
+  if (fontScaleSelect) {
+    fontScaleSelect.value = String(topViewFontScale);
+    fontScaleSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  calculate();
+  savePersistedState();
+}
+
+function installToolbarControls() {
+  $("#advanced-toggle")?.addEventListener("click", (event) => {
+    document.body.classList.toggle("show-advanced");
+    const on = document.body.classList.contains("show-advanced");
+    event.currentTarget.classList.toggle("active", on);
+    event.currentTarget.textContent = `Advanced: ${on ? "On" : "Off"}`;
+  });
+  $("#save-button")?.addEventListener("click", () => savePersistedState({ feedback: true }));
+  $("#default-button")?.addEventListener("click", resetDefaults);
+}
+
 function install() {
   populateWeapons();
   installLocks();
   installModeButtons();
   installReferenceBearingControls();
   installValueStateBindings();
+  installToolbarControls();
   syncReferencePanes();
+  defaultPersistedState = capturePersistedState();
 
   document.addEventListener("input", handleFieldChange);
   document.addEventListener("change", (event) => {
@@ -686,11 +831,18 @@ function install() {
   }
   $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg));
 
-  setValue("rollInBankAngleDeg", automaticRollInBankDeg(), { includeActive: true });
-  const initialRunInHeadingDeg = readRunInHeading();
-  syncImplicitReferenceInputs(initialRunInHeadingDeg, { includeActive: true });
-  syncIpBearingInput(initialRunInHeadingDeg, { includeActive: true });
-  applyVipToLinkedIp("initialVipLink");
+  const restored = loadPersistedState();
+  if (!restored) {
+    setValue("rollInBankAngleDeg", automaticRollInBankDeg(), { includeActive: true });
+    setValue("rollInAltitudeMslFt", Math.round(numberValue("initialAltitudeMslFt")), { includeActive: true });
+    const initialRunInHeadingDeg = readRunInHeading();
+    syncImplicitReferenceInputs(initialRunInHeadingDeg, { includeActive: true });
+    syncIpBearingInput(initialRunInHeadingDeg, { includeActive: true });
+    applyVipToLinkedIp("initialVipLink");
+  } else if (rollBankAuto) {
+    applyAutomaticRollBank("restore");
+  }
+  persistenceReady = true;
   calculate();
   initialRender = false;
 }
