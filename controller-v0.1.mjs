@@ -9,6 +9,40 @@ const TOP_VIEW_MOBILE_MAX_WIDTH_PX = 620;
 const FT_PER_NM = 6076.11549;
 const DEFAULT_REFERENCE_RANGE_NM = 10;
 const STORAGE_KEY = "flight-sim-tools.offset.v2.input.v1";
+const DEFAULT_INPUT_VALUES = Object.freeze({
+  weaponId: "M82",
+  targetElevationMslFt: "31",
+  initialSpeedValue: "350",
+  initialSpeedMode: "CAS",
+  initialAltitudeMslFt: "16000",
+  rollInAltitudeMslFt: "16000",
+  diveAngleDeg: "45",
+  angleOffDeg: "70",
+  trackingTimeSec: "18.25",
+  releaseAltitudeMslFt: "6800",
+  releaseSpeedKcas: "450",
+  recoveryG: "5",
+  speedOvershootKcas: "50",
+  gOnsetTimeSec: "2",
+  windDirectionDeg: "0",
+  windSpeedKt: "0",
+  solveMode: "height",
+  rollInBankAngleDeg: "113",
+  rollInG: "4",
+  vrpRangeNm: "10.0",
+  runInHeadingDeg: "000",
+  ipRangeNm: "10.0",
+  attackHeadingDeg: "030",
+  offsetAngleDeg: "40",
+  actionRangeNm: "3.0",
+  offsetRangeNm: "1.0",
+  offsetAltitudeMslFt: "16000",
+  offsetSpeedValue: "350",
+  offsetSpeedMode: "CAS",
+  offsetG: "2.0",
+  offsetBankDeg: "60",
+  offsetRadiusNm: "1.60",
+});
 const resolveTopViewFontScaleDefault = () => globalThis.matchMedia?.(`(max-width: ${TOP_VIEW_MOBILE_MAX_WIDTH_PX}px)`)?.matches
   ? TOP_VIEW_FONT_SCALE_MOBILE_DEFAULT
   : TOP_VIEW_FONT_SCALE_DESKTOP_DEFAULT;
@@ -698,6 +732,27 @@ function capturePersistedState() {
   };
 }
 
+function createDefaultPersistedState() {
+  return {
+    version: 1,
+    inputs: { ...DEFAULT_INPUT_VALUES },
+    vrpBearingInput: "180",
+    vipBearingInput: "000",
+    vipRangeInput: "10.0",
+    referenceMode: "VRP",
+    vipBearingDirection: "TO_TARGET",
+    ipBearingDirection: "TO_TARGET",
+    ipLinked: true,
+    rollInAltitudeLinked: true,
+    vipBearingExplicit: false,
+    vipRangeExplicit: false,
+    vrpBearingExplicit: false,
+    vrpRangeExplicit: false,
+    rollBankAuto: true,
+    locks: Object.fromEntries(Object.keys(locks).map((key) => [key, false])),
+  };
+}
+
 function applyPersistedState(saved) {
   if (!saved || typeof saved !== "object") return false;
   Object.entries(saved.inputs ?? {}).forEach(([key, next]) => {
@@ -807,7 +862,7 @@ function install() {
   installValueStateBindings();
   installToolbarControls();
   syncReferencePanes();
-  defaultPersistedState = capturePersistedState();
+  defaultPersistedState = createDefaultPersistedState();
 
   document.addEventListener("input", handleFieldChange);
   document.addEventListener("change", (event) => {
@@ -832,16 +887,8 @@ function install() {
   $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg));
 
   const restored = loadPersistedState();
-  if (!restored) {
-    setValue("rollInBankAngleDeg", automaticRollInBankDeg(), { includeActive: true });
-    setValue("rollInAltitudeMslFt", Math.round(numberValue("initialAltitudeMslFt")), { includeActive: true });
-    const initialRunInHeadingDeg = readRunInHeading();
-    syncImplicitReferenceInputs(initialRunInHeadingDeg, { includeActive: true });
-    syncIpBearingInput(initialRunInHeadingDeg, { includeActive: true });
-    applyVipToLinkedIp("initialVipLink");
-  } else if (rollBankAuto) {
-    applyAutomaticRollBank("restore");
-  }
+  if (!restored) applyPersistedState(defaultPersistedState);
+  if (rollBankAuto) applyAutomaticRollBank(restored ? "restore" : "default");
   persistenceReady = true;
   calculate();
   initialRender = false;
