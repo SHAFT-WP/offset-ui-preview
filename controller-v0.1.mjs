@@ -7,31 +7,37 @@ const TOP_VIEW_FONT_SCALE_DESKTOP_DEFAULT = 1.5;
 const TOP_VIEW_FONT_SCALE_MOBILE_DEFAULT = 2.0;
 const TOP_VIEW_MOBILE_MAX_WIDTH_PX = 620;
 const FT_PER_NM = 6076.11549;
+const DEFAULT_REFERENCE_RANGE_NM = 10;
 const resolveTopViewFontScaleDefault = () => globalThis.matchMedia?.(`(max-width: ${TOP_VIEW_MOBILE_MAX_WIDTH_PX}px)`)?.matches
   ? TOP_VIEW_FONT_SCALE_MOBILE_DEFAULT
   : TOP_VIEW_FONT_SCALE_DESKTOP_DEFAULT;
+
 const locks = {};
 let driver = "angleOffDeg";
 let turnDriver = "offsetG";
 let referenceMode = "VRP";
 let vipBearingDirection = "TO_TARGET";
-let vrpLinked = true;
+let ipBearingDirection = "TO_TARGET";
+let ipLinked = true;
 let rollBankAuto = true;
 let topViewFontScale = resolveTopViewFontScaleDefault();
 let lastResult = null;
 let initialRender = true;
 let lastResultSnapshot = null;
-let dedPage = "VRP";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const fields = (key) => $$(`[data-key="${key}"]`);
+const allFields = (key) => $$(`[data-key="${key}"]`);
+const fields = (key) => key === "runInHeadingDeg"
+  ? allFields(key).filter((field) => field.id !== "ip-bearing-input")
+  : allFields(key);
 const firstField = (key) => fields(key)[0];
 const valueStates = createValueStateController({ root: document, transientMs: 1200 });
+
 const numberValue = (key) => {
-  const value = Number.parseFloat(firstField(key)?.value ?? "");
-  if (!Number.isFinite(value)) throw new TypeError(`${key} must be numeric`);
-  return value;
+  const parsed = Number.parseFloat(firstField(key)?.value ?? "");
+  if (!Number.isFinite(parsed)) throw new TypeError(`${key} must be numeric`);
+  return parsed;
 };
 const value = (key) => firstField(key)?.value;
 const valuesEquivalent = (current, next) => {
@@ -43,40 +49,107 @@ const valuesEquivalent = (current, next) => {
 const setValue = (key, next, { includeActive = false } = {}) => {
   const nextText = String(next);
   const active = document.activeElement;
-  const changed = fields(key).some((field) => (includeActive || field !== active) && !valuesEquivalent(field.value, nextText));
-  if (changed) valueStates.setInputValue(key, nextText, { includeActive });
-  return changed;
+  const targets = fields(key);
+  const changed = targets.some((field) => (includeActive || field !== active) && !valuesEquivalent(field.value, nextText));
+  if (!changed) return false;
+
+  if (key === "runInHeadingDeg") {
+    targets.forEach((field) => {
+      if (includeActive || field !== active) field.value = nextText;
+    });
+  } else {
+    valueStates.setInputValue(key, nextText, { includeActive });
+  }
+  return true;
 };
 const setAutoValue = (key, next, sourceKey = null) => {
   const changed = setValue(key, next);
-  if (changed && !initialRender && sourceKey !== key) valueStates.markDependentInput(key);
+  if (changed && !initialRender && sourceKey !== key && key !== "runInHeadingDeg") valueStates.markDependentInput(key);
   return changed;
 };
-const fmt = (value, digits = 2) => Number.isFinite(value) ? Number(value).toFixed(digits) : "-";
-const fmtHeading = (value) => {
-  if (!Number.isFinite(value)) return "-";
-  const h = ((Math.round(value) % 360) + 360) % 360;
-  return String(h === 0 ? 360 : h).padStart(3, "0") + "°";
+const fmt = (number, digits = 2) => Number.isFinite(number) ? Number(number).toFixed(digits) : "-";
+const normHeading = (number) => ((number % 360) + 360) % 360;
+const reciprocalHeading = (number) => normHeading(number + 180);
+const fmtHeading = (number) => {
+  if (!Number.isFinite(number)) return "-";
+  const heading = ((Math.round(number) % 360) + 360) % 360;
+  return String(heading).padStart(3, "0") + "°";
 };
-const normHeading = (value) => ((value % 360) + 360) % 360;
-const reciprocalHeading = (value) => normHeading(value + 180);
-const vipBearingFromRunIn = (runInHeadingDeg) => vipBearingDirection === "FROM_TARGET"
-  ? reciprocalHeading(runInHeadingDeg)
-  : normHeading(runInHeadingDeg);
-const runInFromVipBearing = (vipBearingDeg) => vipBearingDirection === "FROM_TARGET"
-  ? reciprocalHeading(vipBearingDeg)
-  : normHeading(vipBearingDeg);
-const formatBearingInput = (value) => {
-  const rounded = Math.round(normHeading(value) * 100) / 100;
+const formatBearingInput = (number) => {
+  const rounded = Math.round(normHeading(number) * 100) / 100;
   const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
   return text.padStart(3, "0");
 };
+const displayedBearing = (canonicalToTargetDeg, direction) => direction === "FROM_TARGET"
+  ? reciprocalHeading(canonicalToTargetDeg)
+  : normHeading(canonicalToTargetDeg);
+const canonicalToTargetBearing = (displayedDeg, direction) => direction === "FROM_TARGET"
+  ? reciprocalHeading(displayedDeg)
+  : normHeading(displayedDeg);
 
-function syncVipBearingInput(runInHeadingDeg, { includeActive = false } = {}) {
-  const field = $("#vip-bearing-input");
+function parseInputNumber(selector, fallback) {
+  const parsed = Number.parseFloat($(selector)?.value ?? "");
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function readRunInHeading() {
+  return normHeading(numberValue("runInHeadingDeg"));
+}
+
+function readVipToTargetBearing() {
+  const fallback = readRunInHeading();
+  const displayed = parseInputNumber("#vip-bearing-input", displayedBearing(fallback, vipBearingDirection));
+  return canonicalToTargetBearing(displayed, vipBearingDirection);
+}
+
+function readVipRangeNm() {
+  return Math.max(0, parseInputNumber("#vip-range-input", DEFAULT_REFERENCE_RANGE_NM));
+}
+
+function readVrpBearing() {
+  const fallback = reciprocalHeading(readRunInHeading());
+  return normHeading(parseInputNumber("#vrp-bearing-input", fallback));
+}
+
+function readVrpRangeNm() {
+  const parsed = Number.parseFloat(firstField("vrpRangeNm")?.value ?? "");
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : DEFAULT_REFERENCE_RANGE_NM;
+}
+
+function syncBearingInput(selector, canonicalToTargetDeg, direction, { includeActive = false } = {}) {
+  const field = $(selector);
   if (!field) return;
   if (!includeActive && document.activeElement === field) return;
-  field.value = formatBearingInput(vipBearingFromRunIn(runInHeadingDeg));
+  field.value = formatBearingInput(displayedBearing(canonicalToTargetDeg, direction));
+}
+
+function syncVipBearingInput(canonicalVipToTargetDeg, options) {
+  syncBearingInput("#vip-bearing-input", canonicalVipToTargetDeg, vipBearingDirection, options);
+}
+
+function syncIpBearingInput(runInHeadingDeg, options) {
+  syncBearingInput("#ip-bearing-input", runInHeadingDeg, ipBearingDirection, options);
+}
+
+function setDirectionButtons(prefix, direction) {
+  const toTarget = $(`#${prefix}-to-target-btn`);
+  const fromTarget = $(`#${prefix}-from-target-btn`);
+  if (!toTarget || !fromTarget) return;
+  const toActive = direction === "TO_TARGET";
+  toTarget.classList.toggle("active", toActive);
+  fromTarget.classList.toggle("active", !toActive);
+  toTarget.setAttribute("aria-pressed", String(toActive));
+  fromTarget.setAttribute("aria-pressed", String(!toActive));
+}
+
+function applyVipToLinkedIp(sourceKey = "vip") {
+  if (!ipLinked) return false;
+  const vipBearingDeg = readVipToTargetBearing();
+  const vipRangeNm = readVipRangeNm();
+  const headingChanged = setAutoValue("runInHeadingDeg", vipBearingDeg.toFixed(2), sourceKey);
+  const rangeChanged = setAutoValue("ipRangeNm", vipRangeNm.toFixed(3), sourceKey);
+  syncIpBearingInput(vipBearingDeg, { includeActive: true });
+  return headingChanged || rangeChanged;
 }
 
 function coordinatedBankForG(g) {
@@ -103,20 +176,53 @@ function applyAutomaticRollBank(sourceKey = "diveAngleDeg") {
 }
 
 function buildInput() {
+  const runInHeadingDeg = readRunInHeading();
+  const approachRangeNm = numberValue("offsetRangeNm");
   return {
-    driver, turnDriver, locks: { ...locks }, referenceMode, vrpLinked, vipLinked: true,
-    runInHeadingDeg: numberValue("runInHeadingDeg"), attackHeadingDeg: numberValue("attackHeadingDeg"), angleOffDeg: numberValue("angleOffDeg"),
-    diveAngleDeg: numberValue("diveAngleDeg"), offsetAngleDeg: numberValue("offsetAngleDeg"), actionRangeNm: numberValue("actionRangeNm"), offsetRangeNm: numberValue("offsetRangeNm"), ipRangeNm: numberValue("ipRangeNm"),
-    vrpRangeNm: numberValue("vrpRangeNm"), vipRangeNm: numberValue("ipRangeNm"),
-    offsetAltitudeMslFt: numberValue("offsetAltitudeMslFt"), offsetSpeedValue: numberValue("offsetSpeedValue"), offsetSpeedMode: value("offsetSpeedMode") ?? "CAS",
-    offsetG: numberValue("offsetG"), offsetBankDeg: numberValue("offsetBankDeg"), offsetRadiusNm: numberValue("offsetRadiusNm"),
+    driver,
+    turnDriver,
+    locks: { ...locks },
+    referenceMode,
+    vrpLinked: false,
+    vipLinked: false,
+    runInHeadingDeg,
+    attackHeadingDeg: numberValue("attackHeadingDeg"),
+    angleOffDeg: numberValue("angleOffDeg"),
+    diveAngleDeg: numberValue("diveAngleDeg"),
+    offsetAngleDeg: numberValue("offsetAngleDeg"),
+    actionRangeNm: numberValue("actionRangeNm"),
+    approachRangeNm,
+    offsetRangeNm: approachRangeNm,
+    ipRangeNm: numberValue("ipRangeNm"),
+    vipToTargetBearingDeg: readVipToTargetBearing(),
+    vipRangeNm: readVipRangeNm(),
+    vrpBearingDeg: readVrpBearing(),
+    vrpRangeNm: readVrpRangeNm(),
+    offsetAltitudeMslFt: numberValue("offsetAltitudeMslFt"),
+    offsetSpeedValue: numberValue("offsetSpeedValue"),
+    offsetSpeedMode: value("offsetSpeedMode") ?? "CAS",
+    offsetG: numberValue("offsetG"),
+    offsetBankDeg: numberValue("offsetBankDeg"),
+    offsetRadiusNm: numberValue("offsetRadiusNm"),
     profile: {
-      weaponId: value("weaponId") ?? "M82", targetElevationMslFt: numberValue("targetElevationMslFt"), releaseSpeedKcas: numberValue("releaseSpeedKcas"),
-      speedOvershootKcas: numberValue("speedOvershootKcas"), recoveryG: numberValue("recoveryG"), gOnsetTimeSec: numberValue("gOnsetTimeSec"),
-      diveAngleDeg: numberValue("diveAngleDeg"), windDirectionDeg: numberValue("windDirectionDeg"), windSpeedKt: numberValue("windSpeedKt"),
-      initialSpeedValue: numberValue("initialSpeedValue"), initialSpeedMode: value("initialSpeedMode") ?? "CAS", initialAltitudeMslFt: numberValue("initialAltitudeMslFt"),
-      solveMode: value("solveMode") ?? "height", trackingTimeSec: numberValue("trackingTimeSec"), releaseAltitudeMslFt: numberValue("releaseAltitudeMslFt"),
-      angleOffDeg: numberValue("angleOffDeg"), rollInBankAngleDeg: numberValue("rollInBankAngleDeg"), rollInG: numberValue("rollInG"),
+      weaponId: value("weaponId") ?? "M82",
+      targetElevationMslFt: numberValue("targetElevationMslFt"),
+      releaseSpeedKcas: numberValue("releaseSpeedKcas"),
+      speedOvershootKcas: numberValue("speedOvershootKcas"),
+      recoveryG: numberValue("recoveryG"),
+      gOnsetTimeSec: numberValue("gOnsetTimeSec"),
+      diveAngleDeg: numberValue("diveAngleDeg"),
+      windDirectionDeg: numberValue("windDirectionDeg"),
+      windSpeedKt: numberValue("windSpeedKt"),
+      initialSpeedValue: numberValue("initialSpeedValue"),
+      initialSpeedMode: value("initialSpeedMode") ?? "CAS",
+      initialAltitudeMslFt: numberValue("initialAltitudeMslFt"),
+      solveMode: value("solveMode") ?? "height",
+      trackingTimeSec: numberValue("trackingTimeSec"),
+      releaseAltitudeMslFt: numberValue("releaseAltitudeMslFt"),
+      angleOffDeg: numberValue("angleOffDeg"),
+      rollInBankAngleDeg: numberValue("rollInBankAngleDeg"),
+      rollInG: numberValue("rollInG"),
     },
   };
 }
@@ -132,21 +238,21 @@ function applyResolved(result) {
   setIfUnlocked("angleOffDeg", result.resolved.angleOffDeg, 2);
   setIfUnlocked("offsetAngleDeg", result.resolved.offsetAngleDeg, 2);
   setIfUnlocked("actionRangeNm", result.resolved.actionRangeNm, 3);
-  setIfUnlocked("offsetRangeNm", result.resolved.offsetRangeNm, 3);
-  setIfUnlocked("ipRangeNm", result.resolved.ipRangeNm, 3);
+  setIfUnlocked("offsetRangeNm", result.resolved.approachRangeNm, 3);
   setIfUnlocked("offsetG", result.resolved.offsetG, 3, turnDriver);
   setIfUnlocked("offsetBankDeg", result.resolved.offsetBankDeg, 2, turnDriver);
   setIfUnlocked("offsetRadiusNm", result.resolved.offsetRadiusNm, 3, turnDriver);
-  if (result.referenceMode === "VRP" && vrpLinked && !locks.vrpRangeNm) setAutoValue("vrpRangeNm", fmt(result.resolved.vrpRangeNm, 3), "actionRangeNm");
-  syncVipBearingInput(result.geometry.runInHeadingDeg);
-  $("#offset-heading-out").textContent = fmtHeading(result.resolved.actionHeadingDeg);
+
+  syncVipBearingInput(result.resolved.vipToTargetBearingDeg);
+  syncIpBearingInput(result.resolved.runInHeadingDeg);
+  $("#offset-heading-out").textContent = fmtHeading(result.resolved.offsetHeadingDeg);
   $("#turn-time-out").textContent = `${fmt(result.timing.offsetTurnSec, 1)} sec`;
   $("#driver-out").textContent = `DRIVER · ${driver}`;
   $("#lock-count").textContent = `LOCK ${Object.values(locks).filter(Boolean).length}`;
 }
 
-function row(label, value, resultKey = null) {
-  const rendered = resultKey ? `<span class="value-result" data-result-key="${resultKey}">${value}</span>` : value;
+function row(label, renderedValue, resultKey = null) {
+  const rendered = resultKey ? `<span class="value-result" data-result-key="${resultKey}">${renderedValue}</span>` : renderedValue;
   return `<tr><td>${label}</td><td>${rendered}</td></tr>`;
 }
 
@@ -156,18 +262,18 @@ function renderOffsetResult(result) {
   $("#offset-result-body").innerHTML = [
     row("State", result.state),
     row("Run-In / Attack", `${fmtHeading(g.runInHeadingDeg)} → ${fmtHeading(g.attackHeadingDeg)}`, "runAttackSummary"),
-    row("Offset Heading", fmtHeading(g.actionHeadingDeg), "actionHeadingDeg"),
+    row("Offset Heading", fmtHeading(g.offsetHeadingDeg), "offsetHeadingDeg"),
     row("Offset Angle", `${fmt(g.offsetAngleDeg, 2)}°`, "offsetAngleDeg"),
     row("Angle-Off (Heading)", `${fmt(g.angleOffDeg, 2)}°`, "angleOffDeg"),
     row("Action Range", `${fmt(g.actionRangeNm, 3)} NM`, "actionRangeNm"),
-    row("Offset Range", `${fmt(result.resolved.offsetRangeNm, 3)} NM`, "offsetRangeNm"),
-    row("VIP Range", `${fmt(result.resolved.ipRangeNm, 3)} NM`, "ipRangeNm"),
+    row("Approach Range", `${fmt(result.resolved.approachRangeNm, 3)} NM`, "approachRangeNm"),
+    row("IP Range", `${fmt(result.resolved.ipRangeNm, 3)} NM · ${ipLinked ? "LINKED TO VIP" : "INDEPENDENT"}`, "ipRangeNm"),
     row("Offset Radius", `${fmt(result.resolved.offsetRadiusNm, 3)} NM`, "offsetRadiusNm"),
     row("Offset TAS", `${fmt(result.resolved.offsetTasKt, 1)} kt`, "offsetTasKt"),
-    row("Reference", `${result.referenceMode} · ${fmt(result.reference.displayRangeNm, 3)} NM${result.reference.linked ? " · LINKED" : ""}`, "referenceSummary"),
-    row("VIP → Action Point", `${fmt(t.ingressDistanceNm, 3)} NM / ${fmt(t.ingressSec, 1)} sec`, "ingressSummary"),
+    row("Reference", `${result.referenceMode} · ${fmt(result.reference.bearingDeg, 1)}° / ${fmt(result.reference.displayRangeNm, 3)} NM`, "referenceSummary"),
+    row("IP → Action Point", `${fmt(t.ingressDistanceNm, 3)} NM / ${fmt(t.ingressSec, 1)} sec`, "ingressSummary"),
     row("Offset Turn", `${fmt(t.offsetTurnSec, 1)} sec`, "offsetTurnSec"),
-    row("Approach Time", `${fmt(t.actionLegSec, 1)} sec`, "actionLegSec"),
+    row("Approach Time", `${fmt(t.approachSec, 1)} sec`, "approachSec"),
     row("Roll-in → Release", `${fmt(t.rollToReleaseSec, 1)} sec`, "rollToReleaseSec"),
     row("Legacy ΔTOS", `${t.legacyDeltaTosSec >= 0 ? "+" : ""}${fmt(t.legacyDeltaTosSec, 1)} sec`, "legacyDeltaTosSec"),
   ].join("");
@@ -206,76 +312,38 @@ function renderStatus(result) {
   message.className = `status-message ${result.state.toLowerCase()}`;
 }
 
-function pointDistanceNm(a, b) { return Math.hypot(b.x - a.x, b.y - a.y); }
+function pointDistanceNm(a, b) {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
 function bearingBetween(a, b) {
   const heading = Math.atan2(b.x - a.x, b.y - a.y) * 180 / Math.PI;
   return normHeading(heading);
 }
-function dedRangeText(rangeNm) { return `${Math.round(rangeNm * FT_PER_NM)} ft (${fmt(rangeNm, 2)} NM)`; }
-function dedElevationText(elevationFt) { return `${Math.round(elevationFt)} ft`; }
+
+function dedRangeText(rangeNm) {
+  return `${Math.round(rangeNm * FT_PER_NM)} ft (${fmt(rangeNm, 2)} NM)`;
+}
+
+function dedElevationText(elevationFt) {
+  return `${Math.round(elevationFt)} ft`;
+}
 
 function renderDed(result) {
-  const referencePage = result.referenceMode;
-  if ((dedPage === "VRP" || dedPage === "VIP") && dedPage !== referencePage) dedPage = referencePage;
-  if (dedPage === "OA2") dedPage = "OA1";
-
-  const vrpTab = $("#ded-vrp-tab");
-  const vipTab = $("#ded-vip-tab");
-  const oa1Tab = $("#ded-oa1-tab");
-  const oa2Tab = $("#ded-oa2-tab");
-  vrpTab.hidden = referencePage !== "VRP";
-  vipTab.hidden = referencePage !== "VIP";
-  oa1Tab.hidden = false;
-  oa2Tab.hidden = true;
-
-  $$("[data-ded-page]").forEach((button) => {
-    const active = button.dataset.dedPage === dedPage;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", String(active));
-  });
-
   const points = result.geometry.points;
   const targetElevationMslFt = result.profile.canonicalInputs?.targetElevationMslFt ?? numberValue("targetElevationMslFt");
-  const initialAltitudeMslFt = result.profile.public.resolvedInitialAltitudeMslFt;
-  let title;
-  let bearingDeg;
-  let rangeNm;
-  let elevationMslFt;
+  const rollInStartAltitudeMslFt = result.profile.public.resolvedInitialAltitudeMslFt;
+  const isVip = result.referenceMode === "VIP";
 
-  if (dedPage === "VIP") {
-    title = "VIP";
-    bearingDeg = result.geometry.runInHeadingDeg;
-    rangeNm = result.resolved.ipRangeNm;
-    elevationMslFt = targetElevationMslFt;
-  } else if (dedPage === "VRP") {
-    const requestedVrpRangeNm = vrpLinked ? result.resolved.actionRangeNm : numberValue("vrpRangeNm");
-    const vrpRangeNm = Math.min(result.resolved.ipRangeNm, Math.max(0, requestedVrpRangeNm));
-    const run = result.geometry.vectors.runVector;
-    const vrpPoint = {
-      x: points.target.x - run.x * vrpRangeNm,
-      y: points.target.y - run.y * vrpRangeNm,
-    };
-    title = "VRP";
-    bearingDeg = vrpRangeNm > 1e-9 ? bearingBetween(points.target, vrpPoint) : normHeading(result.geometry.runInHeadingDeg + 180);
-    rangeNm = vrpRangeNm;
-    elevationMslFt = targetElevationMslFt;
-  } else if (dedPage === "OA1") {
-    const base = result.referenceMode === "VIP" ? (points.vip ?? points.ip) : points.target;
-    title = "OA1";
-    bearingDeg = bearingBetween(base, points.rollStart);
-    rangeNm = pointDistanceNm(base, points.rollStart);
-    elevationMslFt = initialAltitudeMslFt;
-  } else {
-    title = "OA2";
-    bearingDeg = 0;
-    rangeNm = 0;
-    elevationMslFt = 0;
-  }
+  $("#ded-page-title").textContent = isVip ? "VIP" : "VRP";
+  $("#ded-bearing").textContent = `${fmt(isVip ? result.resolved.vipToTargetBearingDeg : result.resolved.vrpBearingDeg, 1)}°`;
+  $("#ded-range").textContent = dedRangeText(isVip ? result.resolved.vipRangeNm : result.resolved.vrpRangeNm);
+  $("#ded-elevation").textContent = dedElevationText(targetElevationMslFt);
 
-  $("#ded-page-title").textContent = title;
-  $("#ded-bearing").textContent = `${fmt(bearingDeg, 1)}°`;
-  $("#ded-range").textContent = dedRangeText(rangeNm);
-  $("#ded-elevation").textContent = dedElevationText(elevationMslFt);
+  const oa1Base = isVip ? points.vip : points.target;
+  $("#ded-oa1-bearing").textContent = `${fmt(bearingBetween(oa1Base, points.rollStart), 1)}°`;
+  $("#ded-oa1-range").textContent = dedRangeText(pointDistanceNm(oa1Base, points.rollStart));
+  $("#ded-oa1-elevation").textContent = dedElevationText(rollInStartAltitudeMslFt);
 }
 
 function collectResultSnapshot(result) {
@@ -284,18 +352,18 @@ function collectResultSnapshot(result) {
   const p = result.profile.public;
   return {
     runAttackSummary: `${fmtHeading(g.runInHeadingDeg)}|${fmtHeading(g.attackHeadingDeg)}`,
-    actionHeadingDeg: g.actionHeadingDeg,
+    offsetHeadingDeg: g.offsetHeadingDeg,
     offsetAngleDeg: g.offsetAngleDeg,
     angleOffDeg: g.angleOffDeg,
     actionRangeNm: g.actionRangeNm,
-    offsetRangeNm: result.resolved.offsetRangeNm,
+    approachRangeNm: result.resolved.approachRangeNm,
     ipRangeNm: result.resolved.ipRangeNm,
     offsetRadiusNm: result.resolved.offsetRadiusNm,
     offsetTasKt: result.resolved.offsetTasKt,
-    referenceSummary: `${result.referenceMode}|${result.reference.displayRangeNm}|${result.reference.linked}`,
+    referenceSummary: `${result.referenceMode}|${result.reference.bearingDeg}|${result.reference.displayRangeNm}`,
     ingressSummary: `${t.ingressDistanceNm}|${t.ingressSec}`,
     offsetTurnSec: t.offsetTurnSec,
-    actionLegSec: t.actionLegSec,
+    approachSec: t.approachSec,
     rollToReleaseSec: t.rollToReleaseSec,
     legacyDeltaTosSec: t.legacyDeltaTosSec,
     effectiveReleaseAltitudeMslFt: p.effectiveReleaseAltitudeMslFt,
@@ -352,23 +420,43 @@ function calculate() {
     const pill = $("#state-pill");
     pill.textContent = "INVALID";
     pill.className = "status bad";
-    if (lastResult) { renderTopView(lastResult); renderDed(lastResult); }
+    if (lastResult) {
+      renderTopView(lastResult);
+      renderDed(lastResult);
+    }
   }
 }
 
 function syncDuplicates(source) {
   const key = source.dataset.key;
-  if (!key) return;
+  if (!key || source.id === "ip-bearing-input") return;
+  if (key === "runInHeadingDeg") {
+    fields(key).forEach((field) => {
+      if (field !== source) field.value = source.value;
+    });
+    return;
+  }
   valueStates.syncInputMirrors(key, source);
 }
 
 function handleFieldChange(event) {
-  const field = event.target.closest("[data-key]");
-  if (!field) return;
+  const field = event.target.closest?.("[data-key]");
+  if (!field || field.id === "ip-bearing-input") return;
   syncDuplicates(field);
   const key = field.dataset.key;
+
+  if (key === "vrpRangeNm") {
+    calculate();
+    return;
+  }
+
+  if (key === "ipRangeNm") {
+    ipLinked = false;
+    calculate();
+    return;
+  }
+
   if (["offsetG", "offsetBankDeg", "offsetRadiusNm"].includes(key)) turnDriver = key;
-  if (key === "vrpRangeNm") vrpLinked = false;
 
   const diveAngleDeg = numberValue("diveAngleDeg");
   if (key === "rollInBankAngleDeg") {
@@ -386,15 +474,40 @@ function handleFieldChange(event) {
     applyAutomaticRollBank(key);
   }
 
-  driver = ["runInHeadingDeg", "attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "offsetRangeNm", "ipRangeNm", "diveAngleDeg"].includes(key) ? key : "profile";
+  if (key === "runInHeadingDeg") {
+    ipLinked = false;
+    const runInHeadingDeg = readRunInHeading();
+    setValue("runInHeadingDeg", runInHeadingDeg.toFixed(2), { includeActive: true });
+    syncIpBearingInput(runInHeadingDeg, { includeActive: true });
+    driver = "runInHeadingDeg";
+  } else if (key === "offsetRangeNm") {
+    driver = "approachRangeNm";
+  } else if (["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "diveAngleDeg"].includes(key)) {
+    driver = key;
+  } else {
+    driver = "profile";
+  }
   calculate();
 }
 
-function handleVipBearingChange(event) {
+function handleVipBearingInput(event) {
   const entered = Number.parseFloat(event.target.value);
   if (!Number.isFinite(entered)) return;
-  const canonicalRunIn = runInFromVipBearing(entered);
-  setValue("runInHeadingDeg", canonicalRunIn.toFixed(2), { includeActive: true });
+  if (ipLinked) applyVipToLinkedIp("vipBearingDeg");
+  calculate();
+}
+
+function handleVipRangeInput() {
+  if (ipLinked) applyVipToLinkedIp("vipRangeNm");
+  calculate();
+}
+
+function handleIpBearingInput(event) {
+  const entered = Number.parseFloat(event.target.value);
+  if (!Number.isFinite(entered)) return;
+  ipLinked = false;
+  const canonical = canonicalToTargetBearing(entered, ipBearingDirection);
+  setValue("runInHeadingDeg", canonical.toFixed(2), { includeActive: true });
   driver = "runInHeadingDeg";
   calculate();
 }
@@ -407,72 +520,77 @@ function installLocks() {
       locks[key] = !locks[key];
       button.setAttribute("aria-pressed", String(locks[key]));
       button.textContent = locks[key] ? "LOCKED" : "LOCK";
-      if (locks[key] && key === "vrpRangeNm") vrpLinked = false;
       calculate();
     });
   });
 }
 
+function syncReferencePanes() {
+  const isVrp = referenceMode === "VRP";
+  $("#vrp-btn")?.classList.toggle("active", isVrp);
+  $("#vip-btn")?.classList.toggle("active", !isVrp);
+  $("#vrp-pane").hidden = !isVrp;
+  $("#vip-pane").hidden = isVrp;
+}
+
 function installModeButtons() {
   $("#vrp-btn").addEventListener("click", () => {
-    referenceMode = "VRP"; vrpLinked = true;
-    $("#vrp-btn").classList.add("active"); $("#vip-btn").classList.remove("active");
-    if (dedPage === "VIP") dedPage = "VRP";
-    driver = "angleOffDeg"; calculate();
+    referenceMode = "VRP";
+    syncReferencePanes();
+    calculate();
   });
   $("#vip-btn").addEventListener("click", () => {
     referenceMode = "VIP";
-    $("#vip-btn").classList.add("active"); $("#vrp-btn").classList.remove("active");
-    if (dedPage === "VRP") dedPage = "VIP";
-    driver = "ipRangeNm"; calculate();
+    syncReferencePanes();
+    calculate();
   });
 }
 
-function installVipBearingControls() {
-  const toTarget = $("#vip-to-target-btn");
-  const fromTarget = $("#vip-from-target-btn");
-  const bearingInput = $("#vip-bearing-input");
-  const setDirection = (nextDirection) => {
+function installReferenceBearingControls() {
+  const vipBearingInput = $("#vip-bearing-input");
+  const vipRangeInput = $("#vip-range-input");
+  const vrpBearingInput = $("#vrp-bearing-input");
+  const ipBearingInput = $("#ip-bearing-input");
+
+  const setVipDirection = (nextDirection) => {
+    const canonical = readVipToTargetBearing();
     vipBearingDirection = nextDirection;
-    const toActive = nextDirection === "TO_TARGET";
-    toTarget.classList.toggle("active", toActive);
-    fromTarget.classList.toggle("active", !toActive);
-    toTarget.setAttribute("aria-pressed", String(toActive));
-    fromTarget.setAttribute("aria-pressed", String(!toActive));
-    const runInHeadingDeg = lastResult?.geometry.runInHeadingDeg ?? numberValue("runInHeadingDeg");
-    syncVipBearingInput(runInHeadingDeg, { includeActive: true });
+    setDirectionButtons("vip", vipBearingDirection);
+    syncVipBearingInput(canonical, { includeActive: true });
   };
-  toTarget.addEventListener("click", () => setDirection("TO_TARGET"));
-  fromTarget.addEventListener("click", () => setDirection("FROM_TARGET"));
-  bearingInput.addEventListener("input", handleVipBearingChange);
-  bearingInput.addEventListener("change", handleVipBearingChange);
-  bearingInput.addEventListener("blur", () => {
-    const runInHeadingDeg = lastResult?.geometry.runInHeadingDeg ?? numberValue("runInHeadingDeg");
-    syncVipBearingInput(runInHeadingDeg, { includeActive: true });
-  });
-}
+  const setIpDirection = (nextDirection) => {
+    const canonical = readRunInHeading();
+    ipBearingDirection = nextDirection;
+    setDirectionButtons("ip", ipBearingDirection);
+    syncIpBearingInput(canonical, { includeActive: true });
+  };
 
-function installDedTabs() {
-  $$("[data-ded-page]").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (button.hidden) return;
-      dedPage = button.dataset.dedPage;
-      if (lastResult) renderDed(lastResult);
-    });
-  });
+  $("#vip-to-target-btn").addEventListener("click", () => setVipDirection("TO_TARGET"));
+  $("#vip-from-target-btn").addEventListener("click", () => setVipDirection("FROM_TARGET"));
+  $("#ip-to-target-btn").addEventListener("click", () => setIpDirection("TO_TARGET"));
+  $("#ip-from-target-btn").addEventListener("click", () => setIpDirection("FROM_TARGET"));
+
+  vipBearingInput.addEventListener("input", handleVipBearingInput);
+  vipBearingInput.addEventListener("blur", () => syncVipBearingInput(readVipToTargetBearing(), { includeActive: true }));
+  vipRangeInput.addEventListener("input", handleVipRangeInput);
+  vipRangeInput.addEventListener("blur", () => { vipRangeInput.value = fmt(readVipRangeNm(), 3); });
+  vrpBearingInput.addEventListener("input", calculate);
+  vrpBearingInput.addEventListener("blur", () => { vrpBearingInput.value = formatBearingInput(readVrpBearing()); });
+  ipBearingInput.addEventListener("input", handleIpBearingInput);
+  ipBearingInput.addEventListener("blur", () => syncIpBearingInput(readRunInHeading(), { includeActive: true }));
 }
 
 function installValueStateBindings() {
   const heading = $("#offset-heading-out");
   heading.classList.add("value-result");
-  heading.dataset.resultKey = "actionHeadingDeg";
+  heading.dataset.resultKey = "offsetHeadingDeg";
   const turnTime = $("#turn-time-out");
   turnTime.classList.add("value-result");
   turnTime.dataset.resultKey = "offsetTurnSec";
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
     const field = event.target.closest?.("[data-key]");
-    if (!field?.dataset?.key) return;
+    if (!field?.dataset?.key || field.id === "ip-bearing-input") return;
     valueStates.confirmDependentInput(field.dataset.key);
   });
 }
@@ -486,11 +604,24 @@ function populateWeapons() {
 }
 
 function install() {
-  populateWeapons(); installLocks(); installModeButtons(); installVipBearingControls(); installDedTabs(); installValueStateBindings();
+  populateWeapons();
+  installLocks();
+  installModeButtons();
+  installReferenceBearingControls();
+  installValueStateBindings();
+  syncReferencePanes();
+
   document.addEventListener("input", handleFieldChange);
-  document.addEventListener("change", (event) => { if (event.target.matches("[data-key]")) handleFieldChange(event); });
+  document.addEventListener("change", (event) => {
+    if (event.target.matches("[data-key]")) handleFieldChange(event);
+  });
+
   const svg = $("#offset-top-view");
-  installOffsetTopViewControls(svg, { zoomInButton: $("#zoom-in"), zoomOutButton: $("#zoom-out"), resetButton: $("#zoom-reset") });
+  installOffsetTopViewControls(svg, {
+    zoomInButton: $("#zoom-in"),
+    zoomOutButton: $("#zoom-out"),
+    resetButton: $("#zoom-reset"),
+  });
   const fontScaleSelect = $("#top-view-font-scale");
   if (fontScaleSelect) {
     fontScaleSelect.value = String(topViewFontScale);
@@ -501,8 +632,10 @@ function install() {
     });
   }
   $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg));
+
   setValue("rollInBankAngleDeg", automaticRollInBankDeg(), { includeActive: true });
-  syncVipBearingInput(numberValue("runInHeadingDeg"), { includeActive: true });
+  syncVipBearingInput(readVipToTargetBearing(), { includeActive: true });
+  applyVipToLinkedIp("initialVipLink");
   calculate();
   initialRender = false;
 }
