@@ -1,8 +1,10 @@
 export const OFFSET_GEOMETRY_V0_2 = Object.freeze({
   id: "offset-geometry-v0.2",
-  version: "0.2.2",
-  purpose: "Pure Offset Bombing heading/action-point geometry independent of DOM and rendering",
+  version: "0.2.3",
+  purpose: "Pure Offset Bombing heading/action-point/reference geometry independent of DOM and rendering",
 });
+
+export const DEFAULT_REFERENCE_RANGE_NM = 10;
 
 const rad = (deg) => (deg * Math.PI) / 180;
 const norm = (deg) => ((deg % 360) + 360) % 360;
@@ -17,6 +19,10 @@ const right = (a) => ({ x: a.y, y: -a.x });
 
 function requireFinite(name, value) {
   if (typeof value !== "number" || !Number.isFinite(value)) throw new TypeError(`${name} must be finite`);
+}
+
+function finiteOr(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 export function vecHeading(headingDeg) {
@@ -41,29 +47,47 @@ export function directionRule(runInHeadingDeg, attackHeadingDeg) {
 function rightDelta(fromDeg, toDeg) { return (norm(toDeg) - norm(fromDeg) + 360) % 360; }
 function leftDelta(fromDeg, toDeg) { return (norm(fromDeg) - norm(toDeg) + 360) % 360; }
 
-export function actionHeadingFromOffset(runInHeadingDeg, offsetAngleDeg, direction) {
+export function offsetHeadingFromOffset(runInHeadingDeg, offsetAngleDeg, direction) {
   if (!direction || direction.ambiguous) throw new Error("direction is ambiguous");
   return norm(direction.offsetDirection === "LEFT" ? runInHeadingDeg - offsetAngleDeg : runInHeadingDeg + offsetAngleDeg);
 }
 
-export function angleOffFromAction(actionHeadingDeg, attackHeadingDeg, direction) {
+export function actionHeadingFromOffset(runInHeadingDeg, offsetAngleDeg, direction) {
+  return offsetHeadingFromOffset(runInHeadingDeg, offsetAngleDeg, direction);
+}
+
+export function angleOffFromOffsetHeading(offsetHeadingDeg, attackHeadingDeg, direction) {
   if (!direction || direction.ambiguous) throw new Error("direction is ambiguous");
   return direction.rollDirection === "RIGHT"
-    ? rightDelta(actionHeadingDeg, attackHeadingDeg)
-    : leftDelta(actionHeadingDeg, attackHeadingDeg);
+    ? rightDelta(offsetHeadingDeg, attackHeadingDeg)
+    : leftDelta(offsetHeadingDeg, attackHeadingDeg);
+}
+
+export function angleOffFromAction(actionHeadingDeg, attackHeadingDeg, direction) {
+  return angleOffFromOffsetHeading(actionHeadingDeg, attackHeadingDeg, direction);
 }
 
 export function angleOffFromOffset(runInHeadingDeg, attackHeadingDeg, offsetAngleDeg, direction = directionRule(runInHeadingDeg, attackHeadingDeg)) {
-  const actionHeadingDeg = actionHeadingFromOffset(runInHeadingDeg, offsetAngleDeg, direction);
-  return angleOffFromAction(actionHeadingDeg, attackHeadingDeg, direction);
+  const offsetHeadingDeg = offsetHeadingFromOffset(runInHeadingDeg, offsetAngleDeg, direction);
+  return angleOffFromOffsetHeading(offsetHeadingDeg, attackHeadingDeg, direction);
 }
 
 export function offsetAngleFromAngleOff(runInHeadingDeg, attackHeadingDeg, angleOffDeg, direction = directionRule(runInHeadingDeg, attackHeadingDeg)) {
   if (!direction || direction.ambiguous) throw new Error("direction is ambiguous");
-  const actionHeadingDeg = norm(direction.rollDirection === "RIGHT" ? attackHeadingDeg - angleOffDeg : attackHeadingDeg + angleOffDeg);
+  const offsetHeadingDeg = norm(direction.rollDirection === "RIGHT" ? attackHeadingDeg - angleOffDeg : attackHeadingDeg + angleOffDeg);
   return direction.offsetDirection === "LEFT"
-    ? leftDelta(runInHeadingDeg, actionHeadingDeg)
-    : rightDelta(runInHeadingDeg, actionHeadingDeg);
+    ? leftDelta(runInHeadingDeg, offsetHeadingDeg)
+    : rightDelta(runInHeadingDeg, offsetHeadingDeg);
+}
+
+export function resolveReferenceInputs(input = {}) {
+  const runInHeadingDeg = norm(finiteOr(input.runInHeadingDeg, 0));
+  const vipToTargetBearingDeg = norm(finiteOr(input.vipToTargetBearingDeg, runInHeadingDeg));
+  const vipRangeNm = finiteOr(input.vipRangeNm, DEFAULT_REFERENCE_RANGE_NM);
+  const vrpBearingDeg = norm(finiteOr(input.vrpBearingDeg, runInHeadingDeg + 180));
+  const vrpRangeNm = finiteOr(input.vrpRangeNm, DEFAULT_REFERENCE_RANGE_NM);
+  const ipRangeNm = finiteOr(input.ipRangeNm, vipRangeNm);
+  return { runInHeadingDeg, ipRangeNm, vipToTargetBearingDeg, vipRangeNm, vrpBearingDeg, vrpRangeNm };
 }
 
 function lineIntersection(p, d, q, e) {
@@ -80,126 +104,151 @@ function transformLocal(local, startHeadingDeg, rollDirection) {
 }
 
 export function buildOffsetCandidate(input) {
-  const { runInHeadingDeg, attackHeadingDeg, offsetAngleDeg, offsetRadiusNm, ipRangeNm, profile } = input;
+  const { attackHeadingDeg, offsetAngleDeg, offsetRadiusNm, profile } = input;
+  const refs = resolveReferenceInputs(input);
+  const runInHeadingDeg = refs.runInHeadingDeg;
+  const ipRangeNm = refs.ipRangeNm;
   [
     ["runInHeadingDeg", runInHeadingDeg], ["attackHeadingDeg", attackHeadingDeg], ["offsetAngleDeg", offsetAngleDeg],
     ["offsetRadiusNm", offsetRadiusNm], ["ipRangeNm", ipRangeNm],
   ].forEach(([name, value]) => requireFinite(name, value));
   if (!(offsetAngleDeg > 0 && offsetAngleDeg < 179.5)) throw new RangeError("Offset Angle must be > 0 and < 179.5 deg");
   if (!(offsetRadiusNm > 0)) throw new RangeError("Offset Radius must be > 0 NM");
-  if (!(ipRangeNm >= 0)) throw new RangeError("VIP Range must be >= 0 NM");
+  if (!(ipRangeNm >= 0)) throw new RangeError("IP Range must be >= 0 NM");
   if (!profile?.public || !profile?.diagnostics || !profile?.visualization) throw new TypeError("profile must be a BDP semantic result");
 
   const direction = directionRule(runInHeadingDeg, attackHeadingDeg);
   if (direction.ambiguous) throw new Error("Run-In / Attack relation is directionally ambiguous");
-  const actionHeadingDeg = actionHeadingFromOffset(runInHeadingDeg, offsetAngleDeg, direction);
-  const angleOffDeg = angleOffFromAction(actionHeadingDeg, attackHeadingDeg, direction);
+  const offsetHeadingDeg = offsetHeadingFromOffset(runInHeadingDeg, offsetAngleDeg, direction);
+  const angleOffDeg = angleOffFromOffsetHeading(offsetHeadingDeg, attackHeadingDeg, direction);
   if (!(angleOffDeg > 0 && angleOffDeg < 179.5)) throw new RangeError("Angle-Off is outside the supported range");
 
   const targetLocal = {
     forward: profile.diagnostics.targetForwardNm,
     turnSide: profile.diagnostics.targetTurnSideNm,
   };
-  const targetVector = transformLocal(targetLocal, actionHeadingDeg, direction.rollDirection);
+  const targetVector = transformLocal(targetLocal, offsetHeadingDeg, direction.rollDirection);
   const rollStart = mul(targetVector, -1);
   const rollDisplacementGlobal = transformLocal({
     forward: profile.public.rollInDisplacement.forwardNm,
     turnSide: profile.public.rollInDisplacement.turnSideNm,
-  }, actionHeadingDeg, direction.rollDirection);
+  }, offsetHeadingDeg, direction.rollDirection);
   const trackPoint = add(rollStart, rollDisplacementGlobal);
-  const actionVector = vecHeading(actionHeadingDeg);
+  const offsetVector = vecHeading(offsetHeadingDeg);
   const runVector = vecHeading(runInHeadingDeg);
-  const temporaryActionPoint = lineIntersection({ x: 0, y: 0 }, mul(runVector, -1), rollStart, actionVector);
-  if (!temporaryActionPoint) throw new Error("Run-In and Action lines are parallel");
+  const temporaryActionPoint = lineIntersection({ x: 0, y: 0 }, mul(runVector, -1), rollStart, offsetVector);
+  if (!temporaryActionPoint) throw new Error("Run-In and Offset lines are parallel");
 
   const temporaryActionRangeNm = len(temporaryActionPoint);
   const turnRadiusCorrectionNm = offsetRadiusNm * Math.tan(rad(offsetAngleDeg) / 2);
   const realActionPoint = sub(temporaryActionPoint, mul(runVector, turnRadiusCorrectionNm));
-  const turnEnd = add(temporaryActionPoint, mul(actionVector, turnRadiusCorrectionNm));
+  const turnEnd = add(temporaryActionPoint, mul(offsetVector, turnRadiusCorrectionNm));
   const actionRangeNm = len(realActionPoint);
-  const actionLegDistanceNm = dot(sub(rollStart, turnEnd), actionVector);
+  const approachRangeNm = dot(sub(rollStart, turnEnd), offsetVector);
   const offsetNormal = direction.offsetDirection === "LEFT" ? left(runVector) : right(runVector);
   const offsetCenter = add(realActionPoint, mul(offsetNormal, offsetRadiusNm));
 
   const rollInRadiusNm = profile.public.rollInRadiusNm;
-  const rollNormal = direction.rollDirection === "RIGHT" ? right(actionVector) : left(actionVector);
+  const rollNormal = direction.rollDirection === "RIGHT" ? right(offsetVector) : left(offsetVector);
   const rollCenter = Number.isFinite(rollInRadiusNm) ? add(rollStart, mul(rollNormal, rollInRadiusNm)) : null;
 
   const rollInTrajectorySamples = profile.visualization.rollInTrajectorySamples.map((sample) => {
-    const transformed = transformLocal({ forward: sample.forwardNm, turnSide: sample.turnSideNm }, actionHeadingDeg, direction.rollDirection);
+    const transformed = transformLocal({ forward: sample.forwardNm, turnSide: sample.turnSideNm }, offsetHeadingDeg, direction.rollDirection);
     return add(rollStart, transformed);
   });
 
+  const target = { x: 0, y: 0 };
   const ipPoint = mul(runVector, -ipRangeNm);
+  const vipPoint = sub(target, mul(vecHeading(refs.vipToTargetBearingDeg), refs.vipRangeNm));
+  const vrpPoint = add(target, mul(vecHeading(refs.vrpBearingDeg), refs.vrpRangeNm));
+
   return {
     runInHeadingDeg,
     attackHeadingDeg,
-    actionHeadingDeg,
+    offsetHeadingDeg,
+    actionHeadingDeg: offsetHeadingDeg,
     offsetAngleDeg,
     angleOffDeg,
     direction,
     temporaryActionRangeNm,
     turnRadiusCorrectionNm,
     actionRangeNm,
-    actionLegDistanceNm,
+    approachRangeNm,
+    actionLegDistanceNm: approachRangeNm,
     rollInRangeNm: profile.public.rollInRangeNm,
     rollInRadiusNm,
     groundRangeNm: profile.public.groundRangeNm,
-    points: { target: { x: 0, y: 0 }, ip: ipPoint, vip: ipPoint, rollStart, trackPoint, temporaryActionPoint, realActionPoint, turnEnd, offsetCenter, rollCenter },
-    vectors: { runVector, actionVector },
+    referenceInputs: refs,
+    points: { target, ip: ipPoint, vip: vipPoint, vrp: vrpPoint, rollStart, trackPoint, temporaryActionPoint, realActionPoint, turnEnd, offsetCenter, rollCenter },
+    vectors: { runVector, offsetVector, actionVector: offsetVector },
     rollInTrajectorySamples,
     profile,
   };
 }
 
-export function buildReferenceState(candidate, input) {
+export function buildReferenceState(candidate, input = {}) {
   const mode = input.referenceMode === "VIP" ? "VIP" : "VRP";
   const warnings = [];
   const errors = [];
-  const ipRangeNm = Number.isFinite(input.ipRangeNm) ? Math.max(0, input.ipRangeNm) : Infinity;
+  const refs = candidate.referenceInputs ?? resolveReferenceInputs({ ...input, runInHeadingDeg: candidate.runInHeadingDeg });
+  const canonicalVrp = Number.isFinite(input.vrpBearingDeg);
+  const canonicalVip = Number.isFinite(input.vipToTargetBearingDeg);
 
   if (mode === "VIP") {
-    const displayRangeNm = Number.isFinite(input.ipRangeNm) ? Math.max(0, input.ipRangeNm) : 0;
-    if (Number.isFinite(input.ipRangeNm) && input.ipRangeNm < 0) errors.push("VIP-to-Target range must be >= 0 NM");
+    const requestedRangeNm = refs.vipRangeNm;
+    if (requestedRangeNm < 0) errors.push("VIP Range must be >= 0 NM");
+    const displayRangeNm = Math.max(0, requestedRangeNm);
+    const point = requestedRangeNm >= 0 ? { ...candidate.points.vip } : { ...candidate.points.target };
     return {
       mode,
-      linked: true,
-      requestedRangeNm: displayRangeNm,
+      linked: !canonicalVip && input.vipLinked === true,
+      requestedRangeNm,
       displayRangeNm,
-      point: { ...candidate.points.ip },
-      clampedAtTarget: false,
+      bearingDeg: refs.vipToTargetBearingDeg,
+      point,
+      clampedAtTarget: requestedRangeNm < 0,
       clampedAtIp: false,
       errors,
       warnings,
     };
   }
 
-  const linked = input.vrpLinked !== false;
-  let requestedRangeNm = linked ? candidate.actionRangeNm : input.vrpRangeNm;
-  if (!Number.isFinite(requestedRangeNm)) requestedRangeNm = candidate.actionRangeNm;
-  if (requestedRangeNm < 0) errors.push("VRP cannot be placed beyond Target; range must be >= 0 NM");
-  if (requestedRangeNm > ipRangeNm) errors.push("VRP must be between VIP and Target; range must be <= VIP Range");
-  const clampedAtTarget = requestedRangeNm < 0;
-  const clampedAtIp = requestedRangeNm > ipRangeNm;
-  const displayRangeNm = Math.min(ipRangeNm, Math.max(0, requestedRangeNm));
-  const point = mul(candidate.vectors.runVector, -displayRangeNm);
-  const projectionOnRun = dot(point, candidate.vectors.runVector);
-  if (projectionOnRun > 1e-9) errors.push("VRP reference projection passed Target");
-  return { mode, linked, requestedRangeNm, displayRangeNm, point, clampedAtTarget, clampedAtIp, errors, warnings };
+  const legacyLinked = input.vrpLinked === true && !canonicalVrp;
+  const requestedRangeNm = legacyLinked ? candidate.actionRangeNm : refs.vrpRangeNm;
+  if (requestedRangeNm < 0) errors.push("VRP Range must be >= 0 NM");
+  const displayRangeNm = Math.max(0, requestedRangeNm);
+  const point = legacyLinked
+    ? mul(candidate.vectors.runVector, -displayRangeNm)
+    : requestedRangeNm >= 0
+      ? add(candidate.points.target, mul(vecHeading(refs.vrpBearingDeg), displayRangeNm))
+      : { ...candidate.points.target };
+  return {
+    mode,
+    linked: legacyLinked,
+    requestedRangeNm,
+    displayRangeNm,
+    bearingDeg: legacyLinked ? norm(candidate.runInHeadingDeg + 180) : refs.vrpBearingDeg,
+    point,
+    clampedAtTarget: requestedRangeNm < 0,
+    clampedAtIp: false,
+    errors,
+    warnings,
+  };
 }
 
 export function validateOffsetCandidate(candidate, input = {}) {
   const errors = [];
   const warnings = [];
-  if (candidate.actionLegDistanceNm < 0) errors.push("Offset Turn End has passed Roll-in Start");
-  else if (candidate.actionLegDistanceNm < 0.25) warnings.push("Offset Turn End to Roll-in Start Approach is very short");
+  const approachRangeNm = Number.isFinite(candidate.approachRangeNm) ? candidate.approachRangeNm : candidate.actionLegDistanceNm;
+  if (approachRangeNm < 0) errors.push("Offset Turn End has passed Roll-in Start");
+  else if (approachRangeNm < 0.25) warnings.push("Approach Range is very short");
   if (candidate.offsetAngleDeg >= 120) warnings.push("Offset Angle is 120 deg or greater");
 
   const actionPointRunRangeNm = -dot(candidate.points.realActionPoint, candidate.vectors.runVector);
   if (actionPointRunRangeNm < -0.001) {
-    errors.push("Action Point must be between VIP and Target; Action Point has passed Target");
+    errors.push("Action Point must be between IP and Target; Action Point has passed Target");
   } else if (Number.isFinite(input.ipRangeNm) && actionPointRunRangeNm > input.ipRangeNm + 0.001) {
-    errors.push("Action Point must be between VIP and Target; Action Point has passed VIP");
+    errors.push("Action Point must be between IP and Target; Action Point has passed IP");
   }
   return { errors, warnings };
 }
