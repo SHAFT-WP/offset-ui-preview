@@ -606,7 +606,7 @@ function handleIpBearingInput(event) {
 }
 
 function installLocks() {
-  $$("[data-lock-key]").forEach((button) => {
+  $$$("[data-lock-key]").forEach((button) => {
     const key = button.dataset.lockKey;
     locks[key] = button.getAttribute("aria-pressed") === "true";
     button.addEventListener("click", () => {
