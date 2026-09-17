@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Offset Bombing · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=c0c6fcb8f3bb">
+<link rel="stylesheet" href="./offset.css?v=c82479c8377b">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -13,7 +13,7 @@
       <h1>Offset Bombing</h1>
       <div class="subline">V2 modular work · Bomb Delivery Planner v0.3 authority · Offset-specific geometry retained locally</div>
     </div>
-    <span class="rev">V2 WORK · OFFSET BE 0.2</span>
+    <span class="rev">V2 WORK · OFFSET BE 0.2.3</span>
   </header>
 
   <section class="section" aria-labelledby="dive-profile-title">
@@ -47,10 +47,41 @@
       <button id="vrp-btn" class="mode-button active" type="button">VRP</button>
       <button id="vip-btn" class="mode-button" type="button">VIP</button>
     </div>
+
+    <div id="vrp-pane" class="mode-pane reference-input-pane">
+      <div class="offset-title">VRP</div>
+      <div class="input-grid">
+        <label class="field"><span>Bearing (TBRG)</span><input id="vrp-bearing-input" type="text" inputmode="decimal" value="180"><span class="unit">TRUE</span></label>
+        <label class="field"><span>Range</span><input data-key="vrpRangeNm" type="text" inputmode="decimal" value="10.0"><span class="unit">NM</span></label>
+      </div>
+    </div>
+
+    <div id="vip-pane" class="mode-pane reference-input-pane" hidden>
+      <div class="offset-title">VIP</div>
+      <div class="mode-switch" role="group" aria-label="VIP bearing direction">
+        <button id="vip-to-target-btn" class="mode-button active" type="button" aria-pressed="true">TO TARGET</button>
+        <button id="vip-from-target-btn" class="mode-button" type="button" aria-pressed="false">FROM TARGET</button>
+      </div>
+      <div class="input-grid">
+        <label class="field"><span>Bearing (TBRG)</span><input id="vip-bearing-input" type="text" inputmode="decimal" value="000"><span class="unit">TRUE</span></label>
+        <label class="field"><span>Range</span><input id="vip-range-input" type="text" inputmode="decimal" value="10.0"><span class="unit">NM</span></label>
+      </div>
+    </div>
+
     <details class="input-panel reference-advanced">
       <summary id="reference-advanced-title">Advanced</summary>
       <div class="input-panel-body reference-advanced-body">
-        <div id="vrp-pane" class="mode-pane"><label class="field"><span class="lock-title"><span>VRP Range (NM)</span><button class="lock-button" type="button" data-lock-key="vrpRangeNm" aria-pressed="false">LOCK</button></span><input data-key="vrpRangeNm" type="text" inputmode="decimal" value="3.0"><span class="unit">NM</span></label></div>
+        <div id="ip-pane" class="mode-pane">
+          <div class="offset-title">IP</div>
+          <div class="mode-switch" role="group" aria-label="IP bearing direction">
+            <button id="ip-to-target-btn" class="mode-button active" type="button" aria-pressed="true">TO TARGET</button>
+            <button id="ip-from-target-btn" class="mode-button" type="button" aria-pressed="false">FROM TARGET</button>
+          </div>
+          <div class="input-grid">
+            <label class="field"><span>Bearing (TBRG)</span><input id="ip-bearing-input" data-key="runInHeadingDeg" type="text" inputmode="decimal" value="000"><span class="unit">TRUE</span></label>
+            <label class="field"><span>Range</span><input data-key="ipRangeNm" type="text" inputmode="decimal" value="10.0"><span class="unit">NM</span></label>
+          </div>
+        </div>
       </div>
     </details>
   </section>
@@ -60,30 +91,17 @@
     <div class="driver"><span>마지막 수정값은 Driver. LOCK 값은 자동 계산으로 덮어쓰지 않음.</span><output id="driver-out">DRIVER · angleOffDeg</output></div>
 
     <div class="offset-grid">
-      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">1</b>Run-In Heading</span><button class="lock-button" type="button" data-lock-key="runInHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="runInHeadingDeg" type="text" inputmode="decimal" value="060"><span class="unit">VIP → Target TBRG · true heading</span></label>
+      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">1</b>Run-In Heading</span><button class="lock-button" type="button" data-lock-key="runInHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="runInHeadingDeg" type="text" inputmode="decimal" value="000"><span class="unit">IP → Target · true heading</span></label>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">2</b>Dive Angle</span><button class="lock-button" type="button" data-lock-key="diveAngleDeg" aria-pressed="false">LOCK</button></span><input data-key="diveAngleDeg" type="text" inputmode="decimal" value="45"><span class="unit">Shared BDP input</span></label>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">3</b>Angle-Off (Heading)</span><button class="lock-button" type="button" data-lock-key="angleOffDeg" aria-pressed="false">LOCK</button></span><input data-key="angleOffDeg" type="text" inputmode="decimal" value="70"><span class="unit">Offset Heading → Attack Heading · same BDP parameter</span></label>
-      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">4</b>Attack Heading</span><button class="lock-button" type="button" data-lock-key="attackHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="attackHeadingDeg" type="text" inputmode="decimal" value="090"><span class="unit">Final attack axis · coupled heading constraint</span></label>
+      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">4</b>Attack Heading</span><button class="lock-button" type="button" data-lock-key="attackHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="attackHeadingDeg" type="text" inputmode="decimal" value="030"><span class="unit">Final attack axis · coupled heading constraint</span></label>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">5</b>Offset Angle</span><button class="lock-button" type="button" data-lock-key="offsetAngleDeg" aria-pressed="false">LOCK</button></span><input data-key="offsetAngleDeg" type="text" inputmode="decimal" value="40"><span class="unit">Run-In → Offset Heading change</span></label>
-      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">6</b>Action Range</span><button class="lock-button" type="button" data-lock-key="actionRangeNm" aria-pressed="false">LOCK</button></span><input data-key="actionRangeNm" type="text" inputmode="decimal" value="3.0"><span class="unit">Target → Action Point · must remain between Target and VIP</span></label>
-      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">7</b>Offset Range</span><button class="lock-button" type="button" data-lock-key="offsetRangeNm" aria-pressed="false">LOCK</button></span><input data-key="offsetRangeNm" type="text" inputmode="decimal" value="1.0"><span class="unit">Approach · Offset Turn End → Roll-in Start straight distance</span></label>
-      <div class="offset-card"><span class="offset-title"><b class="step">8</b>Offset Heading</span><output id="offset-heading-out" class="readout offset-heading">-</output><span class="alias-note">UI alias only: internal canonical field remains Action Heading.</span></div>
-      <div class="offset-card span2 vip-input-card">
-        <div class="lock-title">
-          <span class="offset-title"><b class="step">9</b>VIP</span>
-          <div class="mode-switch" role="group" aria-label="VIP bearing direction" style="min-width:220px;max-width:260px">
-            <button id="vip-to-target-btn" class="mode-button active" type="button" aria-pressed="true">TO TARGET</button>
-            <button id="vip-from-target-btn" class="mode-button" type="button" aria-pressed="false">FROM TARGET</button>
-          </div>
-        </div>
-        <div class="input-grid vip-to-target-grid">
-          <label class="field"><span>Bearing (TBRG)</span><input id="vip-bearing-input" type="text" inputmode="decimal" value="060"><span class="unit">TRUE</span></label>
-          <label class="field"><span>Range</span><input data-key="ipRangeNm" type="text" inputmode="decimal" value="7.0"><span class="unit">NM</span></label>
-        </div>
-      </div>
+      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">6</b>Action Range</span><button class="lock-button" type="button" data-lock-key="actionRangeNm" aria-pressed="false">LOCK</button></span><input data-key="actionRangeNm" type="text" inputmode="decimal" value="3.0"><span class="unit">Target → Action Point · must remain between Target and IP</span></label>
+      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">7</b>Approach Range</span><button class="lock-button" type="button" data-lock-key="offsetRangeNm" aria-pressed="false">LOCK</button></span><input data-key="offsetRangeNm" type="text" inputmode="decimal" value="1.0"><span class="unit">Offset Turn End → Roll-in Start · NM</span></label>
+      <div class="offset-card"><span class="offset-title"><b class="step">8</b>Offset Heading</span><output id="offset-heading-out" class="readout offset-heading">-</output><span class="unit">Offset Turn completion heading</span></div>
 
       <div class="offset-card span2">
-        <div class="offset-title"><b class="step">10</b>Offset Turn Condition</div>
+        <div class="offset-title"><b class="step">9</b>Offset Turn Condition</div>
         <div class="input-grid">
           <label class="field"><span class="lock-title"><span>Altitude (ft msl)</span><button class="lock-button" type="button" data-lock-key="offsetAltitudeMslFt" aria-pressed="false">LOCK</button></span><input data-key="offsetAltitudeMslFt" type="text" inputmode="decimal" value="16000"></label>
           <label class="field"><span class="lock-title"><span>Speed</span><button class="lock-button" type="button" data-lock-key="offsetSpeedValue" aria-pressed="false">LOCK</button></span><span class="compound"><input data-key="offsetSpeedValue" type="text" inputmode="decimal" value="350"><select data-key="offsetSpeedMode"><option value="CAS" selected>kcas</option><option value="MACH">mach</option></select></span></label>
@@ -126,17 +144,25 @@
 
   <section class="section ded-section" aria-labelledby="ded-title">
     <div class="section-head"><h2 id="ded-title">DED</h2></div>
-    <div class="ded-tabs" role="tablist" aria-label="DED pages">
+    <div hidden aria-hidden="true">
       <button id="ded-vrp-tab" class="ded-tab active" type="button" data-ded-page="VRP">VRP</button>
-      <button id="ded-vip-tab" class="ded-tab" type="button" data-ded-page="VIP" hidden>VIP</button>
+      <button id="ded-vip-tab" class="ded-tab" type="button" data-ded-page="VIP">VIP</button>
       <button id="ded-oa1-tab" class="ded-tab" type="button" data-ded-page="OA1">OA1</button>
-      <button id="ded-oa2-tab" class="ded-tab" type="button" data-ded-page="OA2" hidden>OA2</button>
+      <button id="ded-oa2-tab" class="ded-tab" type="button" data-ded-page="OA2">OA2</button>
     </div>
-    <div class="ded-screen" aria-live="polite">
-      <div class="ded-page-title" id="ded-page-title">VRP</div>
-      <div class="ded-row"><span>TBRG</span><output id="ded-bearing">-</output></div>
-      <div class="ded-row"><span>RNG</span><output id="ded-range">-</output></div>
-      <div class="ded-row"><span>ELEV</span><output id="ded-elevation">-</output></div>
+    <div class="ded-boxes">
+      <div class="ded-screen" id="ded-reference-screen" aria-live="polite">
+        <div class="ded-page-title" id="ded-page-title">VRP</div>
+        <div class="ded-row"><span>TBRG</span><output id="ded-bearing">-</output></div>
+        <div class="ded-row"><span>RNG</span><output id="ded-range">-</output></div>
+        <div class="ded-row"><span>ELEV</span><output id="ded-elevation">-</output></div>
+      </div>
+      <div class="ded-screen" id="ded-oa1-screen" aria-live="polite">
+        <div class="ded-page-title">OA1</div>
+        <div class="ded-row"><span>TBRG</span><output id="ded-oa1-bearing">-</output></div>
+        <div class="ded-row"><span>RNG</span><output id="ded-oa1-range">-</output></div>
+        <div class="ded-row"><span>ELEV</span><output id="ded-oa1-elevation">-</output></div>
+      </div>
     </div>
   </section>
 
@@ -145,7 +171,7 @@
     <details class="input-panel"><summary>Bomb Profile Authoritative Result · BDP v0.3</summary><div class="input-panel-body table-wrap"><table class="result-table"><tbody id="profile-result-body"></tbody></table></div></details>
   </section>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=c0c6fcb8f3bb"></script>
+<script type="module" src="./controller-v0.1.mjs?v=c82479c8377b"></script>
 <script>
 window.addEventListener("DOMContentLoaded", () => {
   const select = document.querySelector("#top-view-font-scale");
