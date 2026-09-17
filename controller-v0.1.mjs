@@ -673,7 +673,7 @@ function populateWeapons() {
 
 function capturePersistedState() {
   const inputs = {};
-  $("[data-key]").forEach((control) => {
+  $$("[data-key]").forEach((control) => {
     const key = control.dataset.key;
     if (!key || control.id === "ip-bearing-input" || Object.prototype.hasOwnProperty.call(inputs, key)) return;
     inputs[key] = control.value;
@@ -769,7 +769,7 @@ function savePersistedState({ feedback = false } = {}) {
 }
 
 function clearPendingInputStates() {
-  $(".value-dependent-input").forEach((node) => node.classList.remove("value-dependent-input"));
+  $$(".value-dependent-input").forEach((node) => node.classList.remove("value-dependent-input"));
 }
 
 function resetDefaults() {
