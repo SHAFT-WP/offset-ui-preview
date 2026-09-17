@@ -19,6 +19,10 @@ let referenceMode = "VRP";
 let vipBearingDirection = "TO_TARGET";
 let ipBearingDirection = "TO_TARGET";
 let ipLinked = true;
+let vipBearingExplicit = false;
+let vipRangeExplicit = false;
+let vrpBearingExplicit = false;
+let vrpRangeExplicit = false;
 let rollBankAuto = true;
 let topViewFontScale = resolveTopViewFontScaleDefault();
 let lastResult = null;
@@ -98,22 +102,26 @@ function readRunInHeading() {
 
 function readVipToTargetBearing() {
   const fallback = readRunInHeading();
+  if (!vipBearingExplicit) return fallback;
   const displayed = parseInputNumber("#vip-bearing-input", displayedBearing(fallback, vipBearingDirection));
   return canonicalToTargetBearing(displayed, vipBearingDirection);
 }
 
 function readVipRangeNm() {
-  return Math.max(0, parseInputNumber("#vip-range-input", DEFAULT_REFERENCE_RANGE_NM));
+  if (!vipRangeExplicit) return DEFAULT_REFERENCE_RANGE_NM;
+  return parseInputNumber("#vip-range-input", DEFAULT_REFERENCE_RANGE_NM);
 }
 
 function readVrpBearing() {
   const fallback = reciprocalHeading(readRunInHeading());
+  if (!vrpBearingExplicit) return fallback;
   return normHeading(parseInputNumber("#vrp-bearing-input", fallback));
 }
 
 function readVrpRangeNm() {
+  if (!vrpRangeExplicit) return DEFAULT_REFERENCE_RANGE_NM;
   const parsed = Number.parseFloat(firstField("vrpRangeNm")?.value ?? "");
-  return Number.isFinite(parsed) ? Math.max(0, parsed) : DEFAULT_REFERENCE_RANGE_NM;
+  return Number.isFinite(parsed) ? parsed : DEFAULT_REFERENCE_RANGE_NM;
 }
 
 function syncBearingInput(selector, canonicalToTargetDeg, direction, { includeActive = false } = {}) {
@@ -131,6 +139,25 @@ function syncIpBearingInput(runInHeadingDeg, options) {
   syncBearingInput("#ip-bearing-input", runInHeadingDeg, ipBearingDirection, options);
 }
 
+function syncImplicitReferenceInputs(runInHeadingDeg, { includeActive = false } = {}) {
+  if (!vipBearingExplicit) syncVipBearingInput(runInHeadingDeg, { includeActive });
+
+  const vipRange = $("#vip-range-input");
+  if (!vipRangeExplicit && vipRange && (includeActive || document.activeElement !== vipRange)) {
+    vipRange.value = DEFAULT_REFERENCE_RANGE_NM.toFixed(1);
+  }
+
+  const vrpBearing = $("#vrp-bearing-input");
+  if (!vrpBearingExplicit && vrpBearing && (includeActive || document.activeElement !== vrpBearing)) {
+    vrpBearing.value = formatBearingInput(reciprocalHeading(runInHeadingDeg));
+  }
+
+  const vrpRange = firstField("vrpRangeNm");
+  if (!vrpRangeExplicit && vrpRange && (includeActive || document.activeElement !== vrpRange)) {
+    vrpRange.value = DEFAULT_REFERENCE_RANGE_NM.toFixed(1);
+  }
+}
+
 function setDirectionButtons(prefix, direction) {
   const toTarget = $(`#${prefix}-to-target-btn`);
   const fromTarget = $(`#${prefix}-from-target-btn`);
@@ -144,11 +171,17 @@ function setDirectionButtons(prefix, direction) {
 
 function applyVipToLinkedIp(sourceKey = "vip") {
   if (!ipLinked) return false;
+  if (locks.runInHeadingDeg) {
+    ipLinked = false;
+    return false;
+  }
+
   const vipBearingDeg = readVipToTargetBearing();
   const vipRangeNm = readVipRangeNm();
   const headingChanged = setAutoValue("runInHeadingDeg", vipBearingDeg.toFixed(2), sourceKey);
   const rangeChanged = setAutoValue("ipRangeNm", vipRangeNm.toFixed(3), sourceKey);
   syncIpBearingInput(vipBearingDeg, { includeActive: true });
+  syncImplicitReferenceInputs(vipBearingDeg);
   return headingChanged || rangeChanged;
 }
 
@@ -446,6 +479,7 @@ function handleFieldChange(event) {
   const key = field.dataset.key;
 
   if (key === "vrpRangeNm") {
+    vrpRangeExplicit = Number.isFinite(Number.parseFloat(field.value));
     calculate();
     return;
   }
@@ -476,9 +510,18 @@ function handleFieldChange(event) {
 
   if (key === "runInHeadingDeg") {
     ipLinked = false;
-    const runInHeadingDeg = readRunInHeading();
-    setValue("runInHeadingDeg", runInHeadingDeg.toFixed(2), { includeActive: true });
+    const parsed = Number.parseFloat(field.value);
+    if (!Number.isFinite(parsed)) {
+      driver = "runInHeadingDeg";
+      calculate();
+      return;
+    }
+    const runInHeadingDeg = normHeading(parsed);
+    if (event.type === "change") {
+      setValue("runInHeadingDeg", formatBearingInput(runInHeadingDeg), { includeActive: true });
+    }
     syncIpBearingInput(runInHeadingDeg, { includeActive: true });
+    syncImplicitReferenceInputs(runInHeadingDeg);
     driver = "runInHeadingDeg";
   } else if (key === "offsetRangeNm") {
     driver = "approachRangeNm";
@@ -492,12 +535,13 @@ function handleFieldChange(event) {
 
 function handleVipBearingInput(event) {
   const entered = Number.parseFloat(event.target.value);
-  if (!Number.isFinite(entered)) return;
+  vipBearingExplicit = Number.isFinite(entered);
   if (ipLinked) applyVipToLinkedIp("vipBearingDeg");
   calculate();
 }
 
-function handleVipRangeInput() {
+function handleVipRangeInput(event) {
+  vipRangeExplicit = Number.isFinite(Number.parseFloat(event.target.value));
   if (ipLinked) applyVipToLinkedIp("vipRangeNm");
   calculate();
 }
@@ -508,6 +552,7 @@ function handleIpBearingInput(event) {
   ipLinked = false;
   const canonical = canonicalToTargetBearing(entered, ipBearingDirection);
   setValue("runInHeadingDeg", canonical.toFixed(2), { includeActive: true });
+  syncImplicitReferenceInputs(canonical);
   driver = "runInHeadingDeg";
   calculate();
 }
@@ -520,6 +565,7 @@ function installLocks() {
       locks[key] = !locks[key];
       button.setAttribute("aria-pressed", String(locks[key]));
       button.textContent = locks[key] ? "LOCKED" : "LOCK";
+      if (key === "runInHeadingDeg" && locks[key]) ipLinked = false;
       calculate();
     });
   });
@@ -550,6 +596,7 @@ function installReferenceBearingControls() {
   const vipBearingInput = $("#vip-bearing-input");
   const vipRangeInput = $("#vip-range-input");
   const vrpBearingInput = $("#vrp-bearing-input");
+  const vrpRangeInput = firstField("vrpRangeNm");
   const ipBearingInput = $("#ip-bearing-input");
 
   const setVipDirection = (nextDirection) => {
@@ -574,8 +621,14 @@ function installReferenceBearingControls() {
   vipBearingInput.addEventListener("blur", () => syncVipBearingInput(readVipToTargetBearing(), { includeActive: true }));
   vipRangeInput.addEventListener("input", handleVipRangeInput);
   vipRangeInput.addEventListener("blur", () => { vipRangeInput.value = fmt(readVipRangeNm(), 3); });
-  vrpBearingInput.addEventListener("input", calculate);
+
+  vrpBearingInput.addEventListener("input", () => {
+    vrpBearingExplicit = Number.isFinite(Number.parseFloat(vrpBearingInput.value));
+    calculate();
+  });
   vrpBearingInput.addEventListener("blur", () => { vrpBearingInput.value = formatBearingInput(readVrpBearing()); });
+  vrpRangeInput?.addEventListener("blur", () => { vrpRangeInput.value = fmt(readVrpRangeNm(), 3); });
+
   ipBearingInput.addEventListener("input", handleIpBearingInput);
   ipBearingInput.addEventListener("blur", () => syncIpBearingInput(readRunInHeading(), { includeActive: true }));
 }
@@ -634,7 +687,9 @@ function install() {
   $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg));
 
   setValue("rollInBankAngleDeg", automaticRollInBankDeg(), { includeActive: true });
-  syncVipBearingInput(readVipToTargetBearing(), { includeActive: true });
+  const initialRunInHeadingDeg = readRunInHeading();
+  syncImplicitReferenceInputs(initialRunInHeadingDeg, { includeActive: true });
+  syncIpBearingInput(initialRunInHeadingDeg, { includeActive: true });
   applyVipToLinkedIp("initialVipLink");
   calculate();
   initialRender = false;
