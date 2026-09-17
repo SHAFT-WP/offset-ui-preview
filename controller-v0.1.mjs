@@ -606,7 +606,7 @@ function handleIpBearingInput(event) {
 }
 
 function installLocks() {
-  $$$("[data-lock-key]").forEach((button) => {
+  $$("[data-lock-key]").forEach((button) => {
     const key = button.dataset.lockKey;
     locks[key] = button.getAttribute("aria-pressed") === "true";
     button.addEventListener("click", () => {
@@ -777,7 +777,7 @@ function applyPersistedState(saved) {
   Object.keys(locks).forEach((key) => {
     locks[key] = saved.locks?.[key] === true;
   });
-  $("[data-lock-key]").forEach((button) => {
+  $$("[data-lock-key]").forEach((button) => {
     const key = button.dataset.lockKey;
     const locked = locks[key] === true;
     button.setAttribute("aria-pressed", String(locked));
