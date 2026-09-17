@@ -675,7 +675,7 @@ function capturePersistedState() {
   const inputs = {};
   $("[data-key]").forEach((control) => {
     const key = control.dataset.key;
-    if (!key || control.id === "ip-bearing-input" || Object.hasOwn(inputs, key)) return;
+    if (!key || control.id === "ip-bearing-input" || Object.prototype.hasOwnProperty.call(inputs, key)) return;
     inputs[key] = control.value;
   });
   return {
