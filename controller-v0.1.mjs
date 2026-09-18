@@ -63,6 +63,8 @@ let initialRender = true;
 let lastResultSnapshot = null;
 let defaultPersistedState = null;
 let persistenceReady = false;
+let topViewViewportObserver = null;
+let topViewCompactQuery = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -901,9 +903,13 @@ function install() {
     if (lastResult) renderTopView(lastResult);
   };
   globalThis.addEventListener?.("resize", syncViewportTextBase);
+  globalThis.visualViewport?.addEventListener?.("resize", syncViewportTextBase);
+  topViewCompactQuery = globalThis.matchMedia?.(`(max-width: ${TOP_VIEW_MOBILE_MAX_WIDTH_PX}px)`) ?? null;
+  topViewCompactQuery?.addEventListener?.("change", syncViewportTextBase);
   if (globalThis.ResizeObserver) {
-    const viewportObserver = new ResizeObserver(syncViewportTextBase);
-    viewportObserver.observe(document.documentElement);
+    topViewViewportObserver = new ResizeObserver(syncViewportTextBase);
+    topViewViewportObserver.observe(document.documentElement);
+    if (document.body) topViewViewportObserver.observe(document.body);
   }
   $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg));
 
