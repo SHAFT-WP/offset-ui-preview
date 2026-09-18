@@ -1,6 +1,6 @@
 export const SVG_DIAGRAM_PRIMITIVES_V0_1 = Object.freeze({
   id: "svg-diagram-primitives-v0.1",
-  version: "0.1.1",
+  version: "0.1.2",
   purpose: "Policy-free SVG drawing primitives and normalized visual metrics shared by BE diagram renderers",
 });
 
@@ -21,6 +21,39 @@ export const SVG_DIAGRAM_STYLE_V0_1 = Object.freeze({
   line: Object.freeze({ directedPx: 1.7, dimensionPx: 1.6, leaderPx: 1 }),
   label: Object.freeze({ haloPx: 3, edgePadPx: 10, labelPadPx: 8, pathPadPx: 6, longPressMs: 500, dragCancelPx: 8 }),
 });
+
+export const SVG_DIAGRAM_TEXT_SCALE_V0_1 = Object.freeze({
+  mobileMaxWidthPx: 620,
+  desktopBaseScale: 1.5,
+  mobileBaseScale: 2.0,
+  userMinScale: 0.5,
+  userMaxScale: 2.0,
+  userStepScale: 0.1,
+  userDefaultScale: 1.0,
+});
+
+export function normalizeDiagramTextUserScale(value) {
+  const numeric = Number(value);
+  const fallback = SVG_DIAGRAM_TEXT_SCALE_V0_1.userDefaultScale;
+  const resolved = Number.isFinite(numeric) ? numeric : fallback;
+  return clamp(
+    resolved,
+    SVG_DIAGRAM_TEXT_SCALE_V0_1.userMinScale,
+    SVG_DIAGRAM_TEXT_SCALE_V0_1.userMaxScale,
+  );
+}
+
+export function resolveDiagramTextBaseScale(viewportWidthPx) {
+  const width = Number(viewportWidthPx);
+  if (Number.isFinite(width) && width <= SVG_DIAGRAM_TEXT_SCALE_V0_1.mobileMaxWidthPx) {
+    return SVG_DIAGRAM_TEXT_SCALE_V0_1.mobileBaseScale;
+  }
+  return SVG_DIAGRAM_TEXT_SCALE_V0_1.desktopBaseScale;
+}
+
+export function resolveDiagramTextPhysicalScale(userScale = 1, viewportWidthPx) {
+  return resolveDiagramTextBaseScale(viewportWidthPx) * normalizeDiagramTextUserScale(userScale);
+}
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
 
