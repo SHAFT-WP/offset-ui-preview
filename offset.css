@@ -1,4 +1,4 @@
-@import url("./common-ui-v0.2.css?v=edc0ece65deb");
+@import url("./common-ui-v0.2.css?v=483b0fc4603e");
 
 :root{--offset:light-dark(#a35d00,#ffbd62);--offset-soft:light-dark(#fff4df,#3b2a14);--lock:light-dark(#5c2d91,#c9a9ee);--lock-soft:light-dark(#f3ebfb,#30233d)}
 .driver{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:11px}.driver output{color:var(--value-result);font-weight:850}

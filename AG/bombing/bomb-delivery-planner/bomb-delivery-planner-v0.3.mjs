@@ -5,7 +5,7 @@ const MPS_PER_KT = 0.5144444444444445;
 
 export const BOMB_DELIVERY_PLANNER_MODEL_V0_3 = Object.freeze({
   id: "bomb-delivery-planner-v0.3-js-facade",
-  version: "0.3.4",
+  version: "0.3.5",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   officialOracle: "Bomb Profile REV.1.9 · R_20260830",
 });
