@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Offset Bombing · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=9c9be5e3243d">
+<link rel="stylesheet" href="./offset.css?v=7f223bc6c04f">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -130,9 +130,9 @@
           <div class="font-scale-control" role="group" aria-label="Top View font size">
             <span class="diagram-control-label">FONT</span>
             <button class="capture-button" id="top-view-font-down" type="button" aria-label="Top View font smaller">−</button>
-            <output class="diagram-scale-output" id="top-view-font-scale-output" aria-live="polite">150%</output>
+            <output class="diagram-scale-output" id="top-view-font-scale-output" aria-live="polite">100%</output>
             <button class="capture-button" id="top-view-font-up" type="button" aria-label="Top View font larger">＋</button>
-            <select id="top-view-font-scale" hidden aria-hidden="true" tabindex="-1"><option value="1">100%</option><option value="1.25">125%</option><option value="1.5" selected>150%</option><option value="1.75">175%</option><option value="2">200%</option></select>
+            <select id="top-view-font-scale" hidden aria-hidden="true" tabindex="-1"><option value="0.5">50%</option><option value="0.6">60%</option><option value="0.7">70%</option><option value="0.8">80%</option><option value="0.9">90%</option><option value="1.0" selected>100%</option><option value="1.1">110%</option><option value="1.2">120%</option><option value="1.3">130%</option><option value="1.4">140%</option><option value="1.5">150%</option><option value="1.6">160%</option><option value="1.7">170%</option><option value="1.8">180%</option><option value="1.9">190%</option><option value="2.0">200%</option></select>
           </div>
           <div class="view-scale-control" role="group" aria-label="Top View picture size">
             <span class="diagram-control-label">VIEW</span>
@@ -177,20 +177,20 @@
     <details class="input-panel"><summary>Bomb Profile Authoritative Result · BDP v0.3</summary><div class="input-panel-body table-wrap"><table class="result-table"><tbody id="profile-result-body"></tbody></table></div></details>
   </section>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=9c9be5e3243d"></script>
+<script type="module" src="./controller-v0.1.mjs?v=7f223bc6c04f"></script>
 <script>
 window.addEventListener("DOMContentLoaded", () => {
   const select = document.querySelector("#top-view-font-scale");
   const output = document.querySelector("#top-view-font-scale-output");
   const smaller = document.querySelector("#top-view-font-down");
   const larger = document.querySelector("#top-view-font-up");
-  const scales = [1, 1.25, 1.5, 1.75, 2];
+  const scales = Array.from({ length: 16 }, (_, index) => Number((0.5 + index * 0.1).toFixed(1)));
   if (!select || !output || !smaller || !larger) return;
 
   const currentIndex = () => {
     const value = Number.parseFloat(select.value);
     const exact = scales.findIndex((scale) => Math.abs(scale - value) < 1e-9);
-    return exact >= 0 ? exact : 2;
+    return exact >= 0 ? exact : scales.indexOf(1);
   };
   const sync = () => {
     const index = currentIndex();
