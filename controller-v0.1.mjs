@@ -893,10 +893,18 @@ function install() {
       renderTopView(lastResult);
     }
   });
-  const compactQuery = globalThis.matchMedia?.(`(max-width: ${TOP_VIEW_MOBILE_MAX_WIDTH_PX}px)`);
-  compactQuery?.addEventListener?.("change", () => {
+  let compactTextViewport = globalThis.innerWidth <= TOP_VIEW_MOBILE_MAX_WIDTH_PX;
+  const syncViewportTextBase = () => {
+    const nextCompact = globalThis.innerWidth <= TOP_VIEW_MOBILE_MAX_WIDTH_PX;
+    if (nextCompact === compactTextViewport) return;
+    compactTextViewport = nextCompact;
     if (lastResult) renderTopView(lastResult);
-  });
+  };
+  globalThis.addEventListener?.("resize", syncViewportTextBase);
+  if (globalThis.ResizeObserver) {
+    const viewportObserver = new ResizeObserver(syncViewportTextBase);
+    viewportObserver.observe(document.documentElement);
+  }
   $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg));
 
   const restored = loadPersistedState();
