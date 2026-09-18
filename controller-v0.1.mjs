@@ -1,11 +1,11 @@
 import { calculateOffsetV0_2 } from "./AG/bombing/offset-bombing/offset-be-v0.2.mjs";
+import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.1.mjs";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { exportOffsetTopView, installOffsetTopViewControls, renderOffsetTopView } from "./renderer-v0.1.mjs";
 
 const LOW_ANGLE_BOUNDARY_DEG = 10;
-const TOP_VIEW_FONT_SCALE_DESKTOP_DEFAULT = 1.5;
-const TOP_VIEW_FONT_SCALE_MOBILE_DEFAULT = 2.0;
-const TOP_VIEW_MOBILE_MAX_WIDTH_PX = 620;
+const TOP_VIEW_TEXT_SCALE_DEFAULT = SVG_DIAGRAM_TEXT_SCALE_V0_1.userDefaultScale;
+const TOP_VIEW_MOBILE_MAX_WIDTH_PX = SVG_DIAGRAM_TEXT_SCALE_V0_1.mobileMaxWidthPx;
 const FT_PER_NM = 6076.11549;
 const DEFAULT_REFERENCE_RANGE_NM = 10;
 const STORAGE_KEY = "flight-sim-tools.offset.v2.input.v1";
@@ -43,9 +43,6 @@ const DEFAULT_INPUT_VALUES = Object.freeze({
   offsetBankDeg: "60",
   offsetRadiusNm: "1.60",
 });
-const resolveTopViewFontScaleDefault = () => globalThis.matchMedia?.(`(max-width: ${TOP_VIEW_MOBILE_MAX_WIDTH_PX}px)`)?.matches
-  ? TOP_VIEW_FONT_SCALE_MOBILE_DEFAULT
-  : TOP_VIEW_FONT_SCALE_DESKTOP_DEFAULT;
 
 const locks = {};
 let driver = "angleOffDeg";
@@ -60,7 +57,7 @@ let vrpBearingExplicit = false;
 let vrpRangeExplicit = false;
 let rollBankAuto = true;
 let rollInAltitudeLinked = true;
-let topViewFontScale = resolveTopViewFontScaleDefault();
+let topViewTextScale = TOP_VIEW_TEXT_SCALE_DEFAULT;
 let lastResult = null;
 let initialRender = true;
 let lastResultSnapshot = null;
@@ -472,7 +469,10 @@ function applyResultChangeStates(result) {
 }
 
 function renderTopView(result) {
-  renderOffsetTopView($("#offset-top-view"), result, { fontScale: topViewFontScale });
+  renderOffsetTopView($("#offset-top-view"), result, {
+    textScale: topViewTextScale,
+    viewportWidth: globalThis.innerWidth,
+  });
 }
 
 function calculate() {
@@ -833,10 +833,10 @@ function resetDefaults() {
   clearPendingInputStates();
   driver = "angleOffDeg";
   turnDriver = "offsetG";
-  topViewFontScale = resolveTopViewFontScaleDefault();
+  topViewTextScale = TOP_VIEW_TEXT_SCALE_DEFAULT;
   const fontScaleSelect = $("#top-view-font-scale");
   if (fontScaleSelect) {
-    fontScaleSelect.value = String(topViewFontScale);
+    fontScaleSelect.value = String(topViewTextScale);
     fontScaleSelect.dispatchEvent(new Event("change", { bubbles: true }));
   }
   calculate();
@@ -877,13 +877,26 @@ function install() {
   });
   const fontScaleSelect = $("#top-view-font-scale");
   if (fontScaleSelect) {
-    fontScaleSelect.value = String(topViewFontScale);
+    fontScaleSelect.value = String(topViewTextScale);
     fontScaleSelect.addEventListener("change", () => {
       const next = Number.parseFloat(fontScaleSelect.value);
-      topViewFontScale = Number.isFinite(next) ? next : resolveTopViewFontScaleDefault();
+      topViewTextScale = Number.isFinite(next) ? next : TOP_VIEW_TEXT_SCALE_DEFAULT;
       if (lastResult) renderTopView(lastResult);
     });
   }
+  $("#zoom-reset")?.addEventListener("click", () => {
+    topViewTextScale = TOP_VIEW_TEXT_SCALE_DEFAULT;
+    if (fontScaleSelect) {
+      fontScaleSelect.value = String(topViewTextScale);
+      fontScaleSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    } else if (lastResult) {
+      renderTopView(lastResult);
+    }
+  });
+  const compactQuery = globalThis.matchMedia?.(`(max-width: ${TOP_VIEW_MOBILE_MAX_WIDTH_PX}px)`);
+  compactQuery?.addEventListener?.("change", () => {
+    if (lastResult) renderTopView(lastResult);
+  });
   $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg));
 
   const restored = loadPersistedState();
