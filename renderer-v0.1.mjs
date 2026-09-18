@@ -1,6 +1,7 @@
 import {
   appendDirectedLine,
   createOpenArrowMarker,
+  resolveDiagramTextPhysicalScale,
   SVG_DIAGRAM_STYLE_V0_1,
   svgNode,
 } from "./common/diagram/svg-primitives-v0.1.mjs";
@@ -10,15 +11,12 @@ import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.9",
+  version: "0.1.10",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
 const WIDTH = 1180;
 const HEIGHT = 1440;
-const TOP_VIEW_FONT_SCALE_DEFAULT = 1.5;
-const TOP_VIEW_FONT_SCALE_MIN = 1.0;
-const TOP_VIEW_FONT_SCALE_MAX = 2.0;
 const COLORS = Object.freeze({
   run: "#4c5966",
   offset: "#a35d00",
@@ -43,11 +41,6 @@ function fmtHeading(value) {
   if (!Number.isFinite(value)) return "-";
   const heading = ((Math.round(value) % 360) + 360) % 360;
   return String(heading).padStart(3, "0") + "°";
-}
-function normalizeTopViewFontScale(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return TOP_VIEW_FONT_SCALE_DEFAULT;
-  return Math.min(TOP_VIEW_FONT_SCALE_MAX, Math.max(TOP_VIEW_FONT_SCALE_MIN, numeric));
 }
 function labelAnchorForDx(dx) {
   if (dx > 8) return "start";
@@ -146,7 +139,8 @@ export function installOffsetTopViewControls(svg, controls = {}) {
 
 export function renderOffsetTopView(svg, result, options = {}) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
-  const fontScale = normalizeTopViewFontScale(options.fontScale);
+  const textScale = Number.isFinite(Number(options.textScale)) ? Number(options.textScale) : 1;
+  const fontScale = resolveDiagramTextPhysicalScale(textScale, options.viewportWidth);
   const root = svg.querySelector("#offset-plot") ?? svg.appendChild(svgNode("g", { id: "offset-plot" }));
   root.replaceChildren();
   const viewport = viewports.get(svg);
@@ -243,6 +237,8 @@ export function renderOffsetTopView(svg, result, options = {}) {
 
   const labels = createSmartLabelLayout(root, { width: WIDTH, height: HEIGHT, labelPad: 10, pathPad: 7 });
   const labelFontSize = SVG_DIAGRAM_STYLE_V0_1.font.lineTitlePx * fontScale;
+  svg.dataset.topViewTextScale = String(textScale);
+  svg.dataset.topViewPhysicalFontScale = String(fontScale);
   const appendLabel = (point, text, labelOptions = {}) => {
     if (!point) return null;
     const { textAttributes = {}, ...rest } = labelOptions;
