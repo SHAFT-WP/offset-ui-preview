@@ -371,7 +371,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
 
   if (p.rollCenter) {
     const rollRadiusMid = project(add(points.rollCenter, mul(sub(points.rollStart, points.rollCenter), 0.5)));
-    appendLabel(rollRadiusMid, `ROLL-IN R(EFF) · ${fmt(geometry.rollInRadiusNm, 2)} NM`, {
+    appendLabel(rollRadiusMid, `RADIUS (EFF) · ${fmt(geometry.rollInRadiusNm, 2)} NM`, {
       labelKey: "roll-radius",
       color: COLORS.roll,
       leaderMarkerId: "offset-arrow-label",
