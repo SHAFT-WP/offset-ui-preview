@@ -11,7 +11,7 @@ const MIN_NLT_DIVE_ANGLE_DEG = 10;
 
 export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
   id: "bomb-delivery-planner-v0.2-sem-nlt",
-  version: "0.2.5",
+  version: "0.2.6",
   legacyGeometrySource: "Bomb Profile REV.1.9 · R_20260830",
   applicability: Object.freeze({
     minAltOnlyBelowDiveAngleDeg: MIN_NLT_DIVE_ANGLE_DEG,
@@ -24,13 +24,10 @@ function finite(name, value) {
 
 function normalizeInput(raw) {
   const diveAngleDeg = raw.diveAngleDeg ?? raw.diveAngle;
-  const windSpeedKt =
-    raw.windSpeedKt ??
-    (raw.windSpeedMps !== undefined
-      ? raw.windSpeedMps / MPS_PER_KT
-      : raw.windSpeed !== undefined
-        ? raw.windSpeed / MPS_PER_KT
-        : 0);
+  if (raw.windSpeedMps !== undefined || raw.windSpeed !== undefined) {
+    throw new TypeError("BDP v0.2 wind input uses windSpeedKt only; m/s wind aliases are not supported");
+  }
+  const windSpeedKt = raw.windSpeedKt ?? 0;
   return {
     weaponId: raw.weaponId ?? "M82",
     targetElevationMslFt: raw.targetElevationMslFt ?? raw.targetElevation,
