@@ -3,7 +3,7 @@ import { calculateFragmentData } from "./safety-legacy-v0.1.mjs";
 
 export const SEM_NLT_MODEL_V0_2 = Object.freeze({
   id: "sem-g-onset-nlt-v0.2",
-  version: "0.2.1",
+  version: "0.2.2",
 });
 
 function requireFinite(name, value) {
@@ -15,11 +15,13 @@ export function calculateSemNltSafety({
   targetElevationMslFt,
   releaseSpeedKcas,
   speedOvershootKcas = 50,
+  fragmentHeightMarginPercent = 20,
   releaseFpaDeg,
   recoveryG = 5,
   gOnsetTimeSec = 2,
 }) {
   [
+    ["fragmentHeightMarginPercent", fragmentHeightMarginPercent],
     ["targetElevationMslFt", targetElevationMslFt],
     ["releaseSpeedKcas", releaseSpeedKcas],
     ["speedOvershootKcas", speedOvershootKcas],
@@ -28,6 +30,7 @@ export function calculateSemNltSafety({
     ["gOnsetTimeSec", gOnsetTimeSec],
   ].forEach(([name, value]) => requireFinite(name, value));
 
+  if (fragmentHeightMarginPercent < 0) throw new RangeError("fragmentHeightMarginPercent must be >= 0");
   if (!(releaseSpeedKcas > 0)) throw new RangeError("releaseSpeedKcas must be > 0");
   if (!(speedOvershootKcas >= 0)) throw new RangeError("speedOvershootKcas must be >= 0");
   if (!(releaseFpaDeg <= 0 && releaseFpaDeg > -90)) throw new RangeError("releaseFpaDeg must be <= 0 and > -90");
@@ -35,7 +38,7 @@ export function calculateSemNltSafety({
   if (!(gOnsetTimeSec > 0)) throw new RangeError("gOnsetTimeSec must be > 0");
 
   const fragments = calculateFragmentData({ weapon, targetElevationMslFt });
-  const minAltAglFt = fragments.fragmentMaximumAltitudeAglFt * 1.2;
+  const minAltAglFt = fragments.fragmentMaximumAltitudeAglFt * (1 + fragmentHeightMarginPercent / 100);
   const minAltMslFt = targetElevationMslFt + minAltAglFt;
   const recoverySpeedKcas = releaseSpeedKcas + speedOvershootKcas;
 

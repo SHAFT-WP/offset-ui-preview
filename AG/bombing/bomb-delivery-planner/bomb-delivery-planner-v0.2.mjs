@@ -11,7 +11,7 @@ const MIN_NLT_DIVE_ANGLE_DEG = 10;
 
 export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
   id: "bomb-delivery-planner-v0.2-sem-nlt",
-  version: "0.2.6",
+  version: "0.2.7",
   legacyGeometrySource: "Bomb Profile REV.1.9 · R_20260830",
   applicability: Object.freeze({
     minAltOnlyBelowDiveAngleDeg: MIN_NLT_DIVE_ANGLE_DEG,
@@ -30,6 +30,7 @@ function normalizeInput(raw) {
   const windSpeedKt = raw.windSpeedKt ?? 0;
   return {
     weaponId: raw.weaponId ?? "M82",
+    fragmentHeightMarginPercent: raw.fragmentHeightMarginPercent ?? 20,
     targetElevationMslFt: raw.targetElevationMslFt ?? raw.targetElevation,
     releaseSpeedKcas: raw.releaseSpeedKcas ?? raw.releaseSpeed,
     speedOvershootKcas: raw.speedOvershootKcas ?? raw.rnltSpeedMargin ?? 50,
@@ -57,6 +58,7 @@ function normalizeInput(raw) {
 
 function validate(p) {
   [
+    "fragmentHeightMarginPercent",
     "targetElevationMslFt",
     "releaseSpeedKcas",
     "diveAngleDeg",
@@ -71,6 +73,7 @@ function validate(p) {
     "rollInBankAngleDeg",
     "rollInG",
   ].forEach((name) => finite(name, p[name]));
+  if (p.fragmentHeightMarginPercent < 0) throw new RangeError("fragmentHeightMarginPercent must be >= 0");
   if (!(p.releaseSpeedKcas > 0)) throw new RangeError("releaseSpeedKcas must be > 0");
   if (!(p.diveAngleDeg >= 0 && p.diveAngleDeg < 90)) throw new RangeError("diveAngleDeg must be >= 0 and < 90");
   if (!(p.releaseFpaDeg <= 0 && p.releaseFpaDeg > -90)) throw new RangeError("releaseFpaDeg must be <= 0 and > -90");
@@ -103,9 +106,9 @@ function validate(p) {
   }
 }
 
-function calculateMinAltOnlySafety({ weapon, targetElevationMslFt, releaseFpaDeg }) {
+function calculateMinAltOnlySafety({ weapon, targetElevationMslFt, releaseFpaDeg, fragmentHeightMarginPercent }) {
   const fragments = calculateFragmentData({ weapon, targetElevationMslFt });
-  const minAltAglFt = fragments.fragmentMaximumAltitudeAglFt * 1.2;
+  const minAltAglFt = fragments.fragmentMaximumAltitudeAglFt * (1 + fragmentHeightMarginPercent / 100);
   const minAltMslFt = targetElevationMslFt + minAltAglFt;
   return {
     model: { id: "minalt-only-v0.1", version: "0.1.0" },
@@ -129,6 +132,7 @@ export function calculateBombDeliveryV0_2(rawInput) {
   const safety = nltSupported
     ? calculateSemNltSafety({
         weapon,
+        fragmentHeightMarginPercent: input.fragmentHeightMarginPercent,
         targetElevationMslFt: input.targetElevationMslFt,
         releaseSpeedKcas: input.releaseSpeedKcas,
         speedOvershootKcas: input.speedOvershootKcas,
@@ -138,6 +142,7 @@ export function calculateBombDeliveryV0_2(rawInput) {
       })
     : calculateMinAltOnlySafety({
         weapon,
+        fragmentHeightMarginPercent: input.fragmentHeightMarginPercent,
         targetElevationMslFt: input.targetElevationMslFt,
         releaseFpaDeg: input.releaseFpaDeg,
       });
@@ -201,7 +206,6 @@ export function calculateBombDeliveryV0_2(rawInput) {
       },
       baseDistanceNm: Math.abs(profile.targetTurnSideFt) / FT_PER_NM,
       baseDistanceSlantNm: Math.hypot(profile.initialAglFt, Math.abs(profile.targetTurnSideFt)) / FT_PER_NM,
-      rollInLateralSeparationNm: Math.abs(profile.targetTurnSideFt) / FT_PER_NM,
       rollInAltitudeLossFt: profile.roll.altitudeLossFt,
       leadAngleDeg: profile.leadAngleDeg,
       minAltMslFt: safety.minAltMslFt,

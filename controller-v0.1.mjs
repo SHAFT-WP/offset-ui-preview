@@ -23,6 +23,7 @@ const DEFAULT_INPUT_VALUES = Object.freeze({
   releaseSpeedKcas: "450",
   recoveryG: "5",
   speedOvershootKcas: "50",
+  fragmentHeightMarginPercent: "20",
   gOnsetTimeSec: "2",
   windDirectionDeg: "0",
   windSpeedKt: "0",
@@ -35,7 +36,7 @@ const DEFAULT_INPUT_VALUES = Object.freeze({
   attackHeadingDeg: "030",
   offsetAngleDeg: "40",
   actionRangeNm: "3.0",
-  offsetRangeNm: "1.0",
+  approachRangeNm: "1.0",
   offsetAltitudeMslFt: "16000",
   offsetSpeedValue: "350",
   offsetSpeedMode: "CAS",
@@ -247,14 +248,12 @@ function applyAutomaticRollBank(sourceKey = "diveAngleDeg") {
 
 function buildInput() {
   const runInHeadingDeg = readRunInHeading();
-  const approachRangeNm = numberValue("offsetRangeNm");
+  const approachRangeNm = numberValue("approachRangeNm");
   return {
     driver,
     turnDriver,
     locks: { ...locks },
     referenceMode,
-    vrpLinked: false,
-    vipLinked: false,
     runInHeadingDeg,
     attackHeadingDeg: numberValue("attackHeadingDeg"),
     angleOffDeg: numberValue("angleOffDeg"),
@@ -262,7 +261,6 @@ function buildInput() {
     offsetAngleDeg: numberValue("offsetAngleDeg"),
     actionRangeNm: numberValue("actionRangeNm"),
     approachRangeNm,
-    offsetRangeNm: approachRangeNm,
     ipRangeNm: numberValue("ipRangeNm"),
     vipToTargetBearingDeg: readVipToTargetBearing(),
     vipRangeNm: readVipRangeNm(),
@@ -279,6 +277,7 @@ function buildInput() {
       targetElevationMslFt: numberValue("targetElevationMslFt"),
       releaseSpeedKcas: numberValue("releaseSpeedKcas"),
       speedOvershootKcas: numberValue("speedOvershootKcas"),
+      fragmentHeightMarginPercent: numberValue("fragmentHeightMarginPercent"),
       recoveryG: numberValue("recoveryG"),
       gOnsetTimeSec: numberValue("gOnsetTimeSec"),
       diveAngleDeg: numberValue("diveAngleDeg"),
@@ -310,7 +309,7 @@ function applyResolved(result) {
   setIfUnlocked("angleOffDeg", result.resolved.angleOffDeg, 2);
   setIfUnlocked("offsetAngleDeg", result.resolved.offsetAngleDeg, 2);
   setIfUnlocked("actionRangeNm", result.resolved.actionRangeNm, 3);
-  setIfUnlocked("offsetRangeNm", result.resolved.approachRangeNm, 3);
+  setIfUnlocked("approachRangeNm", result.resolved.approachRangeNm, 3);
   setIfUnlocked("offsetG", result.resolved.offsetG, 3, turnDriver);
   setIfUnlocked("offsetBankDeg", result.resolved.offsetBankDeg, 2, turnDriver);
   setIfUnlocked("offsetRadiusNm", result.resolved.offsetRadiusNm, 3, turnDriver);
@@ -573,7 +572,7 @@ function handleFieldChange(event) {
     syncIpBearingInput(runInHeadingDeg, { includeActive: true });
     syncImplicitReferenceInputs(runInHeadingDeg);
     driver = "runInHeadingDeg";
-  } else if (key === "offsetRangeNm") {
+  } else if (key === "approachRangeNm") {
     driver = "approachRangeNm";
   } else if (["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "diveAngleDeg"].includes(key)) {
     driver = key;
@@ -715,7 +714,7 @@ function capturePersistedState() {
     inputs[key] = control.value;
   });
   return {
-    version: 1,
+    version: 2,
     inputs,
     vrpBearingInput: $("#vrp-bearing-input")?.value ?? "",
     vipBearingInput: $("#vip-bearing-input")?.value ?? "",
@@ -736,7 +735,7 @@ function capturePersistedState() {
 
 function createDefaultPersistedState() {
   return {
-    version: 1,
+    version: 2,
     inputs: { ...DEFAULT_INPUT_VALUES },
     vrpBearingInput: "180",
     vipBearingInput: "000",
@@ -757,6 +756,17 @@ function createDefaultPersistedState() {
 
 function applyPersistedState(saved) {
   if (!saved || typeof saved !== "object") return false;
+  // One-time local-storage migration. Explicit canonical values/locks (including 0/false) win.
+  const oldInputs = saved.inputs ?? {};
+  saved = { ...saved, inputs: { ...DEFAULT_INPUT_VALUES, ...saved.inputs }, locks: { ...saved.locks } };
+  if (saved.inputs.offsetRangeNm !== undefined && !Object.hasOwn(oldInputs, "approachRangeNm")) {
+    saved.inputs.approachRangeNm = saved.inputs.offsetRangeNm;
+  }
+  if (saved.locks.approachRangeNm === undefined && saved.locks.offsetRangeNm !== undefined) {
+    saved.locks.approachRangeNm = saved.locks.offsetRangeNm;
+  }
+  delete saved.inputs.offsetRangeNm;
+  delete saved.locks.offsetRangeNm;
   Object.entries(saved.inputs ?? {}).forEach(([key, next]) => {
     if (firstField(key)) setValue(key, next, { includeActive: true });
   });

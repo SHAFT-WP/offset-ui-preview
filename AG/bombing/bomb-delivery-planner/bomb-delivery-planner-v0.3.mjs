@@ -3,7 +3,7 @@ import { buildBombDeliveryVisualizationState } from "./visualization-state-v0.1.
 
 export const BOMB_DELIVERY_PLANNER_MODEL_V0_3 = Object.freeze({
   id: "bomb-delivery-planner-v0.3-js-facade",
-  version: "0.3.6",
+  version: "0.3.7",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   officialOracle: "Bomb Profile REV.1.9 · R_20260830",
 });
@@ -42,6 +42,7 @@ function canonicalInput(rawInput) {
   const windSpeedKt = rawInput.windSpeedKt ?? 0;
   return {
     weaponId: rawInput.weaponId ?? "M82",
+    fragmentHeightMarginPercent: rawInput.fragmentHeightMarginPercent ?? 20,
     targetElevationMslFt: rawInput.targetElevationMslFt,
     releaseSpeedKcas: rawInput.releaseSpeedKcas,
     speedOvershootKcas: rawInput.speedOvershootKcas ?? 50,

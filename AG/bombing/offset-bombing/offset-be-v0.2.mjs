@@ -11,7 +11,7 @@ import {
   validateOffsetCandidate,
 } from "./offset-geometry-v0.2.mjs";
 
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.3", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.4", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -77,6 +77,7 @@ function canonicalProfileInput(input, angleOffDeg) {
     targetElevationMslFt: finite("targetElevationMslFt", profile.targetElevationMslFt),
     releaseSpeedKcas: finite("releaseSpeedKcas", profile.releaseSpeedKcas),
     speedOvershootKcas: profile.speedOvershootKcas ?? 50,
+    fragmentHeightMarginPercent: profile.fragmentHeightMarginPercent ?? 20,
     recoveryG: profile.recoveryG ?? 5,
     gOnsetTimeSec: profile.gOnsetTimeSec ?? 2,
     diveAngleDeg,
@@ -148,18 +149,17 @@ function solveOffsetAngleForMetric({ targetValue, evaluate, metric, minOffsetAng
 }
 
 function approachRangeInput(input) {
-  if (Number.isFinite(input.approachRangeNm)) return finite("approachRangeNm", input.approachRangeNm);
-  return finite("approachRangeNm", input.offsetRangeNm);
+  return finite("approachRangeNm", input.approachRangeNm);
 }
 
 function chooseRangeConstraint(input, locks, driver) {
   const actionLocked = !!locks.actionRangeNm;
-  const approachLocked = !!locks.approachRangeNm || !!locks.offsetRangeNm;
-  const approachDriven = driver === "approachRangeNm" || driver === "offsetRangeNm";
+  const approachLocked = !!locks.approachRangeNm;
+  const approachDriven = driver === "approachRangeNm";
 
   if (actionLocked) return { fixed: true, kind: "action", targetRangeNm: finite("actionRangeNm", input.actionRangeNm), source: "locked-action-range" };
   if (approachLocked) return { fixed: true, kind: "approach", targetRangeNm: approachRangeInput(input), source: "locked-approach-range" };
-  if (approachDriven) return { fixed: true, kind: "approach", targetRangeNm: approachRangeInput(input), source: driver === "approachRangeNm" ? "driver-approach-range" : "driver-offset-range-compat" };
+  if (approachDriven) return { fixed: true, kind: "approach", targetRangeNm: approachRangeInput(input), source: "driver-approach-range" };
   if (driver === "actionRangeNm") return { fixed: true, kind: "action", targetRangeNm: finite("actionRangeNm", input.actionRangeNm), source: "driver-action-range" };
   return { fixed: false, kind: null, targetRangeNm: null, source: null };
 }
@@ -167,6 +167,9 @@ function chooseRangeConstraint(input, locks, driver) {
 export function calculateOffsetV0_2(input) {
   if (!input || typeof input !== "object") throw new TypeError("input must be an object");
   const locks = input.locks ?? {};
+  if (input.offsetRangeNm !== undefined || locks.offsetRangeNm !== undefined || input.driver === "offsetRangeNm") {
+    throw new TypeError("Offset input/driver/LOCK uses approachRangeNm only; migrate old saved input at the FE boundary");
+  }
   const errors = [];
   const warnings = [];
   const referenceMode = input.referenceMode === "VIP" ? "VIP" : "VRP";
@@ -238,7 +241,7 @@ export function calculateOffsetV0_2(input) {
   if (locks.angleOffDeg && !near(Math.abs(input.angleOffDeg), candidate.angleOffDeg, 0.02)) errors.push("LOCK conflict: Angle-Off cannot be satisfied");
   if (locks.offsetAngleDeg && !near(Math.abs(input.offsetAngleDeg), candidate.offsetAngleDeg, 0.02)) errors.push("LOCK conflict: Offset Angle cannot be satisfied");
   if (locks.actionRangeNm && !near(input.actionRangeNm, candidate.actionRangeNm, 0.002)) errors.push("LOCK conflict: Action Range cannot be satisfied");
-  if ((locks.approachRangeNm || locks.offsetRangeNm) && !near(approachRangeInput(input), candidate.approachRangeNm, 0.002)) errors.push("LOCK conflict: Approach Range cannot be satisfied");
+  if ((locks.approachRangeNm) && !near(approachRangeInput(input), candidate.approachRangeNm, 0.002)) errors.push("LOCK conflict: Approach Range cannot be satisfied");
 
   const candidateValidation = validateOffsetCandidate(candidate, { referenceMode, ipRangeNm });
   errors.push(...candidateValidation.errors);
@@ -268,10 +271,8 @@ export function calculateOffsetV0_2(input) {
       angleOffDeg: candidate.angleOffDeg,
       offsetAngleDeg: candidate.offsetAngleDeg,
       offsetHeadingDeg: candidate.offsetHeadingDeg,
-      actionHeadingDeg: candidate.offsetHeadingDeg,
       actionRangeNm: candidate.actionRangeNm,
       approachRangeNm,
-      offsetRangeNm: approachRangeNm,
       ipRangeNm,
       vipToTargetBearingDeg: candidate.referenceInputs.vipToTargetBearingDeg,
       vipRangeNm: candidate.referenceInputs.vipRangeNm,
@@ -285,7 +286,6 @@ export function calculateOffsetV0_2(input) {
       ingressSec,
       offsetTurnSec: turnSec,
       approachSec,
-      actionLegSec: approachSec,
       rollToReleaseSec,
       offsetIpToReleaseSec,
       legacyDirectIpTargetSec,

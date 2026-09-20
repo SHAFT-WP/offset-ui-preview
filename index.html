@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Offset Bombing · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=ab9a515f5ede">
+<link rel="stylesheet" href="./offset.css?v=812d95e91c45">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -35,6 +35,7 @@
         <label class="field"><span>Tracking Time (sec)</span><input data-key="trackingTimeSec" type="text" inputmode="decimal" value="18.25"><span class="unit">Track Point → Release</span></label>
         <label class="field"><span>Release Altitude (ft MSL)</span><input data-key="releaseAltitudeMslFt" type="text" inputmode="decimal" value="6800"><span class="unit">NLT clamp is BDP-owned</span></label>
         <label class="field"><span>Release Speed (kcas)</span><input data-key="releaseSpeedKcas" type="text" inputmode="decimal" value="450"><span class="unit">Release speed</span></label>
+        <label class="field"><span>Fragment Height Margin (%)</span><input data-key="fragmentHeightMarginPercent" type="text" inputmode="decimal" value="20"></label>
         <label class="field"><span>Recovery G (G)</span><input data-key="recoveryG" type="text" inputmode="decimal" value="5"><span class="unit">V2 canonical safety input</span></label>
         <label class="field"><span>Speed Overshoot (kcas)</span><input data-key="speedOvershootKcas" type="text" inputmode="decimal" value="50"><span class="unit">BDP safety input</span></label>
         <label class="field"><span>G Onset Time (sec)</span><input data-key="gOnsetTimeSec" type="text" inputmode="decimal" value="2"><span class="unit">V2 SEM/NLT input · onset starts at Release</span></label>
@@ -103,7 +104,7 @@
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">4</b>Attack Heading</span><button class="lock-button" type="button" data-lock-key="attackHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="attackHeadingDeg" type="text" inputmode="decimal" value="030"><span class="unit">Final attack axis · coupled heading constraint</span></label>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">5</b>Offset Angle</span><button class="lock-button" type="button" data-lock-key="offsetAngleDeg" aria-pressed="false">LOCK</button></span><input data-key="offsetAngleDeg" type="text" inputmode="decimal" value="40"><span class="unit">Run-In → Offset Heading change</span></label>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">6</b>Action Range</span><button class="lock-button" type="button" data-lock-key="actionRangeNm" aria-pressed="false">LOCK</button></span><input data-key="actionRangeNm" type="text" inputmode="decimal" value="3.0"><span class="unit">Target → Action Point · must remain between Target and IP</span></label>
-      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">7</b>Approach Range</span><button class="lock-button" type="button" data-lock-key="offsetRangeNm" aria-pressed="false">LOCK</button></span><input data-key="offsetRangeNm" type="text" inputmode="decimal" value="1.0"><span class="unit">Offset Turn End → Roll-in Start · NM</span></label>
+      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">7</b>Approach Range</span><button class="lock-button" type="button" data-lock-key="approachRangeNm" aria-pressed="false">LOCK</button></span><input data-key="approachRangeNm" type="text" inputmode="decimal" value="1.0"><span class="unit">Offset Turn End → Roll-in Start · NM</span></label>
       <div class="offset-card"><span class="offset-title"><b class="step">8</b>Offset Heading</span><output id="offset-heading-out" class="readout offset-heading">-</output><span class="unit">Offset Turn completion heading</span></div>
 
       <div class="offset-card span2">
@@ -177,7 +178,7 @@
     <details class="input-panel"><summary>Bomb Profile Authoritative Result · BDP v0.3</summary><div class="input-panel-body table-wrap"><table class="result-table"><tbody id="profile-result-body"></tbody></table></div></details>
   </section>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=ab9a515f5ede"></script>
+<script type="module" src="./controller-v0.1.mjs?v=812d95e91c45"></script>
 <script>
 window.addEventListener("DOMContentLoaded", () => {
   const select = document.querySelector("#top-view-font-scale");

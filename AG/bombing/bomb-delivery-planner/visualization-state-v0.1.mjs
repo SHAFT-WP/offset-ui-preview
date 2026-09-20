@@ -115,7 +115,7 @@ export function buildBombDeliveryVisualizationState(result) {
       downRangeTravelNm: result.public.downRangeTravelNm,
       bombRangeNm: result.public.bombRangeNm,
       rollInGroundArcNm: result.public.rollInGroundArcNm,
-      rollInLateralSeparationNm: result.public.rollInLateralSeparationNm,
+      baseDistanceNm: result.public.baseDistanceNm,
     },
     annotations: {
       leadAngleDeg: result.public.leadAngleDeg,

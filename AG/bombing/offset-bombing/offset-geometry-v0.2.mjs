@@ -1,6 +1,6 @@
 export const OFFSET_GEOMETRY_V0_2 = Object.freeze({
   id: "offset-geometry-v0.2",
-  version: "0.2.3",
+  version: "0.2.4",
   purpose: "Pure Offset Bombing heading/action-point/reference geometry independent of DOM and rendering",
 });
 
@@ -52,19 +52,11 @@ export function offsetHeadingFromOffset(runInHeadingDeg, offsetAngleDeg, directi
   return norm(direction.offsetDirection === "LEFT" ? runInHeadingDeg - offsetAngleDeg : runInHeadingDeg + offsetAngleDeg);
 }
 
-export function actionHeadingFromOffset(runInHeadingDeg, offsetAngleDeg, direction) {
-  return offsetHeadingFromOffset(runInHeadingDeg, offsetAngleDeg, direction);
-}
-
 export function angleOffFromOffsetHeading(offsetHeadingDeg, attackHeadingDeg, direction) {
   if (!direction || direction.ambiguous) throw new Error("direction is ambiguous");
   return direction.rollDirection === "RIGHT"
     ? rightDelta(offsetHeadingDeg, attackHeadingDeg)
     : leftDelta(offsetHeadingDeg, attackHeadingDeg);
-}
-
-export function angleOffFromAction(actionHeadingDeg, attackHeadingDeg, direction) {
-  return angleOffFromOffsetHeading(actionHeadingDeg, attackHeadingDeg, direction);
 }
 
 export function angleOffFromOffset(runInHeadingDeg, attackHeadingDeg, offsetAngleDeg, direction = directionRule(runInHeadingDeg, attackHeadingDeg)) {
@@ -166,7 +158,6 @@ export function buildOffsetCandidate(input) {
     runInHeadingDeg,
     attackHeadingDeg,
     offsetHeadingDeg,
-    actionHeadingDeg: offsetHeadingDeg,
     offsetAngleDeg,
     angleOffDeg,
     direction,
@@ -174,13 +165,12 @@ export function buildOffsetCandidate(input) {
     turnRadiusCorrectionNm,
     actionRangeNm,
     approachRangeNm,
-    actionLegDistanceNm: approachRangeNm,
     rollInRangeNm: profile.public.rollInRangeNm,
     rollInRadiusNm,
     groundRangeNm: profile.public.groundRangeNm,
     referenceInputs: refs,
     points: { target, ip: ipPoint, vip: vipPoint, vrp: vrpPoint, rollStart, trackPoint, temporaryActionPoint, realActionPoint, turnEnd, offsetCenter, rollCenter },
-    vectors: { runVector, offsetVector, actionVector: offsetVector },
+    vectors: { runVector, offsetVector },
     rollInTrajectorySamples,
     profile,
   };
@@ -191,8 +181,6 @@ export function buildReferenceState(candidate, input = {}) {
   const warnings = [];
   const errors = [];
   const refs = candidate.referenceInputs ?? resolveReferenceInputs({ ...input, runInHeadingDeg: candidate.runInHeadingDeg });
-  const canonicalVrp = Number.isFinite(input.vrpBearingDeg);
-  const canonicalVip = Number.isFinite(input.vipToTargetBearingDeg);
 
   if (mode === "VIP") {
     const requestedRangeNm = refs.vipRangeNm;
@@ -201,7 +189,7 @@ export function buildReferenceState(candidate, input = {}) {
     const point = requestedRangeNm >= 0 ? { ...candidate.points.vip } : { ...candidate.points.target };
     return {
       mode,
-      linked: !canonicalVip && input.vipLinked === true,
+      linked: false,
       requestedRangeNm,
       displayRangeNm,
       bearingDeg: refs.vipToTargetBearingDeg,
@@ -213,21 +201,18 @@ export function buildReferenceState(candidate, input = {}) {
     };
   }
 
-  const legacyLinked = input.vrpLinked === true && !canonicalVrp;
-  const requestedRangeNm = legacyLinked ? candidate.actionRangeNm : refs.vrpRangeNm;
+  const requestedRangeNm = refs.vrpRangeNm;
   if (requestedRangeNm < 0) errors.push("VRP Range must be >= 0 NM");
   const displayRangeNm = Math.max(0, requestedRangeNm);
-  const point = legacyLinked
-    ? mul(candidate.vectors.runVector, -displayRangeNm)
-    : requestedRangeNm >= 0
+  const point = requestedRangeNm >= 0
       ? add(candidate.points.target, mul(vecHeading(refs.vrpBearingDeg), displayRangeNm))
       : { ...candidate.points.target };
   return {
     mode,
-    linked: legacyLinked,
+    linked: false,
     requestedRangeNm,
     displayRangeNm,
-    bearingDeg: legacyLinked ? norm(candidate.runInHeadingDeg + 180) : refs.vrpBearingDeg,
+    bearingDeg: refs.vrpBearingDeg,
     point,
     clampedAtTarget: requestedRangeNm < 0,
     clampedAtIp: false,
@@ -239,7 +224,7 @@ export function buildReferenceState(candidate, input = {}) {
 export function validateOffsetCandidate(candidate, input = {}) {
   const errors = [];
   const warnings = [];
-  const approachRangeNm = Number.isFinite(candidate.approachRangeNm) ? candidate.approachRangeNm : candidate.actionLegDistanceNm;
+  const approachRangeNm = candidate.approachRangeNm;
   if (approachRangeNm < 0) errors.push("Offset Turn End has passed Roll-in Start");
   else if (approachRangeNm < 0.25) warnings.push("Approach Range is very short");
   if (candidate.offsetAngleDeg >= 120) warnings.push("Offset Angle is 120 deg or greater");
