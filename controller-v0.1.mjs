@@ -885,26 +885,32 @@ function install() {
   installOffsetTopViewControls(svg, {
     zoomInButton: $("#zoom-in"),
     zoomOutButton: $("#zoom-out"),
+    sizeResetButton: $("#top-view-size-output"),
     resetButton: $("#zoom-reset"),
   });
   const fontScaleSelect = $("#top-view-font-scale");
-  if (fontScaleSelect) {
-    fontScaleSelect.value = String(topViewTextScale);
-    fontScaleSelect.addEventListener("change", () => {
-      const next = Number.parseFloat(fontScaleSelect.value);
-      topViewTextScale = Number.isFinite(next) ? next : TOP_VIEW_TEXT_SCALE_DEFAULT;
-      if (lastResult) renderTopView(lastResult);
-    });
-  }
-  $("#zoom-reset")?.addEventListener("click", () => {
-    topViewTextScale = TOP_VIEW_TEXT_SCALE_DEFAULT;
-    if (fontScaleSelect) {
-      fontScaleSelect.value = String(topViewTextScale);
-      fontScaleSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    } else if (lastResult) {
-      renderTopView(lastResult);
-    }
+  const textOutput = $("#top-view-font-scale-output");
+  const smallerText = $("#top-view-font-down");
+  const largerText = $("#top-view-font-up");
+  const syncTextControls = () => {
+    if (fontScaleSelect) fontScaleSelect.value = String(topViewTextScale);
+    if (textOutput) textOutput.textContent = `${Math.round(topViewTextScale * 100)}%`;
+    if (smallerText) smallerText.disabled = topViewTextScale <= 0.5;
+    if (largerText) largerText.disabled = topViewTextScale >= 2;
+  };
+  const setTextScale = (value) => {
+    topViewTextScale = Math.max(0.5, Math.min(2, Math.round(value * 10) / 10));
+    syncTextControls();
+    if (lastResult) renderTopView(lastResult);
+  };
+  fontScaleSelect?.addEventListener("change", () => {
+    const value = Number.parseFloat(fontScaleSelect.value);
+    setTextScale(Number.isFinite(value) ? value : TOP_VIEW_TEXT_SCALE_DEFAULT);
   });
+  smallerText?.addEventListener("click", () => setTextScale(topViewTextScale - 0.1));
+  largerText?.addEventListener("click", () => setTextScale(topViewTextScale + 0.1));
+  textOutput?.addEventListener("click", () => setTextScale(TOP_VIEW_TEXT_SCALE_DEFAULT));
+  syncTextControls();
   let compactTextViewport = globalThis.innerWidth <= TOP_VIEW_MOBILE_MAX_WIDTH_PX;
   const syncViewportTextBase = () => {
     const nextCompact = globalThis.innerWidth <= TOP_VIEW_MOBILE_MAX_WIDTH_PX;

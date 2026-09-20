@@ -11,7 +11,7 @@ import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.10",
+  version: "0.1.11",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
@@ -123,16 +123,29 @@ export function installOffsetTopViewControls(svg, controls = {}) {
       panOnlyWhenZoomed: true,
       buttonOnlyZoom: true,
       allowPageScrollWhenPanDisabled: true,
-      zoomInButton: controls.zoomInButton,
-      zoomOutButton: controls.zoomOutButton,
+      maxZoom: 2,
+      maxZoomOut: 2,
+      onViewBoxChange: (box) => {
+        const percent = Math.round(WIDTH / box.w * 100);
+        if (controls.sizeResetButton) controls.sizeResetButton.textContent = `${percent}%`;
+        if (controls.zoomInButton) controls.zoomInButton.disabled = percent >= 200;
+        if (controls.zoomOutButton) controls.zoomOutButton.disabled = percent <= 50;
+      },
       resetButton: controls.resetButton,
     });
     viewports.set(svg, viewport);
+    const stepSize = (delta) => {
+      const current = WIDTH / viewport.getViewBox().w;
+      const next = Math.max(0.5, Math.min(2, Math.round((current + delta) * 100) / 100));
+      viewport.zoomCenter(current / next);
+    };
+    controls.zoomInButton?.addEventListener("click", () => stepSize(0.25));
+    controls.zoomOutButton?.addEventListener("click", () => stepSize(-0.25));
+    controls.sizeResetButton?.addEventListener("click", () => viewport.reset());
   }
   if (!labelDrags.has(svg)) {
     const labelDrag = installSmartLabelDrag(svg);
     labelDrags.set(svg, labelDrag);
-    controls.resetButton?.addEventListener("click", () => labelDrag.reset());
   }
   return viewport;
 }

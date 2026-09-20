@@ -1,6 +1,6 @@
 export const SVG_VIEWPORT_V0_1 = Object.freeze({
   id: "svg-viewport-v0.1",
-  version: "0.1.2",
+  version: "0.1.3",
   purpose: "Generic SVG auto-fit projection plus viewBox zoom/pan interaction with optional page-scroll pass-through",
 });
 
@@ -130,6 +130,7 @@ export function installSvgViewport(svg, options = {}) {
     box = { x: next.x, y: next.y, w, h };
     svg.setAttribute("viewBox", `${box.x} ${box.y} ${box.w} ${box.h}`);
     updateInteractionState();
+    options.onViewBoxChange?.({ ...box });
   };
   const reset = (markUser = false) => { box = { ...base }; apply(box); userAdjusted = markUser; };
   const autoFit = () => reset(false);
