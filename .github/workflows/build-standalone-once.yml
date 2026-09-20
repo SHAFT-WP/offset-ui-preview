@@ -1,0 +1,75 @@
+name: Build Offset standalone once
+
+on:
+  push:
+    branches: [work]
+    paths:
+      - .github/workflows/build-standalone-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work
+
+      - name: Bundle runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes esbuild@0.25.10 controller-v0.1.mjs             --bundle             --format=esm             --platform=browser             --target=es2022             --outfile=/tmp/offset.bundle.js
+          npx --yes esbuild@0.25.10 offset.css             --bundle             --platform=browser             --outfile=/tmp/offset.bundle.css
+
+      - name: Build single-file HTML
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          let html = fs.readFileSync('index.html', 'utf8');
+          const css = fs.readFileSync('/tmp/offset.bundle.css', 'utf8').replace(/<\/style/gi, '<\\/style');
+          const js = fs.readFileSync('/tmp/offset.bundle.js', 'utf8').replace(/<\/script/gi, '<\\/script');
+
+          html = html
+            .replace(/\s*<link\s+rel=["']stylesheet["']\s+href=["']\.\/offset\.css[^"']*["']\s*>\s*/i, '\n')
+            .replace('</head>', `<style>\n${css}\n</style>\n</head>`)
+            .replace(/<script\s+type=["']module["']\s+src=["']\.\/controller-v0\.1\.mjs[^"']*["']\s*><\/script>/i,
+              `<script type="module">\n${js}\n</script>`);
+
+          if (/<link\b[^>]*rel=["']stylesheet["']/i.test(html)) {
+            throw new Error('stylesheet link remains in standalone');
+          }
+          if (/<script\b[^>]*\bsrc=["']/i.test(html)) {
+            throw new Error('external script src remains in standalone');
+          }
+          if (/\.\/controller-v0\.1\.mjs|\.\/offset\.css|\.\/AG\/|\.\/common\//.test(html)) {
+            throw new Error('runtime file reference remains in standalone');
+          }
+
+          fs.writeFileSync('offset-standalone.html', html);
+          NODE
+
+      - name: Verify standalone
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s offset-standalone.html
+          grep -Fq '<script type="module">' offset-standalone.html
+          grep -Fq '<style>' offset-standalone.html
+          ! grep -Eq '<script[^>]+src=' offset-standalone.html
+          ! grep -Eq '<link[^>]+rel=["'"'"']stylesheet' offset-standalone.html
+
+      - name: Commit standalone and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/build-standalone-once.yml
+          git add offset-standalone.html
+          git commit -m "Add Offset standalone HTML"
+          git push origin HEAD:work
