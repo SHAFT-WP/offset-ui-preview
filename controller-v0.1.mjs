@@ -1,8 +1,18 @@
+import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
+import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 import { calculateOffsetV0_2 } from "./AG/bombing/offset-bombing/offset-be-v0.2.mjs";
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.1.mjs";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { exportOffsetTopView, installOffsetTopViewControls, renderOffsetTopView } from "./renderer-v0.1.mjs";
 
+const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
+installSvgLegend(document.getElementById('offset-legend'), [
+  { label: 'Run-In', color: '#4c5966' },
+  { label: 'Offset / Approach', color: '#a35d00' },
+  { label: 'BDP Roll-in', color: '#176dac' },
+  { label: 'Attack track', color: '#087b4c' },
+], ['North-up · top = North / bottom = South',
+    'Offset R: Action Point + Turn End to center; Roll-in R (EFF): Roll In + Track Point to center.']);
 const LOW_ANGLE_BOUNDARY_DEG = 10;
 const TOP_VIEW_TEXT_SCALE_DEFAULT = SVG_DIAGRAM_TEXT_SCALE_V0_1.userDefaultScale;
 const TOP_VIEW_MOBILE_MAX_WIDTH_PX = SVG_DIAGRAM_TEXT_SCALE_V0_1.mobileMaxWidthPx;
@@ -322,9 +332,10 @@ function applyResolved(result) {
   $("#lock-count").textContent = `LOCK ${Object.values(locks).filter(Boolean).length}`;
 }
 
+const SUMMARY_RESULTS = new Set(['runAttackSummary', 'offsetHeadingDeg', 'actionRangeNm', 'approachRangeNm', 'offsetTurnSec', 'approachSec', 'effectiveReleaseAltitudeMslFt', 'trackingTimeSecResult', 'leadAngleDeg', 'nltReleaseMslFt']);
 function row(label, renderedValue, resultKey = null) {
   const rendered = resultKey ? `<span class="value-result" data-result-key="${resultKey}">${renderedValue}</span>` : renderedValue;
-  return `<tr><td>${label}</td><td>${rendered}</td></tr>`;
+  return `<tr class="result-row" data-result-row data-summary="${SUMMARY_RESULTS.has(resultKey)}"><td>${label}</td><td data-result-value>${rendered}</td></tr>`;
 }
 
 function renderOffsetResult(result) {
@@ -484,10 +495,13 @@ function calculate() {
     renderStatus(result);
     renderOffsetResult(result);
     renderProfileResult(result);
+    resultPanel.refresh();
     renderTopView(result);
     renderDed(result);
     applyResultChangeStates(result);
   } catch (error) {
+    document.querySelectorAll("[data-result-value]").forEach(node => { node.textContent = "N/A"; });
+    resultPanel.refresh();
     const message = $("#constraint-message");
     message.textContent = `INVALID · ${error.message}`;
     message.className = "status-message invalid";
@@ -840,6 +854,7 @@ function clearPendingInputStates() {
 }
 
 function resetDefaults() {
+  resultPanel.resetText();
   if (!defaultPersistedState) return;
   applyPersistedState(JSON.parse(JSON.stringify(defaultPersistedState)));
   clearPendingInputStates();

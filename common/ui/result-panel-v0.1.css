@@ -1,0 +1,21 @@
+.compact-results .result-panel-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.compact-results .result-panel-head h2{margin:0}
+.compact-results [data-result-controls]{display:flex;align-items:center;gap:3px;font-size:12px;flex-wrap:wrap}
+.compact-results [data-result-controls] button{font:inherit;min-height:30px;min-width:28px;padding:4px 7px;border:1px solid #58616b;border-radius:7px;background:#18212b;color:#fff;cursor:pointer}
+.compact-results [data-result-controls] button:disabled{opacity:.4;cursor:default}
+.compact-results [data-result-controls] [aria-pressed="true"]{outline:1px solid #fff}
+.compact-results .result-panel-body{padding:10px 12px;border:1px solid #40464e;border-radius:10px;background:#000;color:#fff;font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
+.compact-results .result-rows{display:grid;grid-template-columns:minmax(0,1fr);gap:0 22px;width:100%;border-collapse:collapse}
+.compact-results .result-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);align-items:baseline;gap:12px;padding:4px 0;border:0;min-width:0}
+.compact-results .result-row>*{padding:0;border:0;min-width:0;overflow-wrap:anywhere}
+.compact-results .result-row> :first-child{width:auto;color:#fff}
+.compact-results [data-result-value]{text-align:right;font:inherit;font-weight:600}
+.compact-results .result-value,.compact-results .value-result{color:#fff!important;background:transparent!important}
+.compact-results .value-dependent-change{outline:1px solid #b9a6df;outline-offset:2px}
+.compact-results [data-result-group]{margin:0 0 8px}
+.compact-results [data-result-group]:last-child{margin-bottom:0}
+.compact-results h3{font:inherit;font-weight:700;margin:4px 0 6px;border-bottom:1px solid #40464e;padding-bottom:4px}
+.compact-results [hidden]{display:none!important}
+.compact-results [data-result-empty]{margin:0;color:#fff}
+.diagram-legend-box{display:block;width:100%;height:auto;margin:8px auto 0;border-radius:8px;background:#000}
+@media(min-width:900px){.compact-results .result-rows{grid-template-columns:repeat(2,minmax(0,1fr))}}

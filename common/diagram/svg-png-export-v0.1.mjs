@@ -1,11 +1,9 @@
 export const SVG_PNG_EXPORT_V0_1 = Object.freeze({
   id: "svg-png-export-v0.1",
-  version: "0.1.0",
+  version: "0.1.1",
 });
 
-export function saveSvgAsPng(svg, filename, options = {}) {
-  if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
-  const scale = options.scale ?? 2;
+function styledClone(svg) {
   const clone = svg.cloneNode(true);
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
 
@@ -19,11 +17,39 @@ export function saveSvgAsPng(svg, filename, options = {}) {
       if (value && value !== "none") target.style.setProperty(property, value);
     });
   });
+  return clone;
+}
 
+export function prepareSvgForExport(svg, options = {}) {
+  if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
+  const clone = styledClone(svg);
   const viewBox = svg.viewBox.baseVal;
-  clone.setAttribute("width", viewBox.width * scale);
-  clone.setAttribute("height", viewBox.height * scale);
-  const markup = new XMLSerializer().serializeToString(clone);
+  const legend = options.legend ?? (svg.dataset.exportLegend ? document.getElementById(svg.dataset.exportLegend) : null);
+  if (!legend) return { svg: clone, width: viewBox.width, height: viewBox.height };
+  const footer = styledClone(legend);
+  const legendBox = legend.viewBox.baseVal;
+  if (!(legendBox.width > 0 && legendBox.height > 0)) throw new Error("Legend has no rendered viewBox");
+  const footerHeight = viewBox.width * legendBox.height / legendBox.width;
+  const height = viewBox.height + footerHeight;
+  const composite = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  composite.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  composite.setAttribute("viewBox", `0 0 ${viewBox.width} ${height}`);
+  // Nested viewports preserve the current plot pan/zoom and all moved labels.
+  clone.setAttribute("x", "0"); clone.setAttribute("y", "0");
+  clone.setAttribute("width", viewBox.width); clone.setAttribute("height", viewBox.height);
+  clone.style.overflow = "hidden";
+  footer.setAttribute("x", "0"); footer.setAttribute("y", viewBox.height);
+  footer.setAttribute("width", viewBox.width); footer.setAttribute("height", footerHeight);
+  composite.append(clone, footer);
+  return { svg: composite, width: viewBox.width, height };
+}
+
+export function saveSvgAsPng(svg, filename, options = {}) {
+  const scale = options.scale ?? 2;
+  const prepared = prepareSvgForExport(svg, options);
+  prepared.svg.setAttribute("width", prepared.width * scale);
+  prepared.svg.setAttribute("height", prepared.height * scale);
+  const markup = new XMLSerializer().serializeToString(prepared.svg);
   const blob = new Blob([markup], { type: "image/svg+xml;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const image = new Image();
@@ -31,8 +57,8 @@ export function saveSvgAsPng(svg, filename, options = {}) {
   return new Promise((resolve, reject) => {
     image.onload = () => {
       const canvas = document.createElement("canvas");
-      canvas.width = viewBox.width * scale;
-      canvas.height = viewBox.height * scale;
+      canvas.width = prepared.width * scale;
+      canvas.height = prepared.height * scale;
       const context = canvas.getContext("2d");
       const background = options.background ?? window.getComputedStyle(svg.parentElement).backgroundColor;
       context.fillStyle = background && background !== "rgba(0, 0, 0, 0)" ? background : "#ffffff";

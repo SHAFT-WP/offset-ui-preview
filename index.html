@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Offset Bombing · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=7bffc412690c">
+<link rel="stylesheet" href="./offset.css?v=6b39385014b8">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -146,9 +147,11 @@
         </div>
       </div>
     </div>
-    <div class="top-view-shell"><svg id="offset-top-view" viewBox="0 0 1180 1440" role="img" aria-label="Offset Bombing V2 north-up top view"><defs></defs><g id="offset-plot"></g></svg></div>
-    <div class="diagram-legend"><span><i class="legend-dot" style="background:#4c5966"></i>Run-In</span><span><i class="legend-dot" style="background:#a35d00"></i>Offset / Approach</span><span><i class="legend-dot" style="background:#176dac"></i>BDP Roll-in</span><span><i class="legend-dot" style="background:#087b4c"></i>Attack track</span><span>North-up · canvas top = North / bottom = South</span><span>Parameter changes auto-fit the complete geometry · manual Size zoom is preserved until geometry changes</span><span>Offset R: Action Point + Turn End → center · Roll-in R(EFF): Roll In + Track Point → center</span></div>
+    <div class="top-view-shell"><svg data-export-legend="offset-legend" id="offset-top-view" viewBox="0 0 1180 1440" role="img" aria-label="Offset Bombing V2 north-up top view"><defs></defs><g id="offset-plot"></g></svg></div>
+    <svg class="diagram-legend-box" id="offset-legend" role="img" aria-label="Offset Top View legend"></svg>
   </section>
+
+  <section class="section compact-results" id="result-section" data-result-panel><div class="result-panel-head"><h2>Result</h2><div data-result-controls aria-label="Result display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" id="offset-result-body"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" id="profile-result-body"></tbody></table></div><p data-result-empty>No available summary results.</p></div></section>
 
   <section class="section ded-section" aria-labelledby="ded-title">
     <div class="section-head"><h2 id="ded-title">DED</h2></div>
@@ -174,12 +177,9 @@
     </div>
   </section>
 
-  <section class="section result-stack" aria-label="Results">
-    <details class="input-panel"><summary>Offset Result</summary><div class="input-panel-body table-wrap"><table class="result-table"><tbody id="offset-result-body"></tbody></table></div></details>
-    <details class="input-panel"><summary>Bomb Profile Authoritative Result · BDP v0.3</summary><div class="input-panel-body table-wrap"><table class="result-table"><tbody id="profile-result-body"></tbody></table></div></details>
-  </section>
+
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=7bffc412690c"></script>
+<script type="module" src="./controller-v0.1.mjs?v=6b39385014b8"></script>
 
 </body>
 </html>
