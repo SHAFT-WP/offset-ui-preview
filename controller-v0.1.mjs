@@ -1,6 +1,6 @@
 import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
-import { calculateOffsetV0_2 } from "./AG/bombing/offset-bombing/offset-be-v0.2.mjs";
+import { calculateOffsetWithVrpStart } from "./AG/bombing/offset-bombing/offset-be-v0.2.mjs";
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.1.mjs";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { exportOffsetTopView, installOffsetTopViewControls, renderOffsetTopView } from "./renderer-v0.1.mjs";
@@ -40,12 +40,12 @@ const DEFAULT_INPUT_VALUES = Object.freeze({
   solveMode: "height",
   rollInBankAngleDeg: "113",
   rollInG: "4",
-  vrpRangeNm: "10.0",
+  vrpRangeNm: "7.0",
   runInHeadingDeg: "000",
-  ipRangeNm: "10.0",
+  ipRangeNm: "7.0",
   attackHeadingDeg: "030",
   offsetAngleDeg: "40",
-  actionRangeNm: "3.0",
+  actionRangeNm: "7.0",
   approachRangeNm: "1.0",
   offsetAltitudeMslFt: "16000",
   offsetSpeedValue: "350",
@@ -56,12 +56,13 @@ const DEFAULT_INPUT_VALUES = Object.freeze({
 });
 
 const locks = {};
-let driver = "angleOffDeg";
+let driver = "vrpRangeNm";
 let turnDriver = "offsetG";
 let referenceMode = "VRP";
 let vipBearingDirection = "TO_TARGET";
 let ipBearingDirection = "TO_TARGET";
 let ipLinked = true;
+let ipLockHeadingDeg = 0;
 let vipBearingExplicit = false;
 let vipRangeExplicit = false;
 let vrpBearingExplicit = false;
@@ -167,9 +168,8 @@ function readVrpBearing() {
 }
 
 function readVrpRangeNm() {
-  if (!vrpRangeExplicit) return DEFAULT_REFERENCE_RANGE_NM;
   const parsed = Number.parseFloat(firstField("vrpRangeNm")?.value ?? "");
-  return Number.isFinite(parsed) ? parsed : DEFAULT_REFERENCE_RANGE_NM;
+  return Number.isFinite(parsed) ? parsed : 7;
 }
 
 function syncBearingInput(selector, canonicalToTargetDeg, direction, { includeActive = false } = {}) {
@@ -202,7 +202,7 @@ function syncImplicitReferenceInputs(runInHeadingDeg, { includeActive = false } 
 
   const vrpRange = firstField("vrpRangeNm");
   if (!vrpRangeExplicit && vrpRange && (includeActive || document.activeElement !== vrpRange)) {
-    vrpRange.value = DEFAULT_REFERENCE_RANGE_NM.toFixed(1);
+    vrpRange.value = "7.0";
   }
 }
 
@@ -215,22 +215,6 @@ function setDirectionButtons(prefix, direction) {
   fromTarget.classList.toggle("active", !toActive);
   toTarget.setAttribute("aria-pressed", String(toActive));
   fromTarget.setAttribute("aria-pressed", String(!toActive));
-}
-
-function applyVipToLinkedIp(sourceKey = "vip") {
-  if (!ipLinked) return false;
-  if (locks.runInHeadingDeg) {
-    ipLinked = false;
-    return false;
-  }
-
-  const vipBearingDeg = readVipToTargetBearing();
-  const vipRangeNm = readVipRangeNm();
-  const headingChanged = setAutoValue("runInHeadingDeg", vipBearingDeg.toFixed(2), sourceKey);
-  const rangeChanged = setAutoValue("ipRangeNm", vipRangeNm.toFixed(3), sourceKey);
-  syncIpBearingInput(vipBearingDeg, { includeActive: true });
-  syncImplicitReferenceInputs(vipBearingDeg);
-  return headingChanged || rangeChanged;
 }
 
 function coordinatedBankForG(g) {
@@ -263,6 +247,8 @@ function buildInput() {
     driver,
     turnDriver,
     locks: { ...locks },
+    ipLinkedToVrp: ipLinked,
+    ipLockHeadingDeg,
     referenceMode,
     runInHeadingDeg,
     attackHeadingDeg: numberValue("attackHeadingDeg"),
@@ -315,6 +301,14 @@ function setIfUnlocked(key, nextValue, digits = null, sourceKey = driver) {
 }
 
 function applyResolved(result) {
+  setAutoValue("runInHeadingDeg", formatBearingInput(result.resolved.runInHeadingDeg));
+  if (ipLinked && !locks.ipReference) setAutoValue("ipRangeNm", result.resolved.ipRangeNm.toFixed(3));
+  if (!locks.vrpReference) {
+    setAutoValue("vrpRangeNm", result.resolved.vrpRangeNm.toFixed(3));
+    if (document.activeElement !== $("#vrp-bearing-input")) $("#vrp-bearing-input").value = formatBearingInput(result.resolved.vrpBearingDeg);
+    vrpBearingExplicit = true;
+    vrpRangeExplicit = true;
+  }
   setIfUnlocked("attackHeadingDeg", result.resolved.attackHeadingDeg, 2);
   setIfUnlocked("angleOffDeg", result.resolved.angleOffDeg, 2);
   setIfUnlocked("offsetAngleDeg", result.resolved.offsetAngleDeg, 2);
@@ -349,7 +343,7 @@ function renderOffsetResult(result) {
     row("Angle-Off (Heading)", `${fmt(g.angleOffDeg, 2)}°`, "angleOffDeg"),
     row("Action Range", `${fmt(g.actionRangeNm, 3)} NM`, "actionRangeNm"),
     row("Approach Range", `${fmt(result.resolved.approachRangeNm, 3)} NM`, "approachRangeNm"),
-    row("IP Range", `${fmt(result.resolved.ipRangeNm, 3)} NM · ${ipLinked ? "LINKED TO VIP" : "INDEPENDENT"}`, "ipRangeNm"),
+    row("IP Range", `${fmt(result.resolved.ipRangeNm, 3)} NM · ${ipLinked ? "LINKED TO VRP" : "INDEPENDENT"}`, "ipRangeNm"),
     row("Offset Radius", `${fmt(result.resolved.offsetRadiusNm, 3)} NM`, "offsetRadiusNm"),
     row("Offset TAS", `${fmt(result.resolved.offsetTasKt, 1)} kt`, "offsetTasKt"),
     row("Reference", `${result.referenceMode} · ${fmt(result.reference.bearingDeg, 1)}° / ${fmt(result.reference.displayRangeNm, 3)} NM`, "referenceSummary"),
@@ -489,7 +483,7 @@ function renderTopView(result) {
 
 function calculate() {
   try {
-    const result = calculateOffsetV0_2(buildInput());
+    const result = calculateOffsetWithVrpStart(buildInput());
     lastResult = result;
     applyResolved(result);
     renderStatus(result);
@@ -543,12 +537,14 @@ function handleFieldChange(event) {
 
   if (key === "vrpRangeNm") {
     vrpRangeExplicit = Number.isFinite(Number.parseFloat(field.value));
+    driver = "vrpRangeNm";
     calculate();
     return;
   }
 
   if (key === "ipRangeNm") {
     ipLinked = false;
+    driver = "ipRangeNm";
     calculate();
     return;
   }
@@ -599,13 +595,11 @@ function handleFieldChange(event) {
 function handleVipBearingInput(event) {
   const entered = Number.parseFloat(event.target.value);
   vipBearingExplicit = Number.isFinite(entered);
-  if (ipLinked) applyVipToLinkedIp("vipBearingDeg");
   calculate();
 }
 
 function handleVipRangeInput(event) {
   vipRangeExplicit = Number.isFinite(Number.parseFloat(event.target.value));
-  if (ipLinked) applyVipToLinkedIp("vipRangeNm");
   calculate();
 }
 
@@ -614,6 +608,7 @@ function handleIpBearingInput(event) {
   if (!Number.isFinite(entered)) return;
   ipLinked = false;
   const canonical = canonicalToTargetBearing(entered, ipBearingDirection);
+  if (locks.ipReference) ipLockHeadingDeg = canonical;
   setValue("runInHeadingDeg", canonical.toFixed(2), { includeActive: true });
   syncImplicitReferenceInputs(canonical);
   driver = "runInHeadingDeg";
@@ -629,6 +624,9 @@ function installLocks() {
       button.setAttribute("aria-pressed", String(locks[key]));
       button.textContent = locks[key] ? "LOCKED" : "LOCK";
       if (key === "runInHeadingDeg" && locks[key]) ipLinked = false;
+      if (["ipReference", "vrpReference"].includes(key) && locks[key]) ipLinked = false;
+      if (key === "ipReference" && locks[key]) ipLockHeadingDeg = readRunInHeading();
+      if (["ipReference", "vrpReference"].includes(key)) driver = "referenceLock";
       calculate();
     });
   });
@@ -687,6 +685,7 @@ function installReferenceBearingControls() {
 
   vrpBearingInput.addEventListener("input", () => {
     vrpBearingExplicit = Number.isFinite(Number.parseFloat(vrpBearingInput.value));
+    driver = "vrpBearingDeg";
     calculate();
   });
   vrpBearingInput.addEventListener("blur", () => { vrpBearingInput.value = formatBearingInput(readVrpBearing()); });
@@ -728,7 +727,7 @@ function capturePersistedState() {
     inputs[key] = control.value;
   });
   return {
-    version: 2,
+    version: 3,
     inputs,
     vrpBearingInput: $("#vrp-bearing-input")?.value ?? "",
     vipBearingInput: $("#vip-bearing-input")?.value ?? "",
@@ -737,6 +736,7 @@ function capturePersistedState() {
     vipBearingDirection,
     ipBearingDirection,
     ipLinked,
+    ipLockHeadingDeg,
     rollInAltitudeLinked,
     vipBearingExplicit,
     vipRangeExplicit,
@@ -749,7 +749,7 @@ function capturePersistedState() {
 
 function createDefaultPersistedState() {
   return {
-    version: 2,
+    version: 3,
     inputs: { ...DEFAULT_INPUT_VALUES },
     vrpBearingInput: "180",
     vipBearingInput: "000",
@@ -758,6 +758,7 @@ function createDefaultPersistedState() {
     vipBearingDirection: "TO_TARGET",
     ipBearingDirection: "TO_TARGET",
     ipLinked: true,
+    ipLockHeadingDeg: 0,
     rollInAltitudeLinked: true,
     vipBearingExplicit: false,
     vipRangeExplicit: false,
@@ -792,7 +793,8 @@ function applyPersistedState(saved) {
   referenceMode = saved.referenceMode === "VIP" ? "VIP" : "VRP";
   vipBearingDirection = saved.vipBearingDirection === "FROM_TARGET" ? "FROM_TARGET" : "TO_TARGET";
   ipBearingDirection = saved.ipBearingDirection === "FROM_TARGET" ? "FROM_TARGET" : "TO_TARGET";
-  ipLinked = saved.ipLinked !== false;
+  ipLinked = saved.version >= 3 && saved.ipLinked !== false;
+  ipLockHeadingDeg = Number.isFinite(saved.ipLockHeadingDeg) ? saved.ipLockHeadingDeg : readRunInHeading();
   rollInAltitudeLinked = saved.rollInAltitudeLinked !== false;
   vipBearingExplicit = saved.vipBearingExplicit === true;
   vipRangeExplicit = saved.vipRangeExplicit === true;
@@ -821,7 +823,7 @@ function applyPersistedState(saved) {
   syncImplicitReferenceInputs(runInHeadingDeg, { includeActive: true });
   syncVipBearingInput(readVipToTargetBearing(), { includeActive: true });
   syncIpBearingInput(runInHeadingDeg, { includeActive: true });
-  if (ipLinked) applyVipToLinkedIp("restore");
+  if (locks.ipReference || locks.vrpReference) ipLinked = false;
   return true;
 }
 
@@ -829,7 +831,11 @@ function loadPersistedState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return false;
-    return applyPersistedState(JSON.parse(raw));
+    const previous = JSON.parse(raw);
+    if ((previous.version ?? 0) < 3 && !localStorage.getItem(`${STORAGE_KEY}.pre-vrp-start`)) {
+      localStorage.setItem(`${STORAGE_KEY}.pre-vrp-start`, raw);
+    }
+    return applyPersistedState(previous);
   } catch {
     return false;
   }
@@ -858,7 +864,7 @@ function resetDefaults() {
   if (!defaultPersistedState) return;
   applyPersistedState(JSON.parse(JSON.stringify(defaultPersistedState)));
   clearPendingInputStates();
-  driver = "angleOffDeg";
+  driver = "vrpRangeNm";
   turnDriver = "offsetG";
   topViewTextScale = TOP_VIEW_TEXT_SCALE_DEFAULT;
   const fontScaleSelect = $("#top-view-font-scale");

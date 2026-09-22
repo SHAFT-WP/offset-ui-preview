@@ -164,6 +164,52 @@ function chooseRangeConstraint(input, locks, driver) {
   return { fixed: false, kind: null, targetRangeNm: null, source: null };
 }
 
+// Current app policy. The original entrypoint below remains the independent-
+// reference compatibility contract used by existing calculation consumers.
+export function calculateOffsetWithVrpStart(input) {
+  const locks = { ...input.locks };
+  const vrpDriven = ["vrpRangeNm", "vrpBearingDeg"].includes(input.driver);
+  const holdVrp = !!locks.vrpReference || vrpDriven;
+  const linked = input.ipLinkedToVrp === true && !locks.ipReference && !locks.vrpReference;
+  const vrpRunIn = norm(finite("vrpBearingDeg", input.vrpBearingDeg) + 180);
+  const runIn = holdVrp ? vrpRunIn : norm(input.runInHeadingDeg);
+  const headingNear = (a, b) => Math.abs(((a - b + 540) % 360) - 180) < 0.02;
+  if (locks.runInHeadingDeg && !headingNear(runIn, norm(input.runInHeadingDeg))) {
+    throw new Error("CONSTRAINT CONFLICT: VRP would move locked Run-In Heading");
+  }
+  if (locks.ipReference && !headingNear(runIn, finite("ipLockHeadingDeg", input.ipLockHeadingDeg))) {
+    throw new Error("CONSTRAINT CONFLICT: locked IP bearing and VRP must share the Run-In axis");
+  }
+  if (locks.vrpReference && !vrpDriven && !headingNear(norm(input.runInHeadingDeg), vrpRunIn)) {
+    throw new Error("CONSTRAINT CONFLICT: Run-In Heading would move locked VRP");
+  }
+  if (holdVrp && locks.actionRangeNm && !near(input.actionRangeNm, input.vrpRangeNm, 0.002)) {
+    throw new Error("CONSTRAINT CONFLICT: locked Action Range differs from VRP Range");
+  }
+  if (holdVrp) locks.actionRangeNm = true;
+  const candidateInput = {
+    ...input,
+    locks,
+    runInHeadingDeg: runIn,
+    driver: vrpDriven ? "actionRangeNm" : input.driver,
+    actionRangeNm: holdVrp ? input.vrpRangeNm : input.actionRangeNm,
+    ipRangeNm: linked && holdVrp ? input.vrpRangeNm : input.ipRangeNm,
+  };
+  const first = calculateOffsetV0_2(candidateInput);
+  // A second, bounded composition changes reference/IP metadata only. The
+  // delivery and turn solution is unchanged; linked IP follows the solved AP.
+  const result = calculateOffsetV0_2({
+    ...candidateInput,
+    ipRangeNm: linked ? first.resolved.actionRangeNm : candidateInput.ipRangeNm,
+    vrpBearingDeg: holdVrp ? input.vrpBearingDeg : norm(runIn + 180),
+    vrpRangeNm: holdVrp ? input.vrpRangeNm : first.resolved.actionRangeNm,
+  });
+  result.locks = { ...input.locks };
+  result.referencePolicy = "VRP_ACTION_START";
+  result.ipLinkedToVrp = linked;
+  return result;
+}
+
 export function calculateOffsetV0_2(input) {
   if (!input || typeof input !== "object") throw new TypeError("input must be an object");
   const locks = input.locks ?? {};

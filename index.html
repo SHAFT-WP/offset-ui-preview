@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Offset Bombing · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=533075ea04dc">
+<link rel="stylesheet" href="./offset.css?v=adc88ef0dc77">
   <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css">
 </head>
 <body>
@@ -57,10 +57,10 @@
     </div>
 
     <div id="vrp-pane" class="mode-pane reference-input-pane">
-      <div class="offset-title">VRP</div>
+      <div class="lock-title"><div class="offset-title">VRP</div><button id="vrp-lock-btn" class="lock-button" type="button" data-lock-key="vrpReference" aria-label="Lock VRP" aria-pressed="false">LOCK</button></div>
       <div class="input-grid">
-        <label class="field"><span>Bearing (TBRG)</span><input id="vrp-bearing-input" type="text" inputmode="decimal" value="180"><span class="unit">TRUE</span></label>
-        <label class="field"><span>Range</span><input data-key="vrpRangeNm" type="text" inputmode="decimal" value="10.0"><span class="unit">NM</span></label>
+        <label class="field"><span>Bearing (FROM TARGET)</span><input id="vrp-bearing-input" type="text" inputmode="decimal" value="180"><span class="unit">TRUE</span></label>
+        <label class="field"><span>Range</span><input data-key="vrpRangeNm" type="text" inputmode="decimal" value="7.0"><span class="unit">NM · Offset start</span></label>
       </div>
     </div>
 
@@ -80,14 +80,14 @@
       <summary id="reference-advanced-title">IP · Advanced</summary>
       <div class="input-panel-body reference-advanced-body">
         <div id="ip-pane" class="mode-pane">
-          <div class="offset-title">IP</div>
+          <div class="lock-title"><div class="offset-title">IP</div><button id="ip-lock-btn" class="lock-button" type="button" data-lock-key="ipReference" aria-label="Lock IP" aria-pressed="false">LOCK</button></div>
           <div class="mode-switch" role="group" aria-label="IP bearing direction">
             <button id="ip-to-target-btn" class="mode-button active" type="button" aria-pressed="true">TO TARGET</button>
             <button id="ip-from-target-btn" class="mode-button" type="button" aria-pressed="false">FROM TARGET</button>
           </div>
           <div class="input-grid">
             <label class="field"><span>Bearing (TBRG)</span><input id="ip-bearing-input" data-key="runInHeadingDeg" type="text" inputmode="decimal" value="000"><span class="unit">TRUE</span></label>
-            <label class="field"><span>Range</span><input data-key="ipRangeNm" type="text" inputmode="decimal" value="10.0"><span class="unit">NM</span></label>
+            <label class="field"><span>Range</span><input data-key="ipRangeNm" type="text" inputmode="decimal" value="7.0"><span class="unit">NM · Default = VRP</span></label>
           </div>
         </div>
       </div>
@@ -96,7 +96,7 @@
 
   <section class="section" aria-labelledby="offset-input-title">
     <div class="section-head"><h2 id="offset-input-title">Coupled Offset Geometry</h2><div style="display:flex;gap:8px;align-items:center"><span id="lock-count" class="mode">LOCK 0</span><span id="state-pill" class="status ok">VALID</span></div></div>
-    <div class="driver"><span>마지막 수정값은 Driver. LOCK 값은 자동 계산으로 덮어쓰지 않음.</span><output id="driver-out">DRIVER · angleOffDeg</output></div>
+    <div class="driver"><span>마지막 수정값은 Driver. LOCK 값은 자동 계산으로 덮어쓰지 않음.</span><output id="driver-out">DRIVER · vrpRangeNm</output></div>
 
     <div class="offset-grid">
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">1</b>Run-In Heading</span><button class="lock-button" type="button" data-lock-key="runInHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="runInHeadingDeg" type="text" inputmode="decimal" value="000"><span class="unit">IP → Target · true heading</span></label>
@@ -104,7 +104,7 @@
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">3</b>Angle-Off (Heading)</span><button class="lock-button" type="button" data-lock-key="angleOffDeg" aria-pressed="false">LOCK</button></span><input data-key="angleOffDeg" type="text" inputmode="decimal" value="70"><span class="unit">Offset Heading → Attack Heading · same BDP parameter</span></label>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">4</b>Attack Heading</span><button class="lock-button" type="button" data-lock-key="attackHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="attackHeadingDeg" type="text" inputmode="decimal" value="030"><span class="unit">Final attack axis · coupled heading constraint</span></label>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">5</b>Offset Angle</span><button class="lock-button" type="button" data-lock-key="offsetAngleDeg" aria-pressed="false">LOCK</button></span><input data-key="offsetAngleDeg" type="text" inputmode="decimal" value="40"><span class="unit">Run-In → Offset Heading change</span></label>
-      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">6</b>Action Range</span><button class="lock-button" type="button" data-lock-key="actionRangeNm" aria-pressed="false">LOCK</button></span><input data-key="actionRangeNm" type="text" inputmode="decimal" value="3.0"><span class="unit">Target → Action Point · must remain between Target and IP</span></label>
+      <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">6</b>Action Range</span><button class="lock-button" type="button" data-lock-key="actionRangeNm" aria-pressed="false">LOCK</button></span><input data-key="actionRangeNm" type="text" inputmode="decimal" value="7.0"><span class="unit">Target → Action Point · must remain between Target and IP</span></label>
       <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">7</b>Approach Range</span><button class="lock-button" type="button" data-lock-key="approachRangeNm" aria-pressed="false">LOCK</button></span><input data-key="approachRangeNm" type="text" inputmode="decimal" value="1.0"><span class="unit">Offset Turn End → Roll-in Start · NM</span></label>
       <div class="offset-card"><span class="offset-title"><b class="step">8</b>Offset Heading</span><output id="offset-heading-out" class="readout offset-heading">-</output><span class="unit">Offset Turn completion heading</span></div>
 
@@ -179,7 +179,7 @@
 
 
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=533075ea04dc"></script>
+<script type="module" src="./controller-v0.1.mjs?v=adc88ef0dc77"></script>
 
 </body>
 </html>
