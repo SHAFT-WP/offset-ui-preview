@@ -1,6 +1,6 @@
 import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
-import { calculateOffsetWithVrpStart } from "./AG/bombing/offset-bombing/offset-be-v0.2.mjs";
+import { calculateOffsetWithVrpStart } from "./AG/bombing/offset-bombing/offset-be-v0.2.mjs?v=vrp-start-1";
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.1.mjs";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { exportOffsetTopView, installOffsetTopViewControls, renderOffsetTopView } from "./renderer-v0.1.mjs";
@@ -86,9 +86,12 @@ const fields = (key) => key === "runInHeadingDeg"
   : allFields(key);
 const firstField = (key) => fields(key)[0];
 const valueStates = createValueStateController({ root: document, transientMs: 1200 });
+const solvedInputValues = new Map();
 
 const numberValue = (key) => {
-  const parsed = Number.parseFloat(firstField(key)?.value ?? "");
+  const text = firstField(key)?.value ?? "";
+  const solved = solvedInputValues.get(key);
+  const parsed = solved && valuesEquivalent(text, solved.text) ? solved.value : Number.parseFloat(text);
   if (!Number.isFinite(parsed)) throw new TypeError(`${key} must be numeric`);
   return parsed;
 };
@@ -297,7 +300,9 @@ function buildInput() {
 function setIfUnlocked(key, nextValue, digits = null, sourceKey = driver) {
   if (locks[key]) return false;
   const next = digits === null ? nextValue : Number(nextValue).toFixed(digits);
-  return setAutoValue(key, next, sourceKey);
+  const changed = setAutoValue(key, next, sourceKey);
+  if (valuesEquivalent(firstField(key)?.value, next)) solvedInputValues.set(key, { text: String(next), value: nextValue });
+  return changed;
 }
 
 function applyResolved(result) {
@@ -528,6 +533,8 @@ function handleFieldChange(event) {
   syncDuplicates(field);
   const key = field.dataset.key;
 
+  solvedInputValues.delete(key);
+
   if (key === "initialAltitudeMslFt" && rollInAltitudeLinked) {
     setAutoValue("rollInAltitudeMslFt", Math.round(numberValue("initialAltitudeMslFt")), key);
   }
@@ -724,7 +731,8 @@ function capturePersistedState() {
   $$("[data-key]").forEach((control) => {
     const key = control.dataset.key;
     if (!key || control.id === "ip-bearing-input" || Object.prototype.hasOwnProperty.call(inputs, key)) return;
-    inputs[key] = control.value;
+    const solved = solvedInputValues.get(key);
+    inputs[key] = solved && valuesEquivalent(control.value, solved.text) ? String(solved.value) : control.value;
   });
   return {
     version: 3,
@@ -771,6 +779,7 @@ function createDefaultPersistedState() {
 
 function applyPersistedState(saved) {
   if (!saved || typeof saved !== "object") return false;
+  solvedInputValues.clear();
   // One-time local-storage migration. Explicit canonical values/locks (including 0/false) win.
   const oldInputs = saved.inputs ?? {};
   saved = { ...saved, inputs: { ...DEFAULT_INPUT_VALUES, ...saved.inputs }, locks: { ...saved.locks } };
