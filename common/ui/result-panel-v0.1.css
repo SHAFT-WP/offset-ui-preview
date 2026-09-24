@@ -6,10 +6,11 @@
 .compact-results [data-result-controls] [aria-pressed="true"]{outline:1px solid #fff}
 .compact-results .result-panel-body{padding:10px 12px;border:1px solid #40464e;border-radius:10px;background:#000;color:#fff;font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
 .compact-results .result-rows{display:grid;grid-template-columns:minmax(0,1fr);gap:0 22px;width:100%;border-collapse:collapse}
-.compact-results .result-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);align-items:baseline;gap:12px;padding:4px 0;border:0;min-width:0}
-.compact-results .result-row>*{padding:0;border:0;min-width:0;overflow-wrap:anywhere}
+.compact-results .result-row{display:block;padding:4px 0 4px .75em;border:0;min-width:0;overflow-wrap:anywhere}
+.compact-results .result-row>*{display:inline;padding:0;border:0;min-width:0;overflow-wrap:anywhere}
 .compact-results .result-row> :first-child{width:auto;color:#fff}
-.compact-results [data-result-value]{text-align:right;font:inherit;font-weight:600}
+.compact-results .result-row> :first-child::after{content:": ";white-space:pre}
+.compact-results [data-result-value]{text-align:left;font:inherit;font-weight:600}
 .compact-results .result-value,.compact-results .value-result{color:#fff!important;background:transparent!important}
 .compact-results .value-dependent-change{outline:1px solid #b9a6df;outline-offset:2px}
 .compact-results [data-result-group]{margin:0 0 8px}
