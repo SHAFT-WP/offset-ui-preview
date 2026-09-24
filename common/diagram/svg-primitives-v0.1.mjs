@@ -1,6 +1,6 @@
 export const SVG_DIAGRAM_PRIMITIVES_V0_1 = Object.freeze({
   id: "svg-diagram-primitives-v0.1",
-  version: "0.1.2",
+  version: "0.1.3",
   purpose: "Policy-free SVG drawing primitives and normalized visual metrics shared by BE diagram renderers",
 });
 
@@ -78,6 +78,34 @@ export function trimSegment(from, to, fromGap = 0, toGap = 0) {
     from: { x: from.x + (dx / length) * fromGap, y: from.y + (dy / length) * fromGap },
     to: { x: to.x - (dx / length) * toGap, y: to.y - (dy / length) * toGap },
   };
+}
+
+
+// Opt-in presentation clipping. Node centers and model geometry are never moved.
+// Radii include the node outline and a clearance for the arrow-tip half-stroke.
+export function trimPolylineAtNodes(points, startRadius = 0, endRadius = 0) {
+  if (!Array.isArray(points) || points.length < 2 ||
+      points.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y))) return [];
+  let output = points.map(p => ({ x: p.x, y: p.y }));
+  const startCenter = output[0];
+  const endCenter = output[output.length - 1];
+  function clipFromStart(list, center, radius) {
+    if (!(radius > 0)) return list;
+    const outside = list.findIndex(p => Math.hypot(p.x - center.x, p.y - center.y) > radius);
+    if (outside < 0) return [];
+    if (outside === 0) return list;
+    const a = list[outside - 1], b = list[outside];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const ax = a.x - center.x, ay = a.y - center.y;
+    const qa = dx * dx + dy * dy;
+    const qb = 2 * (ax * dx + ay * dy);
+    const qc = ax * ax + ay * ay - radius * radius;
+    const t = clamp((-qb + Math.sqrt(Math.max(0, qb * qb - 4 * qa * qc))) / (2 * qa), 0, 1);
+    return [{ x: a.x + t * dx, y: a.y + t * dy }, ...list.slice(outside)];
+  }
+  output = clipFromStart(output, startCenter, Math.max(0, startRadius));
+  output = clipFromStart(output.slice().reverse(), endCenter, Math.max(0, endRadius)).reverse();
+  return output.length > 1 ? output : [];
 }
 
 export function createOpenArrowMarker(id, color, options = {}) {
