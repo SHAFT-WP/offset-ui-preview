@@ -1,5 +1,10 @@
-@import url("./common-ui-v0.2.css?v=238773dd7ba1");
+@import url("./common-ui-v0.2.css?v=79d17535b755");
 
+:root{color-scheme:dark}
+body.show-full-bdp .bdp-extra{display:grid}
+.input-panel+.input-panel{margin-top:12px}
+.z-diagram-shell{max-width:760px;margin:auto;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.z-diagram-shell svg{width:100%;height:auto}
 :root{--offset:light-dark(#a35d00,#ffbd62);--offset-soft:light-dark(#fff4df,#3b2a14);--lock:light-dark(#5c2d91,#c9a9ee);--lock-soft:light-dark(#f3ebfb,#30233d)}
 .driver{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:11px}.driver output{color:var(--value-result);font-weight:850}
 .lock-title{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:24px}.lock-button{border:1px solid var(--line);border-radius:999px;background:var(--field);color:var(--muted);font-size:9px;font-weight:900;padding:3px 7px;cursor:pointer}.lock-button[aria-pressed="true"]{border-color:var(--lock);background:var(--lock-soft);color:var(--lock)}

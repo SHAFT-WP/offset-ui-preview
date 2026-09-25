@@ -3,16 +3,19 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 import { calculateOffsetWithVrpStart } from "./AG/bombing/offset-bombing/offset-be-v0.2.mjs?v=vrp-start-1";
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.1.mjs";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
+import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 import { exportOffsetTopView, installOffsetTopViewControls, renderOffsetTopView } from "./renderer-v0.1.mjs";
+import { offsetProfileTitle, renderOffsetZDiagram } from "./offset-z-diagram-v0.1.mjs";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
-installSvgLegend(document.getElementById('offset-legend'), [
-  { label: 'Run-In', color: '#4c5966' },
-  { label: 'Offset / Approach', color: '#a35d00' },
-  { label: 'BDP Roll-in', color: '#176dac' },
-  { label: 'Attack track', color: '#087b4c' },
-], ['North-up · top = North / bottom = South',
-    'Offset R: Action Point + Turn End to center; Roll-in R (EFF): Roll In + Track Point to center.']);
+const legendItems = [
+  { label: 'Offset Angle', color: '#a35d00' },
+  { label: 'Approaching Heading', color: '#a35d00' },
+  { label: 'Roll-in Radial', color: '#176dac' },
+  { label: 'Roll-in Heading', color: '#176dac' },
+  { label: 'Roll-in Radius', color: '#176dac' },
+];
+const legend = installSvgLegend(document.getElementById('offset-legend'), legendItems);
 const LOW_ANGLE_BOUNDARY_DEG = 10;
 const TOP_VIEW_TEXT_SCALE_DEFAULT = SVG_DIAGRAM_TEXT_SCALE_V0_1.userDefaultScale;
 const TOP_VIEW_MOBILE_MAX_WIDTH_PX = SVG_DIAGRAM_TEXT_SCALE_V0_1.mobileMaxWidthPx;
@@ -70,6 +73,7 @@ let vrpRangeExplicit = false;
 let rollBankAuto = true;
 let rollInAltitudeLinked = true;
 let topViewTextScale = TOP_VIEW_TEXT_SCALE_DEFAULT;
+let topViewAdvanced = false;
 let lastResult = null;
 let initialRender = true;
 let lastResultSnapshot = null;
@@ -343,7 +347,7 @@ function renderOffsetResult(result) {
   $("#offset-result-body").innerHTML = [
     row("State", result.state),
     row("Run-In / Attack", `${fmtHeading(g.runInHeadingDeg)} → ${fmtHeading(g.attackHeadingDeg)}`, "runAttackSummary"),
-    row("Offset Heading", fmtHeading(g.offsetHeadingDeg), "offsetHeadingDeg"),
+    row("Approaching Heading", fmtHeading(g.offsetHeadingDeg), "offsetHeadingDeg"),
     row("Offset Angle", `${fmt(g.offsetAngleDeg, 2)}°`, "offsetAngleDeg"),
     row("Angle-Off (Heading)", `${fmt(g.angleOffDeg, 2)}°`, "angleOffDeg"),
     row("Action Range", `${fmt(g.actionRangeNm, 3)} NM`, "actionRangeNm"),
@@ -483,7 +487,15 @@ function renderTopView(result) {
   renderOffsetTopView($("#offset-top-view"), result, {
     textScale: topViewTextScale,
     viewportWidth: globalThis.innerWidth,
+    advanced: topViewAdvanced,
   });
+  const g = result.geometry;
+  legendItems[0].label = `Offset Angle · ${fmt(g.offsetAngleDeg, 0)}°`;
+  legendItems[1].label = `Approaching Heading · ${fmtHeading(g.offsetHeadingDeg)}`;
+  legendItems[2].label = `Roll-in Radial · ${fmtHeading(bearingBetween(g.points.target, g.points.rollStart))}`;
+  legendItems[3].label = `Roll-in Heading · ${fmtHeading(g.offsetHeadingDeg)}`;
+  legendItems[4].label = `Roll-in Radius · ${fmt(g.rollInRadiusNm, 2)} NM`;
+  legend.render();
 }
 
 function calculate() {
@@ -496,6 +508,8 @@ function calculate() {
     renderProfileResult(result);
     resultPanel.refresh();
     renderTopView(result);
+    $("#offset-page-title").textContent = offsetProfileTitle(result);
+    $("#capture-z").disabled = !renderOffsetZDiagram($("#offset-z-svg"), result);
     renderDed(result);
     applyResultChangeStates(result);
   } catch (error) {
@@ -840,7 +854,9 @@ function loadPersistedState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return false;
-    const previous = JSON.parse(raw);
+    const record = JSON.parse(raw);
+    const previous = record.version === 4 ? record.aircraft?.["1"] : record;
+    if (!previous) return false;
     if ((previous.version ?? 0) < 3 && !localStorage.getItem(`${STORAGE_KEY}.pre-vrp-start`)) {
       localStorage.setItem(`${STORAGE_KEY}.pre-vrp-start`, raw);
     }
@@ -852,7 +868,10 @@ function loadPersistedState() {
 
 function savePersistedState({ feedback = false } = {}) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(capturePersistedState()));
+    const previous = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    const aircraft = previous?.version === 4 && previous.aircraft && typeof previous.aircraft === "object"
+      ? previous.aircraft : {};
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 4, aircraft: { ...aircraft, "1": capturePersistedState() } }));
   } catch {
     // Storage may be unavailable in a restricted browser context; calculation remains usable.
   }
@@ -886,6 +905,12 @@ function resetDefaults() {
 }
 
 function installToolbarControls() {
+  $("#full-bdp-toggle")?.addEventListener("click", (event) => {
+    const on = document.body.classList.toggle("show-full-bdp");
+    event.currentTarget.classList.toggle("active", on);
+    event.currentTarget.setAttribute("aria-pressed", String(on));
+    event.currentTarget.textContent = `Full BDP: ${on ? "On" : "Off"}`;
+  });
   $("#advanced-toggle")?.addEventListener("click", (event) => {
     document.body.classList.toggle("show-advanced");
     const on = document.body.classList.contains("show-advanced");
@@ -958,6 +983,13 @@ function install() {
     if (document.body) topViewViewportObserver.observe(document.body);
   }
   $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg));
+  $("#top-view-advanced").addEventListener("click", (event) => {
+    topViewAdvanced = !topViewAdvanced;
+    event.currentTarget.setAttribute("aria-pressed", String(topViewAdvanced));
+    event.currentTarget.textContent = `Advanced: ${topViewAdvanced ? "On" : "Off"}`;
+    if (lastResult) renderTopView(lastResult);
+  });
+  $("#capture-z").addEventListener("click", () => saveSvgAsPng($("#offset-z-svg"), "offset-z-diagram-1.png", { scale: 2, background: "#ffffff" }));
 
   const restored = loadPersistedState();
   if (!restored) applyPersistedState(defaultPersistedState);

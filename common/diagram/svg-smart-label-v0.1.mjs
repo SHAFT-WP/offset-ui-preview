@@ -2,7 +2,7 @@ import { SVG_DIAGRAM_STYLE_V0_1, svgNode } from "./svg-primitives-v0.1.mjs";
 
 export const SVG_SMART_LABEL_V0_1 = Object.freeze({
   id: "svg-smart-label-v0.1",
-  version: "0.1.1",
+  version: "0.1.2",
   purpose: "Generic collision-aware SVG labels with optional leaders and 0.5 s long-press drag behavior",
 });
 
@@ -199,8 +199,9 @@ export function createSmartLabelLayout(root, options = {}) {
   }
 
   function candidateBox(anchorPoint, text, candidate, fontSize) {
-    const approxW = Math.max(34, String(text).length * fontSize * 0.58);
-    const approxH = fontSize * 1.45;
+    const lines = String(text).split("\n");
+    const approxW = Math.max(34, ...lines.map((line) => line.length * fontSize * 0.58));
+    const approxH = fontSize * (1.45 + (lines.length - 1) * 1.2);
     const x = anchorPoint.x + candidate.dx;
     const y = anchorPoint.y + candidate.dy;
     const left = candidate.anchor === "end" ? x - approxW : candidate.anchor === "middle" ? x - approxW / 2 : x;
@@ -299,6 +300,7 @@ export function createSmartLabelLayout(root, options = {}) {
       }));
     }
 
+    const lines = String(text).split("\n");
     const textNode = svgNode("text", {
       ...textAttributes,
       x: selected.box.textX,
@@ -312,7 +314,13 @@ export function createSmartLabelLayout(root, options = {}) {
       "paint-order": labelOptions.textHalo === false ? undefined : "stroke",
       "stroke-linejoin": "round",
       "pointer-events": "none",
-    }, text);
+    }, lines.length === 1 ? text : undefined);
+    if (lines.length > 1) lines.forEach((line, index) => {
+      textNode.append(svgNode("tspan", {
+        x: selected.box.textX,
+        dy: index === 0 ? -(lines.length - 1) * fontSize * 1.2 : fontSize * 1.2,
+      }, line));
+    });
     group.append(textNode);
     root.append(group);
     return { ...selected, group, textNode, leader, labelKey };
