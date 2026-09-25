@@ -1,7 +1,9 @@
-@import url("./common-ui-v0.2.css?v=1aed1af8d664");
+@import url("./common-ui-v0.2.css?v=8b8fe8fb1925");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
+.flight-size-control{display:grid;gap:3px;color:var(--muted);font-size:11px;font-weight:800}.flight-size-control select{min-width:88px;min-height:36px;padding:5px 8px;border:1px solid var(--line);border-radius:9px;background:var(--field);color:var(--text);font:inherit;font-size:14px}
+#flight-followers{display:grid;gap:12px}.flight-slot{display:grid;gap:12px;padding-top:12px;border-top:2px solid var(--line)}.flight-draft-section .section-head{display:flex;align-items:center;justify-content:space-between}.flight-draft-badge{font-size:10px;font-weight:800;color:var(--muted)}.flight-draft-note{margin:0;color:var(--muted);font-size:12px;line-height:1.5}.flight-draft-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.flight-weapon-field{max-width:320px}@media(max-width:620px){.flight-draft-grid{grid-template-columns:1fr}}
 .section-disclosure-toggle{display:flex;align-items:center;gap:10px;width:100%;border:0;padding:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;min-height:40px}
 .section-disclosure-toggle::before{content:"▾";font-size:18px;flex:none}
 .section-disclosure-toggle[aria-expanded="false"]::before{content:"▸"}

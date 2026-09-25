@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=1aed1af8d664">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=1aed1af8d664">
+<link rel="stylesheet" href="./offset.css?v=8b8fe8fb1925">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=8b8fe8fb1925">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -15,6 +15,7 @@
       <div class="subline">V2 modular work · Bomb Delivery Planner v0.3 authority · Offset-specific geometry retained locally</div>
     </div>
     <div class="toolbar">
+      <label class="flight-size-control" for="flight-size"><span>Size of Flight</span><select id="flight-size"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
       <button id="full-bdp-toggle" class="toggle" type="button" aria-pressed="false">Full BDP: Off</button>
       <button id="advanced-toggle" class="toggle" type="button">Advanced: Off</button>
       <button id="save-button" class="btn" type="button">Save</button>
@@ -132,13 +133,13 @@
   </section>
 
   <section class="section z-diagram-section" aria-labelledby="offset-z-title">
-    <div class="section-head"><h2 id="offset-z-title">Z-Diagram</h2><button class="btn" id="capture-z" type="button">PNG</button></div>
+    <div class="section-head"><h2 id="offset-z-title">Z-Diagram #1</h2><button class="btn" id="capture-z" type="button">PNG</button></div>
     <div class="z-diagram-shell"><svg id="offset-z-svg" viewBox="0 0 650 770" role="img" aria-label="Offset Z-Diagram"><g data-z-root></g></svg></div>
   </section>
 
   <section class="section top-view-section" aria-labelledby="top-view-title">
     <div class="section-head">
-      <h2 id="top-view-title">Top View</h2>
+      <h2 id="top-view-title">Top View #1</h2>
       <div class="diagram-actions">
         <div class="diagram-action-row">
           <div class="font-scale-control" role="group" aria-label="Top View font size">
@@ -164,7 +165,7 @@
     <svg class="diagram-legend-box" id="offset-legend" role="img" aria-label="Offset Top View legend"></svg>
   </section>
 
-  <section class="section compact-results" id="result-section" data-result-panel><div class="result-panel-head"><h2>Result</h2><div data-result-controls aria-label="Result display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" id="offset-result-body"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" id="profile-result-body"></tbody></table></div><p data-result-empty>No available summary results.</p></div></section>
+  <section class="section compact-results" id="result-section" data-result-panel><div class="result-panel-head"><h2>Result #1</h2><div data-result-controls aria-label="Result display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" id="offset-result-body"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" id="profile-result-body"></tbody></table></div><p data-result-empty>No available summary results.</p></div></section>
 
   <section class="section ded-section" aria-labelledby="ded-title">
     <div class="section-head"><h2 id="ded-title">DED #1</h2></div>
@@ -191,8 +192,9 @@
   </section>
 
 
+  <div id="flight-followers"></div>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=1aed1af8d664"></script>
+<script type="module" src="./controller-v0.1.mjs?v=8b8fe8fb1925"></script>
 
 </body>
 </html>

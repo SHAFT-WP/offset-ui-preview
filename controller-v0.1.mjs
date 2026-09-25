@@ -22,6 +22,8 @@ const TOP_VIEW_MOBILE_MAX_WIDTH_PX = SVG_DIAGRAM_TEXT_SCALE_V0_1.mobileMaxWidthP
 const FT_PER_NM = 6076.11549;
 const DEFAULT_REFERENCE_RANGE_NM = 10;
 const STORAGE_KEY = "flight-sim-tools.offset.v2.input.v1";
+const FLIGHT_LAYOUT_KEY = "flight-sim-tools.offset.v2.flight-layout.v1";
+const flightLayout = { size: 1, aircraft: {} };
 const DEFAULT_INPUT_VALUES = Object.freeze({
   weaponId: "M82",
   targetElevationMslFt: "31",
@@ -901,6 +903,10 @@ function resetDefaults() {
   }
   calculate();
   savePersistedState();
+  flightLayout.size = 1;
+  flightLayout.aircraft = {};
+  renderFlightLayout();
+  saveFlightLayout();
 }
 
 function installToolbarControls() {
@@ -920,11 +926,92 @@ function installToolbarControls() {
   $("#default-button")?.addEventListener("click", resetDefaults);
 }
 
+function flightDraft(number) {
+  return flightLayout.aircraft[number] ||= {
+    weaponId: "M82", side: "LEFT", bearingDeg: "90", distanceNm: "2",
+  };
+}
+
+function saveFlightLayout() {
+  try {
+    localStorage.setItem(FLIGHT_LAYOUT_KEY, JSON.stringify(flightLayout));
+  } catch {
+    // The UI remains usable when browser storage is unavailable.
+  }
+}
+
+function renderFlightLayout() {
+  const host = $("#flight-followers");
+  $("#flight-size").value = String(flightLayout.size);
+  host.replaceChildren();
+  for (let number = 2; number <= flightLayout.size; number += 1) {
+    const slot = document.createElement("div");
+    slot.className = "flight-slot";
+    slot.dataset.aircraft = String(number);
+    const section = (title, content) => `<section class="section flight-draft-section"><div class="section-head"><h2>${title} #${number}</h2><span class="flight-draft-badge">UI draft</span></div>${content}</section>`;
+    slot.innerHTML = [
+      section("Formation", `<p class="flight-draft-note">Position relative to #1 · no geometry is calculated yet.</p><div class="flight-draft-grid"><label class="field"><span>Side</span><select data-flight-field="side"><option value="LEFT">Left</option><option value="RIGHT">Right</option></select></label><label class="field"><span>Bearing (°)</span><input type="number" min="0" max="180" step="1" data-flight-field="bearingDeg"></label><label class="field"><span>Distance (NM)</span><input type="number" min="0" step="0.1" data-flight-field="distanceNm"></label></div>`),
+      section("BDP", `<p class="flight-draft-note">Aircraft #${number} input draft · profile calculation is not connected.</p><label class="field flight-weapon-field"><span>Bomb</span><select data-flight-field="weaponId"></select></label>`),
+      section("Offset", `<p class="flight-draft-note">Aircraft #${number} Offset draft · align to #${number === 4 ? 3 : 1}. Inputs and results are not connected yet.</p>`),
+      section("Z-Diagram", `<p class="flight-draft-note">Aircraft #${number} diagram is pending its profile result.</p>`),
+      section("Top View", `<p class="flight-draft-note">Leader #1 is the reference. Aircraft #${number} overlay is pending.</p>`),
+      section("Result", `<p class="flight-draft-note">No calculated result for aircraft #${number}.</p>`),
+      section("DED", `<p class="flight-draft-note">Aircraft #${number} DED is pending its profile result.</p>`),
+    ].join("");
+    host.append(slot);
+    const draft = flightDraft(number);
+    const weapon = slot.querySelector('[data-flight-field="weaponId"]');
+    weapon.replaceChildren(...[...firstField("weaponId").options].map((option) => option.cloneNode(true)));
+    slot.querySelectorAll("[data-flight-field]").forEach((field) => {
+      field.value = String(draft[field.dataset.flightField] ?? "");
+    });
+  }
+  installSectionDisclosure();
+}
+
+function installFlightLayout() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FLIGHT_LAYOUT_KEY) || "null");
+    if (saved && Number.isInteger(saved.size) && saved.size >= 1 && saved.size <= 4) {
+      flightLayout.size = saved.size;
+      if (saved.aircraft && typeof saved.aircraft === "object" && !Array.isArray(saved.aircraft)) {
+        for (const number of [2, 3, 4]) {
+          const record = saved.aircraft[number];
+          if (!record || typeof record !== "object" || Array.isArray(record)) continue;
+          flightLayout.aircraft[number] = {
+            weaponId: typeof record.weaponId === "string" ? record.weaponId : "M82",
+            side: record.side === "RIGHT" ? "RIGHT" : "LEFT",
+            bearingDeg: typeof record.bearingDeg === "string" ? record.bearingDeg : "90",
+            distanceNm: typeof record.distanceNm === "string" ? record.distanceNm : "2",
+          };
+        }
+      }
+    }
+  } catch {
+    // Ignore malformed or unavailable presentation-only storage.
+  }
+  $("#flight-size").addEventListener("change", (event) => {
+    flightLayout.size = Math.max(1, Math.min(4, Number(event.target.value) || 1));
+    renderFlightLayout();
+    saveFlightLayout();
+  });
+  const updateFlightDraft = (event) => {
+    const field = event.target.closest?.("[data-flight-field]");
+    const number = Number(field?.closest(".flight-slot")?.dataset.aircraft);
+    if (!field || !Number.isInteger(number) || number < 2 || number > 4) return;
+    flightDraft(number)[field.dataset.flightField] = field.value;
+    saveFlightLayout();
+  };
+  $("#flight-followers").addEventListener("input", updateFlightDraft);
+  $("#flight-followers").addEventListener("change", updateFlightDraft);
+  renderFlightLayout();
+}
+
 function installSectionDisclosure() {
-  $$("#offset-calculator > .section").forEach((section, index) => {
+  $$("#offset-calculator .section").forEach((section, index) => {
     const header = section.firstElementChild;
     const heading = header?.querySelector("h2");
-    if (!heading) return;
+    if (!heading || heading.querySelector(".section-disclosure-toggle")) return;
     const body = document.createElement("div");
     body.id = `offset-section-body-${index}`;
     body.className = "section-disclosure-body";
@@ -952,6 +1039,7 @@ function install() {
   installReferenceBearingControls();
   installValueStateBindings();
   installToolbarControls();
+  installFlightLayout();
   installSectionDisclosure();
   syncReferencePanes();
   defaultPersistedState = createDefaultPersistedState();
