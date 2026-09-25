@@ -95,6 +95,6 @@ export function renderBdpZDiagram(svg, result) {
     unavailable(svg, data.profileTitle, data.reason);
     return data;
   }
-  renderCommonZDiagram(svg, data);
+  renderCommonZDiagram(svg, { ...data, uniformBodyText: true, compactAngleLabels: true });
   return data;
 }

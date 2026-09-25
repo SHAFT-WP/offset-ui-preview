@@ -1,7 +1,13 @@
-@import url("./common-ui-v0.2.css?v=b932b240dcc4");
+@import url("./common-ui-v0.2.css?v=1aed1af8d664");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
+.section-disclosure-toggle{display:flex;align-items:center;gap:10px;width:100%;border:0;padding:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;min-height:40px}
+.section-disclosure-toggle::before{content:"▾";font-size:18px;flex:none}
+.section-disclosure-toggle[aria-expanded="false"]::before{content:"▸"}
+.section-disclosure-toggle:focus-visible{outline:2px solid var(--blue);outline-offset:4px;border-radius:4px}
+.section-disclosure-body{display:grid;gap:10px;min-width:0}
+.section-disclosure-body[hidden]{display:none}
 .input-panel+.input-panel{margin-top:12px}
 .z-diagram-shell{max-width:760px;margin:auto;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
 .z-diagram-shell svg{width:100%;height:auto}

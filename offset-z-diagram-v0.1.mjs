@@ -34,8 +34,11 @@ export function renderOffsetZDiagram(svg, result) {
   const targetRange = Math.hypot(points.target.x - reference.x, points.target.y - reference.y);
   renderCommonZDiagram(svg, {
     ...data,
+    uniformBodyText: true,
+    altitudeOnLeft: true,
+    compactAngleLabels: true,
     profileTitle: title,
-    initialAltitudeText: `${Math.round(result.profile.public.resolvedInitialAltitudeMslFt)} ft (Roll-in)`,
+    initialAltitudeText: `Roll-in Alt ${Math.round(result.profile.public.resolvedInitialAltitudeMslFt)} ft`,
     footerRows: [
       { label: "Action Range", value: nm(result.geometry.actionRangeNm) },
       { label: "Offset Angle", value: degrees(result.geometry.offsetAngleDeg) },

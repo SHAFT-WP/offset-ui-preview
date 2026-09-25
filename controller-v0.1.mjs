@@ -5,7 +5,7 @@ import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 import { exportOffsetTopView, installOffsetTopViewControls, renderOffsetTopView } from "./renderer-v0.1.mjs";
-import { offsetProfileTitle, renderOffsetZDiagram } from "./offset-z-diagram-v0.1.mjs";
+import { renderOffsetZDiagram } from "./offset-z-diagram-v0.1.mjs";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 const legendItems = [
@@ -508,7 +508,6 @@ function calculate() {
     renderProfileResult(result);
     resultPanel.refresh();
     renderTopView(result);
-    $("#offset-page-title").textContent = offsetProfileTitle(result);
     $("#capture-z").disabled = !renderOffsetZDiagram($("#offset-z-svg"), result);
     renderDed(result);
     applyResultChangeStates(result);
@@ -921,6 +920,31 @@ function installToolbarControls() {
   $("#default-button")?.addEventListener("click", resetDefaults);
 }
 
+function installSectionDisclosure() {
+  $$("#offset-calculator > .section").forEach((section, index) => {
+    const header = section.firstElementChild;
+    const heading = header?.querySelector("h2");
+    if (!heading) return;
+    const body = document.createElement("div");
+    body.id = `offset-section-body-${index}`;
+    body.className = "section-disclosure-body";
+    [...section.children].filter((child) => child !== header).forEach((child) => body.append(child));
+    section.append(body);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "section-disclosure-toggle";
+    button.textContent = heading.textContent;
+    button.setAttribute("aria-expanded", "true");
+    button.setAttribute("aria-controls", body.id);
+    heading.replaceChildren(button);
+    button.addEventListener("click", () => {
+      body.hidden = !body.hidden;
+      button.setAttribute("aria-expanded", String(!body.hidden));
+      if (!body.hidden) requestAnimationFrame(() => legend.render());
+    });
+  });
+}
+
 function install() {
   populateWeapons();
   installLocks();
@@ -928,6 +952,7 @@ function install() {
   installReferenceBearingControls();
   installValueStateBindings();
   installToolbarControls();
+  installSectionDisclosure();
   syncReferencePanes();
   defaultPersistedState = createDefaultPersistedState();
 

@@ -55,13 +55,13 @@ export function renderCommonZDiagram(svg, data) {
   const TITLE_FS = 27, BODY_FS = 18, FONT_WEIGHT = 900;
   const add = (name, attrs, content) => { const n = node(name, attrs, content); root.appendChild(n); return n; };
   const line = (x1, y1, x2, y2, width = 3) => add("line", { x1, y1, x2, y2, stroke: ink, "stroke-width": width, "stroke-linecap": "square" });
-  const text = (x, y, value, anchor = "start", size = BODY_FS, weight = FONT_WEIGHT) => add("text", { x, y, fill: ink, "font-size": size, "font-weight": weight, "text-anchor": anchor }, value);
+  const text = (x, y, value, anchor = "start", size = BODY_FS, weight = FONT_WEIGHT) => add("text", { x, y, fill: ink, "font-size": data.uniformBodyText && size !== TITLE_FS ? 15 : size, "font-weight": weight, "text-anchor": anchor }, value);
   const diagX = (y) => left + ((baseY - y) / (baseY - topY)) * (topX - left);
 
   const diagramTitle = commonZDiagramTitle(data.profileTitle || "", data.beTitle || "");
-  text(325, 28, diagramTitle, "middle", TITLE_FS);
-  text(42, 82, lineText("Initial Speed", `${format(data.initialKcas, 0)} KCAS`), "start", 15);
-  text(608, 82, data.initialAltitudeText ?? lineText("Initial Altitude", `${format(data.initialMsl, 0)} ft`), "end", 15);
+  text(325, data.uniformBodyText ? 36 : 28, diagramTitle, "middle", TITLE_FS);
+  text(data.altitudeOnLeft ? 608 : 42, 82, lineText("Initial Speed", `${format(data.initialKcas, 0)} KCAS`), data.altitudeOnLeft ? "end" : "start", 15);
+  text(data.altitudeOnLeft ? 42 : 608, 82, data.initialAltitudeText ?? lineText("Initial Altitude", `${format(data.initialMsl, 0)} ft`), data.altitudeOnLeft ? "start" : "end", 15);
   const rollInNm = (Number(data.rollInRangeFt) || 0) / FT_PER_NM;
   const slantNm = (Number(data.slantFt) || 0) / FT_PER_NM;
   const groundNm = (Number(data.groundFt) || 0) / FT_PER_NM;
@@ -71,7 +71,12 @@ export function renderCommonZDiagram(svg, data) {
   line(50, 98, topX, 98, 3.5);
   line(left, baseY, topX, topY, 3.5);
   line(left, baseY, topX, baseY, 3.5);
-  text(200, topY + 38, lineText("Dive Angle", formatCommonDegree(data.diveAngle, 0)), "start", 15);
+  const diveText = text(data.compactAngleLabels ? 240 : 200, topY + 38, data.compactAngleLabels ? formatCommonDegree(data.diveAngle, 0) : lineText("Dive Angle", formatCommonDegree(data.diveAngle, 0)), "start", 15);
+  if (data.compactAngleLabels) {
+    diveText.setAttribute("aria-label", lineText("Dive Angle", formatCommonDegree(data.diveAngle, 0)));
+    const iaaText = text(125, 400, formatCommonDegree(data.aimOffAngle, 0));
+    iaaText.setAttribute("aria-label", lineText(labels.aimOffAngle, formatCommonDegree(data.aimOffAngle, 0)));
+  }
   text(360, 132, lineText(labels.rollInPoint, `${format(rollInNm, 1)} NM (Ground)`), "start", 15);
   text(360, 158, lineText(labels.rollInPoint, `${format(slantNm, 1)} NM (Slant)`), "start", 15);
   text(360, 184, lineText(labels.groundRange, `${format(groundNm, 1)} NM`), "start", 15);
@@ -90,8 +95,10 @@ export function renderCommonZDiagram(svg, data) {
     });
     return diagramTitle;
   }
-  text(42, y, lineText(labels.aimOffAngle, formatCommonDegree(data.aimOffAngle, 0)));
-  y += 30;
+  if (!data.compactAngleLabels) {
+    text(42, y, lineText(labels.aimOffAngle, formatCommonDegree(data.aimOffAngle, 0)));
+    y += 30;
+  }
   text(42, y, lineText(labels.rollInLead, formatCommonDegree(data.rollInLead, 0)));
   y += 30;
   extraRows.forEach((row) => {
