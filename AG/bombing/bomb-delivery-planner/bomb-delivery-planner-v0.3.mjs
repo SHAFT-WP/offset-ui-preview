@@ -1,9 +1,10 @@
 import { calculateBombDeliveryV0_2 } from "./bomb-delivery-planner-v0.2.mjs";
 import { buildBombDeliveryVisualizationState } from "./visualization-state-v0.1.mjs";
+import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 
 export const BOMB_DELIVERY_PLANNER_MODEL_V0_3 = Object.freeze({
   id: "bomb-delivery-planner-v0.3-js-facade",
-  version: "0.3.7",
+  version: "0.3.8",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   officialOracle: "Bomb Profile REV.1.9 · R_20260830",
 });
@@ -66,7 +67,9 @@ function canonicalInput(rawInput) {
   };
 }
 
-export function calculateBombDeliveryV0_3(rawInput) {
+// Full-precision result for BE-to-BE composition (Offset, BOX, Wheel). FE-facing callers use
+// calculateBombDeliveryV0_3, whose output is truncated to 5 decimals (docs/FE-BE-RULES.md).
+export function calculateBombDeliveryV0_3Full(rawInput) {
   const input = canonicalInput(rawInput);
   const calculation = calculateBombDeliveryV0_2(input);
   const state = buildBombDeliveryVisualizationState(calculation);
@@ -87,6 +90,10 @@ export function calculateBombDeliveryV0_3(rawInput) {
       calculationModel: calculation.model,
     },
   };
+}
+
+export function calculateBombDeliveryV0_3(rawInput) {
+  return truncateBeOutput(calculateBombDeliveryV0_3Full(rawInput));
 }
 
 export const calculateBombDelivery = calculateBombDeliveryV0_3;

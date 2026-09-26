@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=cbc9d06a5332">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=cbc9d06a5332">
+<link rel="stylesheet" href="./offset.css?v=13f474918a14">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=13f474918a14">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -123,7 +123,7 @@
           <label class="field"><span class="lock-title"><span>Speed</span><button class="lock-button" type="button" data-lock-key="offsetSpeedValue" aria-pressed="false">LOCK</button></span><span class="compound"><input data-key="offsetSpeedValue" type="text" inputmode="decimal" value="350"><select data-key="offsetSpeedMode"><option value="CAS" selected>kcas</option><option value="MACH">Mach</option></select></span></label>
           <label class="field"><span class="lock-title"><span>G</span><button class="lock-button" type="button" data-lock-key="offsetG" aria-pressed="false">LOCK</button></span><input data-key="offsetG" type="text" inputmode="decimal" value="2.0"></label>
           <label class="field"><span class="lock-title"><span>Bank (deg)</span><button class="lock-button" type="button" data-lock-key="offsetBankDeg" aria-pressed="false">LOCK</button></span><input data-key="offsetBankDeg" type="text" inputmode="decimal" value="60"></label>
-          <label class="field"><span class="lock-title"><span>Radius (NM)</span><button class="lock-button" type="button" data-lock-key="offsetRadiusNm" aria-pressed="false">LOCK</button></span><input data-key="offsetRadiusNm" type="text" inputmode="decimal" value="1.60"></label>
+          <label class="field"><span class="lock-title"><span>Radius (NM)</span><button class="lock-button" type="button" data-lock-key="offsetRadiusNm" aria-pressed="false">LOCK</button></span><input data-key="offsetRadiusNm" type="text" inputmode="decimal" value="1.6"></label>
           <div class="field"><span>Turn Time</span><output id="turn-time-out" class="readout">-</output><span class="unit">Actual TAS / Radius / Offset Angle</span></div>
         </div>
         <div class="constraint-note">G / Bank / Radius are coupled. Multiple LOCK values must be mathematically consistent or the BE returns CONSTRAINT CONFLICT.</div>
@@ -194,7 +194,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=cbc9d06a5332"></script>
+<script type="module" src="./controller-v0.1.mjs?v=13f474918a14"></script>
 
 </body>
 </html>

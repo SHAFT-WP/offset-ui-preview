@@ -1,5 +1,5 @@
 import { casToTas, machToTas } from "../../../common/airspeed/airspeed-v0.1.mjs";
-import { calculateBombDeliveryV0_3 } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
+import { calculateBombDeliveryV0_3Full as calculateBombDeliveryV0_3 } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
 import {
   angleOffFromOffsetHeading,
   buildOffsetCandidate,
@@ -10,6 +10,7 @@ import {
   resolveReferenceInputs,
   validateOffsetCandidate,
 } from "./offset-geometry-v0.2.mjs";
+import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 
 export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.5", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
 
@@ -166,7 +167,13 @@ function chooseRangeConstraint(input, locks, driver) {
 
 // Current app policy. The original entrypoint below remains the independent-
 // reference compatibility contract used by existing calculation consumers.
+// Public entrypoints return BE output truncated to 5 decimals (docs/FE-BE-RULES.md); the *Full
+// variants keep full precision for BE-to-BE composition and internal re-solves.
 export function calculateOffsetWithVrpStart(input) {
+  return truncateBeOutput(calculateOffsetWithVrpStartFull(input));
+}
+
+export function calculateOffsetWithVrpStartFull(input) {
   const locks = { ...input.locks };
   const vrpDriven = ["vrpRangeNm", "vrpBearingDeg"].includes(input.driver);
   const holdVrp = !!locks.vrpReference || vrpDriven;
@@ -199,10 +206,10 @@ export function calculateOffsetWithVrpStart(input) {
     actionRangeNm: holdVrp ? input.vrpRangeNm : input.actionRangeNm,
     ipRangeNm: linked && holdVrp ? input.vrpRangeNm + ipLinkLeadNm : input.ipRangeNm,
   };
-  const first = calculateOffsetV0_2(candidateInput);
+  const first = calculateOffsetV0_2Full(candidateInput);
   // A second, bounded composition changes reference/IP metadata only. The
   // delivery and turn solution is unchanged; linked IP follows the solved AP.
-  const result = calculateOffsetV0_2({
+  const result = calculateOffsetV0_2Full({
     ...candidateInput,
     ipRangeNm: linked ? first.resolved.actionRangeNm + ipLinkLeadNm : candidateInput.ipRangeNm,
     vrpBearingDeg: holdVrp ? input.vrpBearingDeg : norm(runIn + 180),
@@ -216,6 +223,10 @@ export function calculateOffsetWithVrpStart(input) {
 }
 
 export function calculateOffsetV0_2(input) {
+  return truncateBeOutput(calculateOffsetV0_2Full(input));
+}
+
+export function calculateOffsetV0_2Full(input) {
   if (!input || typeof input !== "object") throw new TypeError("input must be an object");
   const locks = input.locks ?? {};
   if (input.offsetRangeNm !== undefined || locks.offsetRangeNm !== undefined || input.driver === "offsetRangeNm") {

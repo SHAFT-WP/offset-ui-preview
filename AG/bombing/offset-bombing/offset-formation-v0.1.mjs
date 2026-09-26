@@ -1,4 +1,5 @@
 import { vecHeading } from "./offset-geometry-v0.2.mjs";
+import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 
 export const OFFSET_FORMATION_V0_1 = Object.freeze({
   id: "offset-formation-v0.1",
@@ -29,7 +30,7 @@ export function computeFormationOffsetVector({ runInHeadingDeg, relativeBearingD
 
   const trueBearingDeg = norm(runInHeadingDeg + (side === "LEFT" ? -relativeBearingDeg : relativeBearingDeg));
   const heading = vecHeading(trueBearingDeg);
-  return { trueBearingDeg, vector: { x: heading.x * distanceNm, y: heading.y * distanceNm } };
+  return truncateBeOutput({ trueBearingDeg, vector: { x: heading.x * distanceNm, y: heading.y * distanceNm } });
 }
 
 // Offset Angle "Same as Element Lead": substitutes the lead's already-solved value as a
@@ -146,10 +147,10 @@ export function computeDropOrderDelta({ predecessorResult, ownResult }) {
   const predIpToImpactSec = predIpToReleaseSec + predBombTofSec;
   const ownIpToImpactSec = ownIpToReleaseSec + ownBombTofSec;
 
-  return {
+  return truncateBeOutput({
     ipToReleaseDeltaSec: ownIpToReleaseSec - predIpToReleaseSec,
     ipToImpactDeltaSec: ownIpToImpactSec - predIpToImpactSec,
     predecessorImpactToOwnReleaseSec: predIpToImpactSec - ownIpToReleaseSec,
     predecessorBombTofSec: predBombTofSec,
-  };
+  });
 }

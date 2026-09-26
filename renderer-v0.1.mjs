@@ -8,6 +8,7 @@ import {
 import { createSmartLabelLayout, installSmartLabelDrag } from "./common/diagram/svg-smart-label-v0.1.mjs";
 import { createSvgAutoFitProjection, installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
+import { formatNm } from "./common/ui/display-precision-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
@@ -387,7 +388,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   // stays correct whether IP sits on the Target-through Run-In axis (single-aircraft results,
   // where it also equals resolved.ipRangeNm exactly) or off that axis (Formation composition
   // results from offset-formation-geometry-v0.1.mjs, which has no ipRangeNm field at all).
-  appendLabel(p.ip, `IP · ${fmt(len(points.ip), 2)} NM`, {
+  appendLabel(p.ip, `IP · ${formatNm(len(points.ip))} NM`, {
     labelKey: "ip",
     color: C.run,
     leader: false,
@@ -396,7 +397,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   });
 
   if (referencePoint) {
-    appendLabel(referencePoint, `${result.referenceMode} · ${fmt(result.reference.displayRangeNm, 2)} NM`, {
+    appendLabel(referencePoint, `${result.referenceMode} · ${formatNm(result.reference.displayRangeNm)} NM`, {
       labelKey: `reference-${String(result.referenceMode).toLowerCase()}`,
       color: C.reference,
       leaderMarkerId: "offset-arrow-label",
@@ -415,7 +416,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
     // measured along that line from its own IP, so it is labelled on the Run-In segment
     // (omitted when the Action Point sits on IP, like the lead's own zero-length Run-In).
     const runMid = project(add(points.ip, mul(sub(points.realActionPoint, points.ip), 0.5)));
-    if (len(sub(points.realActionPoint, points.ip)) > 0.05) appendLabel(runMid, `Action Range · ${fmt(result.resolved.actionRangeFromIpNm, 2)} NM`, {
+    if (len(sub(points.realActionPoint, points.ip)) > 0.05) appendLabel(runMid, `Action Range · ${formatNm(result.resolved.actionRangeFromIpNm)} NM`, {
       labelKey: "action-range",
       color: C.run,
       leaderMarkerId: "offset-arrow-label",
@@ -423,7 +424,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
     });
   } else {
     const actionRangeMid = project(add(points.realActionPoint, mul(sub(points.target, points.realActionPoint), 0.5)));
-    appendLabel(actionRangeMid, `Action Range · ${fmt(len(points.realActionPoint), 2)} NM`, {
+    appendLabel(actionRangeMid, `Action Range · ${formatNm(len(points.realActionPoint))} NM`, {
       labelKey: "action-range",
       color: C.offset,
       leaderMarkerId: "offset-arrow-label",
@@ -458,7 +459,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   });
 
   const approachRangeAnchor = project(add(points.turnEnd, mul(sub(points.rollStart, points.turnEnd), 0.72)));
-  appendLabel(approachRangeAnchor, `Approach Range · ${fmt(approachRangeNm, 2)} NM`, {
+  appendLabel(approachRangeAnchor, `Approach Range · ${formatNm(approachRangeNm)} NM`, {
     labelKey: "approach-range",
     color: approachInvalid ? C.invalid : C.offset,
     leaderMarkerId: "offset-arrow-label",
@@ -489,7 +490,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
 
   if (advanced) {
     const offsetRadiusMid = project(add(points.offsetCenter, mul(sub(points.realActionPoint, points.offsetCenter), 0.5)));
-    appendLabel(offsetRadiusMid, `Offset R · ${fmt(result.resolved.offsetRadiusNm, 2)} NM`, {
+    appendLabel(offsetRadiusMid, `Offset R · ${formatNm(result.resolved.offsetRadiusNm)} NM`, {
     labelKey: "offset-radius",
     color: C.offset,
     leaderMarkerId: "offset-arrow-label",
@@ -498,7 +499,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
 
   if (p.rollCenter) {
     const rollRadiusMid = project(add(points.rollCenter, mul(sub(points.rollStart, points.rollCenter), 0.5)));
-    appendLabel(rollRadiusMid, `Radius (EFF) · ${fmt(geometry.rollInRadiusNm, 2)} NM`, {
+    appendLabel(rollRadiusMid, `Radius (EFF) · ${formatNm(geometry.rollInRadiusNm)} NM`, {
       labelKey: "roll-radius",
       color: C.roll,
       leaderMarkerId: "offset-arrow-label",

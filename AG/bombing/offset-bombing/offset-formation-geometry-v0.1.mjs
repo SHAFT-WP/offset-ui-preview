@@ -1,6 +1,7 @@
 import { casToTas, machToTas } from "../../../common/airspeed/airspeed-v0.1.mjs";
-import { calculateBombDeliveryV0_3 } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
+import { calculateBombDeliveryV0_3Full as calculateBombDeliveryV0_3 } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
 import { resolveOffsetTurn } from "./offset-be-v0.2.mjs";
+import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import {
   add,
   angleOffFromOffsetHeading,
@@ -184,7 +185,13 @@ export function validateOffAxisOffsetCandidate(candidate) {
 // offset-be-v0.2.mjs's calculateOffsetV0_2 result shape (resolved/timing/geometry/profile) so
 // existing single-aircraft FE rendering (Top View, drop-order deltas, field sync) can consume
 // either result interchangeably.
+// Public entrypoint: output truncated to 5 decimals (docs/FE-BE-RULES.md); the Full variant keeps
+// full precision for composition.
 export function calculateOffAxisOffset(input) {
+  return truncateBeOutput(calculateOffAxisOffsetFull(input));
+}
+
+export function calculateOffAxisOffsetFull(input) {
   if (!input || typeof input !== "object") throw new TypeError("input must be an object");
   const locks = input.locks ?? {};
   const errors = [];

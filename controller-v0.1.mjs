@@ -1,3 +1,4 @@
+import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSignedSec } from "./common/ui/display-precision-v0.1.mjs";
 import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 import { calculateOffsetWithVrpStart } from "./AG/bombing/offset-bombing/offset-be-v0.2.mjs?v=vrp-start-1";
@@ -79,7 +80,7 @@ const DEFAULT_INPUT_VALUES = Object.freeze({
   offsetSpeedMode: "CAS",
   offsetG: "2.0",
   offsetBankDeg: "60",
-  offsetRadiusNm: "1.60",
+  offsetRadiusNm: "1.6",
 });
 
 const locks = {};
@@ -360,26 +361,28 @@ function applyBdpSolveCoupling(result) {
 
 function applyResolved(result) {
   setAutoValue("runInHeadingDeg", formatBearingInput(result.resolved.runInHeadingDeg));
-  if (ipLinked && !locks.ipReference) setAutoValue("ipRangeNm", result.resolved.ipRangeNm.toFixed(3));
+  if (ipLinked && !locks.ipReference) setSolvedValue("ipRangeNm", result.resolved.ipRangeNm, 1);
   if (!locks.vrpReference) {
-    setAutoValue("vrpRangeNm", result.resolved.vrpRangeNm.toFixed(3));
+    setSolvedValue("vrpRangeNm", result.resolved.vrpRangeNm, 1);
     if (document.activeElement !== $("#vrp-bearing-input")) $("#vrp-bearing-input").value = formatBearingInput(result.resolved.vrpBearingDeg);
     vrpBearingExplicit = true;
     vrpRangeExplicit = true;
   }
-  setIfUnlocked("attackHeadingDeg", result.resolved.attackHeadingDeg, 2);
-  setIfUnlocked("angleOffDeg", result.resolved.angleOffDeg, 2);
-  setIfUnlocked("offsetAngleDeg", result.resolved.offsetAngleDeg, 2);
-  setIfUnlocked("actionRangeNm", result.resolved.actionRangeNm, 3);
-  setIfUnlocked("approachRangeNm", result.resolved.approachRangeNm, 3);
-  setIfUnlocked("offsetG", result.resolved.offsetG, 3, turnDriver);
-  setIfUnlocked("offsetBankDeg", result.resolved.offsetBankDeg, 2, turnDriver);
-  setIfUnlocked("offsetRadiusNm", result.resolved.offsetRadiusNm, 3, turnDriver);
+  // Display precision (docs/TERMINOLOGY.md): angles integer, NM 1 decimal, G 1 decimal; the full
+  // solved value stays behind each field (solvedInputValues).
+  setIfUnlocked("attackHeadingDeg", result.resolved.attackHeadingDeg, 0);
+  setIfUnlocked("angleOffDeg", result.resolved.angleOffDeg, 0);
+  setIfUnlocked("offsetAngleDeg", result.resolved.offsetAngleDeg, 0);
+  setIfUnlocked("actionRangeNm", result.resolved.actionRangeNm, 1);
+  setIfUnlocked("approachRangeNm", result.resolved.approachRangeNm, 1);
+  setIfUnlocked("offsetG", result.resolved.offsetG, 1, turnDriver);
+  setIfUnlocked("offsetBankDeg", result.resolved.offsetBankDeg, 0, turnDriver);
+  setIfUnlocked("offsetRadiusNm", result.resolved.offsetRadiusNm, 1, turnDriver);
 
   syncVipBearingInput(result.resolved.vipToTargetBearingDeg);
   syncIpBearingInput(result.resolved.runInHeadingDeg);
   $("#offset-heading-out").textContent = fmtHeading(result.resolved.offsetHeadingDeg);
-  $("#turn-time-out").textContent = `${fmt(result.timing.offsetTurnSec, 1)} sec`;
+  $("#turn-time-out").textContent = `${formatSec(result.timing.offsetTurnSec)} sec`;
   $("#driver-out").textContent = `DRIVER · ${driver}`;
   $("#lock-count").textContent = `LOCK ${Object.values(locks).filter(Boolean).length}`;
 }
@@ -397,39 +400,39 @@ function renderOffsetResult(result) {
     row("State", result.state),
     row("Run-In / Attack", `${fmtHeading(g.runInHeadingDeg)} → ${fmtHeading(g.attackHeadingDeg)}`, "runAttackSummary"),
     row("Approaching Heading", fmtHeading(g.offsetHeadingDeg), "offsetHeadingDeg"),
-    row("Offset Angle", `${fmt(g.offsetAngleDeg, 2)}°`, "offsetAngleDeg"),
-    row("Angle-Off (Heading)", `${fmt(g.angleOffDeg, 2)}°`, "angleOffDeg"),
-    row("Action Range", `${fmt(g.actionRangeNm, 3)} NM`, "actionRangeNm"),
-    row("Approach Range", `${fmt(result.resolved.approachRangeNm, 3)} NM`, "approachRangeNm"),
-    row("IP Range", `${fmt(result.resolved.ipRangeNm, 3)} NM · ${ipLinked ? `LINKED TO VRP + ${IP_LINK_LEAD_NM} NM` : "INDEPENDENT"}`, "ipRangeNm"),
-    row("Offset Radius", `${fmt(result.resolved.offsetRadiusNm, 3)} NM`, "offsetRadiusNm"),
-    row("Offset TAS", `${fmt(result.resolved.offsetTasKt, 1)} kt`, "offsetTasKt"),
-    row("Reference", `${result.referenceMode} · ${fmt(result.reference.bearingDeg, 1)}° / ${fmt(result.reference.displayRangeNm, 3)} NM`, "referenceSummary"),
-    row("IP → Action Point", `${fmt(t.ingressDistanceNm, 3)} NM / ${fmt(t.ingressSec, 1)} sec`, "ingressSummary"),
-    row("Offset Turn", `${fmt(t.offsetTurnSec, 1)} sec`, "offsetTurnSec"),
-    row("Approach Time", `${fmt(t.approachSec, 1)} sec`, "approachSec"),
-    row("Roll-in → Release", `${fmt(t.rollToReleaseSec, 1)} sec`, "rollToReleaseSec"),
-    row("Legacy ΔTOS", `${t.legacyDeltaTosSec >= 0 ? "+" : ""}${fmt(t.legacyDeltaTosSec, 1)} sec`, "legacyDeltaTosSec"),
+    row("Offset Angle", `${formatDeg(g.offsetAngleDeg)}°`, "offsetAngleDeg"),
+    row("Angle-Off (Heading)", `${formatDeg(g.angleOffDeg)}°`, "angleOffDeg"),
+    row("Action Range", `${formatNm(g.actionRangeNm)} NM`, "actionRangeNm"),
+    row("Approach Range", `${formatNm(result.resolved.approachRangeNm)} NM`, "approachRangeNm"),
+    row("IP Range", `${formatNm(result.resolved.ipRangeNm)} NM · ${ipLinked ? `LINKED TO VRP + ${IP_LINK_LEAD_NM} NM` : "INDEPENDENT"}`, "ipRangeNm"),
+    row("Offset Radius", `${formatNm(result.resolved.offsetRadiusNm)} NM`, "offsetRadiusNm"),
+    row("Offset TAS", `${formatKt(result.resolved.offsetTasKt)} kt`, "offsetTasKt"),
+    row("Reference", `${result.referenceMode} · ${formatDeg(result.reference.bearingDeg)}° / ${formatNm(result.reference.displayRangeNm)} NM`, "referenceSummary"),
+    row("IP → Action Point", `${formatNm(t.ingressDistanceNm)} NM / ${formatSec(t.ingressSec)} sec`, "ingressSummary"),
+    row("Offset Turn", `${formatSec(t.offsetTurnSec)} sec`, "offsetTurnSec"),
+    row("Approach Time", `${formatSec(t.approachSec)} sec`, "approachSec"),
+    row("Roll-in → Release", `${formatSec(t.rollToReleaseSec)} sec`, "rollToReleaseSec"),
+    row("Legacy ΔTOS", `${formatSignedSec(t.legacyDeltaTosSec)} sec`, "legacyDeltaTosSec"),
   ].join("");
 }
 
 function renderProfileResult(result) {
   const p = result.profile.public;
   $("#profile-result-body").innerHTML = [
-    row("Effective Release Altitude", `${fmt(p.effectiveReleaseAltitudeMslFt, 0)} ft MSL`, "effectiveReleaseAltitudeMslFt"),
-    row("Roll-In Altitude", `${fmt(p.resolvedInitialAltitudeMslFt, 0)} ft MSL`, "resolvedInitialAltitudeMslFt"),
-    row("Track Point Altitude", `${fmt(p.trackPointAltitudeMslFt, 0)} ft MSL`, "trackPointAltitudeMslFt"),
-    row("Tracking Time", `${fmt(p.trackingTimeSec, 2)} sec`, "trackingTimeSecResult"),
-    row("Roll-in Range", `${fmt(p.rollInRangeNm, 3)} NM`, "rollInRangeNm"),
-    row("Ground Range", `${fmt(p.groundRangeNm, 3)} NM`, "groundRangeNm"),
-    row("Roll-in Radius", `${fmt(p.rollInRadiusNm, 3)} NM`, "rollInRadiusNm"),
-    row("Roll-in Time", `${fmt(p.rollInTimeSec, 2)} sec`, "rollInTimeSec"),
-    row("Roll-in Ground Arc", `${fmt(p.rollInGroundArcNm, 3)} NM`, "rollInGroundArcNm"),
-    row("Roll-in Altitude Loss", `${fmt(p.rollInAltitudeLossFt, 0)} ft`, "rollInAltitudeLossFt"),
-    row("Lead Angle", `${fmt(p.leadAngleDeg, 2)}°`, "leadAngleDeg"),
-    row("MINALT", `${fmt(p.minAltMslFt, 0)} ft MSL`, "minAltMslFt"),
-    row("NLT Release", `${fmt(p.nltReleaseMslFt, 0)} ft MSL`, "nltReleaseMslFt"),
-    row("Bomb Range / TOF", `${fmt(p.bombRangeNm, 3)} NM / ${fmt(p.bombTofSec, 2)} sec`, "bombRangeTofSummary"),
+    row("Effective Release Altitude", `${formatFt(p.effectiveReleaseAltitudeMslFt)} ft MSL`, "effectiveReleaseAltitudeMslFt"),
+    row("Roll-In Altitude", `${formatFt(p.resolvedInitialAltitudeMslFt)} ft MSL`, "resolvedInitialAltitudeMslFt"),
+    row("Track Point Altitude", `${formatFt(p.trackPointAltitudeMslFt)} ft MSL`, "trackPointAltitudeMslFt"),
+    row("Tracking Time", `${formatSec(p.trackingTimeSec)} sec`, "trackingTimeSecResult"),
+    row("Roll-in Range", `${formatNm(p.rollInRangeNm)} NM`, "rollInRangeNm"),
+    row("Ground Range", `${formatNm(p.groundRangeNm)} NM`, "groundRangeNm"),
+    row("Roll-in Radius", `${formatNm(p.rollInRadiusNm)} NM`, "rollInRadiusNm"),
+    row("Roll-in Time", `${formatSec(p.rollInTimeSec)} sec`, "rollInTimeSec"),
+    row("Roll-in Ground Arc", `${formatNm(p.rollInGroundArcNm)} NM`, "rollInGroundArcNm"),
+    row("Roll-in Altitude Loss", `${formatFt(p.rollInAltitudeLossFt)} ft`, "rollInAltitudeLossFt"),
+    row("Lead Angle", `${formatDeg(p.leadAngleDeg)}°`, "leadAngleDeg"),
+    row("MINALT", `${formatFt(p.minAltMslFt)} ft MSL`, "minAltMslFt"),
+    row("NLT Release", `${formatFt(p.nltReleaseMslFt)} ft MSL`, "nltReleaseMslFt"),
+    row("Bomb Range / TOF", `${formatNm(p.bombRangeNm)} NM / ${formatSec(p.bombTofSec)} sec`, "bombRangeTofSummary"),
   ].join("");
 }
 
@@ -456,7 +459,7 @@ function bearingBetween(a, b) {
 }
 
 function dedRangeText(rangeNm) {
-  return `${Math.round(rangeNm * FT_PER_NM)} ft (${fmt(rangeNm, 2)} NM)`;
+  return `${Math.round(rangeNm * FT_PER_NM)} ft (${formatNm(rangeNm)} NM)`;
 }
 
 function dedElevationText(elevationFt) {
@@ -470,12 +473,12 @@ function renderDed(result) {
   const isVip = result.referenceMode === "VIP";
 
   $("#ded-page-title").textContent = isVip ? "VIP" : "VRP";
-  $("#ded-bearing").textContent = `${fmt(isVip ? result.resolved.vipToTargetBearingDeg : result.resolved.vrpBearingDeg, 1)}°`;
+  $("#ded-bearing").textContent = `${formatDeg(isVip ? result.resolved.vipToTargetBearingDeg : result.resolved.vrpBearingDeg)}°`;
   $("#ded-range").textContent = dedRangeText(isVip ? result.resolved.vipRangeNm : result.resolved.vrpRangeNm);
   $("#ded-elevation").textContent = dedElevationText(targetElevationMslFt);
 
   const oa1Base = isVip ? points.vip : points.target;
-  $("#ded-oa1-bearing").textContent = `${fmt(bearingBetween(oa1Base, points.rollStart), 1)}°`;
+  $("#ded-oa1-bearing").textContent = `${formatDeg(bearingBetween(oa1Base, points.rollStart))}°`;
   $("#ded-oa1-range").textContent = dedRangeText(pointDistanceNm(oa1Base, points.rollStart));
   $("#ded-oa1-elevation").textContent = dedElevationText(rollInStartAltitudeMslFt);
 }
@@ -543,7 +546,7 @@ function renderTopView(result) {
   legendItems[1].label = `Approaching Heading · ${fmtHeading(g.offsetHeadingDeg)}`;
   legendItems[2].label = `Roll-in Radial · ${fmtHeading(bearingBetween(g.points.target, g.points.rollStart))}`;
   legendItems[3].label = `Roll-in Heading · ${fmtHeading(g.offsetHeadingDeg)}`;
-  legendItems[4].label = `Roll-in Radius · ${fmt(g.rollInRadiusNm, 2)} NM`;
+  legendItems[4].label = `Roll-in Radius · ${formatNm(g.rollInRadiusNm)} NM`;
   legend.render();
 }
 
@@ -758,7 +761,7 @@ function installReferenceBearingControls() {
   vipBearingInput.addEventListener("input", handleVipBearingInput);
   vipBearingInput.addEventListener("blur", () => syncVipBearingInput(readVipToTargetBearing(), { includeActive: true }));
   vipRangeInput.addEventListener("input", handleVipRangeInput);
-  vipRangeInput.addEventListener("blur", () => { vipRangeInput.value = fmt(readVipRangeNm(), 3); });
+  vipRangeInput.addEventListener("blur", () => { vipRangeInput.value = formatNm(readVipRangeNm()); });
 
   vrpBearingInput.addEventListener("input", () => {
     vrpBearingExplicit = Number.isFinite(Number.parseFloat(vrpBearingInput.value));
@@ -766,7 +769,7 @@ function installReferenceBearingControls() {
     calculate();
   });
   vrpBearingInput.addEventListener("blur", () => { vrpBearingInput.value = formatBearingInput(readVrpBearing()); });
-  vrpRangeInput?.addEventListener("blur", () => { vrpRangeInput.value = fmt(readVrpRangeNm(), 3); });
+  vrpRangeInput?.addEventListener("blur", () => { vrpRangeInput.value = formatNm(readVrpRangeNm()); });
 
   ipBearingInput.addEventListener("input", handleIpBearingInput);
   ipBearingInput.addEventListener("blur", () => syncIpBearingInput(readRunInHeading(), { includeActive: true }));
@@ -1288,7 +1291,7 @@ function renderFollowerTimingDeltas(number, delta) {
   if (!slot) return;
   slot.querySelectorAll("[data-flight-timing]").forEach((output) => {
     const value = delta?.[output.dataset.flightTiming];
-    output.textContent = Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${value.toFixed(1)} s` : "-";
+    output.textContent = Number.isFinite(value) ? `${formatSignedSec(value)} s` : "-";
   });
 }
 
@@ -1303,12 +1306,12 @@ function syncFollowerResolvedFields(number, slot, result) {
     draft[key] = text;
     followerSolvedValues.set(`${number}:${key}`, { text, value });
   };
-  sync("offsetAngleDeg", result.resolved.offsetAngleDeg, 2);
-  sync("actionRangeFromIpNm", result.resolved.actionRangeFromIpNm, 2);
-  sync("attackHeadingDeg", result.resolved.attackHeadingDeg, 1);
-  sync("angleOffDeg", result.resolved.angleOffDeg, 1);
+  sync("offsetAngleDeg", result.resolved.offsetAngleDeg, 0);
+  sync("actionRangeFromIpNm", result.resolved.actionRangeFromIpNm, 1);
+  sync("attackHeadingDeg", result.resolved.attackHeadingDeg, 0);
+  sync("angleOffDeg", result.resolved.angleOffDeg, 0);
   // Combined Same-Angle + Same-Time mode solves Dive Angle (see calculateFollower); reflect it.
-  sync("diveAngleDeg", result.profile.canonicalInputs.diveAngleDeg, 2);
+  sync("diveAngleDeg", result.profile.canonicalInputs.diveAngleDeg, 0);
   // BDP solve-mode coupling, same rule as #1 (applyBdpSolveCoupling).
   const p = result.profile.public;
   if (draft.solveMode === "time") sync("rollInAltitudeMslFt", p.resolvedInitialAltitudeMslFt, 0);
@@ -1416,7 +1419,7 @@ function calculateFollower(number) {
     const runInReadout = slot.querySelector('[data-flight-readout="runInHeadingDeg"]');
     if (runInReadout) runInReadout.textContent = fmtHeading(result.resolved.runInHeadingDeg);
     const ipRangeReadout = slot.querySelector('[data-flight-readout="ipRangeFromTargetNm"]');
-    if (ipRangeReadout) ipRangeReadout.textContent = fmt(Math.hypot(baseInput.ipPoint.x, baseInput.ipPoint.y), 2);
+    if (ipRangeReadout) ipRangeReadout.textContent = formatNm(Math.hypot(baseInput.ipPoint.x, baseInput.ipPoint.y));
     renderFollowerTimingDeltas(number, computeDropOrderDelta({ predecessorResult: leaderResult, ownResult: result }));
   } catch (error) {
     flightResults.delete(number);
