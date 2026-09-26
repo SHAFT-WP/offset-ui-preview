@@ -39,6 +39,7 @@ const FLIGHT_CALCULATING_AIRCRAFT = new Set([2]);
 // its own manual LOCK (they substitute the same field a LOCK would otherwise hold). Same-Angle
 // and Same-Time may both be on together: with Offset Angle fixed to the element lead's value,
 // calculateFollower then roots-finds Dive Angle (not Action Range) to match its Action time.
+const FLIGHT_TACTICAL_DRIVERS = ["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeFromIpNm"];
 const FLIGHT_TOGGLE_EXCLUSIONS = {
   offsetAngleLocked: ["sameAngleAsLead"],
   sameAngleAsLead: ["offsetAngleLocked"],
@@ -629,11 +630,13 @@ function handleFieldChange(event) {
     driver = "runInHeadingDeg";
   } else if (key === "approachRangeNm") {
     driver = "approachRangeNm";
-  } else if (["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "diveAngleDeg"].includes(key)) {
+  } else if (["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm"].includes(key)) {
     driver = key;
-  } else {
-    driver = "profile";
   }
+  // BDP / Offset Turn Condition edits (Dive Angle, Roll-in/Release Altitude, speeds, bomb,
+  // G/Bank/Radius ...) are not tactical drivers: the last tactical driver keeps its constraint
+  // (default VRP = Action Point held), so the unlocked Offset Angle / Angle-Off re-solve
+  // against the new profile instead of the Action Point silently sliding.
   calculate();
 }
 
@@ -959,6 +962,7 @@ function flightDraft(number) {
     offsetAngleDeg: "40", actionRangeFromIpNm: "4.0",
     offsetAngleLocked: false, sameAngleAsLead: true,
     actionRangeLocked: false, sameTimeAsLead: false,
+    driver: "actionRangeFromIpNm",
   };
 }
 
@@ -1069,6 +1073,7 @@ function installFlightLayout() {
             sameAngleAsLead: record.sameAngleAsLead === true,
             actionRangeLocked: record.actionRangeLocked === true,
             sameTimeAsLead: record.sameTimeAsLead === true,
+            driver: FLIGHT_TACTICAL_DRIVERS.includes(record.driver) ? record.driver : "actionRangeFromIpNm",
           };
         }
       }
@@ -1102,6 +1107,9 @@ function installFlightLayout() {
     } else if (key === "rollInAltitudeMslFt") {
       draft.rollInAltitudeLinked = false;
     }
+    // Same rule as #1's handleFieldChange: only tactical Offset edits become the driver; BDP
+    // edits keep the last tactical constraint so the unlocked geometry re-solves around it.
+    if (FLIGHT_TACTICAL_DRIVERS.includes(key)) draft.driver = key;
     saveFlightLayout();
     if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) calculateFollower(number);
   };
@@ -1170,7 +1178,13 @@ function buildFollowerInput(number, slot, leaderResult) {
   const runInHeadingDeg = leaderResult.resolved.runInHeadingDeg;
   const ipPoint = followerIpPoint(number, slot, leaderResult);
   const sharedProfile = leaderResult.profile.canonicalInputs;
-  const driver = actionRangeLocked ? "actionRangeFromIpNm" : "angleOffDeg";
+  // Plain mode (no element-lead toggle) mirrors #1's VRP-start default: the last tactical edit
+  // drives, defaulting to this aircraft's own Action Point held so BDP changes re-solve the
+  // unlocked Offset Angle. A manual Offset Angle LOCK cannot also hold the Action Point.
+  const draftDriver = FLIGHT_TACTICAL_DRIVERS.includes(draft.driver) ? draft.driver : "actionRangeFromIpNm";
+  const driver = actionRangeLocked
+    ? "actionRangeFromIpNm"
+    : offsetAngleLocked && draftDriver === "actionRangeFromIpNm" ? "offsetAngleDeg" : draftDriver;
 
   const baseInput = {
     driver,
