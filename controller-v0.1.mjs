@@ -1,11 +1,14 @@
 import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
-import { calculateOffsetV0_2, calculateOffsetWithVrpStart } from "./AG/bombing/offset-bombing/offset-be-v0.2.mjs?v=vrp-start-1";
+import { calculateOffsetWithVrpStart } from "./AG/bombing/offset-bombing/offset-be-v0.2.mjs?v=vrp-start-1";
 import {
   applyElementLeadOffsetAngle,
   computeDropOrderDelta,
+  computeFormationOffsetVector,
   solveElementSameTimeActionRange,
 } from "./AG/bombing/offset-bombing/offset-formation-v0.1.mjs?v=formation-1";
+import { calculateOffAxisOffset } from "./AG/bombing/offset-bombing/offset-formation-geometry-v0.1.mjs?v=formation-geometry-1";
+import { add as addWorldPoints } from "./AG/bombing/offset-bombing/offset-geometry-v0.2.mjs?v=vrp-start-1";
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.1.mjs";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
@@ -31,6 +34,15 @@ const FLIGHT_LAYOUT_KEY = "flight-sim-tools.offset.v2.flight-layout.v1";
 const flightLayout = { size: 1, aircraft: {} };
 const flightResults = new Map();
 const FLIGHT_CALCULATING_AIRCRAFT = new Set([2]);
+// Same-as/Same-time toggles are LOCK-style buttons, not checkboxes: turning one on turns off
+// whatever it conflicts with (its own manual LOCK, and each other — the coupled solve has one
+// free parameter, so Offset Angle and Action Range cannot both be substituted at once).
+const FLIGHT_TOGGLE_EXCLUSIONS = {
+  offsetAngleLocked: ["sameAngleAsLead"],
+  sameAngleAsLead: ["offsetAngleLocked", "sameTimeAsLead"],
+  actionRangeLocked: ["sameTimeAsLead"],
+  sameTimeAsLead: ["actionRangeLocked", "sameAngleAsLead"],
+};
 const DEFAULT_INPUT_VALUES = Object.freeze({
   weaponId: "M82",
   targetElevationMslFt: "31",
@@ -937,12 +949,12 @@ function installToolbarControls() {
 
 function flightDraft(number) {
   return flightLayout.aircraft[number] ||= {
-    weaponId: "M82", side: "LEFT", bearingDeg: "90", distanceNm: "2",
+    weaponId: "M82", side: "LEFT", bearingDeg: "90", distanceNm: "1",
     initialSpeedValue: "350", initialAltitudeMslFt: "16000", diveAngleDeg: "45",
     trackingTimeSec: "18.25", releaseAltitudeMslFt: "6800", releaseSpeedKcas: "450",
-    ipRangeNm: "7.0", attackHeadingDeg: "030", angleOffDeg: "70",
-    offsetAngleDeg: "40", actionRangeNm: "4.0",
-    offsetAngleLocked: false, sameAngleAsLead: false,
+    attackHeadingDeg: "030", angleOffDeg: "70",
+    offsetAngleDeg: "40", actionRangeFromIpNm: "4.0",
+    offsetAngleLocked: false, sameAngleAsLead: true,
     actionRangeLocked: false, sameTimeAsLead: false,
   };
 }
@@ -980,11 +992,11 @@ function followerDraftMarkup(number) {
 function followerCalculatingMarkup(number) {
   const leadNumber = elementLeadNumber(number);
   return [
-    flightSection(number, "Formation", `<p class="flight-draft-note">Position relative to #1 · display only, not yet fed into geometry or timing.</p><div class="flight-draft-grid"><label class="field"><span>Side</span><select data-flight-field="side"><option value="LEFT">Left</option><option value="RIGHT">Right</option></select></label><label class="field"><span>Bearing (°)</span><input type="number" min="0" max="180" step="1" data-flight-field="bearingDeg"></label><label class="field"><span>Distance (NM)</span><input type="number" min="0" step="0.1" data-flight-field="distanceNm"></label></div>`),
+    flightSection(number, "Formation", `<p class="flight-draft-note">Start point relative to #1's own IP; feeds this aircraft's Run-In line.</p><div class="flight-draft-grid"><label class="field"><span>Side</span><select data-flight-field="side"><option value="LEFT">Left</option><option value="RIGHT">Right</option></select></label><label class="field"><span>Bearing (°)</span><input type="number" min="0" max="180" step="1" data-flight-field="bearingDeg"></label><label class="field"><span>Distance (NM)</span><input type="number" min="0" step="0.1" data-flight-field="distanceNm"></label></div>`),
     flightSection(number, "BDP", `<div class="input-grid"><label class="field flight-weapon-field"><span>Bomb</span><select data-flight-field="weaponId"></select></label><label class="field"><span>Initial Speed (KCAS)</span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"></label><label class="field"><span>Initial Altitude (ft MSL)</span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"></label><label class="field"><span>Dive Angle (deg)</span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"></label><label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label><label class="field"><span>Release Speed (KCAS)</span><input data-flight-field="releaseSpeedKcas" type="text" inputmode="decimal"></label></div><p class="flight-draft-note">Target Elevation, Wind, Fragment Margin, Recovery G and Roll-in Turn inputs follow #1.</p>`, { calculating: true }),
-    flightSection(number, "Offset", `<div class="section-head"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div><div class="input-grid"><label class="field"><span>Run-In Heading</span><output data-flight-readout="runInHeadingDeg">-</output><span class="unit">Follows #1 · parallel Run-In</span></label><label class="field"><span>IP Range (NM)</span><input data-flight-field="ipRangeNm" type="text" inputmode="decimal"></label><label class="field"><span>Attack Heading (deg)</span><input data-flight-field="attackHeadingDeg" type="text" inputmode="decimal"></label><label class="field"><span>Angle-Off (deg)</span><input data-flight-field="angleOffDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Offset Angle (deg)</span><button class="lock-button" type="button" data-flight-field="offsetAngleLocked" aria-pressed="false">LOCK</button></span><input data-flight-field="offsetAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span>Same Angle as #${leadNumber}</span><input type="checkbox" data-flight-field="sameAngleAsLead"></label><label class="field"><span class="lock-title"><span>Action Range (NM)</span><button class="lock-button" type="button" data-flight-field="actionRangeLocked" aria-pressed="false">LOCK</button></span><input data-flight-field="actionRangeNm" type="text" inputmode="decimal"></label><label class="field"><span>Same Time as #${leadNumber}</span><input type="checkbox" data-flight-field="sameTimeAsLead"></label></div><div id="flight-status-${number}" class="status-message valid">-</div>`, { calculating: true }),
+    flightSection(number, "Offset", `<div class="section-head"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div><div class="input-grid"><label class="field"><span>Run-In Heading</span><output data-flight-readout="runInHeadingDeg">-</output><span class="unit">Follows #1 · parallel Run-In</span></label><label class="field"><span>IP Range from Target</span><output data-flight-readout="ipRangeFromTargetNm">-</output><span class="unit">NM · from Formation position</span></label><label class="field"><span>Attack Heading (deg)</span><input data-flight-field="attackHeadingDeg" type="text" inputmode="decimal"></label><label class="field"><span>Angle-Off (deg)</span><input data-flight-field="angleOffDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Offset Angle (deg)</span><button class="lock-button" type="button" data-flight-field="offsetAngleLocked" aria-pressed="false">LOCK</button><button class="lock-button" type="button" data-flight-field="sameAngleAsLead" aria-pressed="false">SAME AS #${leadNumber}</button></span><input data-flight-field="offsetAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Action Range from own IP (NM)</span><button class="lock-button" type="button" data-flight-field="actionRangeLocked" aria-pressed="false">LOCK</button><button class="lock-button" type="button" data-flight-field="sameTimeAsLead" aria-pressed="false">SAME TIME AS #${leadNumber}</button></span><input data-flight-field="actionRangeFromIpNm" type="text" inputmode="decimal"></label></div><div id="flight-status-${number}" class="status-message valid">-</div>`, { calculating: true }),
     flightSection(number, "Z-Diagram", `<p class="flight-draft-note">Aircraft #${number} diagram is pending its profile result.</p>`),
-    flightSection(number, "Top View", `<div class="top-view-shell"><svg data-flight-topview viewBox="0 0 1180 1440" role="img" aria-label="Aircraft #${number} Offset top view"><defs></defs></svg></div><p class="flight-draft-note">Leader #${leadNumber}'s already-solved profile is drawn dimmed in the background; it does not feed aircraft #${number}'s own solve.</p><div class="flight-draft-grid flight-timing-deltas"><div class="field"><span>IP→Release Δ vs #${leadNumber}</span><output data-flight-timing="ipToReleaseDeltaSec">-</output></div><div class="field"><span>IP→Impact Δ vs #${leadNumber}</span><output data-flight-timing="ipToImpactDeltaSec">-</output></div><div class="field"><span>#${leadNumber} Impact → #${number} Release</span><output data-flight-timing="predecessorImpactToOwnReleaseSec">-</output></div><div class="field"><span>#${leadNumber} Bomb TOF</span><output data-flight-timing="predecessorBombTofSec">-</output></div></div>`, { calculating: true }),
+    flightSection(number, "Top View", `<div class="top-view-shell"><svg data-flight-topview viewBox="0 0 1180 1440" role="img" aria-label="Aircraft #${number} Offset top view"><defs></defs></svg></div><p class="flight-draft-note">Leader #${leadNumber}'s already-solved profile is drawn in full alongside this aircraft's own, sharing Target and scale; it does not feed aircraft #${number}'s own solve.</p><div class="flight-draft-grid flight-timing-deltas"><div class="field"><span>IP→Release Δ vs #${leadNumber}</span><output data-flight-timing="ipToReleaseDeltaSec">-</output></div><div class="field"><span>IP→Impact Δ vs #${leadNumber}</span><output data-flight-timing="ipToImpactDeltaSec">-</output></div><div class="field"><span>#${leadNumber} Impact → #${number} Release</span><output data-flight-timing="predecessorImpactToOwnReleaseSec">-</output></div><div class="field"><span>#${leadNumber} Bomb TOF</span><output data-flight-timing="predecessorBombTofSec">-</output></div></div>`, { calculating: true }),
     flightSection(number, "Result", `<p class="flight-draft-note">No calculated result for aircraft #${number}.</p>`),
     flightSection(number, "DED", `<p class="flight-draft-note">Aircraft #${number} DED is pending its profile result.</p>`),
   ].join("");
@@ -1044,11 +1056,10 @@ function installFlightLayout() {
             trackingTimeSec: str("trackingTimeSec"),
             releaseAltitudeMslFt: str("releaseAltitudeMslFt"),
             releaseSpeedKcas: str("releaseSpeedKcas"),
-            ipRangeNm: str("ipRangeNm"),
             attackHeadingDeg: str("attackHeadingDeg"),
             angleOffDeg: str("angleOffDeg"),
             offsetAngleDeg: str("offsetAngleDeg"),
-            actionRangeNm: str("actionRangeNm"),
+            actionRangeFromIpNm: str("actionRangeFromIpNm"),
             offsetAngleLocked: record.offsetAngleLocked === true,
             sameAngleAsLead: record.sameAngleAsLead === true,
             actionRangeLocked: record.actionRangeLocked === true,
@@ -1083,11 +1094,20 @@ function installFlightLayout() {
     const button = event.target.closest?.(".lock-button[data-flight-field]");
     const number = flightSlotNumber(button);
     if (!button || !number) return;
+    const slot = button.closest(".flight-slot");
     const draft = flightDraft(number);
     const key = button.dataset.flightField;
     draft[key] = !draft[key];
     button.setAttribute("aria-pressed", String(draft[key]));
     button.classList.toggle("active", draft[key]);
+    if (draft[key] && FLIGHT_TOGGLE_EXCLUSIONS[key]) {
+      FLIGHT_TOGGLE_EXCLUSIONS[key].forEach((excludedKey) => {
+        draft[excludedKey] = false;
+        const excludedButton = slot?.querySelector(`.lock-button[data-flight-field="${excludedKey}"]`);
+        excludedButton?.setAttribute("aria-pressed", "false");
+        excludedButton?.classList.remove("active");
+      });
+    }
     saveFlightLayout();
     if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) calculateFollower(number);
   });
@@ -1105,38 +1125,47 @@ function followerNumberValue(slot, draft, key) {
   return parsed;
 }
 
+function followerIpPoint(number, slot, leaderResult) {
+  const draft = flightDraft(number);
+  const side = followerField(slot, "side")?.value === "RIGHT" ? "RIGHT" : "LEFT";
+  const relativeBearingDeg = followerNumberValue(slot, draft, "bearingDeg");
+  const distanceNm = followerNumberValue(slot, draft, "distanceNm");
+  const { vector } = computeFormationOffsetVector({
+    runInHeadingDeg: leaderResult.resolved.runInHeadingDeg,
+    relativeBearingDeg,
+    side,
+    distanceNm,
+  });
+  return addWorldPoints(leaderResult.geometry.points.ip, vector);
+}
+
 function buildFollowerInput(number, slot, leaderResult) {
   const draft = flightDraft(number);
   const num = (key) => followerNumberValue(slot, draft, key);
   const offsetAngleLocked = followerField(slot, "offsetAngleLocked")?.getAttribute("aria-pressed") === "true";
-  const sameAngleAsLead = followerField(slot, "sameAngleAsLead")?.checked === true;
+  const sameAngleAsLead = followerField(slot, "sameAngleAsLead")?.getAttribute("aria-pressed") === "true";
   const actionRangeLocked = followerField(slot, "actionRangeLocked")?.getAttribute("aria-pressed") === "true";
-  const sameTimeAsLead = followerField(slot, "sameTimeAsLead")?.checked === true;
+  const sameTimeAsLead = followerField(slot, "sameTimeAsLead")?.getAttribute("aria-pressed") === "true";
 
   if (sameAngleAsLead && offsetAngleLocked) throw new Error("CONSTRAINT CONFLICT: Same-as-Element-Lead Offset Angle cannot combine with a manual Offset Angle LOCK");
   if (sameTimeAsLead && actionRangeLocked) throw new Error("CONSTRAINT CONFLICT: Same-Time-as-Element-Lead Action Range cannot combine with a manual Action Range LOCK");
   if (sameAngleAsLead && sameTimeAsLead) throw new Error("CONSTRAINT CONFLICT: Same-as-Element-Lead Offset Angle and Same-Time-as-Element-Lead Action Range cannot both be active");
 
   const runInHeadingDeg = leaderResult.resolved.runInHeadingDeg;
-  const ipRangeNm = num("ipRangeNm");
+  const ipPoint = followerIpPoint(number, slot, leaderResult);
   const sharedProfile = leaderResult.profile.canonicalInputs;
-  const driver = actionRangeLocked ? "actionRangeNm" : "angleOffDeg";
+  const driver = actionRangeLocked ? "actionRangeFromIpNm" : "angleOffDeg";
 
   const baseInput = {
     driver,
     turnDriver: "offsetG",
-    locks: { offsetAngleDeg: offsetAngleLocked, actionRangeNm: actionRangeLocked },
-    referenceMode: "VRP",
+    locks: { offsetAngleDeg: offsetAngleLocked, actionRangeFromIpNm: actionRangeLocked },
     runInHeadingDeg,
+    ipPoint,
     attackHeadingDeg: num("attackHeadingDeg"),
     angleOffDeg: num("angleOffDeg"),
     offsetAngleDeg: num("offsetAngleDeg"),
-    actionRangeNm: num("actionRangeNm"),
-    ipRangeNm,
-    vrpBearingDeg: normHeading(runInHeadingDeg + 180),
-    vrpRangeNm: ipRangeNm,
-    vipToTargetBearingDeg: runInHeadingDeg,
-    vipRangeNm: DEFAULT_REFERENCE_RANGE_NM,
+    actionRangeFromIpNm: num("actionRangeFromIpNm"),
     offsetAltitudeMslFt: leaderResult.resolved.offsetAltitudeMslFt,
     offsetSpeedValue: leaderResult.resolved.offsetSpeedValue,
     offsetSpeedMode: leaderResult.resolved.offsetSpeedMode,
@@ -1200,9 +1229,25 @@ function syncFollowerResolvedFields(number, slot, result) {
     draft[key] = text;
   };
   sync("offsetAngleDeg", result.resolved.offsetAngleDeg, 2);
-  sync("actionRangeNm", result.resolved.actionRangeNm, 2);
+  sync("actionRangeFromIpNm", result.resolved.actionRangeFromIpNm, 2);
   sync("attackHeadingDeg", result.resolved.attackHeadingDeg, 1);
   sync("angleOffDeg", result.resolved.angleOffDeg, 1);
+}
+
+function geometryWorldPoints(geometry) {
+  return [...Object.values(geometry.points), ...geometry.rollInTrajectorySamples];
+}
+
+// Both Top View calls below share one auto-fit projection (each passes the other's world points
+// as extraFitPoints), so the element lead's full-fidelity render and this aircraft's own render
+// land in the same scale/frame and their Target markers coincide.
+function renderFollowerTopView(number, slot, leaderResult, result) {
+  const svg = slot.querySelector("svg[data-flight-topview]");
+  if (!svg) return;
+  const leaderPoints = geometryWorldPoints(leaderResult.geometry);
+  const ownPoints = geometryWorldPoints(result.geometry);
+  renderOffsetTopView(svg, leaderResult, { plotGroupId: `offset-plot-lead-${number}`, extraFitPoints: ownPoints });
+  renderOffsetTopView(svg, result, { plotGroupId: `offset-plot-${number}`, extraFitPoints: leaderPoints, paintBackground: false });
 }
 
 function calculateFollower(number) {
@@ -1216,29 +1261,34 @@ function calculateFollower(number) {
 
     let result;
     if (sameAngleAsLead) {
-      result = calculateOffsetV0_2(applyElementLeadOffsetAngle({ leaderResult, followerInput: baseInput }));
+      result = calculateOffAxisOffset(applyElementLeadOffsetAngle({ leaderResult, followerInput: baseInput }));
     } else if (sameTimeAsLead) {
+      const maxActionRangeNm = Math.max(5, Math.hypot(baseInput.ipPoint.x, baseInput.ipPoint.y));
       const solved = solveElementSameTimeActionRange({
         leaderResult,
         followerLocks: baseInput.locks,
-        maxActionRangeNm: baseInput.ipRangeNm,
-        evaluate: (actionRangeNm) => calculateOffsetV0_2({ ...baseInput, driver: "actionRangeNm", actionRangeNm }),
+        // #1's own default (VRP-start) leaves it with exactly zero ingress time, so the search
+        // must bracket down through 0 (validateOffAxisOffsetCandidate only rejects < -0.001).
+        minActionRangeNm: -0.5,
+        maxActionRangeNm,
+        evaluate: (actionRangeFromIpNm) => calculateOffAxisOffset({ ...baseInput, driver: "actionRangeFromIpNm", actionRangeFromIpNm }),
       });
       if (!solved.result || !solved.exact) {
-        throw new Error(`CONSTRAINT CONFLICT: no Action Range matches #${leadNumber}'s Action time within this aircraft's IP Range`);
+        throw new Error(`CONSTRAINT CONFLICT: no Action Range matches #${leadNumber}'s Action time within this aircraft's reachable range`);
       }
       result = solved.result;
     } else {
-      result = calculateOffsetV0_2(baseInput);
+      result = calculateOffAxisOffset(baseInput);
     }
 
     flightResults.set(number, result);
     syncFollowerResolvedFields(number, slot, result);
     renderFollowerStatus(number, result.state, result.errors[0] ?? result.warnings[0] ?? "-");
-    const svg = slot.querySelector("svg[data-flight-topview]");
-    if (svg) renderOffsetTopView(svg, result, { plotGroupId: `offset-plot-${number}`, backgroundGeometry: leaderResult.geometry });
+    renderFollowerTopView(number, slot, leaderResult, result);
     const runInReadout = slot.querySelector('[data-flight-readout="runInHeadingDeg"]');
     if (runInReadout) runInReadout.textContent = fmtHeading(result.resolved.runInHeadingDeg);
+    const ipRangeReadout = slot.querySelector('[data-flight-readout="ipRangeFromTargetNm"]');
+    if (ipRangeReadout) ipRangeReadout.textContent = fmt(Math.hypot(baseInput.ipPoint.x, baseInput.ipPoint.y), 2);
     renderFollowerTimingDeltas(number, computeDropOrderDelta({ predecessorResult: leaderResult, ownResult: result }));
   } catch (error) {
     flightResults.delete(number);

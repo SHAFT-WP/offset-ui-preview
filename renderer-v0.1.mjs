@@ -166,18 +166,12 @@ export function renderOffsetTopView(svg, result, options = {}) {
   const geometry = result.geometry;
   const points = geometry.points;
   const referenceWorldPoint = result.reference?.point;
-  const backgroundGeometry = options.backgroundGeometry ?? null;
-  const backgroundWorldPoints = backgroundGeometry
-    ? [
-        backgroundGeometry.points.target,
-        backgroundGeometry.points.ip,
-        backgroundGeometry.points.realActionPoint,
-        backgroundGeometry.points.turnEnd,
-        backgroundGeometry.points.rollStart,
-        backgroundGeometry.points.trackPoint,
-        ...backgroundGeometry.rollInTrajectorySamples,
-      ].filter(finitePoint)
-    : [];
+  // Formation composition: when a Flight follower's Top View is rendered in the same shared
+  // frame as another aircraft's (see controller-v0.1.mjs's renderFollowerTopView), both calls
+  // pass the other aircraft's world points here so a single shared auto-fit projection covers
+  // both — otherwise each call would compute its own scale and the two renders would not align.
+  // This affects only the fit; it draws nothing by itself.
+  const extraFitPoints = Array.isArray(options.extraFitPoints) ? options.extraFitPoints.filter(finitePoint) : [];
   const allWorldPoints = [
     points.target,
     points.ip,
@@ -191,7 +185,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
     points.rollCenter,
     referenceWorldPoint,
     ...geometry.rollInTrajectorySamples,
-    ...backgroundWorldPoints,
+    ...extraFitPoints,
   ].filter(finitePoint);
   const fit = createSvgAutoFitProjection(allWorldPoints, {
     width: WIDTH,
@@ -212,25 +206,10 @@ export function renderOffsetTopView(svg, result, options = {}) {
   const approachInvalid = approachRangeNm < 0;
   const advanced = options.advanced === true;
 
-  root.append(svgNode("rect", { x: 0, y: 0, width: WIDTH, height: HEIGHT, fill: "#fff" }));
-
-  // Background profile (element lead) shares this same Target-centered frame and projection, so
-  // its Target marker coincides with the follower's own. It is a rendering composition only: the
-  // element lead's already-solved geometry is drawn once, dimmed, behind the follower's own track.
-  // The current straight-ingress-only geometry model (offset-geometry-v0.2.mjs) cannot place the
-  // follower's own IP off that shared Run-In axis, so this does not yet apply a lateral Formation
-  // offset to either track.
-  if (backgroundGeometry) {
-    const bgPoints = backgroundGeometry.points;
-    const bp = Object.fromEntries(Object.entries(bgPoints).map(([key, point]) => [key, finitePoint(point) ? project(point) : null]));
-    const bgRollPath = backgroundGeometry.rollInTrajectorySamples.map(project);
-    const bgColor = "#aab2ba";
-    if (bp.ip && bp.realActionPoint) appendDirectedLine(root, bp.ip, bp.realActionPoint, { color: bgColor, width: 4 });
-    if (bp.turnEnd && bp.rollStart) appendDirectedLine(root, bp.turnEnd, bp.rollStart, { color: bgColor, width: 4 });
-    if (bgRollPath.length > 1) appendPolyline(root, bgRollPath, { color: bgColor, width: 4 });
-    if (bp.trackPoint) appendDirectedLine(root, bp.trackPoint, bp.target, { color: bgColor, width: 4 });
-    if (bp.ip) appendSquare(root, bp.ip, 20, bgColor, "#fff");
-  }
+  // Formation composition (see renderFollowerTopView in controller-v0.1.mjs): two calls share one
+  // svg to render two aircraft in the same frame. The second call must not paint over the first,
+  // since SVG paints in document order regardless of which <g> a shape belongs to.
+  if (options.paintBackground !== false) root.append(svgNode("rect", { x: 0, y: 0, width: WIDTH, height: HEIGHT, fill: "#fff" }));
 
   const defs = svg.querySelector("defs") ?? svg.insertBefore(svgNode("defs"), svg.firstChild);
   defs.replaceChildren(
@@ -335,7 +314,11 @@ export function renderOffsetTopView(svg, result, options = {}) {
     textAttributes: { "data-top-view-role": "target" },
   });
 
-  appendLabel(p.ip, `IP · ${fmt(result.resolved.ipRangeNm, 2)} NM`, {
+  // Read straight-line distance from the points themselves (not a named result field): this
+  // stays correct whether IP sits on the Target-through Run-In axis (single-aircraft results,
+  // where it also equals resolved.ipRangeNm exactly) or off that axis (Formation composition
+  // results from offset-formation-geometry-v0.1.mjs, which has no ipRangeNm field at all).
+  appendLabel(p.ip, `IP · ${fmt(len(points.ip), 2)} NM`, {
     labelKey: "ip",
     color: COLORS.run,
     leader: false,
@@ -359,7 +342,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   });
 
   const actionRangeMid = project(add(points.realActionPoint, mul(sub(points.target, points.realActionPoint), 0.5)));
-  appendLabel(actionRangeMid, `Action Range · ${fmt(geometry.actionRangeNm, 2)} NM`, {
+  appendLabel(actionRangeMid, `Action Range · ${fmt(len(points.realActionPoint), 2)} NM`, {
     labelKey: "action-range",
     color: COLORS.offset,
     leaderMarkerId: "offset-arrow-label",

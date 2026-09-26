@@ -8,14 +8,14 @@ export const DEFAULT_REFERENCE_RANGE_NM = 10;
 
 const rad = (deg) => (deg * Math.PI) / 180;
 const norm = (deg) => ((deg % 360) + 360) % 360;
-const add = (a, b) => ({ x: a.x + b.x, y: a.y + b.y });
-const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
-const mul = (a, k) => ({ x: a.x * k, y: a.y * k });
-const dot = (a, b) => a.x * b.x + a.y * b.y;
+export const add = (a, b) => ({ x: a.x + b.x, y: a.y + b.y });
+export const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
+export const mul = (a, k) => ({ x: a.x * k, y: a.y * k });
+export const dot = (a, b) => a.x * b.x + a.y * b.y;
 const cross = (a, b) => a.x * b.y - a.y * b.x;
-const len = (a) => Math.hypot(a.x, a.y);
-const left = (a) => ({ x: -a.y, y: a.x });
-const right = (a) => ({ x: a.y, y: -a.x });
+export const len = (a) => Math.hypot(a.x, a.y);
+export const left = (a) => ({ x: -a.y, y: a.x });
+export const right = (a) => ({ x: a.y, y: -a.x });
 
 function requireFinite(name, value) {
   if (typeof value !== "number" || !Number.isFinite(value)) throw new TypeError(`${name} must be finite`);
@@ -82,13 +82,13 @@ export function resolveReferenceInputs(input = {}) {
   return { runInHeadingDeg, ipRangeNm, vipToTargetBearingDeg, vipRangeNm, vrpBearingDeg, vrpRangeNm };
 }
 
-function lineIntersection(p, d, q, e) {
+export function lineIntersection(p, d, q, e) {
   const den = cross(d, e);
   if (Math.abs(den) < 1e-10) return null;
   return add(p, mul(d, cross(sub(q, p), e) / den));
 }
 
-function transformLocal(local, startHeadingDeg, rollDirection) {
+export function transformLocal(local, startHeadingDeg, rollDirection) {
   const forward = vecHeading(startHeadingDeg);
   const rightVector = right(forward);
   const turnSide = rollDirection === "RIGHT" ? local.turnSide : -local.turnSide;

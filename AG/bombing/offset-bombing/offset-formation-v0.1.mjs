@@ -110,7 +110,11 @@ export function solveIngressTimeMatch({ targetIngressSec, evaluate, minValue, ma
 // coupled solve then re-derives everything else, same as any other Action-Range-driven call)
 // until the wingman's own IP-to-Action time equals the element lead's. `evaluate(actionRangeNm)`
 // is supplied by the caller so this module never imports offset-be-v0.2.mjs directly.
-export function solveElementSameTimeActionRange({ leaderResult, followerLocks = {}, evaluate, minActionRangeNm = 0.05, maxActionRangeNm, toleranceSec = 0.05 }) {
+// `minActionRangeNm` defaults below zero because the element lead's own default (VRP-start
+// policy) commonly has exactly zero ingress time; the search must bracket through 0 to reach
+// that target, and the caller's own geometry validity check (not this range) is what actually
+// rejects an Action Point behind IP.
+export function solveElementSameTimeActionRange({ leaderResult, followerLocks = {}, evaluate, minActionRangeNm = -0.5, maxActionRangeNm, toleranceSec = 0.05 }) {
   const targetIngressSec = finite("leaderResult.timing.ingressSec", leaderResult?.timing?.ingressSec);
   assertElementSameTimeCompatible(followerLocks);
   const upperBound = finite("maxActionRangeNm", maxActionRangeNm);
