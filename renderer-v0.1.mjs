@@ -250,8 +250,10 @@ export function renderOffsetTopView(svg, result, options = {}) {
     toGap: 15,
   });
 
-  appendDirectedLine(root, p.realActionPoint, p.offsetCenter, { color: COLORS.offset, width: 1.2, dasharray: "4 4" });
-  appendDirectedLine(root, p.turnEnd, p.offsetCenter, { color: COLORS.offset, width: 1.2, dasharray: "4 4" });
+  if (advanced) {
+    appendDirectedLine(root, p.realActionPoint, p.offsetCenter, { color: COLORS.offset, width: 1.2, dasharray: "4 4" });
+    appendDirectedLine(root, p.turnEnd, p.offsetCenter, { color: COLORS.offset, width: 1.2, dasharray: "4 4" });
+  }
   if (p.rollCenter) {
     appendDirectedLine(root, p.rollStart, p.rollCenter, { color: COLORS.roll, width: 1.2, dasharray: "4 4" });
     appendDirectedLine(root, p.trackPoint, p.rollCenter, { color: COLORS.roll, width: 1.2, dasharray: "4 4" });
@@ -299,8 +301,10 @@ export function renderOffsetTopView(svg, result, options = {}) {
   reservePolyline(labels, [p.turnEnd, p.rollStart]);
   reservePolyline(labels, rollPath);
   reservePolyline(labels, [p.trackPoint, p.target], 9);
-  reservePolyline(labels, [p.realActionPoint, p.offsetCenter], 4);
-  reservePolyline(labels, [p.turnEnd, p.offsetCenter], 4);
+  if (advanced) {
+    reservePolyline(labels, [p.realActionPoint, p.offsetCenter], 4);
+    reservePolyline(labels, [p.turnEnd, p.offsetCenter], 4);
+  }
   if (p.rollCenter) {
     reservePolyline(labels, [p.rollStart, p.rollCenter], 4);
     reservePolyline(labels, [p.trackPoint, p.rollCenter], 4);
