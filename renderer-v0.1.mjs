@@ -11,7 +11,7 @@ import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.11",
+  version: "0.1.12",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
@@ -154,7 +154,8 @@ export function renderOffsetTopView(svg, result, options = {}) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
   const textScale = Number.isFinite(Number(options.textScale)) ? Number(options.textScale) : 1;
   const fontScale = resolveDiagramTextPhysicalScale(textScale, options.viewportWidth);
-  const root = svg.querySelector("#offset-plot") ?? svg.appendChild(svgNode("g", { id: "offset-plot" }));
+  const plotGroupId = typeof options.plotGroupId === "string" && options.plotGroupId ? options.plotGroupId : "offset-plot";
+  const root = svg.querySelector(`#${plotGroupId}`) ?? svg.appendChild(svgNode("g", { id: plotGroupId }));
   root.replaceChildren();
   const viewport = viewports.get(svg);
   const geometryChanged = lastRenderedResults.get(svg) !== result;
@@ -165,6 +166,18 @@ export function renderOffsetTopView(svg, result, options = {}) {
   const geometry = result.geometry;
   const points = geometry.points;
   const referenceWorldPoint = result.reference?.point;
+  const backgroundGeometry = options.backgroundGeometry ?? null;
+  const backgroundWorldPoints = backgroundGeometry
+    ? [
+        backgroundGeometry.points.target,
+        backgroundGeometry.points.ip,
+        backgroundGeometry.points.realActionPoint,
+        backgroundGeometry.points.turnEnd,
+        backgroundGeometry.points.rollStart,
+        backgroundGeometry.points.trackPoint,
+        ...backgroundGeometry.rollInTrajectorySamples,
+      ].filter(finitePoint)
+    : [];
   const allWorldPoints = [
     points.target,
     points.ip,
@@ -178,6 +191,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
     points.rollCenter,
     referenceWorldPoint,
     ...geometry.rollInTrajectorySamples,
+    ...backgroundWorldPoints,
   ].filter(finitePoint);
   const fit = createSvgAutoFitProjection(allWorldPoints, {
     width: WIDTH,
@@ -199,6 +213,24 @@ export function renderOffsetTopView(svg, result, options = {}) {
   const advanced = options.advanced === true;
 
   root.append(svgNode("rect", { x: 0, y: 0, width: WIDTH, height: HEIGHT, fill: "#fff" }));
+
+  // Background profile (element lead) shares this same Target-centered frame and projection, so
+  // its Target marker coincides with the follower's own. It is a rendering composition only: the
+  // element lead's already-solved geometry is drawn once, dimmed, behind the follower's own track.
+  // The current straight-ingress-only geometry model (offset-geometry-v0.2.mjs) cannot place the
+  // follower's own IP off that shared Run-In axis, so this does not yet apply a lateral Formation
+  // offset to either track.
+  if (backgroundGeometry) {
+    const bgPoints = backgroundGeometry.points;
+    const bp = Object.fromEntries(Object.entries(bgPoints).map(([key, point]) => [key, finitePoint(point) ? project(point) : null]));
+    const bgRollPath = backgroundGeometry.rollInTrajectorySamples.map(project);
+    const bgColor = "#aab2ba";
+    if (bp.ip && bp.realActionPoint) appendDirectedLine(root, bp.ip, bp.realActionPoint, { color: bgColor, width: 4 });
+    if (bp.turnEnd && bp.rollStart) appendDirectedLine(root, bp.turnEnd, bp.rollStart, { color: bgColor, width: 4 });
+    if (bgRollPath.length > 1) appendPolyline(root, bgRollPath, { color: bgColor, width: 4 });
+    if (bp.trackPoint) appendDirectedLine(root, bp.trackPoint, bp.target, { color: bgColor, width: 4 });
+    if (bp.ip) appendSquare(root, bp.ip, 20, bgColor, "#fff");
+  }
 
   const defs = svg.querySelector("defs") ?? svg.insertBefore(svgNode("defs"), svg.firstChild);
   defs.replaceChildren(
