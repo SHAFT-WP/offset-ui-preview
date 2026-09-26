@@ -646,7 +646,8 @@ function handleFieldChange(event) {
   }
 
   if (key === "runInHeadingDeg") {
-    ipLinked = false;
+    // Run-In only rotates the axis: a linked IP stays VRP + 3 NM on the new axis (user rule,
+    // 2026-09-26). Only an explicit IP Range edit or an IP/VRP LOCK ends the IP<-VRP link.
     const parsed = Number.parseFloat(field.value);
     if (!Number.isFinite(parsed)) {
       driver = "runInHeadingDeg";
@@ -686,7 +687,7 @@ function handleVipRangeInput(event) {
 function handleIpBearingInput(event) {
   const entered = Number.parseFloat(event.target.value);
   if (!Number.isFinite(entered)) return;
-  ipLinked = false;
+  // The IP bearing is the Run-In axis in TO/FROM notation; like Run-In it keeps the IP<-VRP link.
   const canonical = canonicalToTargetBearing(entered, ipBearingDirection);
   if (locks.ipReference) ipLockHeadingDeg = canonical;
   setValue("runInHeadingDeg", canonical.toFixed(2), { includeActive: true });
@@ -703,7 +704,6 @@ function installLocks() {
       locks[key] = !locks[key];
       button.setAttribute("aria-pressed", String(locks[key]));
       button.textContent = locks[key] ? "LOCKED" : "LOCK";
-      if (key === "runInHeadingDeg" && locks[key]) ipLinked = false;
       if (["ipReference", "vrpReference"].includes(key) && locks[key]) ipLinked = false;
       if (key === "ipReference" && locks[key]) ipLockHeadingDeg = readRunInHeading();
       if (["ipReference", "vrpReference"].includes(key)) driver = "referenceLock";
