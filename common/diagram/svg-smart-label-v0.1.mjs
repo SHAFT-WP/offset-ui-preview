@@ -2,7 +2,7 @@ import { SVG_DIAGRAM_STYLE_V0_1, svgNode } from "./svg-primitives-v0.1.mjs";
 
 export const SVG_SMART_LABEL_V0_1 = Object.freeze({
   id: "svg-smart-label-v0.1",
-  version: "0.1.2",
+  version: "0.1.3",
   purpose: "Generic collision-aware SVG labels with optional leaders and 0.5 s long-press drag behavior",
 });
 
@@ -150,10 +150,24 @@ export function installSmartLabelDrag(svg, options = {}) {
     clearGesture();
   };
 
+  // A long-press must grab the label, not start a browser text selection / touch callout on the
+  // SVG text (which highlighted the whole label text block instead of moving it).
+  const noSelect = { userSelect: "none", webkitUserSelect: "none", webkitTouchCallout: "none" };
+  const previousStyle = Object.fromEntries(Object.keys(noSelect).map((key) => [key, svg.style[key]]));
+  Object.assign(svg.style, noSelect);
+  const onContextMenu = (event) => {
+    if (event.target?.closest?.('[data-movable-label="true"]') && svg.contains(event.target)) event.preventDefault();
+  };
+  const onSelectStart = (event) => {
+    if (svg.contains(event.target)) event.preventDefault();
+  };
+
   svg.addEventListener("pointerdown", onPointerDown, true);
   svg.addEventListener("pointermove", onPointerMove, true);
   svg.addEventListener("pointerup", onPointerEnd, true);
   svg.addEventListener("pointercancel", onPointerEnd, true);
+  svg.addEventListener("contextmenu", onContextMenu, true);
+  svg.addEventListener("selectstart", onSelectStart, true);
 
   return {
     applyStoredPositions() {
@@ -169,6 +183,9 @@ export function installSmartLabelDrag(svg, options = {}) {
       svg.removeEventListener("pointermove", onPointerMove, true);
       svg.removeEventListener("pointerup", onPointerEnd, true);
       svg.removeEventListener("pointercancel", onPointerEnd, true);
+      svg.removeEventListener("contextmenu", onContextMenu, true);
+      svg.removeEventListener("selectstart", onSelectStart, true);
+      Object.assign(svg.style, previousStyle);
     },
     positions,
   };
@@ -277,15 +294,18 @@ export function createSmartLabelLayout(root, options = {}) {
       "data-label-key": movable ? labelKey : undefined,
       style: movable ? "cursor:grab;touch-action:none" : undefined,
     });
+    let hitRect = null;
     if (movable) {
-      group.append(svgNode("rect", {
+      hitRect = svgNode("rect", {
         x: selected.box.x - 7,
         y: selected.box.y - 5,
         width: selected.box.w + 14,
         height: selected.box.h + 10,
         fill: "transparent",
         "pointer-events": "all",
-      }));
+        "data-label-hit": "true",
+      });
+      group.append(hitRect);
     }
     if (labelOptions.background !== false) {
       group.append(svgNode("rect", {
@@ -323,6 +343,23 @@ export function createSmartLabelLayout(root, options = {}) {
     });
     group.append(textNode);
     root.append(group);
+    // v0.1.3: fit the grab area to the rendered text (small pad) instead of the placement
+    // estimate, which ran about twice the text area. A hidden/collapsed plot has no layout box,
+    // so it keeps the estimate until its next render.
+    if (hitRect && typeof textNode.getBBox === "function") {
+      try {
+        const bbox = textNode.getBBox();
+        if (bbox.width > 0 && bbox.height > 0) {
+          const pad = labelOptions.hitPad ?? 4;
+          hitRect.setAttribute("x", String(bbox.x - pad));
+          hitRect.setAttribute("y", String(bbox.y - pad));
+          hitRect.setAttribute("width", String(bbox.width + pad * 2));
+          hitRect.setAttribute("height", String(bbox.height + pad * 2));
+        }
+      } catch (_) {
+        // Not rendered (detached or display:none); keep the estimated hit area.
+      }
+    }
     return { ...selected, group, textNode, leader, labelKey };
   }
 

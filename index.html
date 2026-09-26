@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=b48aed288bd7">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=b48aed288bd7">
+<link rel="stylesheet" href="./offset.css?v=cbc9d06a5332">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=cbc9d06a5332">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -20,7 +20,7 @@
       <button id="advanced-toggle" class="toggle" type="button">Advanced: Off</button>
       <button id="save-button" class="btn" type="button">Save</button>
       <button id="default-button" class="btn" type="button">Default</button>
-      <span class="rev">V2 WORK · OFFSET BE 0.2.3</span>
+      <span class="rev">V2 WORK · OFFSET BE 0.2.5</span>
     </div>
   </header>
 
@@ -43,7 +43,7 @@
         <label class="field"><span>Roll-in Altitude (ft MSL)</span><input data-key="rollInAltitudeMslFt" type="text" inputmode="decimal" value="16000"><span class="unit">Default = Initial Altitude · OA1 / BDP entry altitude</span></label>
         <label class="field"><span>Dive Angle (deg)</span><input data-key="diveAngleDeg" type="text" inputmode="decimal" value="45"><span class="unit">Shared with Offset item 2</span></label>
         <label class="field advanced-only bdp-extra"><span>Angle Off (deg) <span class="adv-tag">ADV</span></span><input data-key="angleOffDeg" type="text" inputmode="decimal" value="70"><span class="unit">Same BDP / Offset parameter</span></label>
-        <label class="field"><span>Tracking Time (sec)</span><input data-key="trackingTimeSec" type="text" inputmode="decimal" value="18.25"><span class="unit">Track Point → Release</span></label>
+        <label class="field"><span>Tracking Time (sec)</span><input data-key="trackingTimeSec" type="text" inputmode="decimal" value="18"><span class="unit">Track Point → Release</span></label>
         <label class="field"><span>Release Altitude (ft MSL)</span><input data-key="releaseAltitudeMslFt" type="text" inputmode="decimal" value="6800"><span class="unit">NLT clamp is BDP-owned</span></label>
         <label class="field"><span>Release Speed (kcas)</span><input data-key="releaseSpeedKcas" type="text" inputmode="decimal" value="450"><span class="unit">Release speed</span></label>
         <label class="field advanced-only bdp-extra"><span>Fragment Height Margin (%) <span class="adv-tag">ADV</span></span><input data-key="fragmentHeightMarginPercent" type="text" inputmode="decimal" value="20"></label>
@@ -95,7 +95,7 @@
           </div>
           <div class="input-grid">
             <label class="field"><span>Bearing (TBRG)</span><input id="ip-bearing-input" data-key="runInHeadingDeg" type="text" inputmode="decimal" value="000"><span class="unit">TRUE</span></label>
-            <label class="field"><span>Range</span><input data-key="ipRangeNm" type="text" inputmode="decimal" value="7.0"><span class="unit">NM · Default = VRP</span></label>
+            <label class="field"><span>Range</span><input data-key="ipRangeNm" type="text" inputmode="decimal" value="10.0"><span class="unit">NM · Default = VRP + 3 NM</span></label>
           </div>
         </div>
       </div>
@@ -194,7 +194,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=b48aed288bd7"></script>
+<script type="module" src="./controller-v0.1.mjs?v=cbc9d06a5332"></script>
 
 </body>
 </html>

@@ -4,7 +4,9 @@ import { renderCommonZDiagram } from "./common/diagram/z-diagram/z-diagram-v0.1.
 
 const heading = (from, to) => ((Math.atan2(to.x - from.x, to.y - from.y) * 180 / Math.PI) + 360) % 360;
 const degrees = (value) => `${Math.round(value).toString().padStart(3, "0")}°`;
-const nm = (value) => `${Number(value).toFixed(2)} NM`;
+const nm = (value) => `${Number(value).toFixed(1)} NM`;
+// Offset Angle / Angle Off are angles, not headings: integer, no zero padding.
+const angle = (value) => `${Math.round(value)}°`;
 
 export function offsetProfileTitle(result) {
   const input = result.profile.canonicalInputs;
@@ -41,8 +43,8 @@ export function renderOffsetZDiagram(svg, result) {
     initialAltitudeText: `Roll-in Alt ${Math.round(result.profile.public.resolvedInitialAltitudeMslFt)} ft`,
     footerRows: [
       { label: "Action Range", value: nm(result.geometry.actionRangeNm) },
-      { label: "Offset Angle", value: degrees(result.geometry.offsetAngleDeg) },
-      { label: "Angle Off", value: degrees(result.geometry.angleOffDeg) },
+      { label: "Offset Angle", value: angle(result.geometry.offsetAngleDeg) },
+      { label: "Angle Off", value: angle(result.geometry.angleOffDeg) },
       { label: "Target Bearing", value: degrees(heading(reference, points.target)) },
       { label: "Range", value: nm(targetRange) },
     ],

@@ -11,7 +11,7 @@ import {
   validateOffsetCandidate,
 } from "./offset-geometry-v0.2.mjs";
 
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.4", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.5", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -171,6 +171,10 @@ export function calculateOffsetWithVrpStart(input) {
   const vrpDriven = ["vrpRangeNm", "vrpBearingDeg"].includes(input.driver);
   const holdVrp = !!locks.vrpReference || vrpDriven;
   const linked = input.ipLinkedToVrp === true && !locks.ipReference && !locks.vrpReference;
+  // A linked IP sits this far beyond VRP on the Run-In axis (IP = VRP + lead). 0 keeps the
+  // original coincident IP=VRP policy; the Offset app passes 3 NM.
+  const ipLinkLeadNm = input.ipLinkLeadNm === undefined ? 0 : finite("ipLinkLeadNm", input.ipLinkLeadNm);
+  if (!(ipLinkLeadNm >= 0)) throw new RangeError("ipLinkLeadNm must be >= 0 NM");
   const vrpRunIn = norm(finite("vrpBearingDeg", input.vrpBearingDeg) + 180);
   const runIn = holdVrp ? vrpRunIn : norm(input.runInHeadingDeg);
   const headingNear = (a, b) => Math.abs(((a - b + 540) % 360) - 180) < 0.02;
@@ -193,20 +197,21 @@ export function calculateOffsetWithVrpStart(input) {
     runInHeadingDeg: runIn,
     driver: vrpDriven ? "actionRangeNm" : input.driver,
     actionRangeNm: holdVrp ? input.vrpRangeNm : input.actionRangeNm,
-    ipRangeNm: linked && holdVrp ? input.vrpRangeNm : input.ipRangeNm,
+    ipRangeNm: linked && holdVrp ? input.vrpRangeNm + ipLinkLeadNm : input.ipRangeNm,
   };
   const first = calculateOffsetV0_2(candidateInput);
   // A second, bounded composition changes reference/IP metadata only. The
   // delivery and turn solution is unchanged; linked IP follows the solved AP.
   const result = calculateOffsetV0_2({
     ...candidateInput,
-    ipRangeNm: linked ? first.resolved.actionRangeNm : candidateInput.ipRangeNm,
+    ipRangeNm: linked ? first.resolved.actionRangeNm + ipLinkLeadNm : candidateInput.ipRangeNm,
     vrpBearingDeg: holdVrp ? input.vrpBearingDeg : norm(runIn + 180),
     vrpRangeNm: holdVrp ? input.vrpRangeNm : first.resolved.actionRangeNm,
   });
   result.locks = { ...input.locks };
   result.referencePolicy = "VRP_ACTION_START";
   result.ipLinkedToVrp = linked;
+  result.ipLinkLeadNm = ipLinkLeadNm;
   return result;
 }
 

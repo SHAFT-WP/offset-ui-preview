@@ -55,7 +55,7 @@ const DEFAULT_INPUT_VALUES = Object.freeze({
   rollInAltitudeMslFt: "16000",
   diveAngleDeg: "45",
   angleOffDeg: "70",
-  trackingTimeSec: "18.25",
+  trackingTimeSec: "18",
   releaseAltitudeMslFt: "6800",
   releaseSpeedKcas: "450",
   recoveryG: "5",
@@ -69,7 +69,7 @@ const DEFAULT_INPUT_VALUES = Object.freeze({
   rollInG: "4",
   vrpRangeNm: "7.0",
   runInHeadingDeg: "000",
-  ipRangeNm: "7.0",
+  ipRangeNm: "10.0",
   attackHeadingDeg: "030",
   offsetAngleDeg: "40",
   actionRangeNm: "7.0",
@@ -89,6 +89,8 @@ let referenceMode = "VRP";
 let vipBearingDirection = "TO_TARGET";
 let ipBearingDirection = "TO_TARGET";
 let ipLinked = true;
+// Linked IP sits this far beyond VRP on the Run-In axis (IP = VRP + 3 NM).
+const IP_LINK_LEAD_NM = 3;
 let ipLockHeadingDeg = 0;
 let vipBearingExplicit = false;
 let vipRangeExplicit = false;
@@ -279,6 +281,7 @@ function buildInput() {
     turnDriver,
     locks: { ...locks },
     ipLinkedToVrp: ipLinked,
+    ipLinkLeadNm: IP_LINK_LEAD_NM,
     ipLockHeadingDeg,
     referenceMode,
     runInHeadingDeg,
@@ -333,6 +336,28 @@ function setIfUnlocked(key, nextValue, digits = null, sourceKey = driver) {
   return changed;
 }
 
+// Writes a derived value into an editable field at display precision while keeping the full
+// solved value behind it (numberValue reads it back unchanged until the user edits the field).
+function setSolvedValue(key, nextValue, digits, sourceKey = null) {
+  const next = Number(nextValue).toFixed(digits);
+  const changed = setAutoValue(key, next, sourceKey);
+  if (valuesEquivalent(firstField(key)?.value, next)) solvedInputValues.set(key, { text: String(next), value: nextValue });
+  return changed;
+}
+
+// BDP solve-mode coupling (BDP v0.3 height/time modes; same rule as the standalone BDP app):
+// Roll-in Altitude drives in "height" mode and Tracking Time is derived; Tracking Time drives in
+// "time" mode and Roll-in Altitude (the BDP entry altitude) is derived as
+// Release Altitude + tracking path x sin(Dive) + Roll-in altitude loss.
+function applyBdpSolveCoupling(result) {
+  const p = result.profile.public;
+  if ((value("solveMode") ?? "height") === "time") {
+    if (Number.isFinite(p.resolvedInitialAltitudeMslFt)) setSolvedValue("rollInAltitudeMslFt", p.resolvedInitialAltitudeMslFt, 0, "trackingTimeSec");
+  } else if (Number.isFinite(p.trackingTimeSec)) {
+    setSolvedValue("trackingTimeSec", p.trackingTimeSec, 0, "rollInAltitudeMslFt");
+  }
+}
+
 function applyResolved(result) {
   setAutoValue("runInHeadingDeg", formatBearingInput(result.resolved.runInHeadingDeg));
   if (ipLinked && !locks.ipReference) setAutoValue("ipRangeNm", result.resolved.ipRangeNm.toFixed(3));
@@ -376,7 +401,7 @@ function renderOffsetResult(result) {
     row("Angle-Off (Heading)", `${fmt(g.angleOffDeg, 2)}°`, "angleOffDeg"),
     row("Action Range", `${fmt(g.actionRangeNm, 3)} NM`, "actionRangeNm"),
     row("Approach Range", `${fmt(result.resolved.approachRangeNm, 3)} NM`, "approachRangeNm"),
-    row("IP Range", `${fmt(result.resolved.ipRangeNm, 3)} NM · ${ipLinked ? "LINKED TO VRP" : "INDEPENDENT"}`, "ipRangeNm"),
+    row("IP Range", `${fmt(result.resolved.ipRangeNm, 3)} NM · ${ipLinked ? `LINKED TO VRP + ${IP_LINK_LEAD_NM} NM` : "INDEPENDENT"}`, "ipRangeNm"),
     row("Offset Radius", `${fmt(result.resolved.offsetRadiusNm, 3)} NM`, "offsetRadiusNm"),
     row("Offset TAS", `${fmt(result.resolved.offsetTasKt, 1)} kt`, "offsetTasKt"),
     row("Reference", `${result.referenceMode} · ${fmt(result.reference.bearingDeg, 1)}° / ${fmt(result.reference.displayRangeNm, 3)} NM`, "referenceSummary"),
@@ -527,6 +552,7 @@ function calculate() {
     const result = calculateOffsetWithVrpStart(buildInput());
     lastResult = result;
     applyResolved(result);
+    applyBdpSolveCoupling(result);
     renderStatus(result);
     renderOffsetResult(result);
     renderProfileResult(result);
@@ -576,10 +602,13 @@ function handleFieldChange(event) {
 
   if (key === "initialAltitudeMslFt" && rollInAltitudeLinked) {
     setAutoValue("rollInAltitudeMslFt", Math.round(numberValue("initialAltitudeMslFt")), key);
+    setValue("solveMode", "height", { includeActive: true });
   }
   if (key === "rollInAltitudeMslFt") {
     rollInAltitudeLinked = false;
+    setValue("solveMode", "height", { includeActive: true });
   }
+  if (key === "trackingTimeSec") setValue("solveMode", "time", { includeActive: true });
 
   if (key === "vrpRangeNm") {
     vrpRangeExplicit = Number.isFinite(Number.parseFloat(field.value));
@@ -957,7 +986,7 @@ function flightDraft(number) {
     weaponId: "M82", side: "LEFT", bearingDeg: "90", distanceNm: "1",
     initialSpeedValue: "350", initialAltitudeMslFt: "16000", diveAngleDeg: "45",
     rollInAltitudeMslFt: "16000", rollInAltitudeLinked: true,
-    trackingTimeSec: "18.25", releaseAltitudeMslFt: "6800", releaseSpeedKcas: "450",
+    trackingTimeSec: "18", solveMode: "height", releaseAltitudeMslFt: "6800", releaseSpeedKcas: "450",
     attackHeadingDeg: "030", angleOffDeg: "70",
     offsetAngleDeg: "40", actionRangeFromIpNm: "4.0",
     offsetAngleLocked: false, sameAngleAsLead: true,
@@ -1063,6 +1092,7 @@ function installFlightLayout() {
             rollInAltitudeLinked: record.rollInAltitudeLinked !== false,
             diveAngleDeg: str("diveAngleDeg"),
             trackingTimeSec: str("trackingTimeSec"),
+            solveMode: record.solveMode === "time" ? "time" : "height",
             releaseAltitudeMslFt: str("releaseAltitudeMslFt"),
             releaseSpeedKcas: str("releaseSpeedKcas"),
             attackHeadingDeg: str("attackHeadingDeg"),
@@ -1104,9 +1134,14 @@ function installFlightLayout() {
       draft.rollInAltitudeMslFt = field.value;
       const rollInField = followerField(field.closest(".flight-slot"), "rollInAltitudeMslFt");
       if (rollInField && rollInField !== document.activeElement) rollInField.value = field.value;
+      draft.solveMode = "height";
     } else if (key === "rollInAltitudeMslFt") {
       draft.rollInAltitudeLinked = false;
+      draft.solveMode = "height";
+    } else if (key === "trackingTimeSec") {
+      draft.solveMode = "time";
     }
+    followerSolvedValues.delete(`${number}:${key}`);
     // Same rule as #1's handleFieldChange: only tactical Offset edits become the driver; BDP
     // edits keep the last tactical constraint so the unlocked geometry re-solves around it.
     if (FLIGHT_TACTICAL_DRIVERS.includes(key)) draft.driver = key;
@@ -1143,8 +1178,15 @@ function followerField(slot, key) {
   return slot.querySelector(`[data-flight-field="${key}"]`);
 }
 
+// Full-precision values behind follower fields that display a rounded solved value (same idea as
+// #1's solvedInputValues); keyed "<aircraft>:<field>" and dropped when the user edits the field.
+const followerSolvedValues = new Map();
+
 function followerNumberValue(slot, draft, key) {
   const raw = followerField(slot, key)?.value ?? draft[key];
+  const number = Number(slot?.closest?.(".flight-slot")?.dataset.aircraft ?? slot?.dataset?.aircraft);
+  const solved = followerSolvedValues.get(`${number}:${key}`);
+  if (solved && String(raw) === solved.text) return solved.value;
   const parsed = Number.parseFloat(raw);
   if (!Number.isFinite(parsed)) throw new TypeError(`${key} must be numeric`);
   return parsed;
@@ -1217,7 +1259,7 @@ function buildFollowerInput(number, slot, leaderResult) {
       // Matches #1's own adapter mapping (line ~314): Roll-in Altitude, not the "Initial
       // Altitude" field, is the actual BDP entry altitude (OA1).
       initialAltitudeMslFt: num("rollInAltitudeMslFt"),
-      solveMode: "height",
+      solveMode: draft.solveMode === "time" ? "time" : "height",
       trackingTimeSec: num("trackingTimeSec"),
       releaseAltitudeMslFt: num("releaseAltitudeMslFt"),
       releaseSpeedKcas: num("releaseSpeedKcas"),
@@ -1259,6 +1301,7 @@ function syncFollowerResolvedFields(number, slot, result) {
     const field = followerField(slot, key);
     if (field && field !== active) field.value = text;
     draft[key] = text;
+    followerSolvedValues.set(`${number}:${key}`, { text, value });
   };
   sync("offsetAngleDeg", result.resolved.offsetAngleDeg, 2);
   sync("actionRangeFromIpNm", result.resolved.actionRangeFromIpNm, 2);
@@ -1266,6 +1309,10 @@ function syncFollowerResolvedFields(number, slot, result) {
   sync("angleOffDeg", result.resolved.angleOffDeg, 1);
   // Combined Same-Angle + Same-Time mode solves Dive Angle (see calculateFollower); reflect it.
   sync("diveAngleDeg", result.profile.canonicalInputs.diveAngleDeg, 2);
+  // BDP solve-mode coupling, same rule as #1 (applyBdpSolveCoupling).
+  const p = result.profile.public;
+  if (draft.solveMode === "time") sync("rollInAltitudeMslFt", p.resolvedInitialAltitudeMslFt, 0);
+  else sync("trackingTimeSec", p.trackingTimeSec, 0);
 }
 
 function geometryWorldPoints(geometry) {
@@ -1415,11 +1462,27 @@ function installSectionDisclosure() {
     button.setAttribute("aria-expanded", "true");
     button.setAttribute("aria-controls", body.id);
     heading.replaceChildren(button);
-    button.addEventListener("click", () => {
+    // Visible collapse control at the right of every section head, same "−/＋" grammar as the
+    // inner input panels; the title stays clickable too.
+    const icon = document.createElement("button");
+    icon.type = "button";
+    icon.className = "section-collapse-icon";
+    icon.setAttribute("aria-controls", body.id);
+    icon.setAttribute("aria-label", `Collapse ${heading.textContent}`);
+    icon.textContent = "−";
+    if (getComputedStyle(header).display === "block") heading.append(icon);
+    else header.append(icon);
+    const toggle = () => {
       body.hidden = !body.hidden;
       button.setAttribute("aria-expanded", String(!body.hidden));
+      icon.setAttribute("aria-expanded", String(!body.hidden));
+      icon.textContent = body.hidden ? "＋" : "−";
+      icon.setAttribute("aria-label", `${body.hidden ? "Expand" : "Collapse"} ${button.textContent}`);
       if (!body.hidden) requestAnimationFrame(() => legend.render());
-    });
+    };
+    icon.setAttribute("aria-expanded", "true");
+    button.addEventListener("click", toggle);
+    icon.addEventListener("click", toggle);
   });
 }
 
