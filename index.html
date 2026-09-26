@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=88b904416def">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=88b904416def">
+<link rel="stylesheet" href="./offset.css?v=e987df8e92a4">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=e987df8e92a4">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -16,6 +16,13 @@
     </div>
     <div class="toolbar">
       <label class="flight-size-control" for="flight-size"><span>Size of Flight</span><select id="flight-size"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+      <span class="temp-def" role="group" aria-label="Temp Def: temporary default staging">
+        <span class="temp-def-label">Temp Def</span>
+        <button type="button" class="btn tab-tool" id="temp-def-save">Save</button>
+        <button type="button" class="btn tab-tool" id="temp-def-copy">Copy</button>
+        <button type="button" class="btn tab-tool" id="temp-def-clear">Clear</button>
+        <span class="temp-def-status" id="temp-def-status">none</span>
+      </span>
       <span class="rev">V2 WORK · OFFSET BE 0.2.5</span>
     </div>
   </header>
@@ -190,7 +197,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=88b904416def"></script>
+<script type="module" src="./controller-v0.1.mjs?v=e987df8e92a4"></script>
 
 </body>
 </html>

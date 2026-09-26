@@ -1663,6 +1663,99 @@ function installSectionDisclosure() {
   });
 }
 
+// Temp Def (temporary default staging, 2026-09-26, user request). Save stores the current #1
+// state (all tabs, locks, links, reference mode), the Flight layout and the field text as shown,
+// in this browser only. Copy hands that JSON over (clipboard, else a file download) so the code
+// defaults can be updated from it. It never changes Default, saved inputs or calculation. Remove
+// this block, its markup and CSS once the defaults have been updated.
+const TEMP_DEF_KEY = "flight-sim-tools.offset.v2.temp-def.v1";
+
+function readTempDef() {
+  try {
+    return JSON.parse(localStorage.getItem(TEMP_DEF_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function captureTempDef() {
+  const displayed = {};
+  $$("[data-key]").forEach((control) => {
+    const key = control.dataset.key;
+    if (key && !Object.hasOwn(displayed, key)) displayed[key] = control.value;
+  });
+  return {
+    kind: "offset-v2-temp-def",
+    version: 1,
+    savedAt: new Date().toISOString(),
+    lead: capturePersistedState(),
+    displayed,
+    flightLayout: JSON.parse(JSON.stringify(flightLayout)),
+  };
+}
+
+function renderTempDefStatus(message) {
+  const status = $("#temp-def-status");
+  if (!status) return;
+  const saved = readTempDef();
+  const when = saved?.savedAt ? new Date(saved.savedAt) : null;
+  const stamp = when && !Number.isNaN(when.getTime())
+    ? `saved ${when.toLocaleDateString()} ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+    : "none";
+  status.textContent = message ? `${message} · ${stamp}` : stamp;
+}
+
+function downloadTempDef(text) {
+  const blob = new Blob([text], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "offset-temp-def.json";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+function installTempDef() {
+  $("#temp-def-save")?.addEventListener("click", () => {
+    try {
+      localStorage.setItem(TEMP_DEF_KEY, JSON.stringify(captureTempDef()));
+      renderTempDefStatus("Saved");
+    } catch {
+      renderTempDefStatus("Save failed");
+    }
+  });
+  $("#temp-def-copy")?.addEventListener("click", async () => {
+    const saved = readTempDef();
+    if (!saved) {
+      renderTempDefStatus("Save first");
+      return;
+    }
+    const text = JSON.stringify(saved, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      renderTempDefStatus("Copied");
+    } catch {
+      downloadTempDef(text);
+      renderTempDefStatus("Downloaded");
+    }
+  });
+  $("#temp-def-clear")?.addEventListener("click", () => {
+    if (!readTempDef()) {
+      renderTempDefStatus();
+      return;
+    }
+    if (!window.confirm("Temp Def를 지울까요? (Default와 현재 입력은 바뀌지 않습니다)")) return;
+    try {
+      localStorage.removeItem(TEMP_DEF_KEY);
+    } catch {
+      // Storage may be unavailable; nothing else to clear.
+    }
+    renderTempDefStatus("Cleared");
+  });
+  renderTempDefStatus();
+}
+
 function install() {
   populateWeapons();
   installLocks();
@@ -1672,6 +1765,7 @@ function install() {
   installFlightLayout();
   installSectionDisclosure();
   installSectionTools();
+  installTempDef();
   syncReferencePanes();
   defaultPersistedState = createDefaultPersistedState();
 
