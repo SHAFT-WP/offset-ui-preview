@@ -1,10 +1,16 @@
 import { calculateBombDeliveryV0_2 } from "./bomb-delivery-planner-v0.2.mjs";
 import { buildBombDeliveryVisualizationState } from "./visualization-state-v0.1.mjs";
-import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
+import { truncateBeOutput, truncateDecimals } from "../../../common/ui/display-precision-v0.1.mjs";
+import {
+  ROLL_IN_LOW_ANGLE_BOUNDARY_DEG,
+  autoRollInBankDeg as autoRollInBankDegFull,
+  isLevelTurnRollIn,
+  levelTurnRollInG as levelTurnRollInGFull,
+} from "./roll-in-v0.1.mjs";
 
 export const BOMB_DELIVERY_PLANNER_MODEL_V0_3 = Object.freeze({
   id: "bomb-delivery-planner-v0.3-js-facade",
-  version: "0.3.8",
+  version: "0.3.9",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   officialOracle: "Bomb Profile REV.1.9 · R_20260830",
 });
@@ -97,3 +103,9 @@ export function calculateBombDeliveryV0_3(rawInput) {
 }
 
 export const calculateBombDelivery = calculateBombDeliveryV0_3;
+
+// Roll-in mode rule for FE AUTO Bank and level-turn Bank↔G coupling (SPEC §5, §6.2). The public
+// helpers return 5-decimal truncated values (docs/FE-BE-RULES.md); the *Full forms keep full precision.
+export { ROLL_IN_LOW_ANGLE_BOUNDARY_DEG, isLevelTurnRollIn, autoRollInBankDegFull, levelTurnRollInGFull };
+export const autoRollInBankDeg = (input) => truncateDecimals(autoRollInBankDegFull(input));
+export const levelTurnRollInG = (rollInBankAngleDeg) => truncateDecimals(levelTurnRollInGFull(rollInBankAngleDeg));

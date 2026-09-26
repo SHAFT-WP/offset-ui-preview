@@ -3,7 +3,32 @@ import { casToTas, machToTas } from "../../../common/airspeed/airspeed-v0.1.mjs"
 const G_FTPS2 = 32.174;
 const KT_TO_FPS = 1.687809857;
 const INTEGRATION_STEP_SEC = 0.01;
-const LOW_ANGLE_BOUNDARY_DEG = 10;
+// BDP SPEC §5 / §6.2–6.3: raw Dive Angle below 10° is a coordinated level-turn Roll-in; 10°
+// belongs to the slice-turn side. FE AUTO Bank / Bank↔G coupling use these exports, not a copy.
+export const ROLL_IN_LOW_ANGLE_BOUNDARY_DEG = 10;
+const LOW_ANGLE_BOUNDARY_DEG = ROLL_IN_LOW_ANGLE_BOUNDARY_DEG;
+
+export function isLevelTurnRollIn(diveAngleDeg) {
+  return diveAngleDeg < ROLL_IN_LOW_ANGLE_BOUNDARY_DEG;
+}
+
+// AUTO Roll-in Bank default: level turn G × cos(Bank) = 1; slice turn round(90° + Dive Angle / 2).
+export function autoRollInBankDeg({ diveAngleDeg, rollInG }) {
+  if (!Number.isFinite(diveAngleDeg)) throw new TypeError("diveAngleDeg must be finite");
+  if (isLevelTurnRollIn(diveAngleDeg)) {
+    if (!(rollInG > 1)) throw new RangeError("Level-turn Roll-in (Dive Angle < 10°) requires Roll-in G > 1");
+    return (Math.acos(1 / rollInG) * 180) / Math.PI;
+  }
+  return Math.round(90 + diveAngleDeg / 2);
+}
+
+// Level-turn Bank → G coupling: G × cos(Bank) = 1.
+export function levelTurnRollInG(rollInBankAngleDeg) {
+  if (!(rollInBankAngleDeg > 0 && rollInBankAngleDeg < 90)) {
+    throw new RangeError("Level-turn Roll-in Bank must be > 0° and < 90° (G × cos(Bank) = 1)");
+  }
+  return 1 / Math.cos((rollInBankAngleDeg * Math.PI) / 180);
+}
 
 function inputToTas(speedValue, speedMode, altitudeMslFt) {
   return speedMode === "MACH" ? machToTas(speedValue, altitudeMslFt) : casToTas(speedValue, altitudeMslFt);
