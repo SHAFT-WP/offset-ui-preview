@@ -21,7 +21,7 @@ import {
 
 export const OFFSET_FORMATION_GEOMETRY_V0_1 = Object.freeze({
   id: "offset-formation-geometry-v0.1",
-  version: "0.1.1",
+  version: "0.1.2",
   status: "work",
   purpose:
     "Off-axis Offset geometry for a Flight follower whose IP is displaced from the shared Target-through Run-In axis by its Formation position, while Target and Run-In heading stay shared with its element lead. Reuses offset-geometry-v0.2.mjs's pure heading/vector helpers without modifying offset-be-v0.2.mjs or offset-geometry-v0.2.mjs's own single-aircraft (on-axis) contract.",
@@ -136,6 +136,9 @@ export function buildOffAxisOffsetCandidate(input) {
   // the Run-In direction. Replaces the single-aircraft Target-referenced Action Range, which has
   // no meaning once the Run-In line no longer passes through Target.
   const actionRangeFromIpNm = dot(sub(realActionPoint, ipPoint), runVector);
+  // Target-referenced Action Range (2026-09-26): horizontal Target -> Action Point distance, the
+  // follower's displayed/entered Action Range, same meaning as the lead's actionRangeNm.
+  const actionRangeNm = Math.hypot(realActionPoint.x, realActionPoint.y);
   const approachRangeNm = dot(sub(rollStart, turnEnd), offsetVector);
   const offsetNormal = direction.offsetDirection === "LEFT" ? left(runVector) : right(runVector);
   const offsetCenter = add(realActionPoint, mul(offsetNormal, offsetRadiusNm));
@@ -159,6 +162,7 @@ export function buildOffAxisOffsetCandidate(input) {
     angleOffDeg,
     direction,
     turnRadiusCorrectionNm,
+    actionRangeNm,
     actionRangeFromIpNm,
     approachRangeNm,
     rollInRangeNm: profile.public.rollInRangeNm,
@@ -228,8 +232,13 @@ export function calculateOffAxisOffsetFull(input) {
   if (locks.offsetAngleDeg || driver === "offsetAngleDeg") initialOffsetAngleDeg = Math.abs(finite("offsetAngleDeg", input.offsetAngleDeg));
   else initialOffsetAngleDeg = offsetAngleFromAngleOff(runInHeadingDeg, enteredAttackHeadingDeg, enteredAngleOffDeg, direction);
 
-  const rangeFixed = !!locks.actionRangeFromIpNm || driver === "actionRangeFromIpNm";
-  const rangeTargetNm = rangeFixed ? finite("actionRangeFromIpNm", input.actionRangeFromIpNm) : null;
+  // Range constraint: `actionRangeNm` is the Target-referenced Action Range (the follower's own
+  // field); `actionRangeFromIpNm` (IP-referenced) remains for the Same-Time solve, whose time
+  // metric is linear in it. A LOCK outranks the driver.
+  const RANGE_KEYS = ["actionRangeFromIpNm", "actionRangeNm"];
+  const rangeKey = RANGE_KEYS.find((key) => locks[key]) ?? (RANGE_KEYS.includes(driver) ? driver : null);
+  const rangeFixed = rangeKey !== null;
+  const rangeTargetNm = rangeFixed ? finite(rangeKey, input[rangeKey]) : null;
   const offsetCanVary = !locks.offsetAngleDeg && driver !== "offsetAngleDeg" && !(locks.attackHeadingDeg && locks.angleOffDeg);
   let candidate = null;
   let residualNm = null;
@@ -241,12 +250,12 @@ export function calculateOffAxisOffsetFull(input) {
       targetRangeNm: rangeTargetNm,
       evaluate: (angle) => {
         const built = evaluate(angle);
-        return { ...built, actionRangeNm: built.actionRangeFromIpNm };
+        return { built, actionRangeNm: built[rangeKey] };
       },
       maxOffsetAngleDeg: maxAngle,
       toleranceNm: 0.002,
     });
-    candidate = solved.candidate;
+    candidate = solved.candidate?.built ?? null;
     residualNm = solved.residualNm;
     exact = solved.exact;
     if (!candidate) throw new Error("No valid Offset Angle candidate for the requested Action Range");
@@ -254,7 +263,7 @@ export function calculateOffAxisOffsetFull(input) {
   } else {
     candidate = evaluate(initialOffsetAngleDeg);
     if (rangeFixed) {
-      residualNm = candidate.actionRangeFromIpNm - rangeTargetNm;
+      residualNm = candidate[rangeKey] - rangeTargetNm;
       exact = Math.abs(residualNm) <= 0.002;
       if (!exact) errors.push(`CONSTRAINT CONFLICT: Action Range residual ${residualNm.toFixed(3)} NM`);
     }
@@ -265,16 +274,19 @@ export function calculateOffAxisOffsetFull(input) {
   if (locks.angleOffDeg && !near(Math.abs(input.angleOffDeg), candidate.angleOffDeg, 0.02)) errors.push("LOCK conflict: Angle-Off cannot be satisfied");
   if (locks.offsetAngleDeg && !near(Math.abs(input.offsetAngleDeg), candidate.offsetAngleDeg, 0.02)) errors.push("LOCK conflict: Offset Angle cannot be satisfied");
   if (locks.actionRangeFromIpNm && !near(input.actionRangeFromIpNm, candidate.actionRangeFromIpNm, 0.002)) errors.push("LOCK conflict: Action Range cannot be satisfied");
+  if (locks.actionRangeNm && !near(input.actionRangeNm, candidate.actionRangeNm, 0.002)) errors.push("LOCK conflict: Action Range cannot be satisfied");
 
   const candidateValidation = validateOffAxisOffsetCandidate(candidate);
   errors.push(...candidateValidation.errors);
   warnings.push(...candidateValidation.warnings);
 
   const speedFps = turn.offsetTasKt * KT_TO_FPS;
-  const ingressDistanceNm = Math.max(0, candidate.actionRangeFromIpNm);
+  // Signed IP -> Action leg (negative when the Action Point is behind this aircraft's own IP):
+  // that geometry is INVALID but keeps its real timing, so drop-order deltas stay consistent.
+  // `signedIngressSec` is kept as an alias for existing time-matching callers.
+  const ingressDistanceNm = candidate.actionRangeFromIpNm;
   const ingressSec = (ingressDistanceNm * FT_PER_NM) / speedFps;
-  // Unclamped counterpart (negative when the Action Point is behind IP) for time-matching solvers.
-  const signedIngressSec = (candidate.actionRangeFromIpNm * FT_PER_NM) / speedFps;
+  const signedIngressSec = ingressSec;
   const turnSec = (turn.offsetRadiusNm * FT_PER_NM * rad(candidate.offsetAngleDeg)) / speedFps;
   const approachRangeNm = candidate.approachRangeNm;
   const approachSec = (Math.max(0, approachRangeNm) * FT_PER_NM) / speedFps;
@@ -295,7 +307,10 @@ export function calculateOffAxisOffsetFull(input) {
       angleOffDeg: candidate.angleOffDeg,
       offsetAngleDeg: candidate.offsetAngleDeg,
       offsetHeadingDeg: candidate.offsetHeadingDeg,
+      actionRangeNm: candidate.actionRangeNm,
       actionRangeFromIpNm: candidate.actionRangeFromIpNm,
+      // This aircraft's own IP distance from Target (its IP is off the Target-through axis).
+      ipRangeNm: Math.hypot(ipPoint.x, ipPoint.y),
       approachRangeNm,
       offsetAltitudeMslFt: input.offsetAltitudeMslFt,
       offsetSpeedValue: input.offsetSpeedValue,

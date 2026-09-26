@@ -1,6 +1,6 @@
 export const OFFSET_GEOMETRY_V0_2 = Object.freeze({
   id: "offset-geometry-v0.2",
-  version: "0.2.4",
+  version: "0.2.5",
   purpose: "Pure Offset Bombing heading/action-point/reference geometry independent of DOM and rendering",
 });
 
@@ -78,7 +78,9 @@ export function resolveReferenceInputs(input = {}) {
   const vipRangeNm = finiteOr(input.vipRangeNm, DEFAULT_REFERENCE_RANGE_NM);
   const vrpBearingDeg = norm(finiteOr(input.vrpBearingDeg, runInHeadingDeg + 180));
   const vrpRangeNm = finiteOr(input.vrpRangeNm, DEFAULT_REFERENCE_RANGE_NM);
-  const ipRangeNm = finiteOr(input.ipRangeNm, vipRangeNm);
+  // IP is a tactical point independent of the VIP reference (2026-09-26): an absent IP Range
+  // falls back to the plain default range, never to VIP Range.
+  const ipRangeNm = finiteOr(input.ipRangeNm, DEFAULT_REFERENCE_RANGE_NM);
   return { runInHeadingDeg, ipRangeNm, vipToTargetBearingDeg, vipRangeNm, vrpBearingDeg, vrpRangeNm };
 }
 

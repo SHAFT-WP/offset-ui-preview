@@ -3,7 +3,7 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 
 export const OFFSET_FORMATION_V0_1 = Object.freeze({
   id: "offset-formation-v0.1",
-  version: "0.1.1",
+  version: "0.1.2",
   status: "work",
   purpose: "Flight-of-4 composition: Formation display offset, element-pair Offset Angle / Action Range options, and drop-order timing deltas, over independently solved offset-be-v0.2 results",
 });
@@ -53,40 +53,32 @@ export function assertElementSameTimeCompatible(followerLocks = {}) {
   }
 }
 
-// Driver-agnostic root-find: `evaluate(value)` builds and runs whatever offset-be-v0.2 call the
-// caller needs (varying actionRangeNm, offset TAS, or any other field) and returns its result;
-// this searches `value` until the result's IP-to-Action elapsed time matches `targetIngressSec`.
-// Mirrors the bracket-then-bisect pattern already used by solveOffsetAngleForMetric so
-// candidates that throw are skipped rather than aborting the search.
-//
-// The metric is the *signed* IP-to-Action time (`timing.signedIngressSec`, negative when the
-// Action Point is behind IP) when the result provides it. The clamped `ingressSec` is flat at 0
-// for every Action Point behind IP, which let a degenerate INVALID geometry "match" an element
-// lead with zero ingress. INVALID results still take part in bracketing (the root often sits
-// exactly on the Action Point = IP validity boundary) but are never returned as a match: each
-// bracket is bisected until a non-INVALID result is within tolerance, and every bracket found by
-// the scan is tried in order before giving up.
-function ingressMetric(result) {
-  return finite("result.timing.ingressSec", result?.timing?.signedIngressSec ?? result?.timing?.ingressSec);
-}
-
-export function solveIngressTimeMatch({ targetIngressSec, evaluate, minValue, maxValue, toleranceSec = 0.05, steps = 24, refineIterations = 40 }) {
-  finite("targetIngressSec", targetIngressSec);
+// Driver-agnostic root-find: `evaluate(value)` builds and runs whatever offset call the caller
+// needs (varying Roll-in Altitude, Tracking Time, Action Range or any other field) and returns
+// its result; this searches `value` until `metric(result)` equals `target` within `tolerance`.
+// Bracket-then-bisect, so candidates that throw are skipped rather than aborting the search.
+// INVALID results still take part in bracketing (a root often sits on a validity boundary) but
+// are never returned as a match: each bracket is bisected until a non-INVALID result is within
+// tolerance, and every bracket found by the scan is tried in order before giving up.
+export function solveMetricMatch({ target, metric, evaluate, minValue, maxValue, tolerance, steps = 24, refineIterations = 40 }) {
+  finite("target", target);
   finite("minValue", minValue);
   finite("maxValue", maxValue);
+  finite("tolerance", tolerance);
   if (typeof evaluate !== "function") throw new TypeError("evaluate must be a function");
+  if (typeof metric !== "function") throw new TypeError("metric must be a function");
   if (!(maxValue > minValue)) throw new RangeError("maxValue must be greater than minValue");
 
   const tryEvaluate = (value) => {
     try {
       const result = evaluate(value);
-      return { result, residual: ingressMetric(result) - targetIngressSec, value };
+      return { result, residual: metric(result) - target, value };
     } catch (_) {
-      return null; // Candidate is outside the valid geometry/turn range; keep scanning.
+      return null; // Candidate is outside the valid geometry/turn/profile range; keep scanning.
     }
   };
   const usable = (sample) => !!sample && sample.result?.state !== "INVALID";
-  const matches = (sample) => usable(sample) && Math.abs(sample.residual) <= toleranceSec;
+  const matches = (sample) => usable(sample) && Math.abs(sample.residual) <= tolerance;
 
   const stepCount = Math.max(8, Math.floor(steps));
   const stepSize = (maxValue - minValue) / stepCount;
@@ -104,33 +96,77 @@ export function solveIngressTimeMatch({ targetIngressSec, evaluate, minValue, ma
   for (const bracket of brackets) {
     let lo = bracket.lo;
     let hi = bracket.hi;
-    if (matches(lo)) return { result: lo.result, residualSec: lo.residual, exact: true };
-    if (matches(hi)) return { result: hi.result, residualSec: hi.residual, exact: true };
+    if (matches(lo)) return { result: lo.result, residual: lo.residual, value: lo.value, exact: true };
+    if (matches(hi)) return { result: hi.result, residual: hi.residual, value: hi.value, exact: true };
     for (let index = 0; index < refineIterations; index += 1) {
       const mid = tryEvaluate((lo.value + hi.value) / 2);
       if (!mid) break;
       if (usable(mid) && (!best || Math.abs(mid.residual) < Math.abs(best.residual))) best = mid;
-      if (matches(mid)) return { result: mid.result, residualSec: mid.residual, exact: true };
+      if (matches(mid)) return { result: mid.result, residual: mid.residual, value: mid.value, exact: true };
       if (lo.residual * mid.residual <= 0) hi = mid;
       else lo = mid;
     }
   }
-  return { result: best?.result ?? null, residualSec: best?.residual ?? null, exact: matches(best) };
+  return { result: best?.result ?? null, residual: best?.residual ?? null, value: best?.value ?? null, exact: matches(best) };
 }
 
-// Concrete v0.1 convenience for the common case: vary Action Range (the wingman's own
-// coupled solve then re-derives everything else, same as any other Action-Range-driven call)
-// until the wingman's own IP-to-Action time equals the element lead's. `evaluate(actionRangeNm)`
-// is supplied by the caller so this module never imports offset-be-v0.2.mjs directly.
-// `minActionRangeNm` defaults below zero because the element lead's own default (VRP-start
-// policy) commonly has exactly zero ingress time; the search must bracket through 0 to reach
-// that target, and the caller's own geometry validity check (not this range) is what actually
-// rejects an Action Point behind IP.
-export function solveElementSameTimeActionRange({ leaderResult, followerLocks = {}, evaluate, minActionRangeNm = -0.5, maxActionRangeNm, toleranceSec = 0.05 }) {
-  const targetIngressSec = finite("leaderResult.timing.ingressSec", leaderResult?.timing?.ingressSec);
+// IP-to-Action time metric. Offset results report it signed (negative when the Action Point is
+// behind IP, i.e. the turn starts before IP); `signedIngressSec` is preferred when present.
+function ingressMetric(result) {
+  return finite("result.timing.ingressSec", result?.timing?.signedIngressSec ?? result?.timing?.ingressSec);
+}
+
+export function solveIngressTimeMatch({ targetIngressSec, evaluate, minValue, maxValue, toleranceSec = 0.05, steps = 24, refineIterations = 40 }) {
+  finite("targetIngressSec", targetIngressSec);
+  const solved = solveMetricMatch({ target: targetIngressSec, metric: ingressMetric, evaluate, minValue, maxValue, tolerance: toleranceSec, steps, refineIterations });
+  return { result: solved.result, residualSec: solved.residual, value: solved.value, exact: solved.exact };
+}
+
+// Action Range "Same Time as Element Lead" (FE label "Time #n"): vary this aircraft's own
+// IP-referenced Action Range until its own IP -> Action time equals the element lead's (signed).
+// Flight aircraft cross their own IPs together and share the lead's Offset speed, so the time
+// metric is linear in the IP-referenced Action Range and the lead's own IP -> Action distance is
+// already the answer: this starts there and finishes with at most a few secant steps (normally
+// one evaluation), instead of a bracket scan whose every candidate reruns an Offset-Angle solve.
+// A matched result is returned even when INVALID (e.g. behind this aircraft's own IP because the
+// lead turns before its IP) so it is drawn and its errors shown rather than hidden. When the
+// secant produces no match and `minActionRangeNm`/`maxActionRangeNm` are given, the bracketed
+// solveIngressTimeMatch runs as a fallback.
+export function solveElementSameTimeActionRange({ leaderResult, followerLocks = {}, evaluate, initialActionRangeNm, minActionRangeNm, maxActionRangeNm, toleranceSec = 0.05, maxIterations = 8 }) {
+  const targetIngressSec = finite("leaderResult.timing.ingressSec", leaderResult?.timing?.signedIngressSec ?? leaderResult?.timing?.ingressSec);
   assertElementSameTimeCompatible(followerLocks);
-  const upperBound = finite("maxActionRangeNm", maxActionRangeNm);
-  return solveIngressTimeMatch({ targetIngressSec, evaluate, minValue: minActionRangeNm, maxValue: upperBound, toleranceSec });
+  if (typeof evaluate !== "function") throw new TypeError("evaluate must be a function");
+  const start = Number.isFinite(initialActionRangeNm) ? initialActionRangeNm : leaderResult?.timing?.ingressDistanceNm;
+  const x0 = Number.isFinite(start) ? start : 0;
+
+  const tryEvaluate = (value) => {
+    try {
+      const result = evaluate(value);
+      return { result, value, residual: ingressMetric(result) - targetIngressSec };
+    } catch (_) {
+      return null;
+    }
+  };
+  let best = null;
+  const keep = (sample) => {
+    if (sample && (!best || Math.abs(sample.residual) < Math.abs(best.residual))) best = sample;
+    return sample;
+  };
+  let a = keep(tryEvaluate(x0));
+  let b = a && Math.abs(a.residual) > toleranceSec ? keep(tryEvaluate(x0 + 0.5)) : null;
+  for (let index = 0; a && b && Math.abs(best.residual) > toleranceSec && index < maxIterations; index += 1) {
+    const slope = (b.residual - a.residual) / (b.value - a.value);
+    if (!Number.isFinite(slope) || Math.abs(slope) < 1e-12) break;
+    const next = keep(tryEvaluate(b.value - b.residual / slope));
+    if (!next) break;
+    a = b;
+    b = next;
+  }
+  if (best && Math.abs(best.residual) <= toleranceSec) return { result: best.result, residualSec: best.residual, value: best.value, exact: true };
+  if (Number.isFinite(minActionRangeNm) && Number.isFinite(maxActionRangeNm)) {
+    return solveIngressTimeMatch({ targetIngressSec, evaluate, minValue: minActionRangeNm, maxValue: maxActionRangeNm, toleranceSec });
+  }
+  return { result: best?.result ?? null, residualSec: best?.residual ?? null, value: best?.value ?? null, exact: false };
 }
 
 // Bombing-sequence (drop-order) deconfliction timing, independent of element pairing: each

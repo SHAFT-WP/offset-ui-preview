@@ -12,7 +12,7 @@ import {
 } from "./offset-geometry-v0.2.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.5", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.6", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -177,7 +177,8 @@ export function calculateOffsetWithVrpStartFull(input) {
   const locks = { ...input.locks };
   const vrpDriven = ["vrpRangeNm", "vrpBearingDeg"].includes(input.driver);
   const holdVrp = !!locks.vrpReference || vrpDriven;
-  const linked = input.ipLinkedToVrp === true && !locks.ipReference && !locks.vrpReference;
+  // VRP LOCK only holds VRP; a linked IP keeps following it (2026-09-26). Only an IP LOCK freezes IP.
+  const linked = input.ipLinkedToVrp === true && !locks.ipReference;
   // A linked IP sits this far beyond VRP on the Run-In axis (IP = VRP + lead). 0 keeps the
   // original coincident IP=VRP policy; the Offset app passes 3 NM.
   const ipLinkLeadNm = input.ipLinkLeadNm === undefined ? 0 : finite("ipLinkLeadNm", input.ipLinkLeadNm);
@@ -207,17 +208,23 @@ export function calculateOffsetWithVrpStartFull(input) {
     ipRangeNm: linked && holdVrp ? input.vrpRangeNm + ipLinkLeadNm : input.ipRangeNm,
   };
   const first = calculateOffsetV0_2Full(candidateInput);
+  // VRP must stay at or inside IP (Target-referenced ranges). An unlocked independent IP that the
+  // solved Action Point has passed is pushed back out by re-linking it (IP = VRP + lead); only a
+  // locked IP can be passed, and that result stays INVALID but fully drawn (no clamping).
+  const relinked = !linked && !locks.ipReference && first.resolved.actionRangeNm > candidateInput.ipRangeNm + 0.001;
+  const ipLinkedToVrp = linked || relinked;
   // A second, bounded composition changes reference/IP metadata only. The
   // delivery and turn solution is unchanged; linked IP follows the solved AP.
   const result = calculateOffsetV0_2Full({
     ...candidateInput,
-    ipRangeNm: linked ? first.resolved.actionRangeNm + ipLinkLeadNm : candidateInput.ipRangeNm,
+    ipRangeNm: ipLinkedToVrp ? first.resolved.actionRangeNm + ipLinkLeadNm : candidateInput.ipRangeNm,
     vrpBearingDeg: holdVrp ? input.vrpBearingDeg : norm(runIn + 180),
     vrpRangeNm: holdVrp ? input.vrpRangeNm : first.resolved.actionRangeNm,
   });
   result.locks = { ...input.locks };
   result.referencePolicy = "VRP_ACTION_START";
-  result.ipLinkedToVrp = linked;
+  result.ipLinkedToVrp = ipLinkedToVrp;
+  result.ipRelinked = relinked;
   result.ipLinkLeadNm = ipLinkLeadNm;
   return result;
 }
@@ -313,7 +320,9 @@ export function calculateOffsetV0_2Full(input) {
   warnings.push(...reference.warnings);
 
   const speedFps = turn.offsetTasKt * KT_TO_FPS;
-  const ingressDistanceNm = Math.max(0, ipRangeNm - candidate.actionRangeNm);
+  // Signed IP -> Action Point leg: negative when the Action Point lies beyond IP (the turn starts
+  // before IP). That geometry is INVALID, but its real timing is reported instead of a clamped 0.
+  const ingressDistanceNm = ipRangeNm - candidate.actionRangeNm;
   const ingressSec = ingressDistanceNm * FT_PER_NM / speedFps;
   const turnSec = turn.offsetRadiusNm * FT_PER_NM * rad(candidate.offsetAngleDeg) / speedFps;
   const approachRangeNm = candidate.approachRangeNm;

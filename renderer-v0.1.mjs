@@ -13,7 +13,7 @@ import { formatNm } from "./common/ui/display-precision-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.15",
+  version: "0.1.16",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
@@ -293,8 +293,8 @@ export function renderOffsetTopView(svg, result, options = {}) {
       toGap: 8,
     });
   }
-  // Target-referenced Action Range guide; a follower's Action Range is IP-referenced instead.
-  if (!follower) appendDirectedLine(root, p.realActionPoint, p.target, { color: "#b1bbc4", width: 1.4, dasharray: "7 6" });
+  // Target-referenced Action Range guide (a follower's Action Range is Target-referenced too).
+  appendDirectedLine(root, p.realActionPoint, p.target, { color: "#b1bbc4", width: 1.4, dasharray: "7 6" });
   appendPolyline(root, offsetArc, { color: C.offset, width: 6 });
   appendDirectedLine(root, offsetArc[18], offsetArc[25], { color: C.offset, width: 3, markerEndId: markerId("offset") });
   appendDirectedLine(root, p.turnEnd, p.rollStart, {
@@ -425,26 +425,14 @@ export function renderOffsetTopView(svg, result, options = {}) {
     leaderMarkerId: "offset-arrow-label",
   });
 
-  if (follower) {
-    // A follower's Run-In is parallel to the lead's (already labelled); its Action Range is
-    // measured along that line from its own IP, so it is labelled on the Run-In segment
-    // (omitted when the Action Point sits on IP, like the lead's own zero-length Run-In).
-    const runMid = project(add(points.ip, mul(sub(points.realActionPoint, points.ip), 0.5)));
-    if (len(sub(points.realActionPoint, points.ip)) > 0.05) appendLabel(runMid, `Action Range · ${formatNm(result.resolved.actionRangeFromIpNm)} NM`, {
-      labelKey: "action-range",
-      color: C.run,
-      leaderMarkerId: "offset-arrow-label",
-      textAttributes: { "data-result-key": "actionRangeFromIpNm" },
-    });
-  } else {
-    const actionRangeMid = project(add(points.realActionPoint, mul(sub(points.target, points.realActionPoint), 0.5)));
-    appendLabel(actionRangeMid, `Action Range · ${formatNm(len(points.realActionPoint))} NM`, {
-      labelKey: "action-range",
-      color: C.offset,
-      leaderMarkerId: "offset-arrow-label",
-      textAttributes: { "data-result-key": "actionRangeNm" },
-    });
-  }
+  // Action Range is Target -> Action Point for the lead and followers alike (2026-09-26).
+  const actionRangeMid = project(add(points.realActionPoint, mul(sub(points.target, points.realActionPoint), 0.5)));
+  appendLabel(actionRangeMid, `Action Range · ${formatNm(len(points.realActionPoint))} NM`, {
+    labelKey: "action-range",
+    color: C.offset,
+    leaderMarkerId: "offset-arrow-label",
+    textAttributes: { "data-result-key": "actionRangeNm" },
+  });
 
   if (!follower && len(sub(points.realActionPoint, points.ip)) > 0.05) {
     const runMid = project(add(points.ip, mul(sub(points.realActionPoint, points.ip), 0.5)));
