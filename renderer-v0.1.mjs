@@ -11,7 +11,7 @@ import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.12",
+  version: "0.1.13",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
@@ -26,6 +26,15 @@ const COLORS = Object.freeze({
   reference: "#5b6f82",
   invalid: "#bd3333",
   helper: "#7a8793",
+});
+// Formation follower track (Top View #2/#3/#4): one distinct violet family so the follower's own
+// path reads apart from the element lead's full-colour profile drawn in the same frame.
+const FOLLOWER_COLORS = Object.freeze({
+  ...COLORS,
+  run: "#5e4a8c",
+  offset: "#8a3ab9",
+  roll: "#5b50c8",
+  attack: "#b0307a",
 });
 const viewports = new WeakMap();
 const labelDrags = new WeakMap();
@@ -111,6 +120,37 @@ function appendSquare(root, point, size, fill, stroke = "#fff") {
     "stroke-width": 2,
   }));
 }
+// Follower labels share the frame with a fully labelled lead layer, so they get the smart-label
+// defaults plus a farther ring before falling back to an overlapping position.
+const FOLLOWER_LABEL_CANDIDATES = Object.freeze([
+  { dx: 18, dy: -18, anchor: "start" },
+  { dx: 18, dy: 32, anchor: "start" },
+  { dx: -18, dy: -18, anchor: "end" },
+  { dx: -18, dy: 32, anchor: "end" },
+  { dx: 0, dy: -38, anchor: "middle" },
+  { dx: 0, dy: 48, anchor: "middle" },
+  { dx: 38, dy: 7, anchor: "start" },
+  { dx: -38, dy: 7, anchor: "end" },
+  { dx: 42, dy: -30, anchor: "start" },
+  { dx: -42, dy: -30, anchor: "end" },
+  { dx: -70, dy: 7, anchor: "end" },
+  { dx: 70, dy: 7, anchor: "start" },
+  { dx: -64, dy: -56, anchor: "end" },
+  { dx: 64, dy: -56, anchor: "start" },
+  { dx: -64, dy: 66, anchor: "end" },
+  { dx: 64, dy: 66, anchor: "start" },
+  { dx: -110, dy: 7, anchor: "end" },
+  { dx: 110, dy: 7, anchor: "start" },
+  { dx: -90, dy: -96, anchor: "end" },
+  { dx: 90, dy: -96, anchor: "start" },
+  { dx: -90, dy: 106, anchor: "end" },
+  { dx: 90, dy: 106, anchor: "start" },
+  { dx: -160, dy: -44, anchor: "end" },
+  { dx: 160, dy: -44, anchor: "start" },
+  { dx: -160, dy: 54, anchor: "end" },
+  { dx: 160, dy: 54, anchor: "start" },
+]);
+
 function reservePolyline(layout, points, pad = 7) {
   for (let index = 1; index < points.length; index += 1) layout.reserveSegment(points[index - 1], points[index], pad);
 }
@@ -205,6 +245,12 @@ export function renderOffsetTopView(svg, result, options = {}) {
   const approachRangeNm = result.resolved.approachRangeNm;
   const approachInvalid = approachRangeNm < 0;
   const advanced = options.advanced === true;
+  // Formation follower layer (see renderFollowerTopView in controller-v0.1.mjs).
+  const follower = options.palette === "follower";
+  const C = follower ? FOLLOWER_COLORS : COLORS;
+  const tag = typeof options.aircraftTag === "string" && options.aircraftTag ? `${options.aircraftTag} ` : "";
+  const markerSuffix = follower ? `-${plotGroupId}` : "";
+  const markerId = (name) => `offset-arrow-${name}${markerSuffix}`;
 
   // Formation composition (see renderFollowerTopView in controller-v0.1.mjs): two calls share one
   // svg to render two aircraft in the same frame. The second call must not paint over the first,
@@ -212,77 +258,96 @@ export function renderOffsetTopView(svg, result, options = {}) {
   if (options.paintBackground !== false) root.append(svgNode("rect", { x: 0, y: 0, width: WIDTH, height: HEIGHT, fill: "#fff" }));
 
   const defs = svg.querySelector("defs") ?? svg.insertBefore(svgNode("defs"), svg.firstChild);
-  defs.replaceChildren(
-    createOpenArrowMarker("offset-arrow-run", COLORS.run),
-    createOpenArrowMarker("offset-arrow-offset", COLORS.offset),
-    createOpenArrowMarker("offset-arrow-roll", COLORS.roll),
-    createOpenArrowMarker("offset-arrow-attack", COLORS.attack),
+  const markers = [
+    createOpenArrowMarker(markerId("run"), C.run),
+    createOpenArrowMarker(markerId("offset"), C.offset),
+    createOpenArrowMarker(markerId("roll"), C.roll),
+    createOpenArrowMarker(markerId("attack"), C.attack),
     createOpenArrowMarker("offset-arrow-label", COLORS.helper, SVG_DIAGRAM_STYLE_V0_1.arrow.leader),
-  );
+  ];
+  // A layered (paintBackground:false) call keeps the markers the first layer already defined.
+  if (options.paintBackground !== false) defs.replaceChildren(...markers);
+  else markers.forEach((marker) => { defs.querySelector(`[id="${marker.id}"]`)?.remove(); defs.append(marker); });
 
   if (len(sub(points.realActionPoint, points.ip)) > 0.001) {
     appendDirectedLine(root, p.ip, p.realActionPoint, {
-      color: COLORS.run,
+      color: C.run,
       width: 5,
-      markerEndId: "offset-arrow-run",
+      markerEndId: markerId("run"),
       fromGap: 13,
       toGap: 8,
     });
   }
-  appendDirectedLine(root, p.realActionPoint, p.target, { color: "#b1bbc4", width: 1.4, dasharray: "7 6" });
-  appendPolyline(root, offsetArc, { color: COLORS.offset, width: 6 });
-  appendDirectedLine(root, offsetArc[18], offsetArc[25], { color: COLORS.offset, width: 3, markerEndId: "offset-arrow-offset" });
+  // Target-referenced Action Range guide; a follower's Action Range is IP-referenced instead.
+  if (!follower) appendDirectedLine(root, p.realActionPoint, p.target, { color: "#b1bbc4", width: 1.4, dasharray: "7 6" });
+  appendPolyline(root, offsetArc, { color: C.offset, width: 6 });
+  appendDirectedLine(root, offsetArc[18], offsetArc[25], { color: C.offset, width: 3, markerEndId: markerId("offset") });
   appendDirectedLine(root, p.turnEnd, p.rollStart, {
-    color: approachInvalid ? COLORS.invalid : COLORS.offset,
+    color: approachInvalid ? C.invalid : C.offset,
     width: approachInvalid ? 3 : 5,
     dasharray: approachInvalid ? "7 6" : undefined,
   });
-  appendPolyline(root, rollPath, { color: COLORS.roll, width: 6 });
+  appendPolyline(root, rollPath, { color: C.roll, width: 6 });
   if (rollPath.length > 4) {
     const middle = Math.floor(rollPath.length / 2);
-    appendDirectedLine(root, rollPath[Math.max(0, middle - 2)], rollPath[middle], { color: COLORS.roll, width: 3, markerEndId: "offset-arrow-roll" });
+    appendDirectedLine(root, rollPath[Math.max(0, middle - 2)], rollPath[middle], { color: C.roll, width: 3, markerEndId: markerId("roll") });
   }
   appendDirectedLine(root, p.trackPoint, p.target, {
-    color: COLORS.attack,
+    color: C.attack,
     width: 6,
-    markerEndId: "offset-arrow-attack",
+    markerEndId: markerId("attack"),
     fromGap: 6,
     toGap: 15,
   });
 
+  // Turn construction guides (both the Offset turn and the Roll-in turn centres) are
+  // Advanced-only; Essential view shows only the flown path.
   if (advanced) {
-    appendDirectedLine(root, p.realActionPoint, p.offsetCenter, { color: COLORS.offset, width: 1.2, dasharray: "4 4" });
-    appendDirectedLine(root, p.turnEnd, p.offsetCenter, { color: COLORS.offset, width: 1.2, dasharray: "4 4" });
+    appendDirectedLine(root, p.realActionPoint, p.offsetCenter, { color: C.offset, width: 1.2, dasharray: "4 4" });
+    appendDirectedLine(root, p.turnEnd, p.offsetCenter, { color: C.offset, width: 1.2, dasharray: "4 4" });
   }
-  if (p.rollCenter) {
-    appendDirectedLine(root, p.rollStart, p.rollCenter, { color: COLORS.roll, width: 1.2, dasharray: "4 4" });
-    appendDirectedLine(root, p.trackPoint, p.rollCenter, { color: COLORS.roll, width: 1.2, dasharray: "4 4" });
-    appendCircle(root, p.rollCenter, 2.5, "#fff", COLORS.roll);
-    if (advanced) root.append(svgNode("circle", {
+  if (advanced && p.rollCenter) {
+    appendDirectedLine(root, p.rollStart, p.rollCenter, { color: C.roll, width: 1.2, dasharray: "4 4" });
+    appendDirectedLine(root, p.trackPoint, p.rollCenter, { color: C.roll, width: 1.2, dasharray: "4 4" });
+    appendCircle(root, p.rollCenter, 2.5, "#fff", C.roll);
+    root.append(svgNode("circle", {
       cx: p.rollCenter.x, cy: p.rollCenter.y,
-      r: len(sub(p.rollStart, p.rollCenter)), fill: "none", stroke: COLORS.roll,
+      r: len(sub(p.rollStart, p.rollCenter)), fill: "none", stroke: C.roll,
       "stroke-width": 1, "stroke-dasharray": "5 7", opacity: 0.55,
     }));
   }
 
-  appendSquare(root, p.ip, 24, COLORS.run, "#fff");
-  if (referencePoint) appendCircle(root, referencePoint, 10, "none", COLORS.reference, 3);
-  appendCircle(root, p.realActionPoint, 7, COLORS.offset);
-  appendCircle(root, p.rollStart, 6, COLORS.roll);
-  appendCircle(root, p.trackPoint, 5, COLORS.roll);
-  appendCircle(root, p.target, 14, COLORS.target);
+  appendSquare(root, p.ip, 24, C.run, "#fff");
+  if (referencePoint) appendCircle(root, referencePoint, 10, "none", C.reference, 3);
+  appendCircle(root, p.realActionPoint, 7, C.offset);
+  appendCircle(root, p.rollStart, 6, C.roll);
+  appendCircle(root, p.trackPoint, 5, C.roll);
+  // The Target is shared by the whole Flight; the lead layer already marks it.
+  if (!follower) appendCircle(root, p.target, 14, COLORS.target);
 
   const labels = createSmartLabelLayout(root, { width: WIDTH, height: HEIGHT, labelPad: 10, pathPad: 7 });
   const labelFontSize = SVG_DIAGRAM_STYLE_V0_1.font.lineTitlePx * fontScale;
   svg.dataset.topViewTextScale = String(textScale);
   svg.dataset.topViewPhysicalFontScale = String(fontScale);
-  const appendLabel = (point, text, labelOptions = {}) => {
+  // A layered call avoids the labels and paths another layer already placed in this svg.
+  const avoid = options.labelObstacles ?? {};
+  (avoid.rects ?? []).forEach((rect) => labels.reserveRect(rect));
+  (avoid.segments ?? []).forEach((segment) => labels.reserveSegment(segment.from, segment.to, segment.pad));
+  // ... and the first layer keeps its labels off the other layer's world-space paths.
+  (Array.isArray(options.obstacleWorldPolylines) ? options.obstacleWorldPolylines : []).forEach((line) => {
+    const projected = (Array.isArray(line) ? line : []).filter(finitePoint).map(project);
+    if (projected.length > 1) reservePolyline(labels, projected);
+  });
+  const appendLabel = (point, rawText, labelOptions = {}) => {
     if (!point) return null;
     const { textAttributes = {}, ...rest } = labelOptions;
+    const text = `${tag}${rawText}`;
     const display = text.length > 23 && text.includes(" · ") ? text.replace(" · ", "\n") : text;
     return labels.append(point, display, {
       background: false,
       ...rest,
+      labelKey: follower && rest.labelKey ? `${plotGroupId}-${rest.labelKey}` : rest.labelKey,
+      candidates: rest.candidates ?? (follower ? FOLLOWER_LABEL_CANDIDATES : undefined),
       fontSize: labelFontSize,
       textAttributes: {
         ...textAttributes,
@@ -296,7 +361,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   if (referencePoint) labels.reservePoint(referencePoint, 15);
   labels.reservePoint(p.target, 30);
   reservePolyline(labels, [p.ip, p.realActionPoint]);
-  reservePolyline(labels, [p.realActionPoint, p.target], 4);
+  if (!follower) reservePolyline(labels, [p.realActionPoint, p.target], 4);
   reservePolyline(labels, offsetArc);
   reservePolyline(labels, [p.turnEnd, p.rollStart]);
   reservePolyline(labels, rollPath);
@@ -305,12 +370,12 @@ export function renderOffsetTopView(svg, result, options = {}) {
     reservePolyline(labels, [p.realActionPoint, p.offsetCenter], 4);
     reservePolyline(labels, [p.turnEnd, p.offsetCenter], 4);
   }
-  if (p.rollCenter) {
+  if (advanced && p.rollCenter) {
     reservePolyline(labels, [p.rollStart, p.rollCenter], 4);
     reservePolyline(labels, [p.trackPoint, p.rollCenter], 4);
   }
 
-  appendLabel(p.target, "Target", {
+  if (!follower) appendLabel(p.target, "Target", {
     labelKey: "target",
     color: COLORS.target,
     leaderMarkerId: "offset-arrow-label",
@@ -324,7 +389,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   // results from offset-formation-geometry-v0.1.mjs, which has no ipRangeNm field at all).
   appendLabel(p.ip, `IP · ${fmt(len(points.ip), 2)} NM`, {
     labelKey: "ip",
-    color: COLORS.run,
+    color: C.run,
     leader: false,
     leaderMarkerId: "offset-arrow-label",
     textAttributes: { "data-result-key": "ipRangeNm", "data-top-view-role": "ip" },
@@ -333,7 +398,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   if (referencePoint) {
     appendLabel(referencePoint, `${result.referenceMode} · ${fmt(result.reference.displayRangeNm, 2)} NM`, {
       labelKey: `reference-${String(result.referenceMode).toLowerCase()}`,
-      color: COLORS.reference,
+      color: C.reference,
       leaderMarkerId: "offset-arrow-label",
       textAttributes: { "data-result-key": "referenceSummary", "data-top-view-role": "reference" },
     });
@@ -341,23 +406,36 @@ export function renderOffsetTopView(svg, result, options = {}) {
 
   appendLabel(p.realActionPoint, "Action Point", {
     labelKey: "action-point",
-    color: COLORS.offset,
+    color: C.offset,
     leaderMarkerId: "offset-arrow-label",
   });
 
-  const actionRangeMid = project(add(points.realActionPoint, mul(sub(points.target, points.realActionPoint), 0.5)));
-  appendLabel(actionRangeMid, `Action Range · ${fmt(len(points.realActionPoint), 2)} NM`, {
-    labelKey: "action-range",
-    color: COLORS.offset,
-    leaderMarkerId: "offset-arrow-label",
-    textAttributes: { "data-result-key": "actionRangeNm" },
-  });
+  if (follower) {
+    // A follower's Run-In is parallel to the lead's (already labelled); its Action Range is
+    // measured along that line from its own IP, so it is labelled on the Run-In segment
+    // (omitted when the Action Point sits on IP, like the lead's own zero-length Run-In).
+    const runMid = project(add(points.ip, mul(sub(points.realActionPoint, points.ip), 0.5)));
+    if (len(sub(points.realActionPoint, points.ip)) > 0.05) appendLabel(runMid, `Action Range · ${fmt(result.resolved.actionRangeFromIpNm, 2)} NM`, {
+      labelKey: "action-range",
+      color: C.run,
+      leaderMarkerId: "offset-arrow-label",
+      textAttributes: { "data-result-key": "actionRangeFromIpNm" },
+    });
+  } else {
+    const actionRangeMid = project(add(points.realActionPoint, mul(sub(points.target, points.realActionPoint), 0.5)));
+    appendLabel(actionRangeMid, `Action Range · ${fmt(len(points.realActionPoint), 2)} NM`, {
+      labelKey: "action-range",
+      color: C.offset,
+      leaderMarkerId: "offset-arrow-label",
+      textAttributes: { "data-result-key": "actionRangeNm" },
+    });
+  }
 
-  if (len(sub(points.realActionPoint, points.ip)) > 0.05) {
+  if (!follower && len(sub(points.realActionPoint, points.ip)) > 0.05) {
     const runMid = project(add(points.ip, mul(sub(points.realActionPoint, points.ip), 0.5)));
     appendLabel(runMid, `Run-in · ${fmtHeading(geometry.runInHeadingDeg)}`, {
       labelKey: "run-in",
-      color: COLORS.run,
+      color: C.run,
       leaderMarkerId: "offset-arrow-label",
       textAttributes: { "data-result-key": "runInHeadingDeg" },
     });
@@ -366,7 +444,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   const offsetArcMid = offsetArc[Math.floor(offsetArc.length / 2)];
   appendLabel(offsetArcMid, `Offset Angle · ${fmt(geometry.offsetAngleDeg, 0)}°`, {
     labelKey: "offset-angle",
-    color: COLORS.offset,
+    color: C.offset,
     leaderMarkerId: "offset-arrow-label",
     textAttributes: { "data-result-key": "offsetAngleDeg" },
   });
@@ -374,7 +452,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   const approachHeadingAnchor = project(add(points.turnEnd, mul(sub(points.rollStart, points.turnEnd), 0.36)));
   appendLabel(approachHeadingAnchor, `Approaching Heading · ${fmtHeading(geometry.offsetHeadingDeg)}`, {
     labelKey: "offset-heading",
-    color: approachInvalid ? COLORS.invalid : COLORS.offset,
+    color: approachInvalid ? C.invalid : C.offset,
     leaderMarkerId: "offset-arrow-label",
     textAttributes: { "data-result-key": "offsetHeadingDeg" },
   });
@@ -382,26 +460,30 @@ export function renderOffsetTopView(svg, result, options = {}) {
   const approachRangeAnchor = project(add(points.turnEnd, mul(sub(points.rollStart, points.turnEnd), 0.72)));
   appendLabel(approachRangeAnchor, `Approach Range · ${fmt(approachRangeNm, 2)} NM`, {
     labelKey: "approach-range",
-    color: approachInvalid ? COLORS.invalid : COLORS.offset,
+    color: approachInvalid ? C.invalid : C.offset,
     leaderMarkerId: "offset-arrow-label",
     textAttributes: { "data-result-key": "approachRangeNm" },
   });
 
-  appendLabel(p.rollStart, "Roll-in", {
+  // Follower Essential view keeps its own Roll-in / Track Point as marked points only (labels in
+  // Advanced) and drops an Attack Heading label identical to the lead's.
+  const followerDetail = !follower || advanced;
+  if (followerDetail) appendLabel(p.rollStart, "Roll-in", {
     labelKey: "roll-in",
-    color: COLORS.roll,
+    color: C.roll,
     leaderMarkerId: "offset-arrow-label",
   });
-  appendLabel(p.trackPoint, "Track Point", {
+  if (followerDetail) appendLabel(p.trackPoint, "Track Point", {
     labelKey: "track-point",
-    color: COLORS.roll,
+    color: C.roll,
     leaderMarkerId: "offset-arrow-label",
   });
 
   const attackMid = project(add(points.trackPoint, mul(sub(points.target, points.trackPoint), 0.5)));
-  appendLabel(attackMid, `Attack Heading · ${fmtHeading(geometry.attackHeadingDeg)}`, {
+  const sameAttackAsLead = follower && fmtHeading(geometry.attackHeadingDeg) === fmtHeading(options.leadAttackHeadingDeg);
+  if (followerDetail || !sameAttackAsLead) appendLabel(attackMid, `Attack Heading · ${fmtHeading(geometry.attackHeadingDeg)}`, {
     labelKey: "attack",
-    color: COLORS.attack,
+    color: C.attack,
     leaderMarkerId: "offset-arrow-label",
   });
 
@@ -409,7 +491,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
     const offsetRadiusMid = project(add(points.offsetCenter, mul(sub(points.realActionPoint, points.offsetCenter), 0.5)));
     appendLabel(offsetRadiusMid, `Offset R · ${fmt(result.resolved.offsetRadiusNm, 2)} NM`, {
     labelKey: "offset-radius",
-    color: COLORS.offset,
+    color: C.offset,
     leaderMarkerId: "offset-arrow-label",
     textAttributes: { "data-result-key": "offsetRadiusNm" },
   });
@@ -418,7 +500,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
     const rollRadiusMid = project(add(points.rollCenter, mul(sub(points.rollStart, points.rollCenter), 0.5)));
     appendLabel(rollRadiusMid, `Radius (EFF) · ${fmt(geometry.rollInRadiusNm, 2)} NM`, {
       labelKey: "roll-radius",
-      color: COLORS.roll,
+      color: C.roll,
       leaderMarkerId: "offset-arrow-label",
       textAttributes: { "data-result-key": "rollInRadiusNm" },
     });
@@ -426,6 +508,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   }
 
   labelDrags.get(svg)?.applyStoredPositions();
+  return { labelRects: labels.labels.slice(), segments: labels.obstacleSegments.slice() };
 }
 
 export function exportOffsetTopView(svg, filename = "offset-bombing-v2-top-view.png") {

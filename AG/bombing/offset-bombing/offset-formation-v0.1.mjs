@@ -2,7 +2,7 @@ import { vecHeading } from "./offset-geometry-v0.2.mjs";
 
 export const OFFSET_FORMATION_V0_1 = Object.freeze({
   id: "offset-formation-v0.1",
-  version: "0.1.0",
+  version: "0.1.1",
   status: "work",
   purpose: "Flight-of-4 composition: Formation display offset, element-pair Offset Angle / Action Range options, and drop-order timing deltas, over independently solved offset-be-v0.2 results",
 });
@@ -54,56 +54,67 @@ export function assertElementSameTimeCompatible(followerLocks = {}) {
 
 // Driver-agnostic root-find: `evaluate(value)` builds and runs whatever offset-be-v0.2 call the
 // caller needs (varying actionRangeNm, offset TAS, or any other field) and returns its result;
-// this searches `value` until the result's IP-to-Action elapsed time (`timing.ingressSec`)
-// matches `targetIngressSec`. Mirrors the bracket-then-bisect pattern already used by
-// solveOffsetAngleForActionRange/solveOffsetAngleForMetric so candidates outside the valid
-// range simply throw and are skipped rather than aborting the search.
-export function solveIngressTimeMatch({ targetIngressSec, evaluate, minValue, maxValue, toleranceSec = 0.05, steps = 24, refineIterations = 30 }) {
+// this searches `value` until the result's IP-to-Action elapsed time matches `targetIngressSec`.
+// Mirrors the bracket-then-bisect pattern already used by solveOffsetAngleForMetric so
+// candidates that throw are skipped rather than aborting the search.
+//
+// The metric is the *signed* IP-to-Action time (`timing.signedIngressSec`, negative when the
+// Action Point is behind IP) when the result provides it. The clamped `ingressSec` is flat at 0
+// for every Action Point behind IP, which let a degenerate INVALID geometry "match" an element
+// lead with zero ingress. INVALID results still take part in bracketing (the root often sits
+// exactly on the Action Point = IP validity boundary) but are never returned as a match: each
+// bracket is bisected until a non-INVALID result is within tolerance, and every bracket found by
+// the scan is tried in order before giving up.
+function ingressMetric(result) {
+  return finite("result.timing.ingressSec", result?.timing?.signedIngressSec ?? result?.timing?.ingressSec);
+}
+
+export function solveIngressTimeMatch({ targetIngressSec, evaluate, minValue, maxValue, toleranceSec = 0.05, steps = 24, refineIterations = 40 }) {
   finite("targetIngressSec", targetIngressSec);
   finite("minValue", minValue);
   finite("maxValue", maxValue);
   if (typeof evaluate !== "function") throw new TypeError("evaluate must be a function");
   if (!(maxValue > minValue)) throw new RangeError("maxValue must be greater than minValue");
 
+  const tryEvaluate = (value) => {
+    try {
+      const result = evaluate(value);
+      return { result, residual: ingressMetric(result) - targetIngressSec, value };
+    } catch (_) {
+      return null; // Candidate is outside the valid geometry/turn range; keep scanning.
+    }
+  };
+  const usable = (sample) => !!sample && sample.result?.state !== "INVALID";
+  const matches = (sample) => usable(sample) && Math.abs(sample.residual) <= toleranceSec;
+
   const stepCount = Math.max(8, Math.floor(steps));
   const stepSize = (maxValue - minValue) / stepCount;
   let previous = null;
   let best = null;
-  let bracket = null;
+  const brackets = [];
   for (let index = 0; index <= stepCount; index += 1) {
-    const value = minValue + stepSize * index;
-    try {
-      const result = evaluate(value);
-      const ingressSec = finite("result.timing.ingressSec", result?.timing?.ingressSec);
-      const residual = ingressSec - targetIngressSec;
-      if (!best || Math.abs(residual) < Math.abs(best.residual)) best = { result, residual, value };
-      if (previous && previous.residual * residual <= 0) {
-        bracket = { lo: previous.value, hi: value, flo: previous.residual };
-        break;
-      }
-      previous = { value, residual };
-    } catch (_) {
-      // Candidate is outside the valid geometry/turn range; keep scanning.
-    }
-  }
-  if (!bracket) {
-    return { result: best?.result ?? null, residualSec: best?.residual ?? null, exact: !!best && Math.abs(best.residual) <= toleranceSec };
+    const sample = tryEvaluate(minValue + stepSize * index);
+    if (!sample) continue;
+    if (usable(sample) && (!best || Math.abs(sample.residual) < Math.abs(best.residual))) best = sample;
+    if (previous && previous.residual * sample.residual <= 0) brackets.push({ lo: previous, hi: sample });
+    previous = sample;
   }
 
-  let lo = bracket.lo;
-  let hi = bracket.hi;
-  let flo = bracket.flo;
-  let result = null;
-  let residual = null;
-  for (let index = 0; index < refineIterations; index += 1) {
-    const mid = (lo + hi) / 2;
-    result = evaluate(mid);
-    residual = result.timing.ingressSec - targetIngressSec;
-    if (Math.abs(residual) <= toleranceSec) break;
-    if (flo * residual <= 0) hi = mid;
-    else { lo = mid; flo = residual; }
+  for (const bracket of brackets) {
+    let lo = bracket.lo;
+    let hi = bracket.hi;
+    if (matches(lo)) return { result: lo.result, residualSec: lo.residual, exact: true };
+    if (matches(hi)) return { result: hi.result, residualSec: hi.residual, exact: true };
+    for (let index = 0; index < refineIterations; index += 1) {
+      const mid = tryEvaluate((lo.value + hi.value) / 2);
+      if (!mid) break;
+      if (usable(mid) && (!best || Math.abs(mid.residual) < Math.abs(best.residual))) best = mid;
+      if (matches(mid)) return { result: mid.result, residualSec: mid.residual, exact: true };
+      if (lo.residual * mid.residual <= 0) hi = mid;
+      else lo = mid;
+    }
   }
-  return { result, residualSec: residual, exact: !!result && Math.abs(residual) <= toleranceSec };
+  return { result: best?.result ?? null, residualSec: best?.residual ?? null, exact: matches(best) };
 }
 
 // Concrete v0.1 convenience for the common case: vary Action Range (the wingman's own

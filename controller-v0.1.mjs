@@ -1274,14 +1274,45 @@ function geometryWorldPoints(geometry) {
 
 // Both Top View calls below share one auto-fit projection (each passes the other's world points
 // as extraFitPoints), so the element lead's full-fidelity render and this aircraft's own render
-// land in the same scale/frame and their Target markers coincide.
+// land in the same scale/frame and their Target markers coincide. The lead layer is drawn exactly
+// as in its own Top View; this aircraft's layer uses the follower palette, "#n"-prefixed labels,
+// and places its labels clear of the lead's labels and paths (and vice versa for the paths).
+function geometryWorldPolylines(geometry) {
+  const p = geometry.points;
+  return [[p.ip, p.realActionPoint], [p.realActionPoint, p.turnEnd], [p.turnEnd, p.rollStart], geometry.rollInTrajectorySamples, [p.trackPoint, p.target]];
+}
+
 function renderFollowerTopView(number, slot, leaderResult, result) {
   const svg = slot.querySelector("svg[data-flight-topview]");
   if (!svg) return;
+  const leadNumber = elementLeadNumber(number);
+  const common = { textScale: topViewTextScale, viewportWidth: globalThis.innerWidth, advanced: topViewAdvanced };
   const leaderPoints = geometryWorldPoints(leaderResult.geometry);
+  const ownGroup = svg.querySelector(`#offset-plot-${number}`);
+  if (!result) {
+    // Own solve failed: keep the lead's profile visible instead of a blank or stale frame.
+    ownGroup?.replaceChildren();
+    renderOffsetTopView(svg, leaderResult, { ...common, plotGroupId: `offset-plot-lead-${number}` });
+    return;
+  }
   const ownPoints = geometryWorldPoints(result.geometry);
-  renderOffsetTopView(svg, leaderResult, { plotGroupId: `offset-plot-lead-${number}`, extraFitPoints: ownPoints });
-  renderOffsetTopView(svg, result, { plotGroupId: `offset-plot-${number}`, extraFitPoints: leaderPoints, paintBackground: false });
+  const leadLayer = renderOffsetTopView(svg, leaderResult, {
+    ...common,
+    plotGroupId: `offset-plot-lead-${number}`,
+    extraFitPoints: ownPoints,
+    obstacleWorldPolylines: geometryWorldPolylines(result.geometry),
+  });
+  renderOffsetTopView(svg, result, {
+    ...common,
+    plotGroupId: `offset-plot-${number}`,
+    extraFitPoints: leaderPoints,
+    paintBackground: false,
+    palette: "follower",
+    aircraftTag: `#${number}`,
+    leadAttackHeadingDeg: leaderResult.geometry.attackHeadingDeg,
+    labelObstacles: { rects: leadLayer?.labelRects, segments: leadLayer?.segments },
+  });
+  svg.dataset.leadAircraft = String(leadNumber);
 }
 
 function calculateFollower(number) {
@@ -1344,6 +1375,20 @@ function calculateFollower(number) {
     flightResults.delete(number);
     renderFollowerStatus(number, "INVALID", error.message);
     renderFollowerTimingDeltas(number, null);
+    const leaderResult = leadNumber === 1 ? lastResult : flightResults.get(leadNumber);
+    if (leaderResult) renderFollowerTopView(number, slot, leaderResult, null);
+  }
+}
+
+// Presentation-only refresh (text scale, Advanced toggle, viewport): redraw each calculating
+// follower's Top View from the results already solved, without re-solving.
+function refreshFollowerTopViews() {
+  for (let number = 2; number <= flightLayout.size; number += 1) {
+    if (!FLIGHT_CALCULATING_AIRCRAFT.has(number)) continue;
+    const slot = document.querySelector(`.flight-slot[data-aircraft="${number}"]`);
+    const leadNumber = elementLeadNumber(number);
+    const leaderResult = leadNumber === 1 ? lastResult : flightResults.get(leadNumber);
+    if (slot && leaderResult) renderFollowerTopView(number, slot, leaderResult, flightResults.get(number) ?? null);
   }
 }
 
@@ -1416,6 +1461,7 @@ function install() {
     topViewTextScale = Math.max(0.5, Math.min(2, Math.round(value * 10) / 10));
     syncTextControls();
     if (lastResult) renderTopView(lastResult);
+    refreshFollowerTopViews();
   };
   fontScaleSelect?.addEventListener("change", () => {
     const value = Number.parseFloat(fontScaleSelect.value);
@@ -1431,6 +1477,7 @@ function install() {
     if (nextCompact === compactTextViewport) return;
     compactTextViewport = nextCompact;
     if (lastResult) renderTopView(lastResult);
+    refreshFollowerTopViews();
   };
   globalThis.addEventListener?.("resize", syncViewportTextBase);
   globalThis.visualViewport?.addEventListener?.("resize", syncViewportTextBase);
@@ -1447,6 +1494,7 @@ function install() {
     event.currentTarget.setAttribute("aria-pressed", String(topViewAdvanced));
     event.currentTarget.textContent = `Advanced: ${topViewAdvanced ? "On" : "Off"}`;
     if (lastResult) renderTopView(lastResult);
+    refreshFollowerTopViews();
   });
   $("#capture-z").addEventListener("click", () => saveSvgAsPng($("#offset-z-svg"), "offset-z-diagram-1.png", { scale: 2, background: "#ffffff" }));
 

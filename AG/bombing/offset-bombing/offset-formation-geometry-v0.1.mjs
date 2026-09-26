@@ -20,7 +20,7 @@ import {
 
 export const OFFSET_FORMATION_GEOMETRY_V0_1 = Object.freeze({
   id: "offset-formation-geometry-v0.1",
-  version: "0.1.0",
+  version: "0.1.1",
   status: "work",
   purpose:
     "Off-axis Offset geometry for a Flight follower whose IP is displaced from the shared Target-through Run-In axis by its Formation position, while Target and Run-In heading stay shared with its element lead. Reuses offset-geometry-v0.2.mjs's pure heading/vector helpers without modifying offset-be-v0.2.mjs or offset-geometry-v0.2.mjs's own single-aircraft (on-axis) contract.",
@@ -266,6 +266,8 @@ export function calculateOffAxisOffset(input) {
   const speedFps = turn.offsetTasKt * KT_TO_FPS;
   const ingressDistanceNm = Math.max(0, candidate.actionRangeFromIpNm);
   const ingressSec = (ingressDistanceNm * FT_PER_NM) / speedFps;
+  // Unclamped counterpart (negative when the Action Point is behind IP) for time-matching solvers.
+  const signedIngressSec = (candidate.actionRangeFromIpNm * FT_PER_NM) / speedFps;
   const turnSec = (turn.offsetRadiusNm * FT_PER_NM * rad(candidate.offsetAngleDeg)) / speedFps;
   const approachRangeNm = candidate.approachRangeNm;
   const approachSec = (Math.max(0, approachRangeNm) * FT_PER_NM) / speedFps;
@@ -299,6 +301,7 @@ export function calculateOffAxisOffset(input) {
     timing: {
       ingressDistanceNm,
       ingressSec,
+      signedIngressSec,
       offsetTurnSec: turnSec,
       approachSec,
       rollToReleaseSec,
