@@ -1293,7 +1293,7 @@ function calculateFollower(number) {
         evaluate: (diveAngleDeg) => calculateOffAxisOffset({ ...applied, profile: { ...applied.profile, diveAngleDeg } }),
       });
       if (!solved.result || !solved.exact) {
-        throw new Error(`CONSTRAINT CONFLICT: no Dive Angle (5-75°) at #${leadNumber}'s Offset Angle matches its Action time; try this aircraft's own Dive Angle or Offset Radius manually instead`);
+        throw new Error(`CONSTRAINT CONFLICT: no Dive Angle (5-75°) at #${leadNumber}'s Offset Angle matches its Action time; try this aircraft's own Dive Angle or Roll-in Altitude manually instead`);
       }
       result = solved.result;
     } else if (sameAngleAsLead) {
