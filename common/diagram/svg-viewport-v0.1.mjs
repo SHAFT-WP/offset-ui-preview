@@ -1,6 +1,6 @@
 export const SVG_VIEWPORT_V0_1 = Object.freeze({
   id: "svg-viewport-v0.1",
-  version: "0.1.3",
+  version: "0.1.4",
   purpose: "Generic SVG auto-fit projection plus viewBox zoom/pan interaction with optional page-scroll pass-through",
 });
 
@@ -87,6 +87,36 @@ export function createSvgAutoFitProjection(points, options = {}) {
   };
 }
 
+// Content-adaptive canvas: keeps the canvas width and sizes the canvas height to the content's
+// aspect ratio, clamped to [minHeight, maxHeight], so a wide plot does not sit in a tall canvas
+// full of empty space. The projection is the ordinary auto-fit into the resulting canvas: width
+// limits the scale unless maxHeight caps the height, in which case height limits it and the
+// content is centered horizontally. Presentation only; it never changes BE values or geometry.
+export function createSvgAutoCanvas(points, options = {}) {
+  const width = Number.isFinite(options.width) && options.width > 0 ? Number(options.width) : 1180;
+  const maxHeight = Number.isFinite(options.maxHeight) && options.maxHeight > 0 ? Number(options.maxHeight) : width * 1.5;
+  const minHeight = Math.min(maxHeight, Number.isFinite(options.minHeight) && options.minHeight > 0 ? Number(options.minHeight) : width * 0.5);
+  const margins = normalizeMargins(options.margins ?? 0);
+  const minSpan = Number.isFinite(options.minSpan) && options.minSpan > 0 ? Number(options.minSpan) : 0.5;
+  const valid = Array.isArray(points) ? points.filter(finitePoint) : [];
+  let height = maxHeight;
+  if (valid.length) {
+    const spanX = Math.max(minSpan, Math.max(...valid.map((point) => point.x)) - Math.min(...valid.map((point) => point.x)));
+    const spanY = Math.max(minSpan, Math.max(...valid.map((point) => point.y)) - Math.min(...valid.map((point) => point.y)));
+    const usableWidth = Math.max(1e-9, width - margins.left - margins.right);
+    const naturalHeight = margins.top + margins.bottom + spanY * (usableWidth / spanX);
+    height = Math.round(Math.max(minHeight, Math.min(maxHeight, naturalHeight)));
+  }
+  const fit = createSvgAutoFitProjection(valid, {
+    width,
+    height,
+    margins: options.margins ?? 0,
+    minSpan,
+    flipY: options.flipY === true,
+  });
+  return { ...fit, width, height };
+}
+
 function parseViewBox(svg, fallback) {
   const base = svg.getAttribute("viewBox")?.trim().split(/\s+/).map(Number);
   if (base?.length === 4 && base.every(Number.isFinite)) return { x: base[0], y: base[1], w: base[2], h: base[3] };
@@ -95,10 +125,10 @@ function parseViewBox(svg, fallback) {
 
 export function installSvgViewport(svg, options = {}) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
-  const base = options.baseViewBox ?? parseViewBox(svg, { x: 0, y: 0, w: 1180, h: 720 });
-  const aspect = base.h / base.w;
-  const minW = base.w / (options.maxZoom ?? 12);
-  const maxW = base.w * (options.maxZoomOut ?? 3);
+  let base = options.baseViewBox ?? parseViewBox(svg, { x: 0, y: 0, w: 1180, h: 720 });
+  let aspect = base.h / base.w;
+  let minW = base.w / (options.maxZoom ?? 12);
+  let maxW = base.w * (options.maxZoomOut ?? 3);
   const panOnlyWhenZoomed = options.panOnlyWhenZoomed === true;
   const buttonOnlyZoom = options.buttonOnlyZoom === true;
   const wheelZoom = !buttonOnlyZoom && options.wheelZoom !== false;
@@ -133,6 +163,23 @@ export function installSvgViewport(svg, options = {}) {
     options.onViewBoxChange?.({ ...box });
   };
   const reset = (markUser = false) => { box = { ...base }; apply(box); userAdjusted = markUser; };
+  // Adopt a new base/FIT canvas (e.g. from createSvgAutoCanvas). An unadjusted view follows the new
+  // base; a user-adjusted view keeps its center and zoom width with the new aspect ratio.
+  const setBaseViewBox = (next) => {
+    if (!next || ![next.x, next.y, next.w, next.h].every(Number.isFinite) || !(next.w > 0 && next.h > 0)) return;
+    if (next.x === base.x && next.y === base.y && next.w === base.w && next.h === base.h) return;
+    base = { x: next.x, y: next.y, w: next.w, h: next.h };
+    aspect = base.h / base.w;
+    minW = base.w / (options.maxZoom ?? 12);
+    maxW = base.w * (options.maxZoomOut ?? 3);
+    if (!userAdjusted) {
+      reset(false);
+      return;
+    }
+    const centerX = box.x + box.w / 2;
+    const centerY = box.y + box.h / 2;
+    apply({ x: centerX - box.w / 2, y: centerY - (box.w * aspect) / 2, w: box.w });
+  };
   const autoFit = () => reset(false);
   const clientToView = (clientX, clientY) => {
     const rect = svg.getBoundingClientRect();
@@ -250,6 +297,8 @@ export function installSvgViewport(svg, options = {}) {
     fit: () => reset(true),
     zoomCenter,
     getViewBox: () => ({ ...box }),
+    getBaseViewBox: () => ({ ...base }),
+    setBaseViewBox,
     isZoomedIn,
     canPan,
     isPageScrollEnabled: pageScrollEnabled,

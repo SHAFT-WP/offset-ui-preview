@@ -14,7 +14,7 @@ import { add as addWorldPoints } from "./AG/bombing/offset-bombing/offset-geomet
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.1.mjs";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
-import { exportOffsetTopView, installOffsetTopViewControls, offsetTopViewWorldPoints, renderOffsetTopView } from "./renderer-v0.1.mjs?v=2026-09-26c";
+import { exportOffsetTopView, installOffsetTopViewControls, offsetTopViewWorldPoints, renderOffsetTopView } from "./renderer-v0.1.mjs?v=2026-09-26d";
 import { renderOffsetZDiagram } from "./offset-z-diagram-v0.1.mjs?v=2026-09-26b";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));

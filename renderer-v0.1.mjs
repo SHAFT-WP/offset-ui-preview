@@ -6,18 +6,22 @@ import {
   svgNode,
 } from "./common/diagram/svg-primitives-v0.1.mjs";
 import { createSmartLabelLayout, installSmartLabelDrag } from "./common/diagram/svg-smart-label-v0.1.mjs";
-import { createSvgAutoFitProjection, installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs";
+// Cache token: this renderer needs svg-viewport 0.1.4 (createSvgAutoCanvas); a stale cached copy would fail to link.
+import { createSvgAutoCanvas, installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.4";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 import { formatNm } from "./common/ui/display-precision-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.14",
+  version: "0.1.15",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
+// Canvas width is fixed; its height follows the plot's aspect ratio within these limits (Common
+// createSvgAutoCanvas), so a wide plot does not sit in a tall, mostly empty canvas.
 const WIDTH = 1180;
-const HEIGHT = 1440;
+const MIN_HEIGHT = 720;
+const MAX_HEIGHT = 1440;
 const COLORS = Object.freeze({
   run: "#4c5966",
   offset: "#a35d00",
@@ -160,7 +164,7 @@ export function installOffsetTopViewControls(svg, controls = {}) {
   let viewport = viewports.get(svg);
   if (!viewport) {
     viewport = installSvgViewport(svg, {
-      baseViewBox: { x: 0, y: 0, w: WIDTH, h: HEIGHT },
+      baseViewBox: { x: 0, y: 0, w: WIDTH, h: MAX_HEIGHT },
       panOnlyWhenZoomed: true,
       buttonOnlyZoom: true,
       allowPageScrollWhenPanDisabled: true,
@@ -218,12 +222,6 @@ export function renderOffsetTopView(svg, result, options = {}) {
   const plotGroupId = typeof options.plotGroupId === "string" && options.plotGroupId ? options.plotGroupId : "offset-plot";
   const root = svg.querySelector(`#${plotGroupId}`) ?? svg.appendChild(svgNode("g", { id: plotGroupId }));
   root.replaceChildren();
-  const viewport = viewports.get(svg);
-  const geometryChanged = lastRenderedResults.get(svg) !== result;
-  if (geometryChanged) viewport?.autoFit();
-  else viewport?.ensureBaseWhenUnadjusted();
-  lastRenderedResults.set(svg, result);
-
   const geometry = result.geometry;
   const points = geometry.points;
   const referenceWorldPoint = result.reference?.point;
@@ -234,13 +232,23 @@ export function renderOffsetTopView(svg, result, options = {}) {
   // This affects only the fit; it draws nothing by itself.
   const extraFitPoints = Array.isArray(options.extraFitPoints) ? options.extraFitPoints.filter(finitePoint) : [];
   const allWorldPoints = [...offsetTopViewWorldPoints(result), ...extraFitPoints];
-  const fit = createSvgAutoFitProjection(allWorldPoints, {
+  const fit = createSvgAutoCanvas(allWorldPoints, {
     width: WIDTH,
-    height: HEIGHT,
+    minHeight: MIN_HEIGHT,
+    maxHeight: MAX_HEIGHT,
     margins: 48,
     minSpan: 0.5,
     flipY: true,
   });
+  const HEIGHT = fit.height;
+  svg.style.aspectRatio = `${WIDTH} / ${HEIGHT}`;
+  svg.dataset.canvasHeight = String(HEIGHT);
+  const viewport = viewports.get(svg);
+  viewport?.setBaseViewBox({ x: 0, y: 0, w: WIDTH, h: HEIGHT });
+  const geometryChanged = lastRenderedResults.get(svg) !== result;
+  if (geometryChanged) viewport?.autoFit();
+  else viewport?.ensureBaseWhenUnadjusted();
+  lastRenderedResults.set(svg, result);
   const project = fit.project;
   svg.dataset.autoFitAxis = Math.abs(fit.usedWidth - fit.usableWidth) <= Math.abs(fit.usedHeight - fit.usableHeight) ? "width" : "height";
   svg.dataset.autoFitScale = String(fit.scale);
