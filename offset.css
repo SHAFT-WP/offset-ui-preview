@@ -1,4 +1,4 @@
-@import url("./common-ui-v0.2.css?v=13f474918a14");
+@import url("./common-ui-v0.2.css?v=a70cf75f3d27");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -33,3 +33,13 @@ body.show-full-bdp .bdp-extra{display:grid}
 .ded-section{display:grid;gap:10px}.ded-boxes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ded-tabs{display:flex;gap:7px;flex-wrap:wrap}.ded-tab{min-width:72px;border:1px solid var(--line);border-radius:9px;background:var(--field);color:var(--muted);padding:8px 12px;font-size:11px;font-weight:950;cursor:pointer}.ded-tab.active{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}.ded-tab[hidden]{display:none}.ded-screen{display:grid;gap:7px;padding:14px 16px;border:1px solid color-mix(in srgb,var(--green) 35%,var(--line));border-radius:12px;background:light-dark(#07120c,#050a07);color:#9ef0af;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;box-shadow:inset 0 0 18px rgba(0,0,0,.32);min-width:0}.ded-page-title{font-size:13px;font-weight:900;letter-spacing:.05em;padding-bottom:5px;border-bottom:1px solid rgba(158,240,175,.22)}.ded-row{display:grid;grid-template-columns:72px 1fr;gap:10px;align-items:baseline;font-size:12px}.ded-row span{opacity:.74}.ded-row output{font-weight:850;font-variant-numeric:tabular-nums;min-width:0;overflow-wrap:anywhere}.ded-foot{margin-top:3px;padding-top:7px;border-top:1px solid rgba(158,240,175,.18);font-size:10px;opacity:.72;letter-spacing:.04em}
 .constraint-note{font-size:10px;color:var(--muted);line-height:1.4}.alias-note{font-size:10px;color:var(--amber);margin-top:6px}
 @media(max-width:980px){.offset-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:620px){.driver{align-items:flex-start;flex-direction:column}.offset-grid{grid-template-columns:1fr 1fr;gap:7px}.offset-card{padding:8px}.offset-card.span2{grid-column:span 2}.reference-advanced{grid-column:1/-1}.vip-to-target-grid{grid-template-columns:1fr 1fr}.ded-boxes{grid-template-columns:1fr}.ded-tab{min-width:60px;padding:7px 9px}.ded-row{grid-template-columns:58px 1fr}}
+
+/* Per-tab controls (2026-09-26): visibility is scoped to the tab whose button was pressed. */
+.section.show-advanced .advanced-only{display:grid}
+.section.show-advanced section.advanced-only,.section.show-advanced details.advanced-only{display:block}
+.section.show-full-bdp .bdp-extra{display:grid}
+.section-tools{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-left:auto}
+.section-tools .tab-tool{min-height:36px;padding:6px 12px;font-size:13px;border-radius:10px}
+.section-tools .tab-tool.active{border-color:var(--blue);color:var(--blue)}
+.section-tools+.section-collapse-icon{margin-left:0}
+.flight-slot .top-view-section-like,.flight-slot .diagram-actions{margin-bottom:10px}

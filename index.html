@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=13f474918a14">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=13f474918a14">
+<link rel="stylesheet" href="./offset.css?v=a70cf75f3d27">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=a70cf75f3d27">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -16,15 +16,11 @@
     </div>
     <div class="toolbar">
       <label class="flight-size-control" for="flight-size"><span>Size of Flight</span><select id="flight-size"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
-      <button id="full-bdp-toggle" class="toggle" type="button" aria-pressed="false">Full BDP: Off</button>
-      <button id="advanced-toggle" class="toggle" type="button">Advanced: Off</button>
-      <button id="save-button" class="btn" type="button">Save</button>
-      <button id="default-button" class="btn" type="button">Default</button>
       <span class="rev">V2 WORK · OFFSET BE 0.2.5</span>
     </div>
   </header>
 
-  <section class="section" aria-labelledby="bomb-target-title">
+  <section class="section" data-tab="bdp" aria-labelledby="bomb-target-title">
     <div class="section-head"><h2 id="bomb-target-title">BDP #1</h2></div>
     <details class="input-panel" open>
       <summary>Bomb · Target</summary>
@@ -57,7 +53,7 @@
     </details>
   </section>
 
-  <section class="section reference-point-section" aria-labelledby="reference-point-title">
+  <section class="section reference-point-section" data-tab="reference" aria-labelledby="reference-point-title">
     <div class="section-head"><h2 id="reference-point-title">Reference Point</h2></div>
     <div class="mode-switch reference-mode-switch" role="group" aria-label="Reference Point mode">
       <button id="vrp-btn" class="mode-button active" type="button">VRP</button>
@@ -102,7 +98,7 @@
     </details>
   </section>
 
-  <section class="section" aria-labelledby="offset-input-title">
+  <section class="section" data-tab="offset" aria-labelledby="offset-input-title">
     <div class="section-head"><h2 id="offset-input-title">Offset #1</h2><div style="display:flex;gap:8px;align-items:center"><span id="lock-count" class="mode">LOCK 0</span><span id="state-pill" class="status ok">VALID</span></div></div>
     <div class="driver"><span>마지막 수정값은 Driver. LOCK 값은 자동 계산으로 덮어쓰지 않음.</span><output id="driver-out">DRIVER · vrpRangeNm</output></div>
 
@@ -194,7 +190,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=13f474918a14"></script>
+<script type="module" src="./controller-v0.1.mjs?v=a70cf75f3d27"></script>
 
 </body>
 </html>
