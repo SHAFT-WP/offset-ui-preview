@@ -12,7 +12,7 @@ import { formatNm } from "./common/ui/display-precision-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.13",
+  version: "0.1.14",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
@@ -191,6 +191,26 @@ export function installOffsetTopViewControls(svg, controls = {}) {
   return viewport;
 }
 
+// World points the Top View actually draws. Only the active reference point (VRP or VIP, per
+// result.reference) is included: the inactive one is not drawn, and fitting it squeezed the plot
+// into one corner of the fixed canvas (e.g. VRP mode with a distant hidden VIP).
+export function offsetTopViewWorldPoints(result) {
+  const geometry = result.geometry;
+  const points = geometry.points;
+  return [
+    points.target,
+    points.ip,
+    points.realActionPoint,
+    points.turnEnd,
+    points.offsetCenter,
+    points.rollStart,
+    points.trackPoint,
+    points.rollCenter,
+    result.reference?.point,
+    ...geometry.rollInTrajectorySamples,
+  ].filter(finitePoint);
+}
+
 export function renderOffsetTopView(svg, result, options = {}) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
   const textScale = Number.isFinite(Number(options.textScale)) ? Number(options.textScale) : 1;
@@ -213,21 +233,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   // both — otherwise each call would compute its own scale and the two renders would not align.
   // This affects only the fit; it draws nothing by itself.
   const extraFitPoints = Array.isArray(options.extraFitPoints) ? options.extraFitPoints.filter(finitePoint) : [];
-  const allWorldPoints = [
-    points.target,
-    points.ip,
-    points.vip,
-    points.vrp,
-    points.realActionPoint,
-    points.turnEnd,
-    points.offsetCenter,
-    points.rollStart,
-    points.trackPoint,
-    points.rollCenter,
-    referenceWorldPoint,
-    ...geometry.rollInTrajectorySamples,
-    ...extraFitPoints,
-  ].filter(finitePoint);
+  const allWorldPoints = [...offsetTopViewWorldPoints(result), ...extraFitPoints];
   const fit = createSvgAutoFitProjection(allWorldPoints, {
     width: WIDTH,
     height: HEIGHT,

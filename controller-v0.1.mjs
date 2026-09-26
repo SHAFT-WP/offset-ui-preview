@@ -14,7 +14,7 @@ import { add as addWorldPoints } from "./AG/bombing/offset-bombing/offset-geomet
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.1.mjs";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
-import { exportOffsetTopView, installOffsetTopViewControls, renderOffsetTopView } from "./renderer-v0.1.mjs?v=2026-09-26b";
+import { exportOffsetTopView, installOffsetTopViewControls, offsetTopViewWorldPoints, renderOffsetTopView } from "./renderer-v0.1.mjs?v=2026-09-26c";
 import { renderOffsetZDiagram } from "./offset-z-diagram-v0.1.mjs?v=2026-09-26b";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
@@ -1443,9 +1443,6 @@ function syncFollowerResolvedFields(number, slot, result) {
   else sync("trackingTimeSec", p.trackingTimeSec, 0);
 }
 
-function geometryWorldPoints(geometry) {
-  return [...Object.values(geometry.points), ...geometry.rollInTrajectorySamples];
-}
 
 // Both Top View calls below share one auto-fit projection (each passes the other's world points
 // as extraFitPoints), so the element lead's full-fidelity render and this aircraft's own render
@@ -1513,7 +1510,7 @@ function renderFollowerTopView(number, slot, leaderResult, result) {
   const leadNumber = elementLeadNumber(number);
   const view = followerTopView(number);
   const common = { textScale: view.textScale, viewportWidth: globalThis.innerWidth, advanced: view.advanced };
-  const leaderPoints = geometryWorldPoints(leaderResult.geometry);
+  const leaderPoints = offsetTopViewWorldPoints(leaderResult);
   const ownGroup = svg.querySelector(`#offset-plot-${number}`);
   if (!result) {
     // Own solve failed: keep the lead's profile visible instead of a blank or stale frame.
@@ -1521,7 +1518,7 @@ function renderFollowerTopView(number, slot, leaderResult, result) {
     renderOffsetTopView(svg, leaderResult, { ...common, plotGroupId: `offset-plot-lead-${number}` });
     return;
   }
-  const ownPoints = geometryWorldPoints(result.geometry);
+  const ownPoints = offsetTopViewWorldPoints(result);
   const leadLayer = renderOffsetTopView(svg, leaderResult, {
     ...common,
     plotGroupId: `offset-plot-lead-${number}`,
