@@ -13,7 +13,7 @@ import { formatNm } from "./common/ui/display-precision-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.16",
+  version: "0.1.17",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
@@ -56,6 +56,16 @@ function fmtHeading(value) {
   const heading = ((Math.round(value) % 360) + 360) % 360;
   return String(heading).padStart(3, "0") + "°";
 }
+// View rotation about Target (the world origin): the heading `upHeadingDeg` is drawn pointing up.
+// IP Bottom passes the Run-In heading (IP -> Target up); 0 keeps north up. Distances are unchanged.
+function worldRotation(upHeadingDeg) {
+  const rad = (upHeadingDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  if (Math.abs(sin) < 1e-12 && cos > 0) return (point) => point;
+  return (point) => ({ x: point.x * cos - point.y * sin, y: point.x * sin + point.y * cos });
+}
+
 function labelAnchorForDx(dx) {
   if (dx > 8) return "start";
   if (dx < -8) return "end";
@@ -223,15 +233,20 @@ export function renderOffsetTopView(svg, result, options = {}) {
   const root = svg.querySelector(`#${plotGroupId}`) ?? svg.appendChild(svgNode("g", { id: plotGroupId }));
   root.replaceChildren();
   const geometry = result.geometry;
-  const points = geometry.points;
-  const referenceWorldPoint = result.reference?.point;
+  // IP Bottom (FE default) passes upHeadingDeg = Run-In heading; north-up otherwise. Every drawn
+  // world point goes through the same rotation, so both layers of a Flight view stay aligned.
+  const upHeadingDeg = Number.isFinite(Number(options.upHeadingDeg)) ? Number(options.upHeadingDeg) : 0;
+  const rotate = worldRotation(upHeadingDeg);
+  const points = Object.fromEntries(Object.entries(geometry.points).map(([key, point]) => [key, finitePoint(point) ? rotate(point) : point]));
+  const rollSamples = geometry.rollInTrajectorySamples.filter(finitePoint).map(rotate);
+  const referenceWorldPoint = finitePoint(result.reference?.point) ? rotate(result.reference.point) : null;
   // Formation composition: when a Flight follower's Top View is rendered in the same shared
   // frame as another aircraft's (see controller-v0.1.mjs's renderFollowerTopView), both calls
   // pass the other aircraft's world points here so a single shared auto-fit projection covers
   // both — otherwise each call would compute its own scale and the two renders would not align.
   // This affects only the fit; it draws nothing by itself.
-  const extraFitPoints = Array.isArray(options.extraFitPoints) ? options.extraFitPoints.filter(finitePoint) : [];
-  const allWorldPoints = [...offsetTopViewWorldPoints(result), ...extraFitPoints];
+  const extraFitPoints = Array.isArray(options.extraFitPoints) ? options.extraFitPoints.filter(finitePoint).map(rotate) : [];
+  const allWorldPoints = [...offsetTopViewWorldPoints(result).map(rotate), ...extraFitPoints];
   const fit = createSvgAutoCanvas(allWorldPoints, {
     width: WIDTH,
     minHeight: MIN_HEIGHT,
@@ -255,7 +270,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
 
   const p = Object.fromEntries(Object.entries(points).map(([key, point]) => [key, finitePoint(point) ? project(point) : null]));
   const referencePoint = finitePoint(referenceWorldPoint) ? project(referenceWorldPoint) : null;
-  const rollPath = geometry.rollInTrajectorySamples.map(project);
+  const rollPath = rollSamples.map(project);
   const offsetArc = sampleArc(points.offsetCenter, points.realActionPoint, points.turnEnd, geometry.direction.offsetDirection).map(project);
   const approachRangeNm = result.resolved.approachRangeNm;
   const approachInvalid = approachRangeNm < 0;
@@ -350,7 +365,7 @@ export function renderOffsetTopView(svg, result, options = {}) {
   (avoid.segments ?? []).forEach((segment) => labels.reserveSegment(segment.from, segment.to, segment.pad));
   // ... and the first layer keeps its labels off the other layer's world-space paths.
   (Array.isArray(options.obstacleWorldPolylines) ? options.obstacleWorldPolylines : []).forEach((line) => {
-    const projected = (Array.isArray(line) ? line : []).filter(finitePoint).map(project);
+    const projected = (Array.isArray(line) ? line : []).filter(finitePoint).map((point) => project(rotate(point)));
     if (projected.length > 1) reservePolyline(labels, projected);
   });
   const appendLabel = (point, rawText, labelOptions = {}) => {
@@ -371,6 +386,23 @@ export function renderOffsetTopView(svg, result, options = {}) {
       },
     });
   };
+
+  // North arrow (north-up view only, i.e. IP Bottom off): top-left, arrow twice the label font
+  // size pointing north with "N" above it. Drawn once per svg, by the background-painting layer.
+  if (options.northArrow === true && options.paintBackground !== false) {
+    const left = 44;
+    const top = 22;
+    const arrowLength = labelFontSize * 2;
+    const tipY = top + labelFontSize + 8;
+    const tailY = tipY + arrowLength;
+    const head = labelFontSize * 0.45;
+    const northArrow = svgNode("g", { "data-top-view-role": "north-arrow" });
+    northArrow.append(svgNode("text", { x: left, y: top + labelFontSize * 0.85, "text-anchor": "middle", "font-size": labelFontSize, "font-weight": 900, fill: "#243240" }, "N"));
+    northArrow.append(svgNode("line", { x1: left, y1: tailY, x2: left, y2: tipY + head, stroke: "#243240", "stroke-width": 3, "stroke-linecap": "round" }));
+    northArrow.append(svgNode("polygon", { points: `${left},${tipY} ${left - head * 0.7},${tipY + head * 1.2} ${left + head * 0.7},${tipY + head * 1.2}`, fill: "#243240" }));
+    root.append(northArrow);
+    labels.reserveRect({ x: left - labelFontSize, y: top, w: labelFontSize * 2, h: tailY - top }, 6);
+  }
 
   [p.ip, p.realActionPoint, p.rollStart, p.trackPoint].filter(Boolean).forEach((point) => labels.reservePoint(point, 14));
   if (referencePoint) labels.reservePoint(referencePoint, 15);

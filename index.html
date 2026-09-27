@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=7407b2b90dfe">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=7407b2b90dfe">
+<link rel="stylesheet" href="./offset.css?v=5ba1227dada8">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=5ba1227dada8">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -160,11 +160,12 @@
           </div>
           <button class="capture-button" id="zoom-reset" type="button">Reset</button>
           <button class="capture-button" id="capture-top-view" type="button">PNG</button>
+          <button class="capture-button view-toggle" id="top-view-ip-bottom" type="button" aria-pressed="true" title="Run-In (IP → Target) up; off = north up">IP Bottom</button>
           <button class="capture-button" id="top-view-advanced" type="button" aria-pressed="false">Advanced: Off</button>
         </div>
       </div>
     </div>
-    <div class="top-view-shell"><svg data-export-legend="offset-legend" id="offset-top-view" viewBox="0 0 1180 1440" role="img" aria-label="Offset Bombing V2 north-up top view"><defs></defs><g id="offset-plot"></g></svg></div>
+    <div class="top-view-shell"><svg data-export-legend="offset-legend" id="offset-top-view" viewBox="0 0 1180 1440" role="img" aria-label="Offset Bombing V2 top view"><defs></defs><g id="offset-plot"></g></svg></div>
     <svg class="diagram-legend-box" id="offset-legend" role="img" aria-label="Offset Top View legend"></svg>
   </section>
 
@@ -197,7 +198,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=7407b2b90dfe"></script>
+<script type="module" src="./controller-v0.1.mjs?v=5ba1227dada8"></script>
 
 </body>
 </html>

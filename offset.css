@@ -1,4 +1,4 @@
-@import url("./common-ui-v0.2.css?v=7407b2b90dfe");
+@import url("./common-ui-v0.2.css?v=5ba1227dada8");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -48,3 +48,5 @@ body.show-full-bdp .bdp-extra{display:grid}
 .temp-def-status{font-size:12px;color:var(--muted);white-space:nowrap}
 .section-tools+.section-collapse-icon{margin-left:0}
 .flight-slot .top-view-section-like,.flight-slot .diagram-actions{margin-bottom:10px}
+/* Top View view toggles (IP Bottom): highlighted while on. */
+.capture-button.view-toggle[aria-pressed="true"]{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}

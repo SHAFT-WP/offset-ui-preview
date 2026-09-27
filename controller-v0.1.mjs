@@ -15,7 +15,7 @@ import { add as addWorldPoints } from "./AG/bombing/offset-bombing/offset-geomet
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.1.mjs";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
-import { exportOffsetTopView, installOffsetTopViewControls, offsetTopViewWorldPoints, renderOffsetTopView } from "./renderer-v0.1.mjs?v=2026-09-26e";
+import { exportOffsetTopView, installOffsetTopViewControls, offsetTopViewWorldPoints, renderOffsetTopView } from "./renderer-v0.1.mjs?v=2026-09-27a";
 import { renderOffsetZDiagram } from "./offset-z-diagram-v0.1.mjs?v=2026-09-26b";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
@@ -103,6 +103,9 @@ let rollBankAuto = true;
 let rollInAltitudeLinked = true;
 let topViewTextScale = TOP_VIEW_TEXT_SCALE_DEFAULT;
 let topViewAdvanced = false;
+// IP Bottom (default on): Top View drawn with the Run-In (IP -> Target) pointing up; off = north up
+// with a north arrow.
+let topViewIpBottom = true;
 let lastResult = null;
 let initialRender = true;
 let lastResultSnapshot = null;
@@ -393,9 +396,9 @@ function applyResolved(result) {
 }
 
 const SUMMARY_RESULTS = new Set(['runAttackSummary', 'offsetHeadingDeg', 'actionRangeNm', 'approachRangeNm', 'offsetTurnSec', 'approachSec', 'effectiveReleaseAltitudeMslFt', 'trackingTimeSecResult', 'leadAngleDeg', 'nltReleaseMslFt']);
-function row(label, renderedValue, resultKey = null) {
+function row(label, renderedValue, resultKey = null, { summaryKey = resultKey, summary = SUMMARY_RESULTS.has(summaryKey) } = {}) {
   const rendered = resultKey ? `<span class="value-result" data-result-key="${resultKey}">${renderedValue}</span>` : renderedValue;
-  return `<tr class="result-row" data-result-row data-summary="${SUMMARY_RESULTS.has(resultKey)}"><td>${label}</td><td data-result-value>${rendered}</td></tr>`;
+  return `<tr class="result-row" data-result-row data-summary="${summary}"><td>${label}</td><td data-result-value>${rendered}</td></tr>`;
 }
 
 // Signed IP -> Action leg; negative means the Action Point lies beyond IP (turn before IP).
@@ -411,7 +414,8 @@ function ingressText(t) {
 function offsetResultRows(result, { ipRangeText, reference = null, legacyDeltaTosSec = null, keyed = true }) {
   const g = result.geometry;
   const t = result.timing;
-  const r = (label, text, key) => row(label, text, keyed ? key : null);
+  // Unkeyed follower rows keep #1's summary/Advanced split through summaryKey.
+  const r = (label, text, key) => row(label, text, keyed ? key : null, { summaryKey: key });
   return [
     r("State", result.state),
     r("Run-In / Attack", `${fmtHeading(g.runInHeadingDeg)} → ${fmtHeading(g.attackHeadingDeg)}`, "runAttackSummary"),
@@ -434,7 +438,7 @@ function offsetResultRows(result, { ipRangeText, reference = null, legacyDeltaTo
 
 function profileResultRows(result, { keyed = true } = {}) {
   const p = result.profile.public;
-  const r = (label, text, key) => row(label, text, keyed ? key : null);
+  const r = (label, text, key) => row(label, text, keyed ? key : null, { summaryKey: key });
   return [
     r("Effective Release Altitude", `${formatFt(p.effectiveReleaseAltitudeMslFt)} ft MSL`, "effectiveReleaseAltitudeMslFt"),
     r("Roll-In Altitude", `${formatFt(p.resolvedInitialAltitudeMslFt)} ft MSL`, "resolvedInitialAltitudeMslFt"),
@@ -569,6 +573,8 @@ function renderTopView(result) {
     textScale: topViewTextScale,
     viewportWidth: globalThis.innerWidth,
     advanced: topViewAdvanced,
+    upHeadingDeg: topViewIpBottom ? result.resolved.runInHeadingDeg : 0,
+    northArrow: !topViewIpBottom,
   });
   const g = result.geometry;
   legendItems[0].label = `Offset Angle · ${fmt(g.offsetAngleDeg, 0)}°`;
@@ -1150,7 +1156,7 @@ function followerExtraField(key, label) {
 
 // Same Text / Size / Reset / PNG / Advanced toolbar as Top View #1, scoped to one follower.
 function followerTopViewToolbar(number) {
-  return `<div class="diagram-actions"><div class="diagram-action-row"><div class="font-scale-control" role="group" aria-label="Top View #${number} font size"><span class="diagram-control-label">Text</span><button class="capture-button" type="button" data-ftv="text-down" aria-label="Top View #${number} font smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="text-reset" aria-label="Reset Top View #${number} text size to 100%">100%</button><button class="capture-button" type="button" data-ftv="text-up" aria-label="Top View #${number} font larger">+</button></div><div class="view-scale-control" role="group" aria-label="Top View #${number} picture size"><span class="diagram-control-label">Size</span><button class="capture-button" type="button" data-ftv="zoom-out" aria-label="Picture smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="size-reset" aria-label="Reset Top View #${number} size to 100%">100%</button><button class="capture-button" type="button" data-ftv="zoom-in" aria-label="Picture larger">+</button></div><button class="capture-button" type="button" data-ftv="reset">Reset</button><button class="capture-button" type="button" data-ftv="png">PNG</button><button class="capture-button" type="button" data-ftv="advanced" aria-pressed="false">Advanced: Off</button></div></div>`;
+  return `<div class="diagram-actions"><div class="diagram-action-row"><div class="font-scale-control" role="group" aria-label="Top View #${number} font size"><span class="diagram-control-label">Text</span><button class="capture-button" type="button" data-ftv="text-down" aria-label="Top View #${number} font smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="text-reset" aria-label="Reset Top View #${number} text size to 100%">100%</button><button class="capture-button" type="button" data-ftv="text-up" aria-label="Top View #${number} font larger">+</button></div><div class="view-scale-control" role="group" aria-label="Top View #${number} picture size"><span class="diagram-control-label">Size</span><button class="capture-button" type="button" data-ftv="zoom-out" aria-label="Picture smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="size-reset" aria-label="Reset Top View #${number} size to 100%">100%</button><button class="capture-button" type="button" data-ftv="zoom-in" aria-label="Picture larger">+</button></div><button class="capture-button" type="button" data-ftv="reset">Reset</button><button class="capture-button" type="button" data-ftv="png">PNG</button><button class="capture-button view-toggle" type="button" data-ftv="ip-bottom" aria-pressed="true" title="Run-In (IP → Target) up; off = north up">IP Bottom</button><button class="capture-button" type="button" data-ftv="advanced" aria-pressed="false">Advanced: Off</button></div></div>`;
 }
 
 function followerDraftMarkup(number) {
@@ -1175,7 +1181,7 @@ function followerCalculatingMarkup(number) {
     flightSection(number, "Z-Diagram", `<p class="flight-draft-note">Aircraft #${number} diagram is pending its profile result.</p>`),
     flightSection(number, "Top View", `${followerTopViewToolbar(number)}<div class="top-view-shell"><svg data-flight-topview viewBox="0 0 1180 1440" role="img" aria-label="Aircraft #${number} Offset top view"><defs></defs></svg></div><p class="flight-draft-note">Leader #${leadNumber}'s already-solved profile is drawn in full alongside this aircraft's own, sharing Target and scale; it does not feed aircraft #${number}'s own solve.</p>`, { calculating: true }),
     // Same variables as Result #1 first (same groups and order), then what only this aircraft has.
-    flightSection(number, "Result", `<div class="compact-results"><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${leadNumber}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div></div></div>`, { calculating: true }),
+    flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${leadNumber}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true }),
     flightSection(number, "DED", `<p class="flight-draft-note">Aircraft #${number} DED is pending its profile result.</p>`),
   ].join("");
 }
@@ -1211,6 +1217,12 @@ function renderFlightLayout() {
   installSectionDisclosure();
   installSectionTools(host);
   host.querySelectorAll(".flight-slot").forEach((slot) => installFollowerTopViewControls(Number(slot.dataset.aircraft), slot));
+  // Result #n gets the same Text / Advanced controls as Result #1 (summary rows by default).
+  followerResultPanels.clear();
+  host.querySelectorAll(".flight-slot").forEach((slot) => {
+    const panel = slot.querySelector("[data-flight-result-panel]");
+    if (panel) followerResultPanels.set(Number(slot.dataset.aircraft), installResultPanel(panel));
+  });
   recalculateFollowers();
 }
 
@@ -1461,11 +1473,18 @@ function renderFollowerStatus(number, state, message) {
 // Result #n: the same Offset / Bomb Profile variables as Result #1 first, then the variables only
 // this aircraft has (drop-order timing against its predecessor). Without a result it shows the
 // state and message only.
-function renderFollowerResult(number, slot, { result = null, delta = null, state = "INVALID", message = "" } = {}) {
+const followerResultPanels = new Map();
+
+function renderFollowerResult(number, slot, options = {}) {
+  renderFollowerResultRows(number, slot, options);
+  followerResultPanels.get(number)?.refresh();
+}
+
+function renderFollowerResultRows(number, slot, { result = null, delta = null, state = "INVALID", message = "" } = {}) {
   const body = (group) => slot.querySelector(`[data-flight-result="${group}"]`);
   if (!body("offset")) return;
   if (!result) {
-    body("offset").innerHTML = [row("State", state), message ? row("Message", message) : ""].join("");
+    body("offset").innerHTML = [row("State", state, null, { summary: true }), message ? row("Message", message, null, { summary: true }) : ""].join("");
     body("profile").innerHTML = "";
     body("flight").innerHTML = "";
     return;
@@ -1476,10 +1495,11 @@ function renderFollowerResult(number, slot, { result = null, delta = null, state
   // Bomb TOF is a duration, the other three are signed deltas.
   const timing = (key, text) => `<span data-flight-timing="${key}">${Number.isFinite(delta?.[key]) ? `${text(delta[key])} sec` : "-"}</span>`;
   body("flight").innerHTML = [
-    row(`IP→Release Δ vs #${leadNumber}`, timing("ipToReleaseDeltaSec", formatSignedSec)),
-    row(`IP→Impact Δ vs #${leadNumber}`, timing("ipToImpactDeltaSec", formatSignedSec)),
-    row(`#${leadNumber} Impact → #${number} Release`, timing("predecessorImpactToOwnReleaseSec", formatSignedSec)),
-    row(`#${leadNumber} Bomb TOF`, timing("predecessorBombTofSec", formatSec)),
+    // Follower-only rows are always in the summary.
+    row(`IP→Release Δ vs #${leadNumber}`, timing("ipToReleaseDeltaSec", formatSignedSec), null, { summary: true }),
+    row(`IP→Impact Δ vs #${leadNumber}`, timing("ipToImpactDeltaSec", formatSignedSec), null, { summary: true }),
+    row(`#${leadNumber} Impact → #${number} Release`, timing("predecessorImpactToOwnReleaseSec", formatSignedSec), null, { summary: true }),
+    row(`#${leadNumber} Bomb TOF`, timing("predecessorBombTofSec", formatSec), null, { summary: true }),
   ].join("");
 }
 
@@ -1520,7 +1540,7 @@ function syncFollowerResolvedFields(number, slot, result, { pairSolved = false }
 // Per-follower Top View presentation state (Text scale / Advanced), same controls as Top View #1.
 const followerTopViewState = new Map();
 function followerTopView(number) {
-  if (!followerTopViewState.has(number)) followerTopViewState.set(number, { textScale: TOP_VIEW_TEXT_SCALE_DEFAULT, advanced: false });
+  if (!followerTopViewState.has(number)) followerTopViewState.set(number, { textScale: TOP_VIEW_TEXT_SCALE_DEFAULT, advanced: false, ipBottom: true });
   return followerTopViewState.get(number);
 }
 
@@ -1544,6 +1564,7 @@ function installFollowerTopViewControls(number, slot) {
     advanced.setAttribute("aria-pressed", String(state.advanced));
     advanced.classList.toggle("active", state.advanced);
     advanced.textContent = `Advanced: ${state.advanced ? "On" : "Off"}`;
+    control("ip-bottom").setAttribute("aria-pressed", String(state.ipBottom));
   };
   const redraw = () => {
     const leadNumber = elementLeadNumber(number);
@@ -1563,6 +1584,11 @@ function installFollowerTopViewControls(number, slot) {
     syncText();
     redraw();
   });
+  control("ip-bottom").addEventListener("click", () => {
+    state.ipBottom = !state.ipBottom;
+    syncText();
+    redraw();
+  });
   control("png").addEventListener("click", () => exportOffsetTopView(svg, `offset-top-view-${number}.png`));
   syncText();
 }
@@ -1577,7 +1603,14 @@ function renderFollowerTopView(number, slot, leaderResult, result) {
   if (!svg) return;
   const leadNumber = elementLeadNumber(number);
   const view = followerTopView(number);
-  const common = { textScale: view.textScale, viewportWidth: globalThis.innerWidth, advanced: view.advanced };
+  // Both layers share one rotation: the lead's Run-In (followers fly parallel Run-In lines).
+  const common = {
+    textScale: view.textScale,
+    viewportWidth: globalThis.innerWidth,
+    advanced: view.advanced,
+    upHeadingDeg: view.ipBottom ? leaderResult.resolved.runInHeadingDeg : 0,
+    northArrow: !view.ipBottom,
+  };
   const leaderPoints = offsetTopViewWorldPoints(leaderResult);
   const ownGroup = svg.querySelector(`#offset-plot-${number}`);
   if (!result) {
@@ -1898,6 +1931,11 @@ function install() {
     if (document.body) topViewViewportObserver.observe(document.body);
   }
   $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg));
+  $("#top-view-ip-bottom").addEventListener("click", (event) => {
+    topViewIpBottom = !topViewIpBottom;
+    event.currentTarget.setAttribute("aria-pressed", String(topViewIpBottom));
+    if (lastResult) renderTopView(lastResult);
+  });
   $("#top-view-advanced").addEventListener("click", (event) => {
     topViewAdvanced = !topViewAdvanced;
     event.currentTarget.setAttribute("aria-pressed", String(topViewAdvanced));
