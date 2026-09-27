@@ -21,7 +21,7 @@ import {
 
 export const OFFSET_FORMATION_GEOMETRY_V0_1 = Object.freeze({
   id: "offset-formation-geometry-v0.1",
-  version: "0.1.3",
+  version: "0.1.4",
   status: "work",
   purpose:
     "Off-axis Offset geometry for a Flight follower whose IP is displaced from the shared Target-through Run-In axis by its Formation position, while Target and Run-In heading stay shared with its element lead. Reuses offset-geometry-v0.2.mjs's pure heading/vector helpers without modifying offset-be-v0.2.mjs or offset-geometry-v0.2.mjs's own single-aircraft (on-axis) contract.",
@@ -279,18 +279,18 @@ export function calculateOffAxisOffsetFull(input) {
   const candidateValidation = validateOffAxisOffsetCandidate(candidate);
   errors.push(...candidateValidation.errors);
   warnings.push(...candidateValidation.warnings);
-  // VIP limit (user rule, 2026-09-27): a follower's Action Point must not lie farther out along the
-  // Run-In than the Flight's VIP, i.e. below the VIP in the IP Bottom Top View. Optional input; the
-  // geometry is still returned (INVALID) so it can be drawn.
-  let vipLimit = null;
-  if (input.vipPoint !== undefined && input.vipPoint !== null) {
-    const vip = finitePoint("vipPoint", input.vipPoint);
+  // IP limit (user rule, 2026-09-27): a follower's Action Point must not lie farther out along the
+  // Run-In than the Flight's IP (#1's IP, VRP + 3 NM when linked), i.e. below that IP in the IP Bottom
+  // Top View. Optional input; the geometry is still returned (INVALID) so it can be drawn.
+  let ipLimit = null;
+  if (input.ipLimitPoint !== undefined && input.ipLimitPoint !== null) {
+    const limit = finitePoint("ipLimitPoint", input.ipLimitPoint);
     const runVector = candidate.vectors.runVector;
-    const vipRunRangeNm = -dot(vip, runVector);
+    const limitRunRangeNm = -dot(limit, runVector);
     const actionPointRunRangeNm = -dot(candidate.points.realActionPoint, runVector);
-    const violated = actionPointRunRangeNm > vipRunRangeNm + 0.001;
-    vipLimit = { point: { ...vip }, vipRunRangeNm, actionPointRunRangeNm, violated };
-    if (violated) errors.push(`Action Point must not be below VIP (${actionPointRunRangeNm.toFixed(1)} NM out along the Run-In, VIP ${vipRunRangeNm.toFixed(1)} NM)`);
+    const violated = actionPointRunRangeNm > limitRunRangeNm + 0.001;
+    ipLimit = { point: { ...limit }, limitRunRangeNm, actionPointRunRangeNm, violated };
+    if (violated) errors.push(`Action Point must not be below the Flight IP (${actionPointRunRangeNm.toFixed(1)} NM out along the Run-In, IP ${limitRunRangeNm.toFixed(1)} NM)`);
   }
 
   const speedFps = turn.offsetTasKt * KT_TO_FPS;
@@ -344,7 +344,7 @@ export function calculateOffAxisOffsetFull(input) {
     },
     geometry: candidate,
     profile: candidate.profile,
-    vipLimit,
+    ipLimit,
     solve: { residualNm, exact },
   };
 }

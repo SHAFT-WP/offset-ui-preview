@@ -10,12 +10,12 @@ import {
   solveIngressTimeMatch,
   solveMetricMatch,
 } from "./AG/bombing/offset-bombing/offset-formation-v0.1.mjs?v=2026-09-26e";
-import { calculateOffAxisOffset } from "./AG/bombing/offset-bombing/offset-formation-geometry-v0.1.mjs?v=2026-09-27b";
+import { calculateOffAxisOffset } from "./AG/bombing/offset-bombing/offset-formation-geometry-v0.1.mjs?v=2026-09-27c";
 import { add as addWorldPoints } from "./AG/bombing/offset-bombing/offset-geometry-v0.2.mjs?v=2026-09-26e";
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.1.mjs";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
-import { exportOffsetTopView, installOffsetTopViewControls, offsetTopViewWorldPoints, renderOffsetTopView } from "./renderer-v0.1.mjs?v=2026-09-27b";
+import { exportOffsetTopView, installOffsetTopViewControls, offsetTopViewWorldPoints, renderOffsetTopView } from "./renderer-v0.1.mjs?v=2026-09-27c";
 import { renderOffsetZDiagram } from "./offset-z-diagram-v0.1.mjs?v=2026-09-26b";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
@@ -1653,7 +1653,7 @@ function renderFollowerTopView(number, slot, leaderResult, result) {
     aircraftTag: `#${number}`,
     leadAttackHeadingDeg: leaderResult.geometry.attackHeadingDeg,
     labelObstacles: { rects: leadLayer?.labelRects, segments: leadLayer?.segments },
-    vipLimit: result.vipLimit?.violated ? result.vipLimit : null,
+    ipLimit: result.ipLimit?.violated ? result.ipLimit : null,
   });
   svg.dataset.leadAircraft = String(leadNumber);
 }
@@ -1666,9 +1666,9 @@ function calculateFollower(number) {
     const leaderResult = flightResultOf(leadNumber);
     if (!leaderResult) throw new Error(`Aircraft #${leadNumber} has not resolved yet`);
     const { baseInput, sameAngleAsLead, sameTimeAsLead, offsetAngleLocked, actionRangeLocked } = buildFollowerInput(number, slot, leaderResult);
-    // VIP limit (user rule, 2026-09-27): no follower's Action Point may lie below the Flight's VIP
-    // (#1's VIP) in the IP Bottom view. Violations stay INVALID but drawn.
-    if (lastResult?.geometry?.points?.vip) baseInput.vipPoint = lastResult.geometry.points.vip;
+    // IP limit (user rule, 2026-09-27): no follower's Action Point may lie below the Flight IP
+    // (#1's IP, VRP + 3 NM when linked) in the IP Bottom view. Violations stay INVALID but drawn.
+    if (lastResult?.geometry?.points?.ip) baseInput.ipLimitPoint = lastResult.geometry.points.ip;
     // Offset Angle is fixed by Angle #n or its LOCK; the Action Point by Time #n or the Action
     // Range LOCK. With one of them free, a BDP edit (e.g. Dive Angle) moves the free one; with
     // both fixed it moves this aircraft's Roll-in Altitude / Tracking Time (user rule, 2026-09-26).
@@ -1718,7 +1718,7 @@ function calculateFollower(number) {
     flightResults.set(number, result);
     syncFollowerResolvedFields(number, slot, result, { pairSolved });
     syncFollowerExtraPlaceholders(slot, result);
-    renderFollowerStatus(number, result.state, result.errors[0] ?? result.warnings[0] ?? "-");
+    renderFollowerStatus(number, result.state, result.errors.length ? result.errors.join(" / ") : result.warnings[0] ?? "-");
     renderFollowerTopView(number, slot, leaderResult, result);
     const runInReadout = slot.querySelector('[data-flight-readout="runInHeadingDeg"]');
     if (runInReadout) runInReadout.textContent = fmtHeading(result.resolved.runInHeadingDeg);
