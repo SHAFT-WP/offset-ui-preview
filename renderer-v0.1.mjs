@@ -13,7 +13,7 @@ import { formatNm } from "./common/ui/display-precision-v0.1.mjs";
 
 export const OFFSET_RENDERER_V0_1 = Object.freeze({
   id: "offset-renderer-v0.1",
-  version: "0.1.17",
+  version: "0.1.18",
   common: ["svg-primitives-v0.1", "svg-smart-label-v0.1", "svg-viewport-v0.1", "svg-png-export-v0.1"],
 });
 
@@ -448,6 +448,24 @@ export function renderOffsetTopView(svg, result, options = {}) {
       color: C.reference,
       leaderMarkerId: "offset-arrow-label",
       textAttributes: { "data-result-key": "referenceSummary", "data-top-view-role": "reference" },
+    });
+  }
+
+  // VIP limit (follower rule): when the Action Point is below the VIP, draw the limit line through
+  // the VIP across the Run-In so the violation is visible.
+  const vipLimit = options.vipLimit;
+  if (vipLimit?.violated && finitePoint(vipLimit.point) && geometry.vectors?.runVector) {
+    const run = geometry.vectors.runVector;
+    const normal = { x: -run.y, y: run.x };
+    const across = Math.abs((points.realActionPoint.x - rotate(vipLimit.point).x) * rotate(normal).x + (points.realActionPoint.y - rotate(vipLimit.point).y) * rotate(normal).y);
+    const halfLength = across + 1.5;
+    const ends = [add(vipLimit.point, mul(normal, -halfLength)), add(vipLimit.point, mul(normal, halfLength))].map((point) => project(rotate(point)));
+    appendPolyline(root, ends, { color: C.invalid, width: 2.5, dasharray: "10 7" }).setAttribute("data-top-view-role", "vip-limit");
+    appendLabel(project(rotate(vipLimit.point)), "VIP limit", {
+      labelKey: "vip-limit",
+      color: C.invalid,
+      leaderMarkerId: "offset-arrow-label",
+      textAttributes: { "data-top-view-role": "vip-limit-label" },
     });
   }
 

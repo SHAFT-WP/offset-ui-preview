@@ -10,12 +10,12 @@ import {
   solveIngressTimeMatch,
   solveMetricMatch,
 } from "./AG/bombing/offset-bombing/offset-formation-v0.1.mjs?v=2026-09-26e";
-import { calculateOffAxisOffset } from "./AG/bombing/offset-bombing/offset-formation-geometry-v0.1.mjs?v=2026-09-26e";
+import { calculateOffAxisOffset } from "./AG/bombing/offset-bombing/offset-formation-geometry-v0.1.mjs?v=2026-09-27b";
 import { add as addWorldPoints } from "./AG/bombing/offset-bombing/offset-geometry-v0.2.mjs?v=2026-09-26e";
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.1.mjs";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
-import { exportOffsetTopView, installOffsetTopViewControls, offsetTopViewWorldPoints, renderOffsetTopView } from "./renderer-v0.1.mjs?v=2026-09-27a";
+import { exportOffsetTopView, installOffsetTopViewControls, offsetTopViewWorldPoints, renderOffsetTopView } from "./renderer-v0.1.mjs?v=2026-09-27b";
 import { renderOffsetZDiagram } from "./offset-z-diagram-v0.1.mjs?v=2026-09-26b";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
@@ -36,7 +36,10 @@ const STORAGE_KEY = "flight-sim-tools.offset.v2.input.v1";
 const FLIGHT_LAYOUT_KEY = "flight-sim-tools.offset.v2.flight-layout.v1";
 const flightLayout = { size: 1, aircraft: {} };
 const flightResults = new Map();
-const FLIGHT_CALCULATING_AIRCRAFT = new Set([2]);
+// Flight of 4 (2026-09-27): #2 and #3 fly off #1, #4 flies off its element lead #3.
+const FLIGHT_CALCULATING_AIRCRAFT = new Set([2, 3, 4]);
+// Wingmen carry the Angle #n / Time #n element-lead options; #3 is element lead B and has none.
+const FLIGHT_WINGMEN = new Set([2, 4]);
 // "Angle #n" / "Time #n" toggles are LOCK-style buttons, not checkboxes: turning one on turns off
 // its own manual LOCK (they substitute the same field a LOCK would otherwise hold). When both the
 // Offset Angle (Angle #n or LOCK) and the Action Point (Time #n or Action Range LOCK) are fixed,
@@ -1092,7 +1095,7 @@ function resetLeadTab(tab, section) {
 
 function resetFollowerTab(number, tab) {
   const draft = flightDraft(number);
-  const defaults = defaultFlightDraft();
+  const defaults = defaultFlightDraft(number);
   (FOLLOWER_TAB_KEYS[tab] ?? []).forEach((key) => {
     draft[key] = defaults[key];
     followerSolvedValues.delete(`${number}:${key}`);
@@ -1100,7 +1103,7 @@ function resetFollowerTab(number, tab) {
   const slot = document.querySelector(`.flight-slot[data-aircraft="${number}"]`);
   if (slot) initializeFlightSlotFields(slot, number);
   saveFlightLayout();
-  if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) calculateFollower(number);
+  if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) recalculateFollowers(number);
 }
 
 // Follower BDP Advanced/Full BDP inputs owned per aircraft. An empty value follows #1's current
@@ -1113,9 +1116,14 @@ const FOLLOWER_TAB_KEYS = {
   offset: ["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "offsetAngleLocked", "sameAngleAsLead", "actionRangeLocked", "sameTimeAsLead", "driver"],
 };
 
-function defaultFlightDraft() {
+// Default 4-ship positions (fingertip): #2 left of #1, #3 right of #1 at 2 NM, #4 right of #3.
+// #1 offsets to its right by default, so the right-hand element solves cleanly from these values.
+const FLIGHT_DEFAULT_POSITIONS = { 2: { side: "LEFT", distanceNm: "1" }, 3: { side: "RIGHT", distanceNm: "2" }, 4: { side: "RIGHT", distanceNm: "1" } };
+
+function defaultFlightDraft(number = 2) {
+  const position = FLIGHT_DEFAULT_POSITIONS[number] ?? FLIGHT_DEFAULT_POSITIONS[2];
   return {
-    weaponId: "M82", side: "LEFT", bearingDeg: "90", distanceNm: "1",
+    weaponId: "M82", side: position.side, bearingDeg: "90", distanceNm: position.distanceNm,
     initialSpeedValue: "350", initialAltitudeMslFt: "16000", diveAngleDeg: "45",
     rollInAltitudeMslFt: "16000", rollInAltitudeLinked: true,
     trackingTimeSec: "18", solveMode: "height", releaseAltitudeMslFt: "6800", releaseSpeedKcas: "450",
@@ -1129,11 +1137,17 @@ function defaultFlightDraft() {
 }
 
 function flightDraft(number) {
-  return flightLayout.aircraft[number] ||= defaultFlightDraft();
+  return flightLayout.aircraft[number] ||= defaultFlightDraft(number);
 }
 
+// Reference aircraft of a follower: Formation position, Angle/Time options and the Top View lead
+// layer (#4 -> #3, #2/#3 -> #1). Drop-order timing always compares with the predecessor n-1.
 function elementLeadNumber(number) {
   return number === 4 ? 3 : 1;
+}
+
+function flightResultOf(number) {
+  return number === 1 ? lastResult : flightResults.get(number) ?? null;
 }
 
 function saveFlightLayout() {
@@ -1174,14 +1188,16 @@ function followerDraftMarkup(number) {
 
 function followerCalculatingMarkup(number) {
   const leadNumber = elementLeadNumber(number);
+  const predecessor = number - 1;
+  const wingman = FLIGHT_WINGMEN.has(number);
   return [
-    flightSection(number, "Formation", `<p class="flight-draft-note">Start point relative to #1's own IP; feeds this aircraft's Run-In line.</p><div class="flight-draft-grid"><label class="field"><span>Side</span><select data-flight-field="side"><option value="LEFT">Left</option><option value="RIGHT">Right</option></select></label><label class="field"><span>Bearing (°)</span><input type="number" min="0" max="180" step="1" data-flight-field="bearingDeg"></label><label class="field"><span>Distance (NM)</span><input type="number" min="0" step="0.1" data-flight-field="distanceNm"></label></div>`, { calculating: true, tab: "formation" }),
+    flightSection(number, "Formation", `<p class="flight-draft-note">Start point relative to #${leadNumber}'s own IP; feeds this aircraft's Run-In line.</p><div class="flight-draft-grid"><label class="field"><span>Side</span><select data-flight-field="side"><option value="LEFT">Left</option><option value="RIGHT">Right</option></select></label><label class="field"><span>Bearing (°)</span><input type="number" min="0" max="180" step="1" data-flight-field="bearingDeg"></label><label class="field"><span>Distance (NM)</span><input type="number" min="0" step="0.1" data-flight-field="distanceNm"></label></div>`, { calculating: true, tab: "formation" }),
     flightSection(number, "BDP", `<div class="input-grid"><label class="field flight-weapon-field"><span>Bomb</span><select data-flight-field="weaponId"></select></label><label class="field"><span>Initial Speed (KCAS)</span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"></label><label class="field"><span>Initial Altitude (ft MSL)</span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"></label><label class="field"><span>Roll-in Altitude (ft MSL)</span><input data-flight-field="rollInAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">Default = Initial Altitude · BDP entry altitude</span></label><label class="field"><span>Dive Angle (deg)</span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"></label><label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label><label class="field"><span>Release Speed (KCAS)</span><input data-flight-field="releaseSpeedKcas" type="text" inputmode="decimal"></label>${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}<label class="field advanced-only bdp-extra"><span>Solve Mode <span class="adv-tag">ADV</span></span><select data-flight-field="solveMode"><option value="height">Initial Altitude</option><option value="time">Tracking Time</option></select></label>${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}</div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target). Full BDP fields left blank follow #1 (Roll-in Bank: automatic from this aircraft's Dive Angle).</p>`, { calculating: true, tab: "bdp" }),
-    flightSection(number, "Offset", `<div class="section-head"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div><div class="input-grid"><label class="field"><span>Run-In Heading</span><output data-flight-readout="runInHeadingDeg">-</output><span class="unit">Follows #1 · parallel Run-In</span></label><label class="field"><span>IP Range from Target</span><output data-flight-readout="ipRangeFromTargetNm">-</output><span class="unit">NM · from Formation position</span></label><label class="field"><span>Attack Heading (deg)</span><input data-flight-field="attackHeadingDeg" type="text" inputmode="decimal"></label><label class="field"><span>Angle-Off (deg)</span><input data-flight-field="angleOffDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Offset Angle (deg)</span><button class="lock-button" type="button" data-flight-field="offsetAngleLocked" aria-pressed="false">LOCK</button><button class="lock-button" type="button" data-flight-field="sameAngleAsLead" aria-pressed="false" title="Offset Angle same as #${leadNumber}">Angle #${leadNumber}</button></span><input data-flight-field="offsetAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Action Range (NM)</span><button class="lock-button" type="button" data-flight-field="actionRangeLocked" aria-pressed="false">LOCK</button><button class="lock-button" type="button" data-flight-field="sameTimeAsLead" aria-pressed="false" title="Action at the same time as #${leadNumber}">Time #${leadNumber}</button></span><input data-flight-field="actionRangeNm" type="text" inputmode="decimal"><span class="unit">Target → Action Point</span></label></div><div id="flight-status-${number}" class="status-message valid">-</div>`, { calculating: true, tab: "offset" }),
+    flightSection(number, "Offset", `<div class="section-head"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div><div class="input-grid"><label class="field"><span>Run-In Heading</span><output data-flight-readout="runInHeadingDeg">-</output><span class="unit">Follows #1 · parallel Run-In</span></label><label class="field"><span>IP Range from Target</span><output data-flight-readout="ipRangeFromTargetNm">-</output><span class="unit">NM · from Formation position</span></label><label class="field"><span>Attack Heading (deg)</span><input data-flight-field="attackHeadingDeg" type="text" inputmode="decimal"></label><label class="field"><span>Angle-Off (deg)</span><input data-flight-field="angleOffDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Offset Angle (deg)</span><button class="lock-button" type="button" data-flight-field="offsetAngleLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameAngleAsLead" aria-pressed="false" title="Offset Angle same as #${leadNumber}">Angle #${leadNumber}</button>` : ""}</span><input data-flight-field="offsetAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Action Range (NM)</span><button class="lock-button" type="button" data-flight-field="actionRangeLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameTimeAsLead" aria-pressed="false" title="Action at the same time as #${leadNumber}">Time #${leadNumber}</button>` : ""}</span><input data-flight-field="actionRangeNm" type="text" inputmode="decimal"><span class="unit">Target → Action Point</span></label></div><div id="flight-status-${number}" class="status-message valid">-</div>`, { calculating: true, tab: "offset" }),
     flightSection(number, "Z-Diagram", `<p class="flight-draft-note">Aircraft #${number} diagram is pending its profile result.</p>`),
     flightSection(number, "Top View", `${followerTopViewToolbar(number)}<div class="top-view-shell"><svg data-flight-topview viewBox="0 0 1180 1440" role="img" aria-label="Aircraft #${number} Offset top view"><defs></defs></svg></div><p class="flight-draft-note">Leader #${leadNumber}'s already-solved profile is drawn in full alongside this aircraft's own, sharing Target and scale; it does not feed aircraft #${number}'s own solve.</p>`, { calculating: true }),
     // Same variables as Result #1 first (same groups and order), then what only this aircraft has.
-    flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${leadNumber}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true }),
+    flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${predecessor}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true }),
     flightSection(number, "DED", `<p class="flight-draft-note">Aircraft #${number} DED is pending its profile result.</p>`),
   ].join("");
 }
@@ -1305,7 +1321,8 @@ function installFlightLayout() {
     // edits keep the last tactical constraint so the unlocked geometry re-solves around it.
     if (FLIGHT_TACTICAL_DRIVERS.includes(key)) draft.driver = key;
     saveFlightLayout();
-    if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) calculateFollower(number);
+    // Later aircraft depend on this one (drop-order predecessor, #4 on #3).
+    if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) recalculateFollowers(number);
   };
   $("#flight-followers").addEventListener("input", updateFlightDraft);
   $("#flight-followers").addEventListener("change", updateFlightDraft);
@@ -1328,7 +1345,8 @@ function installFlightLayout() {
       });
     }
     saveFlightLayout();
-    if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) calculateFollower(number);
+    // Later aircraft depend on this one (drop-order predecessor, #4 on #3).
+    if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) recalculateFollowers(number);
   });
   renderFlightLayout();
 }
@@ -1489,7 +1507,7 @@ function renderFollowerResultRows(number, slot, { result = null, delta = null, s
     body("flight").innerHTML = "";
     return;
   }
-  const leadNumber = elementLeadNumber(number);
+  const leadNumber = number - 1; // drop-order predecessor
   body("offset").innerHTML = offsetResultRows(result, { ipRangeText: `${formatNm(result.resolved.ipRangeNm)} NM · FORMATION`, keyed: false }).join("");
   body("profile").innerHTML = profileResultRows(result, { keyed: false }).join("");
   // Bomb TOF is a duration, the other three are signed deltas.
@@ -1635,6 +1653,7 @@ function renderFollowerTopView(number, slot, leaderResult, result) {
     aircraftTag: `#${number}`,
     leadAttackHeadingDeg: leaderResult.geometry.attackHeadingDeg,
     labelObstacles: { rects: leadLayer?.labelRects, segments: leadLayer?.segments },
+    vipLimit: result.vipLimit?.violated ? result.vipLimit : null,
   });
   svg.dataset.leadAircraft = String(leadNumber);
 }
@@ -1644,9 +1663,12 @@ function calculateFollower(number) {
   if (!slot) return;
   const leadNumber = elementLeadNumber(number);
   try {
-    const leaderResult = leadNumber === 1 ? lastResult : flightResults.get(leadNumber);
+    const leaderResult = flightResultOf(leadNumber);
     if (!leaderResult) throw new Error(`Aircraft #${leadNumber} has not resolved yet`);
     const { baseInput, sameAngleAsLead, sameTimeAsLead, offsetAngleLocked, actionRangeLocked } = buildFollowerInput(number, slot, leaderResult);
+    // VIP limit (user rule, 2026-09-27): no follower's Action Point may lie below the Flight's VIP
+    // (#1's VIP) in the IP Bottom view. Violations stay INVALID but drawn.
+    if (lastResult?.geometry?.points?.vip) baseInput.vipPoint = lastResult.geometry.points.vip;
     // Offset Angle is fixed by Angle #n or its LOCK; the Action Point by Time #n or the Action
     // Range LOCK. With one of them free, a BDP edit (e.g. Dive Angle) moves the free one; with
     // both fixed it moves this aircraft's Roll-in Altitude / Tracking Time (user rule, 2026-09-26).
@@ -1702,12 +1724,13 @@ function calculateFollower(number) {
     if (runInReadout) runInReadout.textContent = fmtHeading(result.resolved.runInHeadingDeg);
     const ipRangeReadout = slot.querySelector('[data-flight-readout="ipRangeFromTargetNm"]');
     if (ipRangeReadout) ipRangeReadout.textContent = formatNm(result.resolved.ipRangeNm);
-    renderFollowerResult(number, slot, { result, delta: computeDropOrderDelta({ predecessorResult: leaderResult, ownResult: result }) });
+    const predecessorResult = flightResultOf(number - 1);
+    renderFollowerResult(number, slot, { result, delta: predecessorResult ? computeDropOrderDelta({ predecessorResult, ownResult: result }) : null });
   } catch (error) {
     flightResults.delete(number);
     renderFollowerStatus(number, "INVALID", error.message);
     renderFollowerResult(number, slot, { state: "INVALID", message: error.message });
-    const leaderResult = leadNumber === 1 ? lastResult : flightResults.get(leadNumber);
+    const leaderResult = flightResultOf(leadNumber);
     if (leaderResult) renderFollowerTopView(number, slot, leaderResult, null);
   }
 }
@@ -1718,14 +1741,13 @@ function refreshFollowerTopViews() {
   for (let number = 2; number <= flightLayout.size; number += 1) {
     if (!FLIGHT_CALCULATING_AIRCRAFT.has(number)) continue;
     const slot = document.querySelector(`.flight-slot[data-aircraft="${number}"]`);
-    const leadNumber = elementLeadNumber(number);
-    const leaderResult = leadNumber === 1 ? lastResult : flightResults.get(leadNumber);
+    const leaderResult = flightResultOf(elementLeadNumber(number));
     if (slot && leaderResult) renderFollowerTopView(number, slot, leaderResult, flightResults.get(number) ?? null);
   }
 }
 
-function recalculateFollowers() {
-  for (let number = 2; number <= flightLayout.size; number += 1) {
+function recalculateFollowers(from = 2) {
+  for (let number = from; number <= flightLayout.size; number += 1) {
     if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) calculateFollower(number);
   }
 }
