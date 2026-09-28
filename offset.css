@@ -1,4 +1,4 @@
-@import url("./common-ui-v0.2.css?v=3c5e44dd651d");
+@import url("./common-ui-v0.2.css?v=8d0603742518");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -50,3 +50,5 @@ body.show-full-bdp .bdp-extra{display:grid}
 .flight-slot .top-view-section-like,.flight-slot .diagram-actions{margin-bottom:10px}
 /* Top View view toggles (IP Bottom): highlighted while on. */
 .capture-button.view-toggle[aria-pressed="true"]{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}
+/* Follower LOCK and ANGLE #n / TIME #n sit together at the right of the field title (LOCK button format). */
+.lock-group{display:inline-flex;align-items:center;gap:6px;margin-left:auto}

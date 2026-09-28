@@ -1,4 +1,4 @@
-@import url("./common/ui/value-states-v0.1.css?v=3c5e44dd651d");
+@import url("./common/ui/value-states-v0.1.css?v=8d0603742518");
 
 :root{
   color-scheme:light dark;
@@ -82,6 +82,18 @@ input:focus,select:focus{border-color:var(--blue);box-shadow:0 0 0 3px color-mix
 .compound{display:grid;grid-template-columns:minmax(0,1fr) 102px}
 .compound input{border-radius:12px 0 0 12px}
 .compound select{border-left:0;border-radius:0 12px 12px 0}
+/* Formation position row (common/ui/formation-position-v0.1.mjs): Bearing with its L/R side select and Range stay on one line at every width. */
+.formation-position{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start}
+.formation-bearing-control{display:grid;grid-template-columns:64px minmax(0,1fr)}
+.formation-bearing-control select{border-right:0;border-radius:12px 0 0 12px;text-align:center;padding-inline:6px}
+.formation-bearing-control input{border-radius:0 12px 12px 0}
+/* Full BDP diagrams (AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs): BDP Top View + Profile appear, titles included, only while the tab's Full BDP is on; each panel collapses on its own. */
+.bdp-diagrams{display:none;gap:12px;margin-top:12px}
+.show-full-bdp .bdp-diagrams{display:grid}
+.bdp-diagrams .input-panel+.input-panel{margin-top:0}
+@media(min-width:1100px){.show-full-bdp .bdp-diagrams{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}}
+.bdp-diagram-canvas{background:#fff}
+.bdp-diagram-canvas svg{display:block;width:100%;height:auto}
 .advanced-only{display:none}
 body.show-advanced .advanced-only{display:grid}
 section.advanced-only,details.advanced-only{display:none}

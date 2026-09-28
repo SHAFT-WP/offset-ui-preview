@@ -3,7 +3,7 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 
 export const OFFSET_FORMATION_V0_1 = Object.freeze({
   id: "offset-formation-v0.1",
-  version: "0.1.2",
+  version: "0.1.3",
   status: "work",
   purpose: "Flight-of-4 composition: Formation display offset, element-pair Offset Angle / Action Range options, and drop-order timing deltas, over independently solved offset-be-v0.2 results",
 });
@@ -15,9 +15,10 @@ function finite(name, value) {
   return value;
 }
 
-// Formation position offsets #2/#3/#4 from #1's nose only (AG SPEC "Formation position"); a
-// follower's own Offset/BDP solve never reads this vector back. It is provided for Top View
-// display composition (leader profile as background, follower profile drawn from the same Target).
+// Formation position of a wingman relative to its reference aircraft (AG SPEC "Formation
+// position"). The relative bearing is measured from the reference aircraft's TAIL (user rule,
+// 2026-09-28): 0 = directly behind, 90 = abeam, 180 = directly ahead, on the Left or Right side.
+// The follower's own IP is the reference aircraft's IP displaced by this vector.
 export function computeFormationOffsetVector({ runInHeadingDeg, relativeBearingDeg, side, distanceNm }) {
   finite("runInHeadingDeg", runInHeadingDeg);
   finite("relativeBearingDeg", relativeBearingDeg);
@@ -28,7 +29,8 @@ export function computeFormationOffsetVector({ runInHeadingDeg, relativeBearingD
   if (side !== "LEFT" && side !== "RIGHT") throw new TypeError('side must be "LEFT" or "RIGHT"');
   if (!(distanceNm >= 0)) throw new RangeError("distanceNm must be >= 0 NM");
 
-  const trueBearingDeg = norm(runInHeadingDeg + (side === "LEFT" ? -relativeBearingDeg : relativeBearingDeg));
+  // Tail = reciprocal of the Run-In; Left of the tail line is further clockwise from the tail.
+  const trueBearingDeg = norm(runInHeadingDeg + 180 + (side === "LEFT" ? relativeBearingDeg : -relativeBearingDeg));
   const heading = vecHeading(trueBearingDeg);
   return truncateBeOutput({ trueBearingDeg, vector: { x: heading.x * distanceNm, y: heading.y * distanceNm } });
 }
