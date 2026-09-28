@@ -40,6 +40,8 @@ const flightResults = new Map();
 const FLIGHT_CALCULATING_AIRCRAFT = new Set([2, 3, 4]);
 // Wingmen carry the Angle #n / Time #n element-lead options; #3 is element lead B and has none.
 const FLIGHT_WINGMEN = new Set([2, 4]);
+// Follower DED panels (2026-09-28: #2 only; #3 / #4 wait and keep the placeholder).
+const FLIGHT_DED_AIRCRAFT = new Set([2]);
 // "Angle #n" / "Time #n" toggles are LOCK-style buttons, not checkboxes: turning one on turns off
 // its own manual LOCK (they substitute the same field a LOCK would otherwise hold). When both the
 // Offset Angle (Angle #n or LOCK) and the Action Point (Time #n or Action Range LOCK) are fixed,
@@ -517,6 +519,35 @@ function renderDed(result) {
   $("#ded-oa1-bearing").textContent = `${formatDeg(bearingBetween(oa1Base, points.rollStart))}°`;
   $("#ded-oa1-range").textContent = dedRangeText(pointDistanceNm(oa1Base, points.rollStart));
   $("#ded-oa1-elevation").textContent = dedElevationText(rollInStartAltitudeMslFt);
+}
+
+// Follower DED (same grammar as DED #1). VRP mode: the follower's own VRP is its Action Point, so
+// the VRP page is Target -> own Action Point and OA1 is Target -> own Roll-in Start. VIP mode: the
+// VIP is the Flight's shared ground reference (#1's VIP), and OA1 is VIP -> own Roll-in Start.
+function renderFollowerDed(number, slot, result) {
+  if (!FLIGHT_DED_AIRCRAFT.has(number)) return;
+  const out = (key) => slot.querySelector(`[data-flight-ded="${key}"]`);
+  if (!out("reference-title")) return;
+  const isVip = lastResult?.referenceMode === "VIP";
+  out("reference-title").textContent = isVip ? "VIP" : "VRP";
+  if (!result || !lastResult) {
+    ["reference-bearing", "reference-range", "reference-elevation", "oa1-bearing", "oa1-range", "oa1-elevation"].forEach((key) => { out(key).textContent = "-"; });
+    return;
+  }
+  const points = result.geometry.points;
+  const targetElevationMslFt = result.profile.canonicalInputs?.targetElevationMslFt ?? lastResult.profile.canonicalInputs?.targetElevationMslFt;
+  if (isVip) {
+    out("reference-bearing").textContent = `${formatDeg(lastResult.resolved.vipToTargetBearingDeg)}°`;
+    out("reference-range").textContent = dedRangeText(lastResult.resolved.vipRangeNm);
+  } else {
+    out("reference-bearing").textContent = `${formatDeg(bearingBetween(points.target, points.realActionPoint))}°`;
+    out("reference-range").textContent = dedRangeText(pointDistanceNm(points.target, points.realActionPoint));
+  }
+  out("reference-elevation").textContent = dedElevationText(targetElevationMslFt);
+  const oa1Base = isVip ? lastResult.geometry.points.vip : points.target;
+  out("oa1-bearing").textContent = `${formatDeg(bearingBetween(oa1Base, points.rollStart))}°`;
+  out("oa1-range").textContent = dedRangeText(pointDistanceNm(oa1Base, points.rollStart));
+  out("oa1-elevation").textContent = dedElevationText(result.profile.public.resolvedInitialAltitudeMslFt);
 }
 
 function collectResultSnapshot(result) {
@@ -1198,8 +1229,18 @@ function followerCalculatingMarkup(number) {
     flightSection(number, "Top View", `${followerTopViewToolbar(number)}<div class="top-view-shell"><svg data-flight-topview viewBox="0 0 1180 1440" role="img" aria-label="Aircraft #${number} Offset top view"><defs></defs></svg></div><p class="flight-draft-note">Leader #${leadNumber}'s already-solved profile is drawn in full alongside this aircraft's own, sharing Target and scale; it does not feed aircraft #${number}'s own solve.</p>`, { calculating: true }),
     // Same variables as Result #1 first (same groups and order), then what only this aircraft has.
     flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${predecessor}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true }),
-    flightSection(number, "DED", `<p class="flight-draft-note">Aircraft #${number} DED is pending its profile result.</p>`),
+    FLIGHT_DED_AIRCRAFT.has(number) ? flightSection(number, "DED", followerDedMarkup(), { calculating: true }) : flightSection(number, "DED", `<p class="flight-draft-note">Aircraft #${number} DED is pending its profile result.</p>`),
   ].join("");
+}
+
+// Same two green boxes as DED #1: the reference page (VRP or VIP, following #1's Reference Point
+// mode) and OA1.
+function followerDedMarkup() {
+  const rows = (page) => ["bearing:TBRG", "range:RNG", "elevation:ELEV"].map((item) => {
+    const [key, label] = item.split(":");
+    return `<div class="ded-row"><span>${label}</span><output data-flight-ded="${page}-${key}">-</output></div>`;
+  }).join("");
+  return `<div class="ded-boxes"><div class="ded-screen" aria-live="polite"><div class="ded-page-title" data-flight-ded="reference-title">VRP</div>${rows("reference")}</div><div class="ded-screen" aria-live="polite"><div class="ded-page-title">OA1</div>${rows("oa1")}</div></div>`;
 }
 
 function initializeFlightSlotFields(slot, number) {
@@ -1726,10 +1767,12 @@ function calculateFollower(number) {
     if (ipRangeReadout) ipRangeReadout.textContent = formatNm(result.resolved.ipRangeNm);
     const predecessorResult = flightResultOf(number - 1);
     renderFollowerResult(number, slot, { result, delta: predecessorResult ? computeDropOrderDelta({ predecessorResult, ownResult: result }) : null });
+    renderFollowerDed(number, slot, result);
   } catch (error) {
     flightResults.delete(number);
     renderFollowerStatus(number, "INVALID", error.message);
     renderFollowerResult(number, slot, { state: "INVALID", message: error.message });
+    renderFollowerDed(number, slot, null);
     const leaderResult = flightResultOf(leadNumber);
     if (leaderResult) renderFollowerTopView(number, slot, leaderResult, null);
   }
