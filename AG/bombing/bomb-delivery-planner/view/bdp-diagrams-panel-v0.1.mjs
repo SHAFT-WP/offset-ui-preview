@@ -1,3 +1,4 @@
+import { scopeSvgMarkerIds } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.4";
 import { renderBdpProfileView } from "./bdp-profile-view-v0.1.mjs";
 import { renderBdpTopView } from "./bdp-top-view-v0.1.mjs";
 
@@ -11,7 +12,7 @@ import { renderBdpTopView } from "./bdp-top-view-v0.1.mjs";
 //   Full BDP is on (the app-common CSS shows .bdp-diagrams only there);
 // - call renderBdpDiagrams(container, bdpResult, { scope }) after each solve with the BDP v0.3
 //   result the BE used (for Offset, result.profile), or clearBdpDiagrams(container) without one.
-// Several panels may share one page, so marker ids are scoped per panel.
+// Several panels may share one page, so marker ids are scoped per panel (Common scopeSvgMarkerIds).
 
 export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   id: "bdp-diagrams-panel-v0.1",
@@ -46,29 +47,6 @@ export function bdpDiagramsMarkup({ titleSuffix = "" } = {}) {
     + panel("top", "BDP Top View", TOP_SKELETON)
     + panel("profile", "BDP Profile", PROFILE_SKELETON)
     + `</div>`;
-}
-
-const URL_ATTRIBUTES = ["marker-start", "marker-mid", "marker-end", "fill", "stroke", "filter", "clip-path", "mask"];
-
-// url(#id) resolves document-wide, so two panels on one page (or one inside a collapsed or hidden
-// section) would otherwise point at each other's markers. Rename this svg's markers with a scope
-// suffix and repoint its own references.
-export function scopeSvgMarkerIds(svg, scope) {
-  const suffix = `--${String(scope).replace(/[^A-Za-z0-9_-]/g, "-")}`;
-  const renamed = new Map();
-  svg.querySelectorAll("marker[id]").forEach((marker) => {
-    if (marker.id.endsWith(suffix)) return;
-    renamed.set(marker.id, `${marker.id}${suffix}`);
-    marker.id = `${marker.id}${suffix}`;
-  });
-  if (!renamed.size) return 0;
-  svg.querySelectorAll("*").forEach((node) => {
-    URL_ATTRIBUTES.forEach((attribute) => {
-      const match = /^url\(#(.+)\)$/.exec(node.getAttribute(attribute) ?? "");
-      if (match && renamed.has(match[1])) node.setAttribute(attribute, `url(#${renamed.get(match[1])})`);
-    });
-  });
-  return renamed.size;
 }
 
 export function renderBdpDiagrams(container, bdpResult, { scope = "bdp" } = {}) {

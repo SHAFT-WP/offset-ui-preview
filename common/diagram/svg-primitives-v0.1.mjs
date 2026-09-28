@@ -1,6 +1,6 @@
 export const SVG_DIAGRAM_PRIMITIVES_V0_1 = Object.freeze({
   id: "svg-diagram-primitives-v0.1",
-  version: "0.1.3",
+  version: "0.1.4",
   purpose: "Policy-free SVG drawing primitives and normalized visual metrics shared by BE diagram renderers",
 });
 
@@ -128,6 +128,30 @@ export function createOpenArrowMarker(id, color, options = {}) {
     "stroke-linejoin": "round",
   }));
   return marker;
+}
+
+const URL_REFERENCE_ATTRIBUTES = ["marker-start", "marker-mid", "marker-end", "fill", "stroke", "filter", "clip-path", "mask"];
+
+// url(#id) resolves document-wide. When several diagrams on one page reuse the same marker ids,
+// an svg can end up drawing with another svg's markers — and loses them when that other svg is
+// collapsed or hidden. Call after rendering: renames this svg's markers with a scope suffix and
+// repoints this svg's own references to them. Idempotent per scope; returns the renamed count.
+export function scopeSvgMarkerIds(svg, scope) {
+  const suffix = `--${String(scope).replace(/[^A-Za-z0-9_-]/g, "-")}`;
+  const renamed = new Map();
+  svg.querySelectorAll("marker[id]").forEach((marker) => {
+    if (marker.id.endsWith(suffix)) return;
+    renamed.set(marker.id, `${marker.id}${suffix}`);
+    marker.id = `${marker.id}${suffix}`;
+  });
+  if (!renamed.size) return 0;
+  svg.querySelectorAll("*").forEach((node) => {
+    URL_REFERENCE_ATTRIBUTES.forEach((attribute) => {
+      const match = /^url\(#(.+)\)$/.exec(node.getAttribute(attribute) ?? "");
+      if (match && renamed.has(match[1])) node.setAttribute(attribute, `url(#${renamed.get(match[1])})`);
+    });
+  });
+  return renamed.size;
 }
 
 export function appendGrid(root, options = {}) {

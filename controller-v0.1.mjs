@@ -13,7 +13,8 @@ import {
 } from "./AG/bombing/offset-bombing/offset-formation-v0.1.mjs?v=2026-09-28a";
 import { calculateOffAxisOffset } from "./AG/bombing/offset-bombing/offset-formation-geometry-v0.1.mjs?v=2026-09-27c";
 import { add as addWorldPoints } from "./AG/bombing/offset-bombing/offset-geometry-v0.2.mjs?v=2026-09-26e";
-import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.1.mjs";
+// Cache token: scopeSvgMarkerIds needs svg-primitives 0.1.4; a stale cached copy would fail to link.
+import { SVG_DIAGRAM_TEXT_SCALE_V0_1, scopeSvgMarkerIds } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.4";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 import { exportOffsetTopView, installOffsetTopViewControls, offsetTopViewWorldPoints, renderOffsetTopView } from "./renderer-v0.1.mjs?v=2026-09-27c";
@@ -1855,6 +1856,7 @@ function renderFollowerTopView(number, slot, leaderResult, result) {
     // Own solve failed: keep the lead's profile visible instead of a blank or stale frame.
     ownGroup?.replaceChildren();
     renderOffsetTopView(svg, leaderResult, { ...common, plotGroupId: `offset-plot-lead-${number}` });
+    scopeSvgMarkerIds(svg, `flight-${number}`);
     return;
   }
   const ownPoints = offsetTopViewWorldPoints(result);
@@ -1875,6 +1877,9 @@ function renderFollowerTopView(number, slot, leaderResult, result) {
     labelObstacles: { rects: leadLayer?.labelRects, segments: leadLayer?.segments },
     ipLimit: result.ipLimit?.violated ? result.ipLimit : null,
   });
+  // The lead layer reuses Top View #1's marker ids; scope them to this svg so its arrowheads do not
+  // depend on Top View #1 (which may be collapsed).
+  scopeSvgMarkerIds(svg, `flight-${number}`);
   svg.dataset.leadAircraft = String(leadNumber);
 }
 
