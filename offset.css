@@ -1,4 +1,4 @@
-@import url("./common-ui-v0.2.css?v=5c4a2a365df1");
+@import url("./common-ui-v0.2.css?v=c0c97ac48115");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -23,11 +23,6 @@ body.show-full-bdp .bdp-extra{display:grid}
 .vip-input-card{border-color:color-mix(in srgb,var(--blue) 45%,var(--line))}.vip-to-target-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.to-target-chip{display:inline-flex;align-items:center;margin-left:8px;padding:3px 8px;border:1px solid var(--line);border-radius:999px;font-size:9px;font-weight:950;letter-spacing:.03em;color:var(--muted);background:var(--field)}.to-target-chip.active{border-color:var(--blue);background:var(--blue-soft);color:var(--blue);box-shadow:0 0 0 1px color-mix(in srgb,var(--blue) 15%,transparent) inset}
 .readout.offset-heading{font-size:19px;font-weight:900;color:var(--value-result)}.status-message{margin-top:10px;border-radius:10px;padding:10px 12px;font-size:11px;line-height:1.5}.status-message.valid{background:var(--green-soft);color:var(--green)}.status-message.warning{background:var(--amber-soft);color:var(--amber)}.status-message.invalid{background:var(--red-soft);color:var(--red)}
 .top-view-section .section-head{display:block}.top-view-section .section-head h2{margin-bottom:10px}
-.diagram-actions{max-width:100%;overflow-x:auto;padding-bottom:2px}.diagram-action-row{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;width:max-content}
-.font-scale-control,.view-scale-control{display:inline-flex;align-items:center;gap:3px;flex-shrink:0;padding:3px;border:1px solid var(--line);border-radius:12px;background:var(--field)}
-.diagram-control-label{padding:0 3px;font-size:11px;font-weight:800;color:var(--muted)}
-.diagram-action-row .capture-button{flex-shrink:0;min-width:28px;min-height:32px;padding:6px 8px;font-size:12px;line-height:1;border-radius:9px}
-.diagram-action-row .diagram-scale-output{min-width:49px;font-weight:900;font-variant-numeric:tabular-nums;color:var(--text)}
 .capture-button:disabled{opacity:.42;cursor:default}
 /* Diagram CSS boundary (CSS-SPEC §1): the shell and svg box only; the Offset views set their own aspect ratio, strokes, text and label cursors. */
 .top-view-shell{border:1px solid #dfe6ee;border-radius:12px;background:#fff;overflow:hidden}#offset-top-view,svg[data-flight-topview]{display:block;width:100%;height:auto;background:#fff}

@@ -26,7 +26,8 @@ const FT_PER_NM = 6076.11549;
 
 export const BDP_PROFILE_VIEW_V0_2 = Object.freeze({
   id: "bdp-profile-view-v0.2",
-  version: "0.2.0",
+  // 0.2.1 (2026-09-29, user request): Tracking Distance, Bomb Range and AOD on one chained ground row.
+  version: "0.2.1",
   subject: "Dive",
   view: "Profile",
   semanticStart: "TRACK_POINT",
@@ -70,8 +71,10 @@ export function renderBdpProfileView(svg, result, options = {}) {
   const groundY = PLOT_TOP + yMaxFt * scale;
   const xs = (x) => originX + x * scale;
   const ys = (y) => groundY - y * scale;
-  const lanes = [groundY + 64, groundY + 64 + LANE_GAP, groundY + 64 + LANE_GAP * 2, groundY + 64 + LANE_GAP * 3];
-  const HEIGHT = Math.round(lanes[3] + (diving ? 104 : 54));
+  // Two ground rows: MAP, then Tracking Distance · Bomb Range · AOD chained on one row.
+  const lanes = [groundY + 64, groundY + 64 + LANE_GAP];
+  const remarkY = lanes[1] + 62;
+  const HEIGHT = Math.round(remarkY + 19 * textScale + 32);
 
   const track = { x: xs(0), y: ys(trackAglFt) };
   const release = { x: xs(downRangeFt), y: ys(releaseAglFt) };
@@ -145,9 +148,34 @@ export function renderBdpProfileView(svg, result, options = {}) {
     titleSize: font.dimensionTitlePx * textScale, detailSize: font.detailPx * textScale,
   });
   lane(0, track.x, target.x, C.los, "bdp-profile-amber", "MAP", `${formatNm(pub.groundRangeNm)} NM`);
-  lane(1, track.x, release.x, C.flightPath, "bdp-profile-blue", "Tracking Distance", `${formatNm(pub.downRangeTravelNm)} NM`);
-  lane(2, release.x, target.x, C.bomb, "bdp-profile-green", "Bomb Range", `${formatNm(pub.bombRangeNm)} NM`);
-  if (aimOff) lane(3, target.x, aimOff.x, C.impact, "bdp-profile-green", "AOD", `${formatFt(local.aimOffDistanceFt)} ft`);
+  // Chained row: Track Point → Release → Target → Aim-off Point. A label wider than its segment moves
+  // out of the way: the first to the left, the last to the right, a middle one below the row.
+  const chain = [
+    [track.x, release.x, C.flightPath, "bdp-profile-blue", "Tracking Distance", `${formatNm(pub.downRangeTravelNm)} NM`],
+    [release.x, target.x, C.bomb, "bdp-profile-green", "Bomb Range", `${formatNm(pub.bombRangeNm)} NM`],
+    ...(aimOff ? [[target.x, aimOff.x, C.impact, "bdp-profile-green", "AOD", `${formatFt(local.aimOffDistanceFt)} ft`]] : []),
+  ];
+  const chainY = lanes[1];
+  chain.forEach(([x1, x2, color, markerId, titleText, detail], index) => {
+    // Grouped per segment with a test hook (V8).
+    appendHorizontalDimension(root.appendChild(svgNode("g", { "data-profile-dimension": titleText })), { x1, x2, y: chainY, color, markerId });
+    const titleSize = font.dimensionTitlePx * textScale;
+    const detailSize = font.detailPx * textScale;
+    const labelWidth = Math.max(titleText.length * titleSize, detail.length * detailSize) * 0.62;
+    const left = Math.min(x1, x2);
+    const right = Math.max(x1, x2);
+    const fits = labelWidth + 10 <= right - left;
+    const last = index === chain.length - 1;
+    let x = (left + right) / 2;
+    let anchor = "middle";
+    let titleY = chainY - 9;
+    if (!fits && last && index > 0) { x = right + 10; anchor = "start"; titleY = chainY - 3; }
+    else if (!fits && index === 0) { x = left - 10; anchor = "end"; titleY = chainY - 3; }
+    else if (!fits) { titleY = chainY + 30; }
+    const detailY = titleY === chainY - 9 ? chainY + 14 : titleY + detailSize * 1.3;
+    appendText(root, x, titleY, titleText, { anchor, size: titleSize, color, weight: 850 });
+    appendText(root, x, detailY, detail, { anchor, size: detailSize, color, detail: true });
+  });
 
   // Stations.
   root.append(svgNode("circle", { cx: track.x, cy: track.y, r: 6, fill: C.flightPath, stroke: "#ffffff", "stroke-width": 2 }));
@@ -212,7 +240,6 @@ export function renderBdpProfileView(svg, result, options = {}) {
     });
   }
 
-  const remarkY = lanes[3] + (diving ? 60 : 10);
   appendText(root, WIDTH / 2, remarkY, `Remark: MAP · Tracking Distance · Bomb Range${aimOff ? " · AOD" : ""}`, {
     anchor: "middle", size: font.detailPx * textScale, weight: 700, color: SVG_DIAGRAM_COLORS_V0_1.muted, detail: true,
   });

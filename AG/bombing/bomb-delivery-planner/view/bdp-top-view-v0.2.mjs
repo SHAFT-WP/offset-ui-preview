@@ -1,5 +1,6 @@
 import {
   appendAlignedDimension,
+  appendAngleArc,
   appendDirectedLine,
   applyTextHalo,
   clamp,
@@ -26,10 +27,15 @@ import { BDP_TOP_VIEW_LEGEND, BDP_VIEW_COLORS as C, bdpTopViewTitle } from "./bd
 // Initial → OA1 leg (`inHeadingDeg`; Offset: Approaching Heading) and the Roll-in turn direction
 // (`rollDirection`), which place the BDP frame on the map. The default stays Initial bottom, Target up
 // (BDP FE).
+// 0.2.2 (2026-09-29, user requests): Roll-in Lead Angle is drawn as the angle it is — an arc at the
+// Target between the OA1 → Target line and the MAP run (Attack Heading); a Remark block gives the
+// Roll-in Point → Target Roll-in Range and Roll-in Bearing; `context: "PATTERN"` (a pattern host such
+// as Offset, not the BDP FE) adds Roll-in Altitude to the Remark and drops the altitude from the
+// Initial label.
 
 export const BDP_TOP_VIEW_V0_2 = Object.freeze({
   id: "bdp-top-view-v0.2",
-  version: "0.2.1",
+  version: "0.2.2",
   subject: "Roll-in",
   view: "Top View",
   orientation: "INITIAL_BOTTOM_TARGET_UP",
@@ -138,6 +144,23 @@ export function renderBdpTopView(svg, result, options = {}) {
   w.lateralFoot = rotate({ x: oa1.x + longitudinalNm, y: oa1.y });
   w.initialExtension = rotate({ x: oa1.x + Math.max(longitudinalNm, 0) + 0.25 * groundRangeNm, y: oa1.y });
 
+  // Remark: the Roll-in Point (OA1) → Target Roll-in Range and Roll-in Bearing. On a north-up map the
+  // bearing is true; the BDP FE has no true reference, so it is the angle off the Initial heading
+  // (the default view draws the Roll-in turn side to the left). A pattern host adds Roll-in Altitude.
+  const patternHost = options.context === "PATTERN";
+  const offInitialDeg = (Math.atan2(target.y - oa1.y, target.x - oa1.x) * 180) / Math.PI;
+  const rollInBearingText = northUp
+    ? headingText((Math.atan2(w.target.x - w.oa1.x, w.target.y - w.oa1.y) * 180) / Math.PI)
+    : `${formatDeg(Math.abs(offInitialDeg))}° ${offInitialDeg >= 0 ? "L" : "R"} of Initial heading`;
+  const remarkRows = [
+    ["Roll-in Range", `${formatNm(pub.rollInRangeNm)} NM`],
+    ["Roll-in Bearing", rollInBearingText],
+    ...(patternHost ? [["Roll-in Altitude", `${formatFt(pub.resolvedInitialAltitudeMslFt)} ft MSL`]] : []),
+  ];
+  const remarkSize = SVG_DIAGRAM_STYLE_V0_1.font.detailPx * textScale;
+  const remarkLineHeight = remarkSize * 1.45;
+  const remarkHeight = 22 + (remarkRows.length + 1) * remarkLineHeight;
+
   // The Roll-in Range dimension goes on the side away from the Initial track. On a north-up map the
   // OA1 → Target line runs in any direction, so both sides keep room for it.
   let side = w.ingress.x <= w.oa1.x ? 1 : -1;
@@ -147,6 +170,8 @@ export function renderBdpTopView(svg, result, options = {}) {
   if (!northUp) {
     if (side > 0) margins.right = DIMENSION_LANE_PX; else margins.left = DIMENSION_LANE_PX;
   }
+  // The Remark block sits in the top-right corner above the drawing.
+  margins.top = Math.max(margins.top, remarkHeight + 18);
   const fitPoints = [w.ingress, w.oa1, w.track, w.target, w.aimOff, w.initialExtension, ...w.rollPath,
     { x: w.target.x - groundRangeNm, y: w.target.y - groundRangeNm },
     { x: w.target.x + groundRangeNm, y: w.target.y + groundRangeNm }].filter(Boolean);
@@ -242,6 +267,36 @@ export function renderBdpTopView(svg, result, options = {}) {
   root.append(svgNode("line", { x1: P.target.x - 10, y1: P.target.y, x2: P.target.x + 10, y2: P.target.y, stroke: C.target, "stroke-width": 2 }));
   root.append(svgNode("line", { x1: P.target.x, y1: P.target.y - 10, x2: P.target.x, y2: P.target.y + 10, stroke: C.target, "stroke-width": 2 }));
 
+  // Roll-in Lead Angle: the angle at the Target between the OA1 → Target line and the Track Point →
+  // Target run (Attack Heading).
+  const toOa1 = Math.atan2(P.oa1.y - P.target.y, P.oa1.x - P.target.x);
+  const toTrack = Math.atan2(P.track.y - P.target.y, P.track.x - P.target.x);
+  let leadSweep = toTrack - toOa1;
+  while (leadSweep > Math.PI) leadSweep -= 2 * Math.PI;
+  while (leadSweep <= -Math.PI) leadSweep += 2 * Math.PI;
+  const leadRadius = Math.max(18, Math.min(64, 0.45 * Math.hypot(P.track.x - P.target.x, P.track.y - P.target.y), 0.45 * Math.hypot(P.oa1.x - P.target.x, P.oa1.y - P.target.y)));
+  const leadArcVisible = Math.abs(leadSweep) > 0.004;
+  if (leadArcVisible) {
+    appendAngleArc(root, P.target, leadRadius, toOa1, toOa1 + leadSweep, { color: C.rollInTarget, width: 1.8 });
+    root.lastElementChild.setAttribute("data-top-view-role", "lead-angle-arc");
+  }
+  const leadMid = toOa1 + leadSweep / 2;
+  const leadAnchorPoint = { x: P.target.x + Math.cos(leadMid) * leadRadius, y: P.target.y + Math.sin(leadMid) * leadRadius };
+
+  // Remark block (top right).
+  const remarkRight = WIDTH - 22;
+  const remark = svgNode("g", { "data-top-view-role": "remark" });
+  remark.append(svgNode("text", {
+    x: remarkRight, y: 22 + remarkLineHeight * 0.8, "text-anchor": "end", "font-size": remarkSize, "font-weight": 850, fill: SVG_DIAGRAM_COLORS_V0_1.muted,
+  }, "Remark · Roll-in Point → Target"));
+  remarkRows.forEach(([name, value], index) => remark.append(svgNode("text", {
+    x: remarkRight, y: 22 + remarkLineHeight * (index + 1.8), "text-anchor": "end", "font-size": remarkSize, "font-weight": 750, fill: C.frame,
+    "data-remark-key": name,
+  }, `${name}: ${value}`)));
+  root.append(remark);
+  const remarkWidth = Math.max(...["Remark · Roll-in Point → Target", ...remarkRows.map(([name, value]) => `${name}: ${value}`)].map((text) => text.length)) * remarkSize * 0.6;
+  const remarkRect = { x: remarkRight - remarkWidth, y: 14, w: remarkWidth + 8, h: remarkHeight };
+
   // North-up map: north arrow at the top left (the Offset Top View's north arrow).
   let northArrowRect = null;
   if (northUp) {
@@ -262,6 +317,7 @@ export function renderBdpTopView(svg, result, options = {}) {
   // Labels: on their element, or joined to it by a leader (Common smart labels).
   const labels = createSmartLabelLayout(root, { width: WIDTH, height: HEIGHT, labelPad: 8, pathPad: 6, charWidthEm: 0.64 });
   if (northArrowRect) labels.reserveRect(northArrowRect);
+  labels.reserveRect(remarkRect);
   [P.oa1, P.track, P.target].forEach((point) => labels.reservePoint(point, 11));
   if (aimOffVisible) labels.reservePoint(P.aimOff, 9);
   const reserve = (points, pad = 6) => { for (let i = 1; i < points.length; i += 1) labels.reserveSegment(points[i - 1], points[i], pad); };
@@ -300,9 +356,30 @@ export function renderBdpTopView(svg, result, options = {}) {
     labelKey: "map", color: C.mapText, detail: `${formatNm(groundRangeNm)} NM`,
     candidates: lineCandidates(P.track, P.target, awaySide(P.track, P.target) * -1),
   });
-  label(mid(P.oa1, P.target), "Roll-in Lead Angle", {
-    labelKey: "lead-angle", color: C.rollInTarget, detail: `${formatDeg(pub.leadAngleDeg)}°`,
-    candidates: lineCandidates(P.oa1, P.target, -side),
+  // Angle label in the compact `Title: value` form (G2). A small angle leaves no room inside its
+  // wedge, so the label goes just outside either side line first (leader to the arc), then out along
+  // the arc's bisector.
+  const outwardOf = (ray) => {
+    let off = ray - leadMid;
+    while (off > Math.PI) off -= 2 * Math.PI;
+    while (off <= -Math.PI) off += 2 * Math.PI;
+    return ray + (off >= 0 ? 1 : -1) * (Math.PI / 2);
+  };
+  const anchorFor = (dx) => (dx > 6 ? "start" : dx < -6 ? "end" : "middle");
+  const sideCandidates = [toOa1, toOa1 + leadSweep].flatMap((ray) => {
+    const out = outwardOf(ray);
+    return [0.9, 1.5].flatMap((along) => [16, 40].map((offset) => {
+      const x = P.target.x + Math.cos(ray) * leadRadius * along + Math.cos(out) * offset;
+      const y = P.target.y + Math.sin(ray) * leadRadius * along + Math.sin(out) * offset;
+      return { dx: x - leadAnchorPoint.x, dy: y - leadAnchorPoint.y + 5, anchor: anchorFor(Math.cos(out) * 10) };
+    }));
+  });
+  label(leadAnchorPoint, `Roll-in Lead Angle: ${formatDeg(pub.leadAngleDeg)}°`, {
+    labelKey: "lead-angle", color: C.rollInTarget,
+    candidates: [...sideCandidates, ...[12, 34, 60, 90].map((distance) => {
+      const dx = Math.cos(leadMid) * distance;
+      return { dx, dy: Math.sin(leadMid) * distance + 5, anchor: anchorFor(dx) };
+    })],
   });
   label(P.oa1, "Roll-in", {
     labelKey: "roll-in", color: C.rollInText, fontSize: 12 * textScale,
@@ -337,7 +414,8 @@ export function renderBdpTopView(svg, result, options = {}) {
   if (northUp) initialCandidates.push({ dx: -12, dy: 44, anchor: "end" }, { dx: -12, dy: -18, anchor: "end" }, { dx: 16, dy: 5, anchor: "start" }, { dx: -16, dy: 5, anchor: "end" });
   label(P.ingress, "Initial", {
     labelKey: "initial", color: C.initialTrack, fontSize: 15 * textScale, detailFontSize: 12.5 * textScale,
-    detail: `${northUp ? `${headingText(Number(options.inHeadingDeg))} · ` : ""}${formatFt(pub.resolvedInitialAltitudeMslFt)} ft MSL · ${initialSpeedText}`,
+    // A pattern host shows the entry altitude as Roll-in Altitude in the Remark, not here.
+    detail: [northUp ? headingText(Number(options.inHeadingDeg)) : null, patternHost ? null : `${formatFt(pub.resolvedInitialAltitudeMslFt)} ft MSL`, initialSpeedText].filter(Boolean).join(" · "),
     candidates: initialCandidates,
   });
 
@@ -347,6 +425,7 @@ export function renderBdpTopView(svg, result, options = {}) {
   return {
     title,
     orientation: northUp ? "NORTH_UP" : BDP_TOP_VIEW_V0_2.orientation,
+    remark: Object.fromEntries(remarkRows),
     rotationDeg: northUp ? null : (rotationRad * 180) / Math.PI,
     inHeadingDeg: northUp ? Number(options.inHeadingDeg) : null,
     canvas: { width: WIDTH, height: HEIGHT },

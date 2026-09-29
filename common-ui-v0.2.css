@@ -1,4 +1,4 @@
-@import url("./common/ui/value-states-v0.1.css?v=5c4a2a365df1");
+@import url("./common/ui/value-states-v0.1.css?v=c0c97ac48115");
 
 :root{
   color-scheme:light dark;
@@ -87,11 +87,20 @@ input:focus,select:focus{border-color:var(--blue);box-shadow:0 0 0 3px color-mix
 .formation-bearing-control{display:grid;grid-template-columns:64px minmax(0,1fr)}
 .formation-bearing-control select{border-right:0;border-radius:12px 0 0 12px;text-align:center;padding-inline:6px}
 .formation-bearing-control input{border-radius:0 12px 12px 0}
+/* Diagram toolbar (common/diagram/svg-view-controls-v0.1.mjs and the Offset Top Views): Text / Size groups, Reset, PNG and view toggles in one scrollable row. */
+.diagram-actions{max-width:100%;overflow-x:auto;padding-bottom:2px}.diagram-action-row{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;width:max-content}
+.font-scale-control,.view-scale-control{display:inline-flex;align-items:center;gap:3px;flex-shrink:0;padding:3px;border:1px solid var(--line);border-radius:12px;background:var(--field)}
+.diagram-control-label{padding:0 3px;font-size:11px;font-weight:800;color:var(--muted)}
+.diagram-action-row .capture-button{flex-shrink:0;min-width:28px;min-height:32px;padding:6px 8px;font-size:12px;line-height:1;border-radius:9px}
+.diagram-action-row .diagram-scale-output{min-width:49px;font-weight:900;font-variant-numeric:tabular-nums;color:var(--text)}
+/* A section head with a diagram toolbar: the toolbar moves under the title when the row is too narrow and its controls scroll inside it, never the page. */
+.diagram-section-head{flex-wrap:wrap}.diagram-toolbar{flex-wrap:nowrap;min-width:0;max-width:100%}.diagram-toolbar>.diagram-actions{min-width:0;flex:0 1 auto}
 /* Full BDP diagrams (AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs): BDP Top View + Profile appear, titles included, only while the tab's Full BDP is on; each panel collapses on its own. */
 .bdp-diagrams{display:none;gap:12px;margin-top:12px}
 .show-full-bdp .bdp-diagrams{display:grid}
 .bdp-diagrams .input-panel+.input-panel{margin-top:0}
 @media(min-width:1100px){.show-full-bdp .bdp-diagrams{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}}
+.bdp-diagram .diagram-actions{padding:10px 12px 0}
 .bdp-diagram-canvas{background:#fff}
 .bdp-diagram-canvas svg{display:block;width:100%;height:auto}
 .advanced-only{display:none}

@@ -1,5 +1,6 @@
-import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./bdp-profile-view-v0.2.mjs";
-import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.1";
+import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./bdp-profile-view-v0.2.mjs?v=0.2.1";
+import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.2";
+import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 
 // Full BDP diagrams panel — BDP-owned presentation reused by every BE that embeds a BDP input tab
 // (Offset now; BOX, Wheel and Wheel-BOX next). While the consumer's Full BDP is on, the tab shows
@@ -17,10 +18,12 @@ import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-
 // 0.3.0 (2026-09-29): `topView` options pass through to the Roll-in Top View, e.g. Offset's north-up
 // map `{ orientation: "NORTH_UP", inHeadingDeg, rollDirection }`. Without them the view keeps its
 // default orientation.
+// 0.4.0 (2026-09-29): each panel carries the Common Text / Size / Reset toolbar
+// (common/diagram/svg-view-controls-v0.1.mjs); its labels move by the 0.5 s long-press.
 
 export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   id: "bdp-diagrams-panel-v0.1",
-  version: "0.3.0",
+  version: "0.4.0",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id]),
 });
 
@@ -30,7 +33,7 @@ function escapeText(value) {
 
 export function bdpDiagramsMarkup({ aircraftNumber } = {}) {
   const panel = (kind, title) => `<details class="input-panel bdp-diagram" open data-bdp-diagram="${kind}">`
-    + `<summary>${escapeText(title)}</summary><div class="bdp-diagram-canvas">`
+    + `<summary>${escapeText(title)}</summary><div class="diagram-actions">${svgViewControlsMarkup({ title })}</div><div class="bdp-diagram-canvas">`
     + `<svg viewBox="0 0 900 700" role="img" aria-label="${escapeText(title)}"></svg></div></details>`;
   return `<div class="bdp-diagrams" data-bdp-diagrams>`
     + panel("top", bdpTopViewTitle({ aircraftNumber }))
@@ -38,17 +41,41 @@ export function bdpDiagramsMarkup({ aircraftNumber } = {}) {
     + `</div>`;
 }
 
+// One toolbar per panel svg, installed on its first render; each redraw draws the panel's latest
+// arguments at the panel's own Text scale.
+const panelControls = new WeakMap();
+function panelView(container, kind, draw) {
+  const panel = container.querySelector(`[data-bdp-diagram="${kind}"]`);
+  const svg = panel?.querySelector("svg");
+  if (!svg) return null;
+  let entry = panelControls.get(svg);
+  if (!entry) {
+    entry = { draw: null };
+    entry.controls = installSvgViewControls(svg, { controls: panel, render: ({ textScale }) => entry.draw?.(svg, textScale) ?? null });
+    panelControls.set(svg, entry);
+  }
+  entry.draw = draw;
+  return entry.controls;
+}
+
 export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraftNumber, topView = {} } = {}) {
-  const top = container?.querySelector('[data-bdp-diagram="top"] svg');
-  const profile = container?.querySelector('[data-bdp-diagram="profile"] svg');
+  if (!container) return false;
+  const top = panelView(container, "top", (svg, textScale) =>
+    renderBdpTopView(svg, bdpResult, { ...topView, textScale, movableLabels: true, scope: `${scope}-top`, aircraftNumber }));
+  const profile = panelView(container, "profile", (svg, textScale) =>
+    renderBdpProfileView(svg, bdpResult, { textScale, movableLabels: true, scope: `${scope}-profile`, aircraftNumber }));
   if (!top || !profile) return false;
-  renderBdpTopView(top, bdpResult, { ...topView, scope: `${scope}-top`, aircraftNumber });
-  renderBdpProfileView(profile, bdpResult, { scope: `${scope}-profile`, aircraftNumber });
+  top.redraw();
+  profile.redraw();
   container.dataset.bdpDiagramsState = "rendered";
   return true;
 }
 
 export function clearBdpDiagrams(container) {
-  container?.querySelectorAll("[data-bdp-diagram] svg").forEach((svg) => svg.replaceChildren());
+  container?.querySelectorAll("[data-bdp-diagram] svg").forEach((svg) => {
+    const entry = panelControls.get(svg);
+    if (entry) entry.draw = null;
+    svg.replaceChildren();
+  });
   if (container) container.dataset.bdpDiagramsState = "empty";
 }

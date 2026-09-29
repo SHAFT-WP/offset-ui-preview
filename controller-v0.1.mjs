@@ -24,9 +24,9 @@ import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 // controller only wires their toolbars, legend and titles.
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle, renderOffsetTopView } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.0";
 import { renderOffsetFlightTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.0";
-import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.0";
-// Cache token: panel 0.2.0 draws the self-contained Roll-in Top View / Dive Profile v0.2 views.
-import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.3.0";
+import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.1";
+// Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
+import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.4.0";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -1194,7 +1194,7 @@ function refreshBdpDiagrams(number) {
     renderBdpDiagrams(target.container, result.profile, {
       scope: `aircraft-${number}`,
       aircraftNumber: number,
-      topView: { orientation: "NORTH_UP", inHeadingDeg: result.geometry.offsetHeadingDeg, rollDirection: result.geometry.direction.rollDirection },
+      topView: { orientation: "NORTH_UP", inHeadingDeg: result.geometry.offsetHeadingDeg, rollDirection: result.geometry.direction.rollDirection, context: "PATTERN" },
     });
   } catch {
     clearBdpDiagrams(target.container);

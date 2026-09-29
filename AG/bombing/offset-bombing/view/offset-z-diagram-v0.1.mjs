@@ -1,6 +1,6 @@
 import { buildBdpZDiagramData } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs";
 import { getWeaponById } from "../../bomb-delivery-planner/weapon-data-v0.1.mjs";
-import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs";
+import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.7";
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { formatDeg, formatFt, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { bearingDeg, formatHeadingDeg, offsetViewTitle } from "./offset-view-style-v0.1.mjs";
@@ -11,7 +11,8 @@ import { bearingDeg, formatHeadingDeg, offsetViewTitle } from "./offset-view-sty
 
 export const OFFSET_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "offset-z-diagram-v0.1",
-  version: "0.1.0",
+  // 0.1.1 (2026-09-29): Common Z 0.1.7 items (halo, speed value, 45°/4°, long-press labels).
+  version: "0.1.1",
   subject: "Offset",
   view: "Z-Diagram",
 });
