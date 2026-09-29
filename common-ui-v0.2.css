@@ -1,4 +1,4 @@
-@import url("./common/ui/value-states-v0.1.css?v=6b76246d8ba8");
+@import url("./common/ui/value-states-v0.1.css?v=11c253539ca4");
 
 :root{
   color-scheme:light dark;
@@ -102,7 +102,6 @@ body.show-advanced section.advanced-only,body.show-advanced details.advanced-onl
 .card{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:14px}
 .canvas{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:#fff}
 svg{display:block;width:100%;background:#fff}
-svg text{font-family:inherit}
 .remark{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
 .remark-item{border:1px solid var(--line);border-radius:11px;padding:12px;background:var(--panel);min-width:0;overflow-wrap:anywhere}
 .remark-item b{display:block;margin-bottom:5px}

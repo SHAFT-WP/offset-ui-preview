@@ -1,6 +1,6 @@
 export const SVG_VIEWPORT_V0_1 = Object.freeze({
   id: "svg-viewport-v0.1",
-  version: "0.1.4",
+  version: "0.1.5",
   purpose: "Generic SVG auto-fit projection plus viewBox zoom/pan interaction with optional page-scroll pass-through",
 });
 
@@ -304,5 +304,8 @@ export function installSvgViewport(svg, options = {}) {
     isPageScrollEnabled: pageScrollEnabled,
     isUserAdjusted: () => userAdjusted,
     ensureBaseWhenUnadjusted: () => { if (!userAdjusted) reset(false); },
+    // 0.1.5: re-apply the current view box after a renderer rewrote the svg's viewBox attribute
+    // (a self-contained view sets its own base), keeping a user zoom/pan as it was.
+    refresh: () => apply(box),
   };
 }

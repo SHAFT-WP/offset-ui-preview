@@ -1,6 +1,6 @@
 export const SVG_DIAGRAM_PRIMITIVES_V0_1 = Object.freeze({
   id: "svg-diagram-primitives-v0.1",
-  version: "0.1.5",
+  version: "0.1.6",
   purpose: "Policy-free SVG drawing primitives and normalized visual metrics shared by BE diagram renderers",
 });
 
@@ -41,6 +41,9 @@ export const SVG_DIAGRAM_TEXT_SCALE_V0_1 = Object.freeze({
   userMaxScale: 2.0,
   userStepScale: 0.1,
   userDefaultScale: 1.0,
+  // The 1.5× / 2.0× bases were set on the 1180-unit Offset canvas (0.1.6). A view on another canvas
+  // width passes it, so the same Text percentage keeps the same physical text size.
+  referenceCanvasWidth: 1180,
 });
 
 export function normalizeDiagramTextUserScale(value) {
@@ -62,8 +65,10 @@ export function resolveDiagramTextBaseScale(viewportWidthPx) {
   return SVG_DIAGRAM_TEXT_SCALE_V0_1.desktopBaseScale;
 }
 
-export function resolveDiagramTextPhysicalScale(userScale = 1, viewportWidthPx) {
-  return resolveDiagramTextBaseScale(viewportWidthPx) * normalizeDiagramTextUserScale(userScale);
+export function resolveDiagramTextPhysicalScale(userScale = 1, viewportWidthPx, options = {}) {
+  const canvasWidth = Number(options.canvasWidth);
+  const canvasFactor = Number.isFinite(canvasWidth) && canvasWidth > 0 ? canvasWidth / SVG_DIAGRAM_TEXT_SCALE_V0_1.referenceCanvasWidth : 1;
+  return resolveDiagramTextBaseScale(viewportWidthPx) * normalizeDiagramTextUserScale(userScale) * canvasFactor;
 }
 
 export const SVG_NS = "http://www.w3.org/2000/svg";

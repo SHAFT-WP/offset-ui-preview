@@ -2,7 +2,7 @@ import { SVG_DIAGRAM_STYLE_V0_1, svgNode } from "./svg-primitives-v0.1.mjs";
 
 export const SVG_SMART_LABEL_V0_1 = Object.freeze({
   id: "svg-smart-label-v0.1",
-  version: "0.1.4",
+  version: "0.1.5",
   purpose: "Generic collision-aware SVG labels with optional leaders and 0.5 s long-press drag behavior",
 });
 
@@ -93,6 +93,7 @@ export function installSmartLabelDrag(svg, options = {}) {
     if (!gesture) return;
     if (gesture.timer !== null) globalThis.clearTimeout?.(gesture.timer);
     gesture.group?.classList?.remove("label-drag-active");
+    if (gesture.group?.style) gesture.group.style.cursor = "grab";
     try { gesture.group?.releasePointerCapture?.(gesture.pointerId); } catch (_) {}
     gesture = null;
   };
@@ -118,6 +119,8 @@ export function installSmartLabelDrag(svg, options = {}) {
         if (!gesture || gesture.pointerId !== event.pointerId) return;
         gesture.active = true;
         gesture.group.classList.add("label-drag-active");
+        // 0.1.5: the grabbing cursor is set inline, so no app CSS reaches into the drawing.
+        gesture.group.style.cursor = "grabbing";
         try { gesture.group.setPointerCapture?.(gesture.pointerId); } catch (_) {}
       }, longPressMs) ?? null,
     };
