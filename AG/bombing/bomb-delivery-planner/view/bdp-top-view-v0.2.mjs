@@ -21,13 +21,19 @@ import { BDP_TOP_VIEW_LEGEND, BDP_VIEW_COLORS as C, bdpTopViewTitle } from "./bd
 // - Roll-in Range is dimensioned along that (vertical) OA1 → Target line, so it is the true range.
 // - Self-contained: fills an empty <svg>, sets every stroke, fill and text halo as attributes.
 // - Labels sit on their element or are joined to it by a leader line (Common smart labels).
+// 0.2.1 (2026-09-29, user decision for Offset): option `orientation: "NORTH_UP"` draws the same view on
+// a north-up map (south at the bottom, north arrow). The host passes the true heading of the
+// Initial → OA1 leg (`inHeadingDeg`; Offset: Approaching Heading) and the Roll-in turn direction
+// (`rollDirection`), which place the BDP frame on the map. The default stays Initial bottom, Target up
+// (BDP FE).
 
 export const BDP_TOP_VIEW_V0_2 = Object.freeze({
   id: "bdp-top-view-v0.2",
-  version: "0.2.0",
+  version: "0.2.1",
   subject: "Roll-in",
   view: "Top View",
   orientation: "INITIAL_BOTTOM_TARGET_UP",
+  orientations: Object.freeze(["INITIAL_BOTTOM_TARGET_UP", "NORTH_UP"]),
   canvas: Object.freeze({ width: 900, minHeight: 620, maxHeight: 1300 }),
   legend: BDP_TOP_VIEW_LEGEND,
 });
@@ -55,6 +61,23 @@ function rotateAbout(origin, angleRad) {
     return { x: origin.x + dx * cos - dy * sin, y: origin.y + dx * sin + dy * cos };
   };
 }
+
+// North-up placement of the BDP frame: forward (+x) runs along the Initial → OA1 true heading, the turn
+// side (+y) 90° to the Roll-in side of it. World result: x = east, y = north (NM), about OA1.
+function northUpAbout(origin, inHeadingDeg, rollDirection) {
+  const h = (inHeadingDeg * Math.PI) / 180;
+  const turn = rollDirection === "RIGHT" ? 1 : -1;
+  const forward = { x: Math.sin(h), y: Math.cos(h) };
+  const side = { x: turn * Math.cos(h), y: -turn * Math.sin(h) };
+  return (point) => {
+    const f = point.x - origin.x;
+    const t = point.y - origin.y;
+    return { x: origin.x + f * forward.x + t * side.x, y: origin.y + f * forward.y + t * side.y };
+  };
+}
+
+// Three-digit true heading with the degree sign (Offset SPEC "Canonical heading").
+const headingText = (deg) => `${String(((Math.round(deg) % 360) + 360) % 360).padStart(3, "0")}°`;
 
 const station = (value) => (value ? { x: value.forwardNm, y: value.turnSideNm } : null);
 const unit = (from, to) => {
@@ -91,10 +114,15 @@ export function renderBdpTopView(svg, result, options = {}) {
   const groundRangeNm = pub.groundRangeNm;
   const ingressLengthNm = Math.max(groundRangeNm, 0.8);
 
-  // Initial at the bottom, Target straight up: OA1 → Target bearing turned to +Y (screen up).
+  // Default: Initial at the bottom, Target straight up (OA1 → Target bearing turned to +Y, screen up).
+  // NORTH_UP: the BDP frame placed on a north-up map by the Initial → OA1 heading and the turn side.
+  const northUp = options.orientation === "NORTH_UP";
+  if (northUp && (!Number.isFinite(Number(options.inHeadingDeg)) || !["LEFT", "RIGHT"].includes(options.rollDirection))) {
+    throw new TypeError("NORTH_UP needs a finite inHeadingDeg and rollDirection LEFT or RIGHT");
+  }
   const bearing = Math.atan2(target.y - oa1.y, target.x - oa1.x);
   const rotationRad = Math.PI / 2 - bearing;
-  const rotate = rotateAbout(oa1, rotationRad);
+  const rotate = northUp ? northUpAbout(oa1, Number(options.inHeadingDeg), options.rollDirection) : rotateAbout(oa1, rotationRad);
   const w = {
     oa1,
     track: rotate(track),
@@ -110,13 +138,24 @@ export function renderBdpTopView(svg, result, options = {}) {
   w.lateralFoot = rotate({ x: oa1.x + longitudinalNm, y: oa1.y });
   w.initialExtension = rotate({ x: oa1.x + Math.max(longitudinalNm, 0) + 0.25 * groundRangeNm, y: oa1.y });
 
-  // The Roll-in Range dimension goes on the side away from the Initial track.
-  const side = w.ingress.x <= w.oa1.x ? 1 : -1;
-  const margins = { top: 64, bottom: 92, left: 56, right: 56 };
-  if (side > 0) margins.right = DIMENSION_LANE_PX; else margins.left = DIMENSION_LANE_PX;
+  // The Roll-in Range dimension goes on the side away from the Initial track. On a north-up map the
+  // OA1 → Target line runs in any direction, so both sides keep room for it.
+  let side = w.ingress.x <= w.oa1.x ? 1 : -1;
+  const margins = northUp
+    ? { top: 110, bottom: 110, left: DIMENSION_LANE_PX - 25, right: DIMENSION_LANE_PX - 25 }
+    : { top: 64, bottom: 92, left: 56, right: 56 };
+  if (!northUp) {
+    if (side > 0) margins.right = DIMENSION_LANE_PX; else margins.left = DIMENSION_LANE_PX;
+  }
   const fitPoints = [w.ingress, w.oa1, w.track, w.target, w.aimOff, w.initialExtension, ...w.rollPath,
     { x: w.target.x - groundRangeNm, y: w.target.y - groundRangeNm },
     { x: w.target.x + groundRangeNm, y: w.target.y + groundRangeNm }].filter(Boolean);
+  if (northUp) {
+    // The Roll-in Range dimension runs parallel to OA1 → Target, one Ground Range out on either side.
+    const along = unit(w.oa1, w.target);
+    const normal = { x: -along.y * groundRangeNm, y: along.x * groundRangeNm };
+    for (const end of [w.oa1, w.target]) for (const sign of [1, -1]) fitPoints.push({ x: end.x + sign * normal.x, y: end.y + sign * normal.y });
+  }
   const fit = createSvgAutoCanvas(fitPoints, {
     width: WIDTH,
     minHeight: BDP_TOP_VIEW_V0_2.canvas.minHeight,
@@ -132,6 +171,11 @@ export function renderBdpTopView(svg, result, options = {}) {
     ingress: px(w.ingress), lateralFoot: px(w.lateralFoot), initialExtension: px(w.initialExtension), rollPath: w.rollPath.map(px),
   };
   const radiusPx = groundRangeNm * fit.scale;
+  if (northUp) {
+    // Screen normal (−dy, dx) of OA1 → Target, the dimension's offset direction: away from the ingress.
+    const normal = { x: -(P.target.y - P.oa1.y), y: P.target.x - P.oa1.x };
+    side = normal.x * (P.ingress.x - P.oa1.x) + normal.y * (P.ingress.y - P.oa1.y) > 0 ? -1 : 1;
+  }
 
   // Self-contained canvas.
   svg.replaceChildren();
@@ -170,9 +214,10 @@ export function renderBdpTopView(svg, result, options = {}) {
   }));
 
   // Dimensions: true Roll-in Range along OA1 → Target; Roll-in Lat. D along the OA1 turn-side axis.
-  const rangeOffset = side * (Math.max(radiusPx, Math.abs(P.oa1.x - P.target.x)) + 38);
+  const rangeOffset = side * ((northUp ? radiusPx : Math.max(radiusPx, Math.abs(P.oa1.x - P.target.x))) + 38);
   appendAlignedDimension(root, {
-    // OA1 → Target points up on screen, so the dimension's left normal is +x (right).
+    // Default: OA1 → Target points up on screen, so the dimension's left normal is +x (right). North-up:
+    // `side` was taken from the screen normal above.
     from: P.oa1, to: P.target, offset: rangeOffset, color: C.initialTrack, markerId: "bdp-top-initial",
     title: "Roll-in Range", detail: `${formatNm(pub.rollInRangeNm)} NM`,
     titleSize: SVG_DIAGRAM_STYLE_V0_1.font.dimensionTitlePx * textScale, detailSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx * textScale,
@@ -197,8 +242,26 @@ export function renderBdpTopView(svg, result, options = {}) {
   root.append(svgNode("line", { x1: P.target.x - 10, y1: P.target.y, x2: P.target.x + 10, y2: P.target.y, stroke: C.target, "stroke-width": 2 }));
   root.append(svgNode("line", { x1: P.target.x, y1: P.target.y - 10, x2: P.target.x, y2: P.target.y + 10, stroke: C.target, "stroke-width": 2 }));
 
+  // North-up map: north arrow at the top left (the Offset Top View's north arrow).
+  let northArrowRect = null;
+  if (northUp) {
+    const size = SVG_DIAGRAM_STYLE_V0_1.font.lineTitlePx * textScale * 1.4;
+    const left = 36;
+    const top = 18;
+    const tipY = top + size + 8;
+    const tailY = tipY + size * 2;
+    const head = size * 0.45;
+    const northArrow = svgNode("g", { "data-top-view-role": "north-arrow" });
+    northArrow.append(svgNode("text", { x: left, y: top + size * 0.85, "text-anchor": "middle", "font-size": size, "font-weight": 900, fill: "#243240" }, "N"));
+    northArrow.append(svgNode("line", { x1: left, y1: tailY, x2: left, y2: tipY + head, stroke: "#243240", "stroke-width": 3, "stroke-linecap": "round" }));
+    northArrow.append(svgNode("polygon", { points: `${left},${tipY} ${left - head * 0.7},${tipY + head * 1.2} ${left + head * 0.7},${tipY + head * 1.2}`, fill: "#243240" }));
+    root.append(northArrow);
+    northArrowRect = { x: left - size, y: top, w: size * 2, h: tailY - top + 6 };
+  }
+
   // Labels: on their element, or joined to it by a leader (Common smart labels).
   const labels = createSmartLabelLayout(root, { width: WIDTH, height: HEIGHT, labelPad: 8, pathPad: 6, charWidthEm: 0.64 });
+  if (northArrowRect) labels.reserveRect(northArrowRect);
   [P.oa1, P.track, P.target].forEach((point) => labels.reservePoint(point, 11));
   if (aimOffVisible) labels.reservePoint(P.aimOff, 9);
   const reserve = (points, pad = 6) => { for (let i = 1; i < points.length; i += 1) labels.reserveSegment(points[i - 1], points[i], pad); };
@@ -268,10 +331,14 @@ export function renderBdpTopView(svg, result, options = {}) {
   const initialSpeedText = input.initialSpeedMode === "MACH"
     ? `Mach ${formatMach(input.initialSpeedValue)}`
     : `${formatKt(pub.resolvedInitialSpeedKcas)} KCAS`;
+  // North-up: the Initial label also carries the true heading of the Initial → OA1 leg, and the ingress
+  // can point any way, so it gets candidates on every side.
+  const initialCandidates = [{ dx: 0, dy: 44, anchor: "start" }, { dx: 0, dy: -18, anchor: "start" }, { dx: 0, dy: 64, anchor: "start" }, { dx: 10, dy: 84, anchor: "start" }];
+  if (northUp) initialCandidates.push({ dx: -12, dy: 44, anchor: "end" }, { dx: -12, dy: -18, anchor: "end" }, { dx: 16, dy: 5, anchor: "start" }, { dx: -16, dy: 5, anchor: "end" });
   label(P.ingress, "Initial", {
     labelKey: "initial", color: C.initialTrack, fontSize: 15 * textScale, detailFontSize: 12.5 * textScale,
-    detail: `${formatFt(pub.resolvedInitialAltitudeMslFt)} ft MSL · ${initialSpeedText}`,
-    candidates: [{ dx: 0, dy: 44, anchor: "start" }, { dx: 0, dy: -18, anchor: "start" }, { dx: 0, dy: 64, anchor: "start" }, { dx: 10, dy: 84, anchor: "start" }],
+    detail: `${northUp ? `${headingText(Number(options.inHeadingDeg))} · ` : ""}${formatFt(pub.resolvedInitialAltitudeMslFt)} ft MSL · ${initialSpeedText}`,
+    candidates: initialCandidates,
   });
 
   applyTextHalo(root);
@@ -279,8 +346,9 @@ export function renderBdpTopView(svg, result, options = {}) {
   scopeSvgMarkerIds(svg, options.scope ?? "bdp-top");
   return {
     title,
-    orientation: BDP_TOP_VIEW_V0_2.orientation,
-    rotationDeg: (rotationRad * 180) / Math.PI,
+    orientation: northUp ? "NORTH_UP" : BDP_TOP_VIEW_V0_2.orientation,
+    rotationDeg: northUp ? null : (rotationRad * 180) / Math.PI,
+    inHeadingDeg: northUp ? Number(options.inHeadingDeg) : null,
     canvas: { width: WIDTH, height: HEIGHT },
     groundRangeCircleCenter: "TARGET",
     rollInRangeNm: pub.rollInRangeNm,

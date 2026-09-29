@@ -26,7 +26,7 @@ import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle, renderOf
 import { renderOffsetFlightTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.0";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.2.0 draws the self-contained Roll-in Top View / Dive Profile v0.2 views.
-import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.2.0";
+import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.3.0";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -1189,7 +1189,13 @@ function refreshBdpDiagrams(number) {
     return;
   }
   try {
-    renderBdpDiagrams(target.container, result.profile, { scope: `aircraft-${number}`, aircraftNumber: number });
+    // Offset draws the Roll-in Top View on a north-up map: the Initial → OA1 leg flies the Approaching
+    // Heading (offsetHeadingDeg) and the Roll-in turns to the Attack Heading (Offset FE SPEC).
+    renderBdpDiagrams(target.container, result.profile, {
+      scope: `aircraft-${number}`,
+      aircraftNumber: number,
+      topView: { orientation: "NORTH_UP", inHeadingDeg: result.geometry.offsetHeadingDeg, rollDirection: result.geometry.direction.rollDirection },
+    });
   } catch {
     clearBdpDiagrams(target.container);
   }
