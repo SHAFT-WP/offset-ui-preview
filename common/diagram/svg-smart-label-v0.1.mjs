@@ -2,7 +2,7 @@ import { SVG_DIAGRAM_STYLE_V0_1, svgNode } from "./svg-primitives-v0.1.mjs";
 
 export const SVG_SMART_LABEL_V0_1 = Object.freeze({
   id: "svg-smart-label-v0.1",
-  version: "0.1.3",
+  version: "0.1.4",
   purpose: "Generic collision-aware SVG labels with optional leaders and 0.5 s long-press drag behavior",
 });
 
@@ -198,6 +198,8 @@ export function createSmartLabelLayout(root, options = {}) {
   const edgePad = options.edgePad ?? SVG_DIAGRAM_STYLE_V0_1.label.edgePadPx;
   const labelPad = options.labelPad ?? SVG_DIAGRAM_STYLE_V0_1.label.labelPadPx;
   const pathPad = options.pathPad ?? SVG_DIAGRAM_STYLE_V0_1.label.pathPadPx;
+  // Placement estimate of the average glyph width in em (0.1.4 option; heavy-weight labels run wider).
+  const charWidthEm = Number.isFinite(options.charWidthEm) && options.charWidthEm > 0 ? options.charWidthEm : 0.58;
   const labels = [];
   const obstacleRects = [];
   const obstacleSegments = [];
@@ -215,10 +217,12 @@ export function createSmartLabelLayout(root, options = {}) {
     obstacleSegments.push({ from: { ...from }, to: { ...to }, pad });
   }
 
-  function candidateBox(anchorPoint, text, candidate, fontSize) {
+  // `detail` (0.1.4): optional second line in its own (smaller) size, e.g. a value under its title.
+  function candidateBox(anchorPoint, text, candidate, fontSize, detail = null) {
     const lines = String(text).split("\n");
-    const approxW = Math.max(34, ...lines.map((line) => line.length * fontSize * 0.58));
-    const approxH = fontSize * (1.45 + (lines.length - 1) * 1.2);
+    const detailWidth = detail ? detail.text.length * detail.fontSize * charWidthEm : 0;
+    const approxW = Math.max(34, detailWidth, ...lines.map((line) => line.length * fontSize * charWidthEm));
+    const approxH = fontSize * (1.45 + (lines.length - 1) * 1.2) + (detail ? detail.fontSize * 1.2 : 0);
     const x = anchorPoint.x + candidate.dx;
     const y = anchorPoint.y + candidate.dy;
     const left = candidate.anchor === "end" ? x - approxW : candidate.anchor === "middle" ? x - approxW / 2 : x;
@@ -235,6 +239,13 @@ export function createSmartLabelLayout(root, options = {}) {
 
   function append(point, text, labelOptions = {}) {
     const fontSize = labelOptions.fontSize ?? SVG_DIAGRAM_STYLE_V0_1.font.smartLabelPx;
+    const detail = labelOptions.detail === undefined || labelOptions.detail === null || labelOptions.detail === ""
+      ? null
+      : {
+          text: String(labelOptions.detail),
+          fontSize: labelOptions.detailFontSize ?? fontSize * (SVG_DIAGRAM_STYLE_V0_1.font.detailPx / SVG_DIAGRAM_STYLE_V0_1.font.lineTitlePx),
+          fontWeight: labelOptions.detailFontWeight ?? 650,
+        };
     const candidates = labelOptions.candidates ?? [
       { dx: 18, dy: -18, anchor: "start" },
       { dx: 18, dy: 32, anchor: "start" },
@@ -250,7 +261,7 @@ export function createSmartLabelLayout(root, options = {}) {
     let selected = null;
     for (let index = 0; index < candidates.length; index += 1) {
       const candidate = candidates[index];
-      const box = candidateBox(point, text, candidate, fontSize);
+      const box = candidateBox(point, text, candidate, fontSize, detail);
       if (!collides(box)) {
         selected = { candidate, box, index };
         break;
@@ -258,7 +269,7 @@ export function createSmartLabelLayout(root, options = {}) {
     }
     if (!selected) {
       const candidate = candidates[candidates.length - 1];
-      selected = { candidate, box: candidateBox(point, text, candidate, fontSize), index: candidates.length - 1 };
+      selected = { candidate, box: candidateBox(point, text, candidate, fontSize, detail), index: candidates.length - 1 };
     }
     labels.push(selected.box);
 
@@ -334,13 +345,25 @@ export function createSmartLabelLayout(root, options = {}) {
       "paint-order": labelOptions.textHalo === false ? undefined : "stroke",
       "stroke-linejoin": "round",
       "pointer-events": "none",
-    }, lines.length === 1 ? text : undefined);
-    if (lines.length > 1) lines.forEach((line, index) => {
-      textNode.append(svgNode("tspan", {
-        x: selected.box.textX,
-        dy: index === 0 ? -(lines.length - 1) * fontSize * 1.2 : fontSize * 1.2,
-      }, line));
-    });
+    }, lines.length === 1 && !detail ? text : undefined);
+    if (lines.length > 1 || detail) {
+      const detailStep = detail ? detail.fontSize * 1.2 : 0;
+      lines.forEach((line, index) => {
+        textNode.append(svgNode("tspan", {
+          x: selected.box.textX,
+          dy: index === 0 ? -((lines.length - 1) * fontSize * 1.2 + detailStep) : fontSize * 1.2,
+        }, line));
+      });
+      if (detail) {
+        textNode.append(svgNode("tspan", {
+          x: selected.box.textX,
+          dy: detailStep,
+          "font-size": detail.fontSize,
+          "font-weight": detail.fontWeight,
+          "data-label-detail": "true",
+        }, detail.text));
+      }
+    }
     group.append(textNode);
     root.append(group);
     // v0.1.3: fit the grab area to the rendered text (small pad) instead of the placement

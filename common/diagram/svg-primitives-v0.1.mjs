@@ -1,7 +1,18 @@
 export const SVG_DIAGRAM_PRIMITIVES_V0_1 = Object.freeze({
   id: "svg-diagram-primitives-v0.1",
-  version: "0.1.4",
+  version: "0.1.5",
   purpose: "Policy-free SVG drawing primitives and normalized visual metrics shared by BE diagram renderers",
+});
+
+// Neutral presentation tokens of the V2 unified view grammar (common/diagram/SPEC.md, G4/G5).
+// Tactical colours stay with the owning BE view; these carry no tactical meaning.
+export const SVG_DIAGRAM_COLORS_V0_1 = Object.freeze({
+  background: "#ffffff",
+  text: "#14202c",
+  muted: "#687787",
+  helper: "#7a8793",
+  guide: "#9aa6b2",
+  halo: "#ffffff",
 });
 
 export const SVG_DIAGRAM_STYLE_V0_1 = Object.freeze({
@@ -277,6 +288,66 @@ export function appendVerticalDimension(root, options) {
   if (options.detail) appendText(root, labelX, labelY + 14, options.detail, {
     anchor, size: options.detailSize ?? SVG_DIAGRAM_STYLE_V0_1.font.detailPx, color: options.color, detail: true,
   });
+}
+
+// V2 unified view grammar G4 (0.1.5): the text halo is an SVG attribute, not app CSS, so a view
+// draws the same in any host. Applies to every <text> under `root` that has no stroke of its own.
+export function applyTextHalo(root, options = {}) {
+  const width = options.width ?? SVG_DIAGRAM_STYLE_V0_1.label.haloPx;
+  const color = options.color ?? SVG_DIAGRAM_COLORS_V0_1.halo;
+  let count = 0;
+  root.querySelectorAll("text").forEach((node) => {
+    if (node.hasAttribute("stroke")) return;
+    node.setAttribute("stroke", color);
+    node.setAttribute("stroke-width", String(width));
+    node.setAttribute("paint-order", "stroke");
+    node.setAttribute("stroke-linejoin", "round");
+    count += 1;
+  });
+  return count;
+}
+
+// Dimension along any direction (0.1.5), for rotated frames: measures `from`→`to`, drawn offset by
+// `offset` along the left normal of that direction, with extension lines back to both points and a
+// title/detail label beside the middle. `labelSide` 1 puts the label beyond the dimension line
+// (away from the measured points), -1 between.
+export function appendAlignedDimension(root, options) {
+  const { from, to, color } = options;
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy);
+  if (!(length > 0.5)) return null;
+  const normal = { x: -dy / length, y: dx / length };
+  const offset = options.offset ?? 28;
+  const a = { x: from.x + normal.x * offset, y: from.y + normal.y * offset };
+  const b = { x: to.x + normal.x * offset, y: to.y + normal.y * offset };
+  const extension = Math.sign(offset) * 6;
+  [[from, a], [to, b]].forEach(([point, end]) => root.append(svgNode("line", {
+    x1: point.x + normal.x * Math.sign(offset) * 4, y1: point.y + normal.y * Math.sign(offset) * 4,
+    x2: end.x + normal.x * extension, y2: end.y + normal.y * extension,
+    stroke: color, "stroke-width": 1, "stroke-dasharray": "4 4", opacity: 0.8,
+  })));
+  appendDirectedLine(root, a, b, {
+    color,
+    width: options.width ?? SVG_DIAGRAM_STYLE_V0_1.line.dimensionPx,
+    markerStartId: options.markerId,
+    markerEndId: options.markerId,
+  });
+  const side = (options.labelSide ?? 1) * Math.sign(offset || 1);
+  const gap = options.labelGap ?? 12;
+  const middle = { x: (a.x + b.x) / 2 + normal.x * gap * side, y: (a.y + b.y) / 2 + normal.y * gap * side };
+  const anchor = Math.abs(normal.x * side) < 0.35 ? "middle" : normal.x * side > 0 ? "start" : "end";
+  const titleSize = options.titleSize ?? SVG_DIAGRAM_STYLE_V0_1.font.dimensionTitlePx;
+  const detailSize = options.detailSize ?? SVG_DIAGRAM_STYLE_V0_1.font.detailPx;
+  const above = anchor === "middle" && normal.y * side < 0;
+  const titleY = anchor === "middle" ? (above ? middle.y - detailSize * 1.4 : middle.y + titleSize) : middle.y - 3;
+  if (options.title) appendText(root, middle.x, titleY, options.title, {
+    anchor, size: titleSize, color, weight: options.titleWeight ?? 850,
+  });
+  if (options.detail) appendText(root, middle.x, titleY + detailSize * 1.35, options.detail, {
+    anchor, size: detailSize, color, detail: true,
+  });
+  return { a, b, label: middle, anchor };
 }
 
 function polar(center, radius, angleRad) {

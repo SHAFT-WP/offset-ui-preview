@@ -1,3 +1,5 @@
+import { groundSpeedAlongPath } from "./flight-path-wind-v0.1.mjs";
+
 const G_FTPS2 = 32.174;
 const KT_TO_FPS = 1.687809857;
 
@@ -56,13 +58,22 @@ export function simulateFixedHorizontalDrag({ params, weapon, releaseTasKt, conf
   const windFps = params.windSpeedMps * 3.280839895;
   const windAlong = -windFps * Math.cos(windAngle);
   const windCross = -windFps * Math.sin(windAngle);
+  // Release state. "AIR_MASS" (legacy default, preserved Official/regression paths): the airspeed
+  // vector is at Dive Angle and the wind is added on top. "GROUND" (current V2 BDP, SPEC §8): the
+  // ground-referenced flight path (FPM line) is at Dive Angle, so the bomb leaves along that line at
+  // the ground speed, and its air-relative along-track speed is that ground speed minus the wind.
+  const groundReferenced = params.flightPathReference === "GROUND";
+  const releaseGroundSpeed = groundReferenced
+    ? groundSpeedAlongPath({ airspeed: speed, pathAngleDeg: params.diveAngleDeg, windAlong, windCross })
+    : null;
   let state = {
     t: 0,
     x: 0,
     down: 0,
-    vx: speed * Math.cos(angle),
-    vd: speed * Math.sin(angle),
+    vx: groundReferenced ? releaseGroundSpeed * Math.cos(angle) - windAlong : speed * Math.cos(angle),
+    vd: groundReferenced ? releaseGroundSpeed * Math.sin(angle) : speed * Math.sin(angle),
   };
+  const releaseGroundVelocityFps = { along: state.vx + windAlong, down: state.vd };
   const samples = [{ xFt: 0, altitudeAglFt: params.releaseAglFt }];
   let nextSample = config.sampleInterval;
 
@@ -105,6 +116,8 @@ export function simulateFixedHorizontalDrag({ params, weapon, releaseTasKt, conf
         bombTofSec: impactT,
         losRangeFt,
         aimOffDistanceFt: levelDelivery ? null : losRangeFt - impactX,
+        flightPathReference: groundReferenced ? "GROUND" : "AIR_MASS",
+        releaseGroundVelocityFps,
         windAlongFps: windAlong,
         windCrossFps: windCross,
         windDriftFt: windCross * impactT,

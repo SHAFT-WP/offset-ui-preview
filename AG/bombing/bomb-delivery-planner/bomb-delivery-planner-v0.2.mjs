@@ -11,7 +11,10 @@ const MIN_NLT_DIVE_ANGLE_DEG = 10;
 
 export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
   id: "bomb-delivery-planner-v0.2-sem-nlt",
-  version: "0.2.7",
+  // 0.2.8 (2026-09-29): Dive Angle is the ground-referenced flight path (FPM line) in wind — the
+  // bomb leaves along it at ground speed and tracking runs at ground speed (SPEC §8); local AOD in ft.
+  version: "0.2.8",
+  flightPathReference: "GROUND",
   legacyGeometrySource: "Bomb Profile REV.1.9 · R_20260830",
   applicability: Object.freeze({
     minAltOnlyBelowDiveAngleDeg: MIN_NLT_DIVE_ANGLE_DEG,
@@ -159,6 +162,7 @@ export function calculateBombDeliveryV0_2(rawInput) {
       windDirectionDeg: input.windDirectionDeg,
       // Ballistics keeps SI wind internally; BDP canonical/user-facing unit is knots.
       windSpeedMps: input.windSpeedKt * MPS_PER_KT,
+      flightPathReference: "GROUND",
     },
     weapon,
     releaseTasKt,
@@ -215,6 +219,8 @@ export function calculateBombDeliveryV0_2(rawInput) {
       aimOffPointRangeNm: profile.aimOffRangeFt === null ? null : profile.aimOffRangeFt / FT_PER_NM,
       aimOffAngleDeg: profile.aimOffAngleDeg,
       aimOffDistanceNm: bomb.aimOffDistanceFt === null ? null : bomb.aimOffDistanceFt / FT_PER_NM,
+      // AOD display unit is ft (user decision 2026-09-29); the NM key stays for compatibility.
+      aimOffDistanceFt: bomb.aimOffDistanceFt,
       rollInRangeProfileFitNm: (profile.rollInRangeFt - profile.groundRangeFt) / FT_PER_NM,
       legacyOffsetLeadDeg: profile.legacyOffsetLeadDeg,
     },
@@ -245,6 +251,8 @@ export function calculateBombDeliveryV0_2(rawInput) {
       releaseTasKt: profile.releaseTasKt,
       ballisticModelId: bomb.modelId,
       ballisticModelVersion: bomb.modelVersion,
+      flightPathReference: bomb.flightPathReference,
+      releaseGroundVelocityFps: bomb.releaseGroundVelocityFps,
       legacyRnltReleaseMslFt: legacySafety?.legacyRnltReleaseMslFt ?? null,
       nltSupported,
     },

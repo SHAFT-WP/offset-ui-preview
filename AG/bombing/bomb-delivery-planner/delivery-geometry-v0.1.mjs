@@ -1,4 +1,5 @@
 import { casToTas } from "../../../common/airspeed/airspeed-v0.1.mjs";
+import { groundSpeedAlongPath, windComponents } from "./flight-path-wind-v0.1.mjs";
 import { integrateRollIn } from "./roll-in-v0.1.mjs";
 
 const KT_TO_FPS = 1.687809857;
@@ -8,6 +9,14 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
   const levelDelivery = Math.abs(input.diveAngleDeg) < 1e-9;
   const releaseAglFt = effectiveReleaseAltitudeMslFt - input.targetElevationMslFt;
   const releaseTasKt = casToTas(input.releaseSpeedKcas, effectiveReleaseAltitudeMslFt);
+  // Tracking flies the ground-referenced Dive Angle line (SPEC §8): its length is geometric and it is
+  // covered at ground speed, the mean of the roll-out and release ground speeds (still air: TAS).
+  const wind = windComponents(input.windDirectionDeg ?? 0, input.windSpeedKt ?? 0);
+  const trackGroundSpeedKt = (tasKt) => groundSpeedAlongPath({
+    airspeed: tasKt, pathAngleDeg: input.diveAngleDeg, windAlong: wind.along, windCross: wind.cross,
+  });
+  const meanTrackSpeedFps = (rolloutTasKt) =>
+    ((trackGroundSpeedKt(rolloutTasKt) + trackGroundSpeedKt(releaseTasKt)) / 2) * KT_TO_FPS;
   let initialAglFt;
   let initialMslFt;
   let trackAglFt;
@@ -35,7 +44,7 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
     initialMslFt = input.targetElevationMslFt + initialAglFt;
     roll = integrateRollIn(rollParams, initialMslFt);
     trackAglFt = initialAglFt - roll.altitudeLossFt;
-    pathFt = ((roll.finalTasKt + releaseTasKt) / 2) * KT_TO_FPS * trackingTimeSec;
+    pathFt = meanTrackSpeedFps(roll.finalTasKt) * trackingTimeSec;
   } else if (input.solveMode === "height") {
     initialMslFt = input.enteredInitialAltitudeMslFt;
     initialAglFt = initialMslFt - input.targetElevationMslFt;
@@ -43,20 +52,20 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
     trackAglFt = initialAglFt - roll.altitudeLossFt;
     if (!(trackAglFt > releaseAglFt)) throw new Error("Initial altitude minus roll-in loss is below effective Release altitude");
     pathFt = (trackAglFt - releaseAglFt) / Math.sin(angleRad);
-    trackingTimeSec = pathFt / (((roll.finalTasKt + releaseTasKt) / 2) * KT_TO_FPS);
+    trackingTimeSec = pathFt / meanTrackSpeedFps(roll.finalTasKt);
   } else {
     trackingTimeSec = input.enteredTrackingTimeSec;
     initialAglFt = releaseAglFt + trackingTimeSec * releaseTasKt * KT_TO_FPS * Math.sin(angleRad) + 2500;
     for (let iteration = 0; iteration < 30; iteration += 1) {
       initialMslFt = input.targetElevationMslFt + initialAglFt;
       roll = integrateRollIn(rollParams, initialMslFt);
-      pathFt = ((roll.finalTasKt + releaseTasKt) / 2) * KT_TO_FPS * trackingTimeSec;
+      pathFt = meanTrackSpeedFps(roll.finalTasKt) * trackingTimeSec;
       const nextInitial = releaseAglFt + pathFt * Math.sin(angleRad) + roll.altitudeLossFt;
       initialAglFt = 0.45 * initialAglFt + 0.55 * nextInitial;
     }
     initialMslFt = input.targetElevationMslFt + initialAglFt;
     roll = integrateRollIn(rollParams, initialMslFt);
-    pathFt = ((roll.finalTasKt + releaseTasKt) / 2) * KT_TO_FPS * trackingTimeSec;
+    pathFt = meanTrackSpeedFps(roll.finalTasKt) * trackingTimeSec;
     trackAglFt = initialAglFt - roll.altitudeLossFt;
   }
 
