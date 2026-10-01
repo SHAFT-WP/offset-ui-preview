@@ -4,6 +4,7 @@ import {
   angleOffFromOffsetHeading,
   buildOffsetCandidate,
   buildReferenceState,
+  candidateFailureCause,
   directionRule,
   offsetAngleFromAngleOff,
   offsetHeadingFromOffset,
@@ -12,7 +13,9 @@ import {
 } from "./offset-geometry-v0.2.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.6", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
+// 0.2.7 (2026-10-01): true wind (profile.windDirectionTrueDeg), solver failures name their cause,
+// a VRP-held Action Point no longer reports as a user LOCK conflict.
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.7", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -70,7 +73,16 @@ export function resolveOffsetTurn(input, locks = {}, turnDriver = "offsetG") {
   return { ...state, offsetTasKt: tasKt, authoritative, errors, warnings };
 }
 
-function canonicalProfileInput(input, angleOffDeg) {
+// BDP takes wind relative to the Attack Heading (0 = headwind). `profile.windDirectionTrueDeg`
+// (true FROM direction, Offset FE since 2026-10-01) is converted per candidate Attack Heading, so the
+// real wind stays fixed while the solve moves the Attack Heading; without it the legacy
+// attack-axis `windDirectionDeg` passes through unchanged.
+export function bdpWindDirectionDeg(profile, attackHeadingDeg) {
+  if (profile.windDirectionTrueDeg === undefined || profile.windDirectionTrueDeg === null) return profile.windDirectionDeg ?? 0;
+  return norm(finite("windDirectionTrueDeg", profile.windDirectionTrueDeg) - finite("attackHeadingDeg", attackHeadingDeg));
+}
+
+function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg) {
   const profile = input.profile ?? {};
   const diveAngleDeg = finite("diveAngleDeg", profile.diveAngleDeg ?? input.diveAngleDeg);
   return {
@@ -83,7 +95,7 @@ function canonicalProfileInput(input, angleOffDeg) {
     gOnsetTimeSec: profile.gOnsetTimeSec ?? 2,
     diveAngleDeg,
     releaseFpaDeg: -diveAngleDeg,
-    windDirectionDeg: profile.windDirectionDeg ?? 0,
+    windDirectionDeg: bdpWindDirectionDeg(profile, attackHeadingDeg),
     windSpeedKt: profile.windSpeedKt ?? 0,
     initialSpeedValue: finite("initialSpeedValue", profile.initialSpeedValue),
     initialSpeedMode: profile.initialSpeedMode ?? "CAS",
@@ -122,6 +134,7 @@ function solveOffsetAngleForMetric({ targetValue, evaluate, metric, minOffsetAng
   let previous = null;
   let best = null;
   let bracket = null;
+  const errors = new Map();
   for (let angle = minOffsetAngleDeg; angle <= maxOffsetAngleDeg + 1e-9; angle += 1) {
     try {
       const candidate = evaluate(angle);
@@ -129,9 +142,12 @@ function solveOffsetAngleForMetric({ targetValue, evaluate, metric, minOffsetAng
       if (!best || Math.abs(residual) < Math.abs(best.residual)) best = { candidate, residual, angle };
       if (previous && previous.residual * residual <= 0) { bracket = { lo: previous.angle, hi: angle, flo: previous.residual }; break; }
       previous = { angle, residual };
-    } catch (_) {}
+    } catch (error) {
+      // Rejected candidate (outside the valid geometry/profile range); keep scanning but remember why.
+      errors.set(error.message, (errors.get(error.message) ?? 0) + 1);
+    }
   }
-  if (!bracket) return { candidate: best?.candidate ?? null, residualNm: best?.residual ?? null, exact: !!best && Math.abs(best.residual) <= tolerance };
+  if (!bracket) return { candidate: best?.candidate ?? null, residualNm: best?.residual ?? null, exact: !!best && Math.abs(best.residual) <= tolerance, failureCause: candidateFailureCause(errors) };
 
   let lo = bracket.lo;
   let hi = bracket.hi;
@@ -198,10 +214,12 @@ export function calculateOffsetWithVrpStartFull(input) {
   if (holdVrp && locks.actionRangeNm && !near(input.actionRangeNm, input.vrpRangeNm, 0.002)) {
     throw new Error("CONSTRAINT CONFLICT: locked Action Range differs from VRP Range");
   }
+  const actionRangeHeldAtVrp = holdVrp && !locks.actionRangeNm;
   if (holdVrp) locks.actionRangeNm = true;
   const candidateInput = {
     ...input,
     locks,
+    actionRangeHeldAtVrp,
     runInHeadingDeg: runIn,
     driver: vrpDriven ? "actionRangeNm" : input.driver,
     actionRangeNm: holdVrp ? input.vrpRangeNm : input.actionRangeNm,
@@ -261,7 +279,7 @@ export function calculateOffsetV0_2Full(input) {
     if (!(headings.angleOffDeg > 0 && headings.angleOffDeg < 179.5)) throw new Error("Angle-Off outside supported range");
     const derivedDirection = directionRule(runInHeadingDeg, headings.attackHeadingDeg);
     if (derivedDirection.ambiguous || derivedDirection.attackSide !== direction.attackSide) throw new Error("Heading solve would switch the fixed Offset/Roll-in side");
-    const profile = calculateBombDeliveryV0_3(canonicalProfileInput(input, headings.angleOffDeg));
+    const profile = calculateBombDeliveryV0_3(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg));
     return buildOffsetCandidate({
       runInHeadingDeg,
       attackHeadingDeg: headings.attackHeadingDeg,
@@ -293,7 +311,7 @@ export function calculateOffsetV0_2Full(input) {
     candidate = solved.candidate;
     residualNm = solved.residualNm;
     exact = solved.exact;
-    if (!candidate) throw new Error(`No valid Offset Angle candidate for requested ${range.kind === "approach" ? "Approach Range" : "Action Range"}`);
+    if (!candidate) throw new Error(`No valid Offset Angle candidate for requested ${range.kind === "approach" ? "Approach Range" : "Action Range"}${solved.failureCause ? ` (cause: ${solved.failureCause})` : ""}`);
     if (!exact) warnings.push(`${range.kind === "approach" ? "Approach Range" : "Action Range"} root is best-effort; residual ${Number(residualNm).toFixed(3)} NM`);
   } else {
     candidate = evaluate(initialOffsetAngleDeg);
@@ -309,7 +327,11 @@ export function calculateOffsetV0_2Full(input) {
   if (locks.attackHeadingDeg && !near(norm(input.attackHeadingDeg), norm(candidate.attackHeadingDeg), 0.02)) errors.push("LOCK conflict: Attack Heading cannot be satisfied");
   if (locks.angleOffDeg && !near(Math.abs(input.angleOffDeg), candidate.angleOffDeg, 0.02)) errors.push("LOCK conflict: Angle-Off cannot be satisfied");
   if (locks.offsetAngleDeg && !near(Math.abs(input.offsetAngleDeg), candidate.offsetAngleDeg, 0.02)) errors.push("LOCK conflict: Offset Angle cannot be satisfied");
-  if (locks.actionRangeNm && !near(input.actionRangeNm, candidate.actionRangeNm, 0.002)) errors.push("LOCK conflict: Action Range cannot be satisfied");
+  // A VRP hold (calculateOffsetWithVrpStart) fixes the Action Point internally; that is not a LOCK
+  // the user set, so it reports the real cause.
+  if (locks.actionRangeNm && !near(input.actionRangeNm, candidate.actionRangeNm, 0.002)) {
+    errors.push(input.actionRangeHeldAtVrp ? "VRP Range cannot be satisfied (Action Point held at VRP)" : "LOCK conflict: Action Range cannot be satisfied");
+  }
   if ((locks.approachRangeNm) && !near(approachRangeInput(input), candidate.approachRangeNm, 0.002)) errors.push("LOCK conflict: Approach Range cannot be satisfied");
 
   const candidateValidation = validateOffsetCandidate(candidate, { referenceMode, ipRangeNm });

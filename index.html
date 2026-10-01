@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=68f2a95bdd32">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=68f2a95bdd32">
+<link rel="stylesheet" href="./offset.css?v=b0be65ac12d4">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=b0be65ac12d4">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -23,7 +23,7 @@
         <button type="button" class="btn tab-tool" id="temp-def-clear">Clear</button>
         <span class="temp-def-status" id="temp-def-status">none</span>
       </span>
-      <span class="rev">V2 WORK · OFFSET BE 0.2.5</span>
+      <span class="rev">V2 WORK · OFFSET BE 0.2.7</span>
     </div>
   </header>
 
@@ -34,7 +34,7 @@
       <div class="input-panel-body"><div class="input-grid">
         <label class="field"><span>Bomb</span><select data-key="weaponId"></select><span class="unit">BDP weapon database</span></label>
         <label class="field"><span>Target Elevation (ft MSL)</span><input data-key="targetElevationMslFt" type="text" inputmode="decimal" value="31"><span class="unit">Target MSL</span></label>
-        <label class="field advanced-only bdp-extra"><span>Wind Direction FROM (deg) <span class="adv-tag">ADV</span></span><input data-key="windDirectionDeg" type="text" inputmode="decimal" value="0"><span class="unit">Attack-axis reference</span></label>
+        <label class="field advanced-only bdp-extra"><span>Wind Direction FROM (deg) <span class="adv-tag">ADV</span></span><input data-key="windDirectionDeg" type="text" inputmode="decimal" value="0"><span class="unit">TRUE · wind FROM</span></label>
         <label class="field advanced-only bdp-extra"><span>Wind Speed (kt) <span class="adv-tag">ADV</span></span><input data-key="windSpeedKt" type="text" inputmode="decimal" value="0"><span class="unit">V2 canonical unit</span></label>
       </div></div>
     </details>
@@ -198,7 +198,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=68f2a95bdd32"></script>
+<script type="module" src="./controller-v0.1.mjs?v=b0be65ac12d4"></script>
 
 </body>
 </html>

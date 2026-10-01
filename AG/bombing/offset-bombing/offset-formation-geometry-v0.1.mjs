@@ -1,6 +1,6 @@
 import { casToTas, machToTas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { calculateBombDeliveryV0_3Full as calculateBombDeliveryV0_3 } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
-import { resolveOffsetTurn } from "./offset-be-v0.2.mjs";
+import { bdpWindDirectionDeg, resolveOffsetTurn } from "./offset-be-v0.2.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import {
   add,
@@ -47,7 +47,7 @@ function speedToTas(speedValue, speedMode, altitudeMslFt) {
   return speedMode === "MACH" ? machToTas(speedValue, altitudeMslFt) : casToTas(speedValue, altitudeMslFt);
 }
 
-function canonicalProfileInput(input, angleOffDeg) {
+function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg) {
   const profile = input.profile ?? {};
   const diveAngleDeg = finite("diveAngleDeg", profile.diveAngleDeg ?? input.diveAngleDeg);
   return {
@@ -60,7 +60,7 @@ function canonicalProfileInput(input, angleOffDeg) {
     gOnsetTimeSec: profile.gOnsetTimeSec ?? 2,
     diveAngleDeg,
     releaseFpaDeg: -diveAngleDeg,
-    windDirectionDeg: profile.windDirectionDeg ?? 0,
+    windDirectionDeg: bdpWindDirectionDeg(profile, attackHeadingDeg),
     windSpeedKt: profile.windSpeedKt ?? 0,
     initialSpeedValue: finite("initialSpeedValue", profile.initialSpeedValue),
     initialSpeedMode: profile.initialSpeedMode ?? "CAS",
@@ -217,7 +217,7 @@ export function calculateOffAxisOffsetFull(input) {
     if (!(headings.angleOffDeg > 0 && headings.angleOffDeg < 179.5)) throw new Error("Angle-Off outside supported range");
     const derivedDirection = directionRule(runInHeadingDeg, headings.attackHeadingDeg);
     if (derivedDirection.ambiguous || derivedDirection.attackSide !== direction.attackSide) throw new Error("Heading solve would switch the fixed Offset/Roll-in side");
-    const profile = calculateBombDeliveryV0_3(canonicalProfileInput(input, headings.angleOffDeg));
+    const profile = calculateBombDeliveryV0_3(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg));
     return buildOffAxisOffsetCandidate({
       runInHeadingDeg,
       ipPoint,
@@ -258,7 +258,7 @@ export function calculateOffAxisOffsetFull(input) {
     candidate = solved.candidate?.built ?? null;
     residualNm = solved.residualNm;
     exact = solved.exact;
-    if (!candidate) throw new Error("No valid Offset Angle candidate for the requested Action Range");
+    if (!candidate) throw new Error(`No valid Offset Angle candidate for the requested Action Range${solved.failureCause ? ` (cause: ${solved.failureCause})` : ""}`);
     if (!exact) warnings.push(`Action Range root is best-effort; residual ${Number(residualNm).toFixed(3)} NM`);
   } else {
     candidate = evaluate(initialOffsetAngleDeg);

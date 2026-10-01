@@ -16,7 +16,8 @@ export const DISPLAY_PRECISION_V0_1 = Object.freeze({
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
 
 function fixed(value, digits) {
-  if (!finite(Number(value))) return "-";
+  // null / undefined mean "not calculated" (e.g. NLT below 10°), never 0.
+  if (value === null || value === undefined || !finite(Number(value))) return "-";
   const text = Number(value).toFixed(digits);
   // Avoid "-0" / "-0.0" after rounding a tiny negative.
   return /^-0(\.0+)?$/.test(text) ? text.slice(1) : text;

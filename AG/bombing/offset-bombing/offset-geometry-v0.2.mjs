@@ -240,12 +240,21 @@ export function validateOffsetCandidate(candidate, input = {}) {
   return { errors, warnings };
 }
 
+// Names the most frequent reason scanned candidates were rejected (Map message -> count), so a
+// failed solve reports its cause (e.g. the BDP error) instead of only "no candidate".
+export function candidateFailureCause(errors) {
+  let top = null;
+  for (const [message, count] of errors) if (!top || count > top.count) top = { message, count };
+  return top?.message ?? null;
+}
+
 export function solveOffsetAngleForActionRange({ targetRangeNm, evaluate, minOffsetAngleDeg = 0.05, maxOffsetAngleDeg = 120, toleranceNm = 0.002 }) {
   requireFinite("targetRangeNm", targetRangeNm);
   if (typeof evaluate !== "function") throw new TypeError("evaluate must be a function");
   let previous = null;
   let best = null;
   let bracket = null;
+  const errors = new Map();
   for (let angle = minOffsetAngleDeg; angle <= maxOffsetAngleDeg + 1e-9; angle += 1) {
     try {
       const candidate = evaluate(angle);
@@ -253,9 +262,12 @@ export function solveOffsetAngleForActionRange({ targetRangeNm, evaluate, minOff
       if (!best || Math.abs(residual) < Math.abs(best.residual)) best = { candidate, residual, angle };
       if (previous && previous.residual * residual <= 0) { bracket = { lo: previous.angle, hi: angle, flo: previous.residual }; break; }
       previous = { angle, residual };
-    } catch (_) {}
+    } catch (error) {
+      // Rejected candidate; keep scanning but remember why (reported when nothing is found).
+      errors.set(error.message, (errors.get(error.message) ?? 0) + 1);
+    }
   }
-  if (!bracket) return { candidate: best?.candidate ?? null, residualNm: best?.residual ?? null, exact: !!best && Math.abs(best.residual) <= toleranceNm };
+  if (!bracket) return { candidate: best?.candidate ?? null, residualNm: best?.residual ?? null, exact: !!best && Math.abs(best.residual) <= toleranceNm, failureCause: candidateFailureCause(errors) };
 
   let lo = bracket.lo;
   let hi = bracket.hi;

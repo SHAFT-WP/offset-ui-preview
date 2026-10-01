@@ -1,8 +1,11 @@
-import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSignedSec } from "./common/ui/display-precision-v0.1.mjs";
+import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSignedSec, truncateBeOutput } from "./common/ui/display-precision-v0.1.mjs";
 import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
 import { formationPositionMarkup, installFormationSideSelects } from "./common/ui/formation-position-v0.1.mjs";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
-import { calculateOffsetWithVrpStart } from "./AG/bombing/offset-bombing/offset-be-v0.2.mjs?v=2026-09-26e";
+// Full (untruncated) BE results feed the follower solves; displays use the 5-decimal truncation
+// (docs/FE-BE-RULES.md "Calculation consumers").
+import { OFFSET_BE_V0_2, calculateOffsetWithVrpStartFull } from "./AG/bombing/offset-bombing/offset-be-v0.2.mjs?v=2026-10-01a";
+import { autoRollInBankDegFull, levelTurnRollInGFull } from "./AG/bombing/bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
 import {
   applyElementLeadOffsetAngle,
   computeDropOrderDelta,
@@ -10,12 +13,12 @@ import {
   solveElementSameTimeActionRange,
   solveIngressTimeMatch,
   solveMetricMatch,
-} from "./AG/bombing/offset-bombing/offset-formation-v0.1.mjs?v=2026-09-28a";
-import { calculateOffAxisOffset } from "./AG/bombing/offset-bombing/offset-formation-geometry-v0.1.mjs?v=2026-09-27c";
-import { add as addWorldPoints } from "./AG/bombing/offset-bombing/offset-geometry-v0.2.mjs?v=2026-09-26e";
+} from "./AG/bombing/offset-bombing/offset-formation-v0.1.mjs?v=2026-10-01a";
+import { calculateOffAxisOffsetFull } from "./AG/bombing/offset-bombing/offset-formation-geometry-v0.1.mjs?v=2026-10-01a";
+import { add as addWorldPoints } from "./AG/bombing/offset-bombing/offset-geometry-v0.2.mjs?v=2026-10-01a";
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
-import { SVG_DIAGRAM_TEXT_SCALE_V0_1 } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
+import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { installSmartLabelDrag } from "./common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
 import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
@@ -125,6 +128,9 @@ let topViewAdvanced = false;
 // with a north arrow.
 let topViewIpBottom = true;
 let lastResult = null;
+// Full-precision twin of lastResult (and of each follower result) for BE-to-BE use.
+let lastResultFull = null;
+const flightResultsFull = new Map();
 let initialRender = true;
 let lastResultSnapshot = null;
 let defaultPersistedState = null;
@@ -274,27 +280,16 @@ function setDirectionButtons(prefix, direction) {
   fromTarget.setAttribute("aria-pressed", String(!toActive));
 }
 
-function coordinatedBankForG(g) {
-  if (!(g > 1)) throw new RangeError("Low-angle level-turn Roll-in requires Roll-in G > 1");
-  return Math.acos(1 / g) * 180 / Math.PI;
-}
-
-function coordinatedGForBank(bankDeg) {
-  const bankRad = bankDeg * Math.PI / 180;
-  const cosine = Math.cos(bankRad);
-  if (!(bankDeg > 0 && bankDeg < 89.9) || !(cosine > 0)) throw new RangeError("Low-angle level-turn Bank must be > 0 and < 89.9 deg");
-  return 1 / cosine;
-}
-
+// AUTO Roll-in Bank is BDP's own rule (autoRollInBankDegFull: acos(1/G) below 10°, else
+// round(90 + Dive/2)); the field shows an integer and keeps the full value behind, so #1 and the
+// followers feed BDP the same unrounded bank.
 function automaticRollInBankDeg() {
-  const diveAngleDeg = numberValue("diveAngleDeg");
-  if (diveAngleDeg < LOW_ANGLE_BOUNDARY_DEG) return coordinatedBankForG(numberValue("rollInG")).toFixed(1);
-  return String(Math.round(90 + diveAngleDeg / 2));
+  return autoRollInBankDegFull({ diveAngleDeg: numberValue("diveAngleDeg"), rollInG: numberValue("rollInG") });
 }
 
 function applyAutomaticRollBank(sourceKey = "diveAngleDeg") {
   if (!rollBankAuto) return false;
-  return setAutoValue("rollInBankAngleDeg", automaticRollInBankDeg(), sourceKey);
+  return setSolvedValue("rollInBankAngleDeg", automaticRollInBankDeg(), 0, sourceKey);
 }
 
 function buildInput() {
@@ -335,7 +330,9 @@ function buildInput() {
       recoveryG: numberValue("recoveryG"),
       gOnsetTimeSec: numberValue("gOnsetTimeSec"),
       diveAngleDeg: numberValue("diveAngleDeg"),
-      windDirectionDeg: numberValue("windDirectionDeg"),
+      // Wind Direction is the true FROM direction (user decision 2026-10-01); the BE turns it into
+      // BDP's attack-axis angle for each candidate Attack Heading.
+      windDirectionTrueDeg: numberValue("windDirectionDeg"),
       windSpeedKt: numberValue("windSpeedKt"),
       initialSpeedValue: numberValue("initialSpeedValue"),
       initialSpeedMode: value("initialSpeedMode") ?? "CAS",
@@ -497,7 +494,8 @@ function profileResultRows(result, { keyed = true } = {}) {
     r("Roll-in Altitude Loss", `${formatFt(p.rollInAltitudeLossFt)} ft`, "rollInAltitudeLossFt"),
     r("Lead Angle", `${formatDeg(p.leadAngleDeg)}°`, "leadAngleDeg"),
     r("MINALT", `${formatFt(p.minAltMslFt)} ft MSL`, "minAltMslFt"),
-    r("NLT Release", `${formatFt(p.nltReleaseMslFt)} ft MSL`, "nltReleaseMslFt"),
+    // NLT is not calculated below 10° (BDP SPEC §6.2): N/A, never 0.
+    r("NLT Release", p.nltReleaseMslFt === null || p.nltReleaseMslFt === undefined ? "N/A" : `${formatFt(p.nltReleaseMslFt)} ft MSL`, "nltReleaseMslFt"),
     r("Bomb Range / TOF", `${formatNm(p.bombRangeNm)} NM / ${formatSec(p.bombTofSec)} sec`, "bombRangeTofSummary"),
   ];
 }
@@ -699,6 +697,7 @@ function exportOffsetTopView(svg, title) {
 
 function renderTopView(result) {
   const svg = $("#offset-top-view");
+  delete svg.dataset.calculationFailed;
   const rendered = renderOffsetTopView(svg, result, {
     aircraftNumber: 1,
     textScale: topViewTextScale,
@@ -715,7 +714,9 @@ function renderTopView(result) {
 function calculate() {
   syncInitialLinkUi();
   try {
-    const result = calculateOffsetWithVrpStart(buildInput());
+    const full = calculateOffsetWithVrpStartFull(buildInput());
+    const result = truncateBeOutput(full);
+    lastResultFull = full;
     lastResult = result;
     applyResolved(result);
     applyBdpSolveCoupling(result);
@@ -725,6 +726,7 @@ function calculate() {
     resultPanel.refresh();
     renderTopView(result);
     refreshBdpDiagrams(1);
+    delete $("#offset-z-svg").dataset.calculationFailed;
     $("#capture-z").disabled = !renderOffsetZDiagram($("#offset-z-svg"), result, { aircraftNumber: 1 });
     renderDed(result);
     applyResultChangeStates(result);
@@ -738,13 +740,41 @@ function calculate() {
     const pill = $("#state-pill");
     pill.textContent = "INVALID";
     pill.className = "status bad";
-    if (lastResult) {
-      renderTopView(lastResult);
-      renderDed(lastResult);
-      recalculateFollowers();
-    }
+    // A failed solve leaves no current result (FE-BE-RULES): Top View, Z, DED and the Full BDP
+    // diagrams are cleared and every follower reports that #1 has no result, instead of showing
+    // or re-solving from the previous success.
+    lastResult = null;
+    lastResultFull = null;
+    showCalculationFailed($("#offset-top-view"), "Offset #1 Top View", error.message);
+    showCalculationFailed($("#offset-z-svg"), "Offset #1 Z-Diagram", error.message);
+    $("#capture-z").disabled = true;
+    clearDed();
+    refreshBdpDiagrams(1);
+    lastResultSnapshot = null;
+    recalculateFollowers();
   }
   if (persistenceReady) savePersistedState();
+}
+
+// Placeholder drawn in a view whose solve failed (no stale geometry is left on screen).
+function showCalculationFailed(svg, title, message) {
+  if (!svg) return;
+  const width = svg === $("#offset-z-svg") ? 650 : TOP_VIEW_WIDTH;
+  svg.replaceChildren();
+  svg.setAttribute("viewBox", `0 0 ${width} 220`);
+  svg.style.aspectRatio = `${width} / 220`;
+  svg.dataset.calculationFailed = "true";
+  const root = svg.appendChild(svgNode("g", svg.id === "offset-z-svg" ? { "data-z-root": "" } : {}));
+  const lines = [title, "Calculation failed · no current result", message.length > 70 ? `${message.slice(0, 67)}...` : message];
+  lines.forEach((line, index) => root.append(svgNode("text", { x: width / 2, y: 70 + index * 40, "text-anchor": "middle", "font-size": index === 0 ? 22 : 17, fill: "#14202c" }, line)));
+  topViewLastResults.delete(svg);
+}
+
+function clearDed() {
+  ["ded-bearing", "ded-range", "ded-elevation", "ded-oa1-bearing", "ded-oa1-range", "ded-oa1-elevation"].forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) node.textContent = "-";
+  });
 }
 
 function syncDuplicates(source) {
@@ -814,7 +844,14 @@ function fillEmptyLeadField(key) {
   let text = start?.text?.trim() ? start.text : leadDerivedFieldText(key, lastResult)?.text ?? String(defaults[key] ?? "");
   if (key === "rollInBankAngleDeg") {
     rollBankAuto = true;
-    try { text = automaticRollInBankDeg(); } catch { /* keep the previous bank */ }
+    try {
+      const full = automaticRollInBankDeg();
+      text = full.toFixed(0);
+      setValue(key, text, { includeActive: true });
+      solvedInputValues.set(key, { text, value: full });
+      calculate();
+      return;
+    } catch { /* keep the previous bank */ }
   } else if (key === "rollInAltitudeMslFt" && bdpSolveMode !== "time" && rollInAltitudeLinked) {
     text = String(Math.round(numberValue("initialAltitudeMslFt")));
   } else if (key === "initialAltitudeMslFt" && rollInAltitudeLinked) {
@@ -900,7 +937,7 @@ function handleFieldChange(event) {
   if (key === "rollInBankAngleDeg") {
     rollBankAuto = false;
     if (diveAngleDeg < LOW_ANGLE_BOUNDARY_DEG) {
-      setAutoValue("rollInG", coordinatedGForBank(numberValue("rollInBankAngleDeg")).toFixed(3), key);
+      setSolvedValue("rollInG", levelTurnRollInGFull(numberValue("rollInBankAngleDeg")), 1, key);
     }
   }
   if (key === "diveAngleDeg") {
@@ -1411,6 +1448,11 @@ function flightResultOf(number) {
   return number === 1 ? lastResult : flightResults.get(number) ?? null;
 }
 
+// Full-precision result of an aircraft, for the solves of the aircraft that follow it.
+function flightResultFullOf(number) {
+  return number === 1 ? lastResultFull : flightResultsFull.get(number) ?? null;
+}
+
 function saveFlightLayout() {
   try {
     localStorage.setItem(FLIGHT_LAYOUT_KEY, JSON.stringify(flightLayout));
@@ -1815,7 +1857,8 @@ function buildFollowerInput(number, slot, leaderResult) {
     profile: {
       weaponId: followerField(slot, "weaponId")?.value || draft.weaponId,
       targetElevationMslFt: sharedProfile.targetElevationMslFt,
-      windDirectionDeg: sharedProfile.windDirectionDeg,
+      // Same true wind as #1 (same Target); converted to this aircraft's own Attack Heading by the BE.
+      windDirectionTrueDeg: numberValue("windDirectionDeg"),
       windSpeedKt: sharedProfile.windSpeedKt,
       recoveryG: own("recoveryG") ?? sharedProfile.recoveryG,
       gOnsetTimeSec: own("gOnsetTimeSec") ?? sharedProfile.gOnsetTimeSec,
@@ -1845,10 +1888,9 @@ function followerEnteredTrackingTimeSec(draft) {
   return Number.isFinite(entered) && entered > 0 ? Math.round(entered) : 18;
 }
 
-// Same automatic Roll-in Bank rule as #1 (applyAutomaticRollBank), from this aircraft's own Dive.
+// Same automatic Roll-in Bank rule as #1 (BDP autoRollInBankDegFull), from this aircraft's own Dive.
 function followerAutoRollBank(diveAngleDeg, rollInG) {
-  if (diveAngleDeg < LOW_ANGLE_BOUNDARY_DEG) return coordinatedBankForG(rollInG);
-  return Math.round(90 + diveAngleDeg / 2);
+  return autoRollInBankDegFull({ diveAngleDeg, rollInG });
 }
 
 // Placeholders show what a blank follower BDP extra currently follows.
@@ -2021,6 +2063,7 @@ function installFollowerTopViewControls(number, slot) {
 function renderFollowerTopView(number, slot, leaderResult, result) {
   const svg = slot.querySelector("svg[data-flight-topview]");
   if (!svg) return;
+  delete svg.dataset.calculationFailed;
   const view = followerTopView(number);
   // Both layers share one rotation: the lead's Run-In (followers fly parallel Run-In lines).
   const rendered = renderOffsetFlightTopView(svg, leaderResult, result, {
@@ -2040,12 +2083,13 @@ function calculateFollower(number) {
   if (!slot) return;
   const leadNumber = elementLeadNumber(number);
   try {
-    const leaderResult = flightResultOf(leadNumber);
-    if (!leaderResult) throw new Error(`Aircraft #${leadNumber} has not resolved yet`);
+    // Solves read the lead's full-precision result; the truncated one is only drawn.
+    const leaderResult = flightResultFullOf(leadNumber);
+    if (!leaderResult) throw new Error(`Aircraft #${leadNumber} has no current result`);
     const { baseInput, sameAngleAsLead, sameTimeAsLead, offsetAngleLocked, actionRangeLocked } = buildFollowerInput(number, slot, leaderResult);
     // IP limit (user rule, 2026-09-27): no follower's Action Point may lie below the Flight IP
     // (#1's IP, VRP + 3 NM when linked) in the IP Bottom view. Violations stay INVALID but drawn.
-    if (lastResult?.geometry?.points?.ip) baseInput.ipLimitPoint = lastResult.geometry.points.ip;
+    if (lastResultFull?.geometry?.points?.ip) baseInput.ipLimitPoint = lastResultFull.geometry.points.ip;
     // Offset Angle is fixed by Angle #n or its LOCK; the Action Point by Time #n or the Action
     // Range LOCK. With one of them free, a BDP edit (e.g. Dive Angle) moves the free one; with
     // both fixed it moves this aircraft's Roll-in Altitude / Tracking Time (user rule, 2026-09-26).
@@ -2061,7 +2105,7 @@ function calculateFollower(number) {
       const timeMode = baseInput.profile.solveMode === "time";
       const pairKey = timeMode ? "trackingTimeSec" : "initialAltitudeMslFt";
       const fixedAngleInput = { ...angleInput, driver: "offsetAngleDeg", locks: { offsetAngleDeg: !!angleInput.locks.offsetAngleDeg } };
-      const evaluate = (value) => calculateOffAxisOffset({ ...fixedAngleInput, profile: { ...fixedAngleInput.profile, [pairKey]: value } });
+      const evaluate = (value) => calculateOffAxisOffsetFull({ ...fixedAngleInput, profile: { ...fixedAngleInput.profile, [pairKey]: value } });
       const [minValue, maxValue] = timeMode ? [0, 60] : [baseInput.profile.releaseAltitudeMslFt + 100, 45000];
       const solved = sameTimeAsLead
         ? solveIngressTimeMatch({ targetIngressSec: leaderResult.timing.ingressSec, evaluate, minValue, maxValue })
@@ -2080,7 +2124,7 @@ function calculateFollower(number) {
       const solved = solveElementSameTimeActionRange({
         leaderResult,
         followerLocks: baseInput.locks,
-        evaluate: (actionRangeFromIpNm) => calculateOffAxisOffset({ ...baseInput, driver: "actionRangeFromIpNm", locks: { offsetAngleDeg: false }, actionRangeFromIpNm }),
+        evaluate: (actionRangeFromIpNm) => calculateOffAxisOffsetFull({ ...baseInput, driver: "actionRangeFromIpNm", locks: { offsetAngleDeg: false }, actionRangeFromIpNm }),
       });
       if (!solved.result || !solved.exact) {
         throw new Error(`CONSTRAINT CONFLICT: no Offset Angle puts this aircraft's Action Point at #${leadNumber}'s Action time`);
@@ -2089,30 +2133,35 @@ function calculateFollower(number) {
     } else {
       // Angle #n alone holds the Offset Angle (Action Range moves); otherwise the last tactical
       // edit or LOCK drives, as on #1.
-      result = calculateOffAxisOffset(angleInput);
+      result = calculateOffAxisOffsetFull(angleInput);
     }
 
+    const resultFull = result;
+    result = truncateBeOutput(resultFull);
+    flightResultsFull.set(number, resultFull);
     flightResults.set(number, result);
-    syncFollowerResolvedFields(number, slot, result, { pairSolved });
+    syncFollowerResolvedFields(number, slot, resultFull, { pairSolved });
     syncFollowerExtraPlaceholders(slot, result);
     renderFollowerStatus(number, result.state, result.errors.length ? result.errors.join(" / ") : result.warnings[0] ?? "-");
-    renderFollowerTopView(number, slot, leaderResult, result);
+    renderFollowerTopView(number, slot, flightResultOf(leadNumber), result);
     const runInReadout = slot.querySelector('[data-flight-readout="runInHeadingDeg"]');
     if (runInReadout) runInReadout.textContent = fmtHeading(result.resolved.runInHeadingDeg);
     const ipRangeReadout = slot.querySelector('[data-flight-readout="ipRangeFromTargetNm"]');
     if (ipRangeReadout) ipRangeReadout.textContent = formatNm(result.resolved.ipRangeNm);
-    const predecessorResult = flightResultOf(number - 1);
-    renderFollowerResult(number, slot, { result, delta: predecessorResult ? computeDropOrderDelta({ predecessorResult, ownResult: result }) : null });
+    const predecessorResult = flightResultFullOf(number - 1);
+    renderFollowerResult(number, slot, { result, delta: predecessorResult ? computeDropOrderDelta({ predecessorResult, ownResult: resultFull }) : null });
     renderFollowerDed(number, slot, result);
     refreshBdpDiagrams(number);
   } catch (error) {
     flightResults.delete(number);
+    flightResultsFull.delete(number);
     renderFollowerStatus(number, "INVALID", error.message);
     renderFollowerResult(number, slot, { state: "INVALID", message: error.message });
     renderFollowerDed(number, slot, null);
     refreshBdpDiagrams(number);
     const leaderResult = flightResultOf(leadNumber);
     if (leaderResult) renderFollowerTopView(number, slot, leaderResult, null);
+    else showCalculationFailed(slot.querySelector("svg[data-flight-topview]"), offsetTopViewTitle({ aircraftNumber: number }), error.message);
   }
 }
 
@@ -2268,6 +2317,9 @@ function installTempDef() {
 }
 
 function install() {
+  // Header shows the Offset BE version actually loaded.
+  const rev = $(".rev");
+  if (rev) rev.textContent = `V2 WORK · OFFSET BE ${OFFSET_BE_V0_2.version}`;
   populateWeapons();
   installLocks();
   $("#initial-link-btn")?.addEventListener("click", () => {
