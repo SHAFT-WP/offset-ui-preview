@@ -16,9 +16,11 @@ export const FT_PER_NM = 6076.11549;
 // the top line); the Roll-in group one row up;
 // NLT Release sits as far from its line as Release Altitude does; the lower block starts one row
 // higher and a host may give it as two columns (`lowerColumns: { left, right }`).
+// 0.1.10 (2026-10-01, user): the upper-right group is Roll-in Range (Ground) / (Slant) only; MAP
+// moves to the lower block (the host's columns, or after Roll-in Lead Angle in the single column).
 export const COMMON_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "common-z-diagram-v0.1",
-  version: "0.1.9",
+  version: "0.1.10",
   oracle: "Bomb Profile REV.1.9 embedded BE Common Rev0.8 display renderer",
   legacyDisplaySource: "Common Z-Diagram Rev0.6 / BE Common Rev0.8 display grammar",
 });
@@ -102,7 +104,7 @@ export function renderCommonZDiagram(svg, data) {
   // Two-column lower block (0.1.9): the host owns both lists; without it the single BDP column draws.
   const validRows = (rows) => (Array.isArray(rows) ? rows.filter((row) => row?.label && row.value !== undefined) : []);
   const columns = data.lowerColumns ? { left: validRows(data.lowerColumns.left), right: validRows(data.lowerColumns.right) } : null;
-  const singleRowCount = (data.compactAngleLabels ? 0 : 1) + 3 + extraRows.length + footerRows.length;
+  const singleRowCount = (data.compactAngleLabels ? 0 : 1) + 4 + extraRows.length + footerRows.length;
   const lowerRowCount = columns ? Math.max(columns.left.length, columns.right.length, 1) : singleRowCount;
   // Lower block from y 488 (one row above 0.1.8's 518), 30 per row, 42 below the last baseline.
   const viewHeight = Math.max(590, 500 + lowerRowCount * 30);
@@ -164,10 +166,9 @@ export function renderCommonZDiagram(svg, data) {
   } else {
     text(227, topY + 22, lineText("Dive Angle", formatCommonDegree(data.diveAngle, 0)), "start", 15);
   }
-  // Roll-in Point Ground / Slant and MAP move together (z-group-roll-in).
-  text(360, 106, lineText(labels.rollInPoint, `${format(rollInNm, 1)} NM (Ground)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
-  text(360, 132, lineText(labels.rollInPoint, `${format(slantNm, 1)} NM (Slant)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
-  text(360, 158, lineText(labels.groundRange, `${format(groundNm, 1)} NM`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+  // Roll-in Range Ground / Slant move together (z-group-roll-in); MAP is a lower-block row (0.1.10).
+  text(360, 106, lineText(labels.rollInRange, `${format(rollInNm, 1)} NM (Ground)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+  text(360, 132, lineText(labels.rollInRange, `${format(slantNm, 1)} NM (Slant)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
   // Release Altitude and NLT Release both start LABEL_GAP after their line's right end.
   const LABEL_GAP = 20;
   const plannedEnd = 330, nltEnd = nltX + 130;
@@ -198,6 +199,7 @@ export function renderCommonZDiagram(svg, data) {
   };
   if (!data.compactAngleLabels) row(lineText(labels.aimOffAngle, formatCommonDegree(data.aimOffAngle, 0)));
   row(lineText(labels.rollInLead, formatCommonDegree(data.rollInLead, 0)));
+  row(lineText(labels.groundRange, `${format(groundNm, 1)} NM`));
   extraRows.forEach((item) => row(lineText(String(item.label).replace(/:\s*$/, ""), String(item.value))));
   row(lineText("Tracking Time", formatCommonSeconds(data.trackingTime, 0)));
   row(lineText("Roll-in to Impact Time", formatCommonSeconds(data.rollInToImpactTime, 0)));

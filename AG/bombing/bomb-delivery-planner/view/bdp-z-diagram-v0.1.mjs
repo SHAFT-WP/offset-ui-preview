@@ -1,4 +1,4 @@
-import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.9";
+import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.10";
 import { formatDeg, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { getWeaponById } from "../weapon-data-v0.1.mjs";
 
@@ -8,7 +8,8 @@ export const BDP_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "bdp-z-diagram-v0.1",
   // 0.1.3 (2026-10-01): profileName exported for Offset; Common Z 0.1.8 top row / label groups.
   // 0.1.4 (2026-10-01): two-column lower block (bdpZLowerColumns) on Common Z 0.1.9.
-  version: "0.1.4",
+  // 0.1.5 (2026-10-01, user): upper group reads Roll-in Range; MAP takes the lower Roll-in Range row.
+  version: "0.1.5",
   oracle: "Bomb Profile REV.1.9 · R_20260830",
   baseRenderer: "common/diagram/z-diagram/z-diagram-v0.1.mjs",
 });
@@ -60,7 +61,7 @@ export function buildBdpZDiagramData(result) {
     nltMsl: result.public.nltReleaseMslFt,
     minAltMsl: result.public.minAltMslFt,
     rollInLead: result.public.leadAngleDeg,
-    labels: { rollInPoint: "Roll-in Point", groundRange: "MAP", aimOffAngle: "IAA", releaseAltitude: "Release Altitude", rollInLead: "Roll-in Lead Angle" },
+    labels: { rollInRange: "Roll-in Range", groundRange: "MAP", aimOffAngle: "IAA", releaseAltitude: "Release Altitude", rollInLead: "Roll-in Lead Angle" },
     aimOffAngle: result.local.aimOffAngleDeg,
     trackingTime: result.public.trackingTimeSec,
     rollInToImpactTime: result.public.rollInTimeSec + result.public.trackingTimeSec + result.public.bombTofSec,
@@ -70,7 +71,8 @@ export function buildBdpZDiagramData(result) {
 
 // BDP lower block (user layout 2026-10-01), two columns. Left: Angle Off, Attack Heading (only
 // when the host has one; the standalone BDP has no Attack Heading input), Roll-in Lead Angle,
-// Roll-in Range. Right: Tracking Time, Bomb TOF. Offset builds on these lists.
+// MAP (user 2026-10-01: Roll-in Range is the upper-right group). Right: Tracking Time, Bomb TOF.
+// Offset builds on these lists.
 export function bdpZLowerColumns(result, { attackHeadingText = null } = {}) {
   const p = result.public;
   return {
@@ -78,7 +80,7 @@ export function bdpZLowerColumns(result, { attackHeadingText = null } = {}) {
       { label: "Angle Off", value: `${formatDeg(result.canonicalInputs.angleOffDeg)}°` },
       ...(attackHeadingText ? [{ label: "Attack Heading", value: attackHeadingText }] : []),
       { label: "Roll-in Lead Angle", value: `${formatDeg(p.leadAngleDeg)}°` },
-      { label: "Roll-in Range", value: `${formatNm(p.rollInRangeNm)} NM` },
+      { label: "MAP", value: `${formatNm(p.groundRangeNm)} NM` },
     ],
     right: [
       { label: "Tracking Time", value: `${formatSec(p.trackingTimeSec)} s` },
