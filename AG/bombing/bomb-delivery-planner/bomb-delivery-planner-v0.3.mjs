@@ -11,7 +11,8 @@ import {
 export const BOMB_DELIVERY_PLANNER_MODEL_V0_3 = Object.freeze({
   id: "bomb-delivery-planner-v0.3-js-facade",
   // 0.3.10 (2026-09-29): v0.2.8 core — ground-referenced Dive Angle in wind; local.aimOffDistanceFt.
-  version: "0.3.10",
+  // 0.3.11 (2026-10-01): v0.2.9 core — public.resolvedSolveMode.
+  version: "0.3.11",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   officialOracle: "Bomb Profile REV.1.9 · R_20260830",
 });

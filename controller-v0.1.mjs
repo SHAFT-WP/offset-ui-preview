@@ -77,7 +77,6 @@ const DEFAULT_INPUT_VALUES = Object.freeze({
   gOnsetTimeSec: "2",
   windDirectionDeg: "0",
   windSpeedKt: "0",
-  solveMode: "height",
   rollInBankAngleDeg: "113",
   rollInG: "4",
   vrpRangeNm: "7.0",
@@ -110,7 +109,16 @@ let vipRangeExplicit = false;
 let vrpBearingExplicit = false;
 let vrpRangeExplicit = false;
 let rollBankAuto = true;
+// LINK (2026-10-01): while on, Initial Altitude and Roll-in Altitude always hold the same value,
+// edited from either side or derived from Tracking Time. Off: Initial Altitude is reference only.
 let rollInAltitudeLinked = true;
+// BDP solve mode is internal (the Solve Mode select was removed 2026-10-01): the last edited of
+// Roll-in / Initial (height) or Tracking Time (time) decides it.
+let bdpSolveMode = "height";
+// Last Tracking Time the user entered (whole seconds). Height mode derives the field's value, so a
+// level delivery (Dive 0°, where BDP always takes Tracking Time as input) uses this instead.
+const DEFAULT_TRACKING_TIME_SEC = 18;
+let enteredTrackingTimeSec = DEFAULT_TRACKING_TIME_SEC;
 let topViewTextScale = TOP_VIEW_TEXT_SCALE_DEFAULT;
 let topViewAdvanced = false;
 // IP Bottom (default on): Top View drawn with the Run-In (IP -> Target) pointing up; off = north up
@@ -334,8 +342,8 @@ function buildInput() {
       // BDP v0.3 still names its module-entry altitude initialAltitudeMslFt.
       // In Offset composition that module entry is OA1 / Roll-In Altitude.
       initialAltitudeMslFt: numberValue("rollInAltitudeMslFt"),
-      solveMode: value("solveMode") ?? "height",
-      trackingTimeSec: numberValue("trackingTimeSec"),
+      solveMode: bdpSolveMode,
+      trackingTimeSec: bdpSolveMode === "time" ? numberValue("trackingTimeSec") : enteredTrackingTimeSec,
       releaseAltitudeMslFt: numberValue("releaseAltitudeMslFt"),
       angleOffDeg: numberValue("angleOffDeg"),
       rollInBankAngleDeg: numberValue("rollInBankAngleDeg"),
@@ -364,14 +372,41 @@ function setSolvedValue(key, nextValue, digits, sourceKey = null) {
 // BDP solve-mode coupling (BDP v0.3 height/time modes; same rule as the standalone BDP app):
 // Roll-in Altitude drives in "height" mode and Tracking Time is derived; Tracking Time drives in
 // "time" mode and Roll-in Altitude (the BDP entry altitude) is derived as
-// Release Altitude + tracking path x sin(Dive) + Roll-in altitude loss.
+// Release Altitude + tracking path x sin(Dive) + Roll-in altitude loss. BDP reports the mode it
+// actually used (resolvedSolveMode): a level delivery (Dive 0°) always takes Tracking Time.
+// With LINK on, Initial Altitude follows Roll-in Altitude.
 function applyBdpSolveCoupling(result) {
   const p = result.profile.public;
-  if ((value("solveMode") ?? "height") === "time") {
+  const mode = p.resolvedSolveMode ?? bdpSolveMode;
+  if (mode === "time") {
+    if (bdpSolveMode !== "time") {
+      // Dive 0° in height mode: the entered Tracking Time was used; show it, not an old derived one.
+      solvedInputValues.delete("trackingTimeSec");
+      setAutoValue("trackingTimeSec", String(enteredTrackingTimeSec), "diveAngleDeg");
+    }
     if (Number.isFinite(p.resolvedInitialAltitudeMslFt)) setSolvedValue("rollInAltitudeMslFt", p.resolvedInitialAltitudeMslFt, 0, "trackingTimeSec");
   } else if (Number.isFinite(p.trackingTimeSec)) {
     setSolvedValue("trackingTimeSec", p.trackingTimeSec, 0, "rollInAltitudeMslFt");
   }
+  syncLinkedInitialAltitude("rollInAltitudeMslFt");
+}
+
+// LINK on: Initial Altitude shows Roll-in Altitude (integer ft, full value kept behind).
+function syncLinkedInitialAltitude(sourceKey = null) {
+  if (!rollInAltitudeLinked) return false;
+  return setSolvedValue("initialAltitudeMslFt", numberValue("rollInAltitudeMslFt"), 0, sourceKey);
+}
+
+function syncInitialLinkUi() {
+  const button = $("#initial-link-btn");
+  if (button) {
+    button.setAttribute("aria-pressed", String(rollInAltitudeLinked));
+    button.textContent = rollInAltitudeLinked ? "LINKED" : "LINK";
+  }
+  const note = $("[data-initial-link-note]");
+  if (note) note.textContent = rollInAltitudeLinked ? "Linked to Roll-in Altitude" : "Reference only (not linked)";
+  const section = $('#offset-calculator > .section[data-tab="bdp"]');
+  if (section) section.dataset.solveMode = bdpSolveMode;
 }
 
 function applyResolved(result) {
@@ -678,6 +713,7 @@ function renderTopView(result) {
 }
 
 function calculate() {
+  syncInitialLinkUi();
   try {
     const result = calculateOffsetWithVrpStart(buildInput());
     lastResult = result;
@@ -779,11 +815,12 @@ function fillEmptyLeadField(key) {
   if (key === "rollInBankAngleDeg") {
     rollBankAuto = true;
     try { text = automaticRollInBankDeg(); } catch { /* keep the previous bank */ }
-  } else if (key === "rollInAltitudeMslFt" && (value("solveMode") ?? "height") !== "time") {
-    rollInAltitudeLinked = true;
+  } else if (key === "rollInAltitudeMslFt" && bdpSolveMode !== "time" && rollInAltitudeLinked) {
     text = String(Math.round(numberValue("initialAltitudeMslFt")));
+  } else if (key === "initialAltitudeMslFt" && rollInAltitudeLinked) {
+    text = String(Math.round(numberValue("rollInAltitudeMslFt")));
   } else if (key === "trackingTimeSec") {
-    setValue("solveMode", "height", { includeActive: true });
+    bdpSolveMode = "height";
   }
   setValue(key, text, { includeActive: true });
   if (start?.solved && valuesEquivalent(text, start.solved.text)) solvedInputValues.set(key, start.solved);
@@ -808,15 +845,27 @@ function handleFieldChange(event) {
 
   solvedInputValues.delete(key);
 
+  // Initial ↔ Roll-in LINK and the internal BDP solve mode (2026-10-01). With LINK off an
+  // Initial Altitude edit changes nothing in the solve (reference only).
   if (key === "initialAltitudeMslFt" && rollInAltitudeLinked) {
+    solvedInputValues.delete("rollInAltitudeMslFt");
     setAutoValue("rollInAltitudeMslFt", Math.round(numberValue("initialAltitudeMslFt")), key);
-    setValue("solveMode", "height", { includeActive: true });
+    bdpSolveMode = "height";
   }
   if (key === "rollInAltitudeMslFt") {
-    rollInAltitudeLinked = false;
-    setValue("solveMode", "height", { includeActive: true });
+    bdpSolveMode = "height";
+    if (rollInAltitudeLinked) setAutoValue("initialAltitudeMslFt", Math.round(numberValue("rollInAltitudeMslFt")), key);
   }
-  if (key === "trackingTimeSec") setValue("solveMode", "time", { includeActive: true });
+  if (key === "trackingTimeSec") {
+    bdpSolveMode = "time";
+    // Tracking Time is whole seconds (BDP rounds it; user decision 2026-10-01): a committed entry
+    // shows the value actually used.
+    const entered = Number.parseFloat(field.value);
+    if (Number.isFinite(entered)) {
+      enteredTrackingTimeSec = Math.round(entered);
+      if (event.type === "change") setValue("trackingTimeSec", String(enteredTrackingTimeSec), { includeActive: true });
+    }
+  }
 
   if (key === "vrpRangeNm") {
     vrpRangeExplicit = Number.isFinite(Number.parseFloat(field.value));
@@ -1038,6 +1087,8 @@ function capturePersistedState() {
     ipLinked,
     ipLockHeadingDeg,
     rollInAltitudeLinked,
+    solveMode: bdpSolveMode,
+    enteredTrackingTimeSec,
     vipBearingExplicit,
     vipRangeExplicit,
     vrpBearingExplicit,
@@ -1060,6 +1111,8 @@ function createDefaultPersistedState() {
     ipLinked: true,
     ipLockHeadingDeg: 0,
     rollInAltitudeLinked: true,
+    solveMode: "height",
+    enteredTrackingTimeSec: DEFAULT_TRACKING_TIME_SEC,
     vipBearingExplicit: false,
     vipRangeExplicit: false,
     vrpBearingExplicit: false,
@@ -1097,6 +1150,11 @@ function applyPersistedState(saved) {
   ipLinked = saved.version >= 3 && saved.ipLinked !== false;
   ipLockHeadingDeg = Number.isFinite(saved.ipLockHeadingDeg) ? saved.ipLockHeadingDeg : readRunInHeading();
   rollInAltitudeLinked = saved.rollInAltitudeLinked !== false;
+  // Before 2026-10-01 the solve mode was the Solve Mode select, saved with the inputs.
+  const savedMode = saved.solveMode ?? oldInputs.solveMode;
+  bdpSolveMode = savedMode === "time" ? "time" : "height";
+  const savedTracking = Number(saved.enteredTrackingTimeSec ?? (bdpSolveMode === "time" ? saved.inputs.trackingTimeSec : NaN));
+  enteredTrackingTimeSec = Number.isFinite(savedTracking) && savedTracking > 0 ? Math.round(savedTracking) : DEFAULT_TRACKING_TIME_SEC;
   vipBearingExplicit = saved.vipBearingExplicit === true;
   vipRangeExplicit = saved.vipRangeExplicit === true;
   vrpBearingExplicit = saved.vrpBearingExplicit === true;
@@ -1117,9 +1175,12 @@ function applyPersistedState(saved) {
   setDirectionButtons("vip", vipBearingDirection);
   setDirectionButtons("ip", ipBearingDirection);
 
+  // Roll-in Altitude is the solve's value; a linked Initial Altitude shows it.
   if (rollInAltitudeLinked) {
-    setValue("rollInAltitudeMslFt", Math.round(numberValue("initialAltitudeMslFt")), { includeActive: true });
+    solvedInputValues.delete("initialAltitudeMslFt");
+    setValue("initialAltitudeMslFt", Math.round(numberValue("rollInAltitudeMslFt")), { includeActive: true });
   }
+  syncInitialLinkUi();
   const runInHeadingDeg = readRunInHeading();
   syncImplicitReferenceInputs(runInHeadingDeg, { includeActive: true });
   syncVipBearingInput(readVipToTargetBearing(), { includeActive: true });
@@ -1272,6 +1333,8 @@ function resetLeadTab(tab, section) {
   section.querySelectorAll("[data-lock-key]").forEach((button) => { current.locks[button.dataset.lockKey] = false; });
   if (tab === "bdp") {
     current.rollInAltitudeLinked = true;
+    current.solveMode = "height";
+    current.enteredTrackingTimeSec = DEFAULT_TRACKING_TIME_SEC;
     current.rollBankAuto = true;
   }
   if (tab === "reference") {
@@ -1310,7 +1373,7 @@ const FOLLOWER_BDP_EXTRA_KEYS = ["fragmentHeightMarginPercent", "recoveryG", "sp
 // Per-tab keys reset by that tab's Default (follower aircraft).
 const FOLLOWER_TAB_KEYS = {
   formation: ["side", "bearingDeg", "distanceNm"],
-  bdp: ["weaponId", "initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "rollInAltitudeLinked", "diveAngleDeg", "trackingTimeSec", "solveMode", "releaseAltitudeMslFt", "releaseSpeedKcas", ...FOLLOWER_BDP_EXTRA_KEYS],
+  bdp: ["weaponId", "initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "rollInAltitudeLinked", "diveAngleDeg", "trackingTimeSec", "solveMode", "enteredTrackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas", ...FOLLOWER_BDP_EXTRA_KEYS],
   offset: ["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "offsetAngleLocked", "sameAngleAsLead", "actionRangeLocked", "sameTimeAsLead", "driver"],
 };
 
@@ -1324,7 +1387,7 @@ function defaultFlightDraft(number = 2) {
     weaponId: "M82", side: position.side, bearingDeg: "90", distanceNm: position.distanceNm,
     initialSpeedValue: "350", initialAltitudeMslFt: "16000", diveAngleDeg: "45",
     rollInAltitudeMslFt: "16000", rollInAltitudeLinked: true,
-    trackingTimeSec: "18", solveMode: "height", releaseAltitudeMslFt: "6800", releaseSpeedKcas: "450",
+    trackingTimeSec: "18", solveMode: "height", enteredTrackingTimeSec: "18", releaseAltitudeMslFt: "6800", releaseSpeedKcas: "450",
     ...Object.fromEntries(FOLLOWER_BDP_EXTRA_KEYS.map((key) => [key, ""])),
     attackHeadingDeg: "030", angleOffDeg: "70",
     offsetAngleDeg: "40", actionRangeNm: "7.0",
@@ -1396,7 +1459,7 @@ function followerCalculatingMarkup(number) {
   const wingman = FLIGHT_WINGMEN.has(number);
   return [
     flightSection(number, "Formation", `<p class="flight-draft-note">Start point relative to #${leadNumber}'s own IP; feeds this aircraft's Run-In line.</p>${followerFormationMarkup(leadNumber)}`, { calculating: true, tab: "formation" }),
-    flightSection(number, "BDP", `<div class="input-grid"><label class="field flight-weapon-field"><span>Bomb</span><select data-flight-field="weaponId"></select></label><label class="field"><span>Initial Speed (KCAS)</span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"></label><label class="field"><span>Initial Altitude (ft MSL)</span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"></label><label class="field"><span>Roll-in Altitude (ft MSL)</span><input data-flight-field="rollInAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">Default = Initial Altitude · BDP entry altitude</span></label><label class="field"><span>Dive Angle (deg)</span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"></label><label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label><label class="field"><span>Release Speed (KCAS)</span><input data-flight-field="releaseSpeedKcas" type="text" inputmode="decimal"></label>${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}<label class="field advanced-only bdp-extra"><span>Solve Mode <span class="adv-tag">ADV</span></span><select data-flight-field="solveMode"><option value="height">Initial Altitude</option><option value="time">Tracking Time</option></select></label>${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}</div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target). Full BDP fields left blank follow #1 (Roll-in Bank: automatic from this aircraft's Dive Angle).</p>${bdpDiagramsMarkup({ aircraftNumber: number })}`, { calculating: true, tab: "bdp" }),
+    flightSection(number, "BDP", `<div class="input-grid"><label class="field flight-weapon-field"><span>Bomb</span><select data-flight-field="weaponId"></select></label><label class="field"><span>Initial Speed (KCAS)</span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Initial Altitude (ft MSL)</span><button class="lock-button" type="button" data-flight-field="rollInAltitudeLinked" aria-label="Link Initial Altitude to Roll-in Altitude" aria-pressed="true">LINKED</button></span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"><span class="unit" data-initial-link-note>Linked to Roll-in Altitude</span></label><label class="field"><span>Roll-in Altitude (ft MSL)</span><input data-flight-field="rollInAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">BDP entry altitude</span></label><label class="field"><span>Dive Angle (deg)</span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"><span class="unit">Whole seconds</span></label><label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label><label class="field"><span>Release Speed (KCAS)</span><input data-flight-field="releaseSpeedKcas" type="text" inputmode="decimal"></label>${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}</div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target). Full BDP fields left blank follow #1 (Roll-in Bank: automatic from this aircraft's Dive Angle).</p>${bdpDiagramsMarkup({ aircraftNumber: number })}`, { calculating: true, tab: "bdp" }),
     flightSection(number, "Offset", `<div class="section-head"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div><div class="input-grid"><label class="field"><span>Run-In Heading</span><output data-flight-readout="runInHeadingDeg">-</output><span class="unit">Follows #1 · parallel Run-In</span></label><label class="field"><span>IP Range from Target</span><output data-flight-readout="ipRangeFromTargetNm">-</output><span class="unit">NM · from Formation position</span></label><label class="field"><span>Attack Heading (deg)</span><input data-flight-field="attackHeadingDeg" type="text" inputmode="decimal"></label><label class="field"><span>Angle-Off (deg)</span><input data-flight-field="angleOffDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Offset Angle (deg)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="offsetAngleLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameAngleAsLead" aria-pressed="false" title="Align Offset Angle to #${leadNumber}">ANGLE #${leadNumber}</button>` : ""}</span></span><input data-flight-field="offsetAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Action Range (NM)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="actionRangeLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameTimeAsLead" aria-pressed="false" title="Align Action timing to #${leadNumber}">TIME #${leadNumber}</button>` : ""}</span></span><input data-flight-field="actionRangeNm" type="text" inputmode="decimal"><span class="unit">Target → Action Point</span></label></div><div id="flight-status-${number}" class="status-message valid">-</div>`, { calculating: true, tab: "offset" }),
     flightSection(number, "Z-Diagram", `<p class="flight-draft-note">Aircraft #${number} diagram is pending its profile result.</p>`, { heading: offsetZDiagramTitle({ aircraftNumber: number }) }),
     flightSection(number, "Top View", `${followerTopViewToolbar(number)}<div class="top-view-shell"><svg data-flight-topview viewBox="0 0 ${TOP_VIEW_WIDTH} ${OFFSET_TOP_VIEW_V0_1.canvas.maxHeight}" role="img" aria-label="${offsetTopViewTitle({ aircraftNumber: number })}"></svg></div><p class="flight-draft-note">Leader #${leadNumber}'s already-solved profile is drawn in full alongside this aircraft's own, sharing Target and scale; it does not feed aircraft #${number}'s own solve.</p>`, { calculating: true, heading: offsetTopViewTitle({ aircraftNumber: number }) }),
@@ -1423,6 +1486,11 @@ function syncFlightToggleButton(button, on) {
   button.setAttribute("aria-pressed", String(on));
   button.classList.toggle("active", on);
   if (FOLLOWER_LOCK_KEYS.has(button.dataset.flightField)) button.textContent = on ? "LOCKED" : "LOCK";
+  if (button.dataset.flightField === "rollInAltitudeLinked") {
+    button.textContent = on ? "LINKED" : "LINK";
+    const note = button.closest(".field")?.querySelector("[data-initial-link-note]");
+    if (note) note.textContent = on ? "Linked to Roll-in Altitude" : "Reference only (not linked)";
+  }
 }
 
 function initializeFlightSlotFields(slot, number) {
@@ -1487,6 +1555,11 @@ function installFlightLayout() {
             diveAngleDeg: str("diveAngleDeg"),
             trackingTimeSec: str("trackingTimeSec"),
             solveMode: record.solveMode === "time" ? "time" : "height",
+            // Last entered Tracking Time (a height-mode field holds a derived value); older saves
+            // fall back to the field in time mode, else the default.
+            enteredTrackingTimeSec: typeof record.enteredTrackingTimeSec === "string"
+              ? record.enteredTrackingTimeSec
+              : record.solveMode === "time" ? str("trackingTimeSec") : "18",
             ...Object.fromEntries(FOLLOWER_BDP_EXTRA_KEYS.map((key) => [key, typeof record[key] === "string" ? record[key] : ""])),
             releaseAltitudeMslFt: str("releaseAltitudeMslFt"),
             releaseSpeedKcas: str("releaseSpeedKcas"),
@@ -1532,16 +1605,33 @@ function installFlightLayout() {
     // Mirrors #1's Initial Altitude -> Roll-in Altitude default link (index.html's
     // rollInAltitudeMslFt field / rollInAltitudeLinked): Roll-in Altitude is the actual BDP
     // entry altitude and follows Initial Altitude until explicitly edited on its own.
+    // LINK (2026-10-01): Initial and Roll-in hold the same value from either side; off, Initial is
+    // reference only. The BDP solve mode is internal: last edited Roll-in/Initial or Tracking Time.
+    const slotNode = field.closest(".flight-slot");
     if (key === "initialAltitudeMslFt" && draft.rollInAltitudeLinked) {
       draft.rollInAltitudeMslFt = field.value;
-      const rollInField = followerField(field.closest(".flight-slot"), "rollInAltitudeMslFt");
+      followerSolvedValues.delete(`${number}:rollInAltitudeMslFt`);
+      const rollInField = followerField(slotNode, "rollInAltitudeMslFt");
       if (rollInField && rollInField !== document.activeElement) rollInField.value = field.value;
       draft.solveMode = "height";
     } else if (key === "rollInAltitudeMslFt") {
-      draft.rollInAltitudeLinked = false;
       draft.solveMode = "height";
+      if (draft.rollInAltitudeLinked) {
+        draft.initialAltitudeMslFt = field.value;
+        const initialField = followerField(slotNode, "initialAltitudeMslFt");
+        if (initialField && initialField !== document.activeElement) initialField.value = field.value;
+      }
     } else if (key === "trackingTimeSec") {
       draft.solveMode = "time";
+      const entered = Number.parseFloat(field.value);
+      if (Number.isFinite(entered)) {
+        // Whole seconds (BDP rounds; user decision 2026-10-01): a committed entry shows that value.
+        draft.enteredTrackingTimeSec = String(Math.round(entered));
+        if (event.type === "change") {
+          field.value = draft.enteredTrackingTimeSec;
+          draft.trackingTimeSec = draft.enteredTrackingTimeSec;
+        }
+      }
     }
     followerSolvedValues.delete(`${number}:${key}`);
     // Same rule as #1's handleFieldChange: only tactical Offset edits become the driver; BDP
@@ -1569,6 +1659,15 @@ function installFlightLayout() {
     const key = button.dataset.flightField;
     draft[key] = !draft[key];
     syncFlightToggleButton(button, draft[key]);
+    if (key === "rollInAltitudeLinked" && draft[key]) {
+      // Turning LINK on copies Roll-in Altitude (the solve's value) into Initial Altitude.
+      const rollIn = Number.parseFloat(followerField(slot, "rollInAltitudeMslFt")?.value ?? draft.rollInAltitudeMslFt);
+      if (Number.isFinite(rollIn)) {
+        draft.initialAltitudeMslFt = String(Math.round(rollIn));
+        const initialField = followerField(slot, "initialAltitudeMslFt");
+        if (initialField) initialField.value = draft.initialAltitudeMslFt;
+      }
+    }
     if (draft[key] && FLIGHT_TOGGLE_EXCLUSIONS[key]) {
       FLIGHT_TOGGLE_EXCLUSIONS[key].forEach((excludedKey) => {
         draft[excludedKey] = false;
@@ -1610,9 +1709,10 @@ function fillEmptyFollowerField(number, field, key) {
   if (start && FLIGHT_TACTICAL_DRIVERS.includes(start.driver)) draft.driver = start.driver;
   if (draft.driver === key) draft.driver = FOLLOWER_FALLBACK_DRIVERS[key] ?? "actionRangeNm";
   let text = start?.text?.trim() ? start.text : String(draft[key] ?? defaultFlightDraft(number)[key] ?? "");
-  if (key === "rollInAltitudeMslFt" && draft.solveMode !== "time") {
-    draft.rollInAltitudeLinked = true;
+  if (key === "rollInAltitudeMslFt" && draft.solveMode !== "time" && draft.rollInAltitudeLinked) {
     text = String(draft.initialAltitudeMslFt);
+  } else if (key === "initialAltitudeMslFt" && draft.rollInAltitudeLinked) {
+    text = String(draft.rollInAltitudeMslFt);
   } else if (key === "trackingTimeSec") {
     draft.solveMode = "height";
   }
@@ -1728,7 +1828,9 @@ function buildFollowerInput(number, slot, leaderResult) {
       // Altitude" field, is the actual BDP entry altitude (OA1).
       initialAltitudeMslFt: num("rollInAltitudeMslFt"),
       solveMode: draft.solveMode === "time" ? "time" : "height",
-      trackingTimeSec: num("trackingTimeSec"),
+      // Height mode shows a derived Tracking Time; BDP only uses it at Dive 0°, where the last
+      // entered value applies (BDP public.resolvedSolveMode).
+      trackingTimeSec: draft.solveMode === "time" ? num("trackingTimeSec") : followerEnteredTrackingTimeSec(draft),
       releaseAltitudeMslFt: num("releaseAltitudeMslFt"),
       releaseSpeedKcas: num("releaseSpeedKcas"),
       rollInBankAngleDeg: own("rollInBankAngleDeg") ?? followerAutoRollBank(num("diveAngleDeg"), rollInG),
@@ -1736,6 +1838,11 @@ function buildFollowerInput(number, slot, leaderResult) {
     },
   };
   return { baseInput, sameAngleAsLead, sameTimeAsLead, offsetAngleLocked, actionRangeLocked };
+}
+
+function followerEnteredTrackingTimeSec(draft) {
+  const entered = Number.parseFloat(draft.enteredTrackingTimeSec);
+  return Number.isFinite(entered) && entered > 0 ? Math.round(entered) : 18;
 }
 
 // Same automatic Roll-in Bank rule as #1 (applyAutomaticRollBank), from this aircraft's own Dive.
@@ -1754,8 +1861,8 @@ function syncFollowerExtraPlaceholders(slot, result) {
     const text = key === "rollInBankAngleDeg" ? `auto ${formatDeg(value)}` : `#1 ${key === "rollInG" ? formatG(value) : formatDeg(value)}`;
     field.placeholder = Number.isFinite(value) ? text : "";
   });
-  const mode = followerField(slot, "solveMode");
-  if (mode && mode !== document.activeElement) mode.value = flightDraft(Number(slot.dataset.aircraft)).solveMode === "time" ? "time" : "height";
+  const section = slot.querySelector('.section[data-tab="bdp"]');
+  if (section) section.dataset.solveMode = flightDraft(Number(slot.dataset.aircraft)).solveMode === "time" ? "time" : "height";
 }
 
 function renderFollowerStatus(number, state, message) {
@@ -1820,16 +1927,32 @@ function syncFollowerResolvedFields(number, slot, result, { pairSolved = false }
   sync("attackHeadingDeg", result.resolved.attackHeadingDeg, 0);
   sync("angleOffDeg", result.resolved.angleOffDeg, 0);
   const p = result.profile.public;
+  // LINK on: Initial Altitude shows Roll-in Altitude.
+  const syncLinkedInitial = (value) => { if (draft.rollInAltitudeLinked) sync("initialAltitudeMslFt", value, 0); };
   if (pairSolved) {
     // Offset Angle and Action Point both fixed: Roll-in Altitude and Tracking Time were solved
     // together (see calculateFollower); Dive Angle stays this aircraft's own input.
     sync("rollInAltitudeMslFt", p.resolvedInitialAltitudeMslFt, 0);
     sync("trackingTimeSec", p.trackingTimeSec, 0);
+    syncLinkedInitial(p.resolvedInitialAltitudeMslFt);
     return;
   }
-  // BDP solve-mode coupling, same rule as #1 (applyBdpSolveCoupling).
-  if (draft.solveMode === "time") sync("rollInAltitudeMslFt", p.resolvedInitialAltitudeMslFt, 0);
-  else sync("trackingTimeSec", p.trackingTimeSec, 0);
+  // BDP solve-mode coupling, same rule as #1 (applyBdpSolveCoupling); Dive 0° always uses
+  // Tracking Time (resolvedSolveMode).
+  if ((p.resolvedSolveMode ?? draft.solveMode) === "time") {
+    if (draft.solveMode !== "time") {
+      const text = String(followerEnteredTrackingTimeSec(draft));
+      const field = followerField(slot, "trackingTimeSec");
+      if (field && field !== active) field.value = text;
+      draft.trackingTimeSec = text;
+      followerSolvedValues.delete(`${number}:trackingTimeSec`);
+    }
+    sync("rollInAltitudeMslFt", p.resolvedInitialAltitudeMslFt, 0);
+    syncLinkedInitial(p.resolvedInitialAltitudeMslFt);
+  } else {
+    sync("trackingTimeSec", p.trackingTimeSec, 0);
+    syncLinkedInitial(followerNumberValue(slot, draft, "rollInAltitudeMslFt"));
+  }
 }
 
 
@@ -2147,6 +2270,13 @@ function installTempDef() {
 function install() {
   populateWeapons();
   installLocks();
+  $("#initial-link-btn")?.addEventListener("click", () => {
+    rollInAltitudeLinked = !rollInAltitudeLinked;
+    // Turning LINK on copies Roll-in Altitude (the solve's value) into Initial Altitude, so the
+    // result does not change.
+    syncLinkedInitialAltitude("rollInAltitudeMslFt");
+    calculate();
+  });
   installModeButtons();
   installReferenceBearingControls();
   installValueStateBindings();

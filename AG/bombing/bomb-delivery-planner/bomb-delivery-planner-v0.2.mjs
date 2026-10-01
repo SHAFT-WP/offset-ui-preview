@@ -13,7 +13,8 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
   id: "bomb-delivery-planner-v0.2-sem-nlt",
   // 0.2.8 (2026-09-29): Dive Angle is the ground-referenced flight path (FPM line) in wind — the
   // bomb leaves along it at ground speed and tracking runs at ground speed (SPEC §8); local AOD in ft.
-  version: "0.2.8",
+  // 0.2.9 (2026-10-01): public.resolvedSolveMode reports the mode actually used ("time" at Dive 0°).
+  version: "0.2.9",
   flightPathReference: "GROUND",
   legacyGeometrySource: "Bomb Profile REV.1.9 · R_20260830",
   applicability: Object.freeze({
@@ -196,6 +197,9 @@ export function calculateBombDeliveryV0_2(rawInput) {
       resolvedInitialSpeedKcas,
       trackPointAltitudeMslFt: profile.trackMslFt,
       trackingTimeSec: profile.trackingTimeSec,
+      // Mode actually used: a level delivery (Dive 0°) always takes Tracking Time as its input
+      // whatever solveMode says, so FEs must treat Tracking Time as the input there (SPEC §6.2).
+      resolvedSolveMode: profile.levelDelivery ? "time" : input.solveMode,
       rollInRangeNm: profile.rollInRangeFt / FT_PER_NM,
       groundRangeNm: profile.groundRangeFt / FT_PER_NM,
       downRangeTravelNm: profile.downRangeTravelFt / FT_PER_NM,
