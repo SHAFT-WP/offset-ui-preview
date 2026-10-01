@@ -7,9 +7,14 @@ export const FT_PER_NM = 6076.11549;
 // 0.1.7 (2026-09-29): white text halo; Initial Speed as its value only, inside the top line's span;
 // compact Dive Angle / IAA as one "45°/4°" label at the upper vertex; every text but the title is a
 // movable label (0.5 s long-press, Common smart-label drag installed once per svg).
+// 0.1.8 (2026-10-01): one top row for every host — altitude value only at the left (accessible name
+// "Roll-in Altitude"), speed right-aligned to the top line's end; `altitudeOnLeft` and
+// `initialAltitudeText` removed. The BDP rows always draw; `footerRows` follow them. Clustered texts
+// move as one label: z-group-roll-in (Roll-in Point Ground / Slant, MAP) and z-group-footer (the
+// whole lower block).
 export const COMMON_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "common-z-diagram-v0.1",
-  version: "0.1.7",
+  version: "0.1.8",
   oracle: "Bomb Profile REV.1.9 embedded BE Common Rev0.8 display renderer",
   legacyDisplaySource: "Common Z-Diagram Rev0.6 / BE Common Rev0.8 display grammar",
 });
@@ -47,34 +52,50 @@ const HALO = Object.freeze({ stroke: "#ffffff", "stroke-width": 4, "paint-order"
 const labelDrags = new WeakMap();
 const labelKey = (value) => `z-${String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 
-// Movable label: a transparent grab area fitted to the text (estimate until the svg is laid out).
-function movableLabel(root, key, textNode, { x, y, anchor, size, content }) {
-  const group = node("g", { "data-movable-label": "true", "data-label-key": key, style: "cursor:grab;touch-action:none" });
+// Text box estimate used until the svg is laid out.
+function estimateBox({ x, y, anchor, size, content }) {
   const width = Math.max(24, String(content).length * size * 0.62);
   const left = anchor === "end" ? x - width : anchor === "middle" ? x - width / 2 : x;
-  const hit = node("rect", { x: left - 4, y: y - size - 2, width: width + 8, height: size * 1.35 + 4, fill: "transparent", "pointer-events": "all", "data-label-hit": "true" });
-  textNode.setAttribute("pointer-events", "none");
-  group.append(hit, textNode);
+  return { x: left, y: y - size - 2, width, height: size * 1.35 + 4 };
+}
+
+// Movable label group: one transparent grab area over all its texts, so a cluster moves as a set
+// (smart-label drag translates the whole group). Fitted to the laid-out bbox when available.
+function movableGroup(root, key) {
+  const group = node("g", { "data-movable-label": "true", "data-label-key": key, style: "cursor:grab;touch-action:none" });
+  const hit = node("rect", { fill: "transparent", "pointer-events": "all", "data-label-hit": "true" });
+  group.append(hit);
   root.appendChild(group);
-  try {
-    const box = textNode.getBBox();
-    if (box.width > 0 && box.height > 0) {
-      hit.setAttribute("x", String(box.x - 4));
-      hit.setAttribute("y", String(box.y - 4));
-      hit.setAttribute("width", String(box.width + 8));
-      hit.setAttribute("height", String(box.height + 8));
+  const estimates = [];
+  const add = (textNode, estimate) => {
+    textNode.setAttribute("pointer-events", "none");
+    group.append(textNode);
+    estimates.push(estimate);
+    let box = null;
+    try {
+      const measured = [...group.querySelectorAll("text")].map((item) => item.getBBox()).filter((item) => item.width > 0 && item.height > 0);
+      if (measured.length === estimates.length) box = measured.reduce(unionBox);
+    } catch (_) {
+      // Not laid out (detached or hidden); keep the estimate.
     }
-  } catch (_) {
-    // Not laid out (detached or hidden); keep the estimate.
-  }
-  return textNode;
+    const fitted = box ? { x: box.x - 4, y: box.y - 4, width: box.width + 8, height: box.height + 8 } : estimates.map((item) => ({ x: item.x - 4, y: item.y, width: item.width + 8, height: item.height })).reduce(unionBox);
+    Object.entries(fitted).forEach(([name, value]) => hit.setAttribute(name, String(value)));
+    return textNode;
+  };
+  return { add };
+}
+
+function unionBox(a, b) {
+  const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+  return { x, y, width: Math.max(a.x + a.width, b.x + b.width) - x, height: Math.max(a.y + a.height, b.y + b.height) - y };
 }
 
 export function renderCommonZDiagram(svg, data) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
   const extraRows = Array.isArray(data.extraRows) ? data.extraRows.filter((row) => row?.label && row.value !== undefined) : [];
-  const footerRows = Array.isArray(data.footerRows) ? data.footerRows : null;
-  const viewHeight = 620 + (footerRows ? Math.max(0, footerRows.length - 4) : extraRows.length) * 30;
+  // Host rows drawn after the BDP rows (Offset since 0.1.8; they no longer replace them).
+  const footerRows = Array.isArray(data.footerRows) ? data.footerRows.filter((row) => row?.label && row.value !== undefined) : [];
+  const viewHeight = 620 + (extraRows.length + footerRows.length) * 30;
   svg.setAttribute("viewBox", `0 0 650 ${viewHeight}`);
   svg.style.aspectRatio = `650 / ${viewHeight}`;
   const root = svg.querySelector("[data-z-root]") || svg.querySelector("g") || svg;
@@ -89,24 +110,28 @@ export function renderCommonZDiagram(svg, data) {
   const add = (name, attrs, content) => { const n = node(name, attrs, content); root.appendChild(n); return n; };
   const line = (x1, y1, x2, y2, width = 3) => add("line", { x1, y1, x2, y2, stroke: ink, "stroke-width": width, "stroke-linecap": "square" });
   // Every text carries the white halo; a keyed text is a movable label, keyed by its name (the part
-  // before ":") so a moved label stays moved when its value changes. `value` may be a list of strings
-  // and tspans.
-  const text = (x, y, value, anchor = "start", size = BODY_FS, weight = FONT_WEIGHT, key = labelKey(String(value).split(":")[0])) => {
+  // before ":") so a moved label stays moved when its value changes. A text passed a `group` joins
+  // that cluster's single movable label instead. `value` may be a list of strings and tspans.
+  const groups = new Map();
+  const text = (x, y, value, anchor = "start", size = BODY_FS, weight = FONT_WEIGHT, key = labelKey(String(value).split(":")[0]), group = null) => {
     const fontSize = data.uniformBodyText && size !== TITLE_FS ? 15 : size;
     const textNode = node("text", { x, y, fill: ink, "font-size": fontSize, "font-weight": weight, "text-anchor": anchor, ...HALO }, Array.isArray(value) ? undefined : value);
     if (Array.isArray(value)) textNode.append(...value);
-    if (!key) { root.appendChild(textNode); return textNode; }
-    return movableLabel(root, key, textNode, { x, y, anchor, size: fontSize, content: textNode.textContent });
+    if (!key && !group) { root.appendChild(textNode); return textNode; }
+    const groupKey = group ?? key;
+    if (!groups.has(groupKey)) groups.set(groupKey, movableGroup(root, groupKey));
+    return groups.get(groupKey).add(textNode, estimateBox({ x, y, anchor, size: fontSize, content: textNode.textContent }));
   };
   const diagX = (y) => left + ((baseY - y) / (baseY - topY)) * (topX - left);
 
   const diagramTitle = commonZDiagramTitle(data.profileTitle || "", data.beTitle || "");
   text(325, data.uniformBodyText ? 36 : 28, diagramTitle, "middle", TITLE_FS, FONT_WEIGHT, null);
-  // Initial Speed: the value only, above the top line and never past its right end (topX). With the
-  // altitude on the left it is right-aligned to that end.
-  const speed = text(data.altitudeOnLeft ? topX : 42, 82, `${format(data.initialKcas, 0)} KCAS`, data.altitudeOnLeft ? "end" : "start", 15, FONT_WEIGHT, "z-initial-speed");
+  // Top row (0.1.8, every host): the Roll-in Altitude value only at the left margin and the Initial
+  // Speed value right-aligned to the top line's end (topX); names live in the aria-labels.
+  const altitude = text(42, 82, `${format(data.initialMsl, 0)} ft`, "start", 15, FONT_WEIGHT, "z-roll-in-altitude");
+  altitude.setAttribute("aria-label", lineText("Roll-in Altitude", `${format(data.initialMsl, 0)} ft`));
+  const speed = text(topX, 82, `${format(data.initialKcas, 0)} KCAS`, "end", 15, FONT_WEIGHT, "z-initial-speed");
   speed.setAttribute("aria-label", lineText("Initial Speed", `${format(data.initialKcas, 0)} KCAS`));
-  text(data.altitudeOnLeft ? 42 : 608, 82, data.initialAltitudeText ?? lineText("Initial Altitude", `${format(data.initialMsl, 0)} ft`), data.altitudeOnLeft ? "start" : "end", 15, FONT_WEIGHT, "z-initial-altitude");
   const rollInNm = (Number(data.rollInRangeFt) || 0) / FT_PER_NM;
   const slantNm = (Number(data.slantFt) || 0) / FT_PER_NM;
   const groundNm = (Number(data.groundFt) || 0) / FT_PER_NM;
@@ -129,9 +154,10 @@ export function renderCommonZDiagram(svg, data) {
   } else {
     text(200, topY + 38, lineText("Dive Angle", formatCommonDegree(data.diveAngle, 0)), "start", 15);
   }
-  text(360, 132, lineText(labels.rollInPoint, `${format(rollInNm, 1)} NM (Ground)`), "start", 15, FONT_WEIGHT, "z-roll-in-ground");
-  text(360, 158, lineText(labels.rollInPoint, `${format(slantNm, 1)} NM (Slant)`), "start", 15, FONT_WEIGHT, "z-roll-in-slant");
-  text(360, 184, lineText(labels.groundRange, `${format(groundNm, 1)} NM`), "start", 15);
+  // Roll-in Point Ground / Slant and MAP move together (z-group-roll-in).
+  text(360, 132, lineText(labels.rollInPoint, `${format(rollInNm, 1)} NM (Ground)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+  text(360, 158, lineText(labels.rollInPoint, `${format(slantNm, 1)} NM (Slant)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+  text(360, 184, lineText(labels.groundRange, `${format(groundNm, 1)} NM`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
   line(plannedX - 100, plannedY, 330, plannedY, 3);
   text(350, plannedY + 6, lineText(labels.releaseAltitude, `${format(data.releaseMsl, 0)} ft`), "start", 15);
   text(74, plannedY + 72, lineText("Release Speed", `${format(data.releaseKcas, 0)} KCAS`));
@@ -139,32 +165,21 @@ export function renderCommonZDiagram(svg, data) {
   text(320, nltY + 6, lineText("NLT Release", `${format(data.nltMsl, 0)} ft`), "start", 15);
   text(260, baseY - 16, lineText("MINALT", `${format(data.minAltMsl, 0)} ft`), "end");
 
+  // Lower block: BDP rows, the BE's extraRows among them, then the host's footerRows; the whole
+  // block moves as one label (z-group-footer).
   let y = 518;
-  const done = () => {
-    if (!labelDrags.has(svg)) labelDrags.set(svg, installSmartLabelDrag(svg));
-    labelDrags.get(svg).applyStoredPositions();
-    return diagramTitle;
+  const row = (content) => {
+    text(42, y, content, "start", BODY_FS, FONT_WEIGHT, null, "z-group-footer");
+    y += 30;
   };
-  if (footerRows) {
-    footerRows.forEach((row) => {
-      const label = String(row.label).replace(/:\s*$/, "");
-      text(42, y, lineText(label, String(row.value)));
-      y += 30;
-    });
-    return done();
-  }
-  if (!data.compactAngleLabels) {
-    text(42, y, lineText(labels.aimOffAngle, formatCommonDegree(data.aimOffAngle, 0)));
-    y += 30;
-  }
-  text(42, y, lineText(labels.rollInLead, formatCommonDegree(data.rollInLead, 0)));
-  y += 30;
-  extraRows.forEach((row) => {
-    text(42, y, lineText(String(row.label).replace(/:\s*$/, ""), String(row.value)));
-    y += 30;
-  });
-  text(42, y, lineText("Tracking Time", formatCommonSeconds(data.trackingTime, 0)));
-  y += 30;
-  text(42, y, lineText("Roll-in to Impact Time", formatCommonSeconds(data.rollInToImpactTime, 0)));
-  return done();
+  if (!data.compactAngleLabels) row(lineText(labels.aimOffAngle, formatCommonDegree(data.aimOffAngle, 0)));
+  row(lineText(labels.rollInLead, formatCommonDegree(data.rollInLead, 0)));
+  extraRows.forEach((item) => row(lineText(String(item.label).replace(/:\s*$/, ""), String(item.value))));
+  row(lineText("Tracking Time", formatCommonSeconds(data.trackingTime, 0)));
+  row(lineText("Roll-in to Impact Time", formatCommonSeconds(data.rollInToImpactTime, 0)));
+  footerRows.forEach((item) => row(lineText(String(item.label).replace(/:\s*$/, ""), String(item.value))));
+
+  if (!labelDrags.has(svg)) labelDrags.set(svg, installSmartLabelDrag(svg));
+  labelDrags.get(svg).applyStoredPositions();
+  return diagramTitle;
 }

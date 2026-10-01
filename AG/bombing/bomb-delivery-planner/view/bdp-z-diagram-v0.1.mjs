@@ -1,16 +1,19 @@
-import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs";
+import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.8";
 import { getWeaponById } from "../weapon-data-v0.1.mjs";
 
 const FT_PER_NM = 6076.11549;
 
 export const BDP_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "bdp-z-diagram-v0.1",
-  version: "0.1.2",
+  // 0.1.3 (2026-10-01): profileName exported for Offset; Common Z 0.1.8 top row / label groups.
+  version: "0.1.3",
   oracle: "Bomb Profile REV.1.9 · R_20260830",
   baseRenderer: "common/diagram/z-diagram/z-diagram-v0.1.mjs",
 });
 
-function profileName(input) {
+// Delivery classification shared by the BDP and Offset Z titles: VLD at 0°, HADB above 30°, DB at
+// 30°, otherwise LAHD / LALD by the weapon's drag.
+export function profileName(input) {
   const angle = input.diveAngleDeg;
   const weapon = getWeaponById(input.weaponId);
   if (angle === 0) return "VLD";

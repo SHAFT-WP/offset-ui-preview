@@ -27,7 +27,7 @@ import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 // controller only wires their toolbars, legend and titles.
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle, renderOffsetTopView } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.0";
 import { renderOffsetFlightTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.0";
-import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.1";
+import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.2";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.4.0";
 

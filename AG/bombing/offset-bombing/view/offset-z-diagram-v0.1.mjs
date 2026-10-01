@@ -1,8 +1,7 @@
-import { buildBdpZDiagramData } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs";
-import { getWeaponById } from "../../bomb-delivery-planner/weapon-data-v0.1.mjs";
-import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.7";
+import { buildBdpZDiagramData, profileName } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs";
+import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.8";
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
-import { formatDeg, formatFt, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
+import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { bearingDeg, formatHeadingDeg, offsetViewTitle } from "./offset-view-style-v0.1.mjs";
 
 // Offset Z-Diagram — the BDP Z of the profile Offset solved, with Offset footer rows (Common Z
@@ -12,19 +11,19 @@ import { bearingDeg, formatHeadingDeg, offsetViewTitle } from "./offset-view-sty
 export const OFFSET_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "offset-z-diagram-v0.1",
   // 0.1.1 (2026-09-29): Common Z 0.1.7 items (halo, speed value, 45°/4°, long-press labels).
-  version: "0.1.1",
+  // 0.1.2 (2026-10-01): BDP title classification (e.g. "Offset HADB 45 #1"); Common 0.1.8 top row;
+  // the BDP rows stay and the Offset rows follow them.
+  version: "0.1.2",
   subject: "Offset",
   view: "Z-Diagram",
 });
 
 export const offsetZDiagramTitle = (options) => offsetViewTitle("Z-Diagram", options);
 
-// In-plot profile title, e.g. "Offset LALD 45 #1".
+// In-plot profile title with BDP's classification (user decision 2026-10-01), e.g. "Offset HADB 45 #1".
 export function offsetProfileTitle(result, { aircraftNumber = 1 } = {}) {
   const input = result.profile.canonicalInputs;
-  const weapon = getWeaponById(input.weaponId);
-  const delivery = weapon.name.includes("(HD)") ? "LAHD" : "LALD";
-  return `Offset ${delivery} ${formatDeg(input.diveAngleDeg)} #${aircraftNumber}`;
+  return `Offset ${profileName(input)} ${formatDeg(input.diveAngleDeg)} #${aircraftNumber}`;
 }
 
 // The Common Z renderer draws into [data-z-root]; a bare svg gets one.
@@ -53,10 +52,9 @@ export function renderOffsetZDiagram(svg, result, options = {}) {
   renderCommonZDiagram(svg, {
     ...data,
     uniformBodyText: true,
-    altitudeOnLeft: true,
     compactAngleLabels: true,
     profileTitle: title,
-    initialAltitudeText: `Roll-in Alt ${formatFt(result.profile.public.resolvedInitialAltitudeMslFt)} ft`,
+    // Drawn after the BDP rows (Roll-in Lead Angle, Tracking Time, Roll-in to Impact Time).
     footerRows: [
       { label: "Action Range", value: `${formatNm(result.geometry.actionRangeNm)} NM` },
       { label: "Offset Angle", value: `${formatDeg(result.geometry.offsetAngleDeg)}°` },
