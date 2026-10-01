@@ -27,7 +27,7 @@ import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 // controller only wires their toolbars, legend and titles.
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle, renderOffsetTopView } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.0";
 import { renderOffsetFlightTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.0";
-import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.2";
+import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.3";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.4.0";
 
@@ -726,10 +726,9 @@ function calculate() {
     resultPanel.refresh();
     renderTopView(result);
     refreshBdpDiagrams(1);
-    delete $("#offset-z-svg").dataset.calculationFailed;
-    $("#capture-z").disabled = !renderOffsetZDiagram($("#offset-z-svg"), result, { aircraftNumber: 1 });
     renderDed(result);
     applyResultChangeStates(result);
+    // Z #1 is drawn after the followers: its ΔTime row is #2's (#1 Impact − #2 Release).
     recalculateFollowers();
   } catch (error) {
     document.querySelectorAll("[data-result-value]").forEach(node => { node.textContent = "N/A"; });
@@ -759,12 +758,13 @@ function calculate() {
 // Placeholder drawn in a view whose solve failed (no stale geometry is left on screen).
 function showCalculationFailed(svg, title, message) {
   if (!svg) return;
-  const width = svg === $("#offset-z-svg") ? 650 : TOP_VIEW_WIDTH;
+  const isZ = svg === $("#offset-z-svg") || svg.hasAttribute("data-flight-z");
+  const width = isZ ? 650 : TOP_VIEW_WIDTH;
   svg.replaceChildren();
   svg.setAttribute("viewBox", `0 0 ${width} 220`);
   svg.style.aspectRatio = `${width} / 220`;
   svg.dataset.calculationFailed = "true";
-  const root = svg.appendChild(svgNode("g", svg.id === "offset-z-svg" ? { "data-z-root": "" } : {}));
+  const root = svg.appendChild(svgNode("g", isZ ? { "data-z-root": "" } : {}));
   const lines = [title, "Calculation failed · no current result", message.length > 70 ? `${message.slice(0, 67)}...` : message];
   lines.forEach((line, index) => root.append(svgNode("text", { x: width / 2, y: 70 + index * 40, "text-anchor": "middle", "font-size": index === 0 ? 22 : 17, fill: "#14202c" }, line)));
   topViewLastResults.delete(svg);
@@ -1503,7 +1503,7 @@ function followerCalculatingMarkup(number) {
     flightSection(number, "Formation", `<p class="flight-draft-note">Start point relative to #${leadNumber}'s own IP; feeds this aircraft's Run-In line.</p>${followerFormationMarkup(leadNumber)}`, { calculating: true, tab: "formation" }),
     flightSection(number, "BDP", `<div class="input-grid"><label class="field flight-weapon-field"><span>Bomb</span><select data-flight-field="weaponId"></select></label><label class="field"><span>Initial Speed (KCAS)</span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Initial Altitude (ft MSL)</span><button class="lock-button" type="button" data-flight-field="rollInAltitudeLinked" aria-label="Link Initial Altitude to Roll-in Altitude" aria-pressed="true">LINKED</button></span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"><span class="unit" data-initial-link-note>Linked to Roll-in Altitude</span></label><label class="field"><span>Roll-in Altitude (ft MSL)</span><input data-flight-field="rollInAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">BDP entry altitude</span></label><label class="field"><span>Dive Angle (deg)</span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"><span class="unit">Whole seconds</span></label><label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label><label class="field"><span>Release Speed (KCAS)</span><input data-flight-field="releaseSpeedKcas" type="text" inputmode="decimal"></label>${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}</div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target). Full BDP fields left blank follow #1 (Roll-in Bank: automatic from this aircraft's Dive Angle).</p>${bdpDiagramsMarkup({ aircraftNumber: number })}`, { calculating: true, tab: "bdp" }),
     flightSection(number, "Offset", `<div class="section-head"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div><div class="input-grid"><label class="field"><span>Run-In Heading</span><output data-flight-readout="runInHeadingDeg">-</output><span class="unit">Follows #1 · parallel Run-In</span></label><label class="field"><span>IP Range from Target</span><output data-flight-readout="ipRangeFromTargetNm">-</output><span class="unit">NM · from Formation position</span></label><label class="field"><span>Attack Heading (deg)</span><input data-flight-field="attackHeadingDeg" type="text" inputmode="decimal"></label><label class="field"><span>Angle-Off (deg)</span><input data-flight-field="angleOffDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Offset Angle (deg)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="offsetAngleLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameAngleAsLead" aria-pressed="false" title="Align Offset Angle to #${leadNumber}">ANGLE #${leadNumber}</button>` : ""}</span></span><input data-flight-field="offsetAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Action Range (NM)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="actionRangeLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameTimeAsLead" aria-pressed="false" title="Align Action timing to #${leadNumber}">TIME #${leadNumber}</button>` : ""}</span></span><input data-flight-field="actionRangeNm" type="text" inputmode="decimal"><span class="unit">Target → Action Point</span></label></div><div id="flight-status-${number}" class="status-message valid">-</div>`, { calculating: true, tab: "offset" }),
-    flightSection(number, "Z-Diagram", `<p class="flight-draft-note">Aircraft #${number} diagram is pending its profile result.</p>`, { heading: offsetZDiagramTitle({ aircraftNumber: number }) }),
+    flightSection(number, "Z-Diagram", `<div class="diagram-actions"><div class="diagram-action-row"><button class="capture-button" type="button" data-flight-z-png>PNG</button></div></div><div class="z-diagram-shell"><svg data-flight-z viewBox="0 0 650 710" role="img" aria-label="${offsetZDiagramTitle({ aircraftNumber: number })}"><g data-z-root></g></svg></div>`, { calculating: true, heading: offsetZDiagramTitle({ aircraftNumber: number }) }),
     flightSection(number, "Top View", `${followerTopViewToolbar(number)}<div class="top-view-shell"><svg data-flight-topview viewBox="0 0 ${TOP_VIEW_WIDTH} ${OFFSET_TOP_VIEW_V0_1.canvas.maxHeight}" role="img" aria-label="${offsetTopViewTitle({ aircraftNumber: number })}"></svg></div><p class="flight-draft-note">Leader #${leadNumber}'s already-solved profile is drawn in full alongside this aircraft's own, sharing Target and scale; it does not feed aircraft #${number}'s own solve.</p>`, { calculating: true, heading: offsetTopViewTitle({ aircraftNumber: number }) }),
     // Same variables as Result #1 first (same groups and order), then what only this aircraft has.
     flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${predecessor}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true }),
@@ -2057,6 +2057,26 @@ function installFollowerTopViewControls(number, slot) {
   });
   control("png").addEventListener("click", () => exportOffsetTopView(svg, offsetTopViewTitle({ aircraftNumber: number })));
   syncText();
+  const zPng = slot.querySelector("[data-flight-z-png]");
+  const zSvg = slot.querySelector("svg[data-flight-z]");
+  if (zPng && zSvg) zPng.addEventListener("click", () => saveSvgAsPng(zSvg, `${offsetZDiagramTitle({ aircraftNumber: number }).replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" }));
+}
+
+// Offset #n Z (every aircraft, 2026-10-01). ΔTime is the drop-order delta: #(n-1) Impact − #n
+// Release for #n; #1 shows #2's, so Z #1 and Z #2 carry the same ΔTime.
+function zDeltaTime(releaseNumber) {
+  if (releaseNumber > flightLayout.size || !FLIGHT_CALCULATING_AIRCRAFT.has(releaseNumber)) return null;
+  const predecessor = flightResultFullOf(releaseNumber - 1);
+  const own = flightResultsFull.get(releaseNumber);
+  if (!predecessor || !own) return null;
+  const delta = computeDropOrderDelta({ predecessorResult: predecessor, ownResult: own });
+  return { impactNumber: releaseNumber - 1, releaseNumber, seconds: delta.predecessorImpactToOwnReleaseSec };
+}
+
+function renderZDiagramOf(number, svg, resultFull) {
+  if (!svg) return false;
+  delete svg.dataset.calculationFailed;
+  return renderOffsetZDiagram(svg, resultFull, { aircraftNumber: number, deltaTime: zDeltaTime(Math.max(2, number)) });
 }
 
 // Offset #n Top View: this aircraft and its element lead in one frame (BE-owned Flight view).
@@ -2151,6 +2171,10 @@ function calculateFollower(number) {
     const predecessorResult = flightResultFullOf(number - 1);
     renderFollowerResult(number, slot, { result, delta: predecessorResult ? computeDropOrderDelta({ predecessorResult, ownResult: resultFull }) : null });
     renderFollowerDed(number, slot, result);
+    const zSvg = slot.querySelector("svg[data-flight-z]");
+    const zPng = slot.querySelector("[data-flight-z-png]");
+    const zDrawn = renderZDiagramOf(number, zSvg, resultFull);
+    if (zPng) zPng.disabled = !zDrawn;
     refreshBdpDiagrams(number);
   } catch (error) {
     flightResults.delete(number);
@@ -2158,6 +2182,9 @@ function calculateFollower(number) {
     renderFollowerStatus(number, "INVALID", error.message);
     renderFollowerResult(number, slot, { state: "INVALID", message: error.message });
     renderFollowerDed(number, slot, null);
+    showCalculationFailed(slot.querySelector("svg[data-flight-z]"), offsetZDiagramTitle({ aircraftNumber: number }), error.message);
+    const zPng = slot.querySelector("[data-flight-z-png]");
+    if (zPng) zPng.disabled = true;
     refreshBdpDiagrams(number);
     const leaderResult = flightResultOf(leadNumber);
     if (leaderResult) renderFollowerTopView(number, slot, leaderResult, null);
@@ -2180,6 +2207,8 @@ function recalculateFollowers(from = 2) {
   for (let number = from; number <= flightLayout.size; number += 1) {
     if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) calculateFollower(number);
   }
+  // Z #1 last, so its ΔTime row follows #2's current solve (a failed #1 keeps its placeholder).
+  if (lastResultFull) $("#capture-z").disabled = !renderZDiagramOf(1, $("#offset-z-svg"), lastResultFull);
 }
 
 function installSectionDisclosure() {

@@ -12,9 +12,13 @@ export const FT_PER_NM = 6076.11549;
 // `initialAltitudeText` removed. The BDP rows always draw; `footerRows` follow them. Clustered texts
 // move as one label: z-group-roll-in (Roll-in Point Ground / Slant, MAP) and z-group-footer (the
 // whole lower block).
+// 0.1.9 (2026-10-01): Dive/IAA 27 units (3 characters) right and 16 up (one line, kept clear of
+// the top line); the Roll-in group one row up;
+// NLT Release sits as far from its line as Release Altitude does; the lower block starts one row
+// higher and a host may give it as two columns (`lowerColumns: { left, right }`).
 export const COMMON_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "common-z-diagram-v0.1",
-  version: "0.1.8",
+  version: "0.1.9",
   oracle: "Bomb Profile REV.1.9 embedded BE Common Rev0.8 display renderer",
   legacyDisplaySource: "Common Z-Diagram Rev0.6 / BE Common Rev0.8 display grammar",
 });
@@ -95,7 +99,13 @@ export function renderCommonZDiagram(svg, data) {
   const extraRows = Array.isArray(data.extraRows) ? data.extraRows.filter((row) => row?.label && row.value !== undefined) : [];
   // Host rows drawn after the BDP rows (Offset since 0.1.8; they no longer replace them).
   const footerRows = Array.isArray(data.footerRows) ? data.footerRows.filter((row) => row?.label && row.value !== undefined) : [];
-  const viewHeight = 620 + (extraRows.length + footerRows.length) * 30;
+  // Two-column lower block (0.1.9): the host owns both lists; without it the single BDP column draws.
+  const validRows = (rows) => (Array.isArray(rows) ? rows.filter((row) => row?.label && row.value !== undefined) : []);
+  const columns = data.lowerColumns ? { left: validRows(data.lowerColumns.left), right: validRows(data.lowerColumns.right) } : null;
+  const singleRowCount = (data.compactAngleLabels ? 0 : 1) + 3 + extraRows.length + footerRows.length;
+  const lowerRowCount = columns ? Math.max(columns.left.length, columns.right.length, 1) : singleRowCount;
+  // Lower block from y 488 (one row above 0.1.8's 518), 30 per row, 42 below the last baseline.
+  const viewHeight = Math.max(590, 500 + lowerRowCount * 30);
   svg.setAttribute("viewBox", `0 0 650 ${viewHeight}`);
   svg.style.aspectRatio = `650 / ${viewHeight}`;
   const root = svg.querySelector("[data-z-root]") || svg.querySelector("g") || svg;
@@ -145,29 +155,43 @@ export function renderCommonZDiagram(svg, data) {
     // Dive Angle / IAA at the upper vertex, e.g. "45°/4°"; each part keeps its own aria-label.
     const diveLabel = lineText("Dive Angle", formatCommonDegree(data.diveAngle, 0));
     const iaaLabel = lineText(labels.aimOffAngle, formatCommonDegree(data.aimOffAngle, 0));
-    const angles = text(240, topY + 38, [
+    const angles = text(267, topY + 22, [
       node("tspan", { "aria-label": diveLabel }, formatCommonDegree(data.diveAngle, 0)),
       "/",
       node("tspan", { "aria-label": iaaLabel }, formatCommonDegree(data.aimOffAngle, 0)),
     ], "start", 15, FONT_WEIGHT, "z-dive-iaa");
     angles.setAttribute("aria-label", `${diveLabel} / ${iaaLabel}`);
   } else {
-    text(200, topY + 38, lineText("Dive Angle", formatCommonDegree(data.diveAngle, 0)), "start", 15);
+    text(227, topY + 22, lineText("Dive Angle", formatCommonDegree(data.diveAngle, 0)), "start", 15);
   }
   // Roll-in Point Ground / Slant and MAP move together (z-group-roll-in).
-  text(360, 132, lineText(labels.rollInPoint, `${format(rollInNm, 1)} NM (Ground)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
-  text(360, 158, lineText(labels.rollInPoint, `${format(slantNm, 1)} NM (Slant)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
-  text(360, 184, lineText(labels.groundRange, `${format(groundNm, 1)} NM`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
-  line(plannedX - 100, plannedY, 330, plannedY, 3);
-  text(350, plannedY + 6, lineText(labels.releaseAltitude, `${format(data.releaseMsl, 0)} ft`), "start", 15);
+  text(360, 106, lineText(labels.rollInPoint, `${format(rollInNm, 1)} NM (Ground)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+  text(360, 132, lineText(labels.rollInPoint, `${format(slantNm, 1)} NM (Slant)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+  text(360, 158, lineText(labels.groundRange, `${format(groundNm, 1)} NM`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+  // Release Altitude and NLT Release both start LABEL_GAP after their line's right end.
+  const LABEL_GAP = 20;
+  const plannedEnd = 330, nltEnd = nltX + 130;
+  line(plannedX - 100, plannedY, plannedEnd, plannedY, 3);
+  text(plannedEnd + LABEL_GAP, plannedY + 6, lineText(labels.releaseAltitude, `${format(data.releaseMsl, 0)} ft`), "start", 15);
   text(74, plannedY + 72, lineText("Release Speed", `${format(data.releaseKcas, 0)} KCAS`));
-  line(nltX - 76, nltY, nltX + 130, nltY, 3);
-  text(320, nltY + 6, lineText("NLT Release", `${format(data.nltMsl, 0)} ft`), "start", 15);
+  line(nltX - 76, nltY, nltEnd, nltY, 3);
+  text(nltEnd + LABEL_GAP, nltY + 6, lineText("NLT Release", `${format(data.nltMsl, 0)} ft`), "start", 15);
   text(260, baseY - 16, lineText("MINALT", `${format(data.minAltMsl, 0)} ft`), "end");
 
-  // Lower block: BDP rows, the BE's extraRows among them, then the host's footerRows; the whole
-  // block moves as one label (z-group-footer).
-  let y = 518;
+  // Lower block: the host's two columns (left at the left margin, right from the top line's end),
+  // or the single BDP column (the BE's extraRows among its rows, then the host's footerRows); the
+  // whole block moves as one label (z-group-footer).
+  const LOWER_Y = 488;
+  const rowText = (item) => lineText(String(item.label).replace(/:\s*$/, ""), String(item.value));
+  if (columns) {
+    [[42, columns.left], [topX, columns.right]].forEach(([x, rows]) => rows.forEach((item, index) => {
+      text(x, LOWER_Y + index * 30, rowText(item), "start", BODY_FS, FONT_WEIGHT, null, "z-group-footer");
+    }));
+    if (!labelDrags.has(svg)) labelDrags.set(svg, installSmartLabelDrag(svg));
+    labelDrags.get(svg).applyStoredPositions();
+    return diagramTitle;
+  }
+  let y = LOWER_Y;
   const row = (content) => {
     text(42, y, content, "start", BODY_FS, FONT_WEIGHT, null, "z-group-footer");
     y += 30;

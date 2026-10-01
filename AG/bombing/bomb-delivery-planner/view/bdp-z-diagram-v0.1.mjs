@@ -1,4 +1,5 @@
-import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.8";
+import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.9";
+import { formatDeg, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { getWeaponById } from "../weapon-data-v0.1.mjs";
 
 const FT_PER_NM = 6076.11549;
@@ -6,7 +7,8 @@ const FT_PER_NM = 6076.11549;
 export const BDP_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "bdp-z-diagram-v0.1",
   // 0.1.3 (2026-10-01): profileName exported for Offset; Common Z 0.1.8 top row / label groups.
-  version: "0.1.3",
+  // 0.1.4 (2026-10-01): two-column lower block (bdpZLowerColumns) on Common Z 0.1.9.
+  version: "0.1.4",
   oracle: "Bomb Profile REV.1.9 · R_20260830",
   baseRenderer: "common/diagram/z-diagram/z-diagram-v0.1.mjs",
 });
@@ -66,6 +68,25 @@ export function buildBdpZDiagramData(result) {
   };
 }
 
+// BDP lower block (user layout 2026-10-01), two columns. Left: Angle Off, Attack Heading (only
+// when the host has one; the standalone BDP has no Attack Heading input), Roll-in Lead Angle,
+// Roll-in Range. Right: Tracking Time, Bomb TOF. Offset builds on these lists.
+export function bdpZLowerColumns(result, { attackHeadingText = null } = {}) {
+  const p = result.public;
+  return {
+    left: [
+      { label: "Angle Off", value: `${formatDeg(result.canonicalInputs.angleOffDeg)}°` },
+      ...(attackHeadingText ? [{ label: "Attack Heading", value: attackHeadingText }] : []),
+      { label: "Roll-in Lead Angle", value: `${formatDeg(p.leadAngleDeg)}°` },
+      { label: "Roll-in Range", value: `${formatNm(p.rollInRangeNm)} NM` },
+    ],
+    right: [
+      { label: "Tracking Time", value: `${formatSec(p.trackingTimeSec)} s` },
+      { label: "Bomb TOF", value: `${formatSec(p.bombTofSec)} s` },
+    ],
+  };
+}
+
 function unavailable(svg, title, reason) {
   const root = svg.querySelector("g") ?? svg;
   root.replaceChildren();
@@ -98,6 +119,6 @@ export function renderBdpZDiagram(svg, result) {
     unavailable(svg, data.profileTitle, data.reason);
     return data;
   }
-  renderCommonZDiagram(svg, { ...data, uniformBodyText: true, compactAngleLabels: true });
+  renderCommonZDiagram(svg, { ...data, uniformBodyText: true, compactAngleLabels: true, lowerColumns: bdpZLowerColumns(result) });
   return data;
 }

@@ -1,7 +1,7 @@
-import { buildBdpZDiagramData, profileName } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs";
-import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.8";
+import { bdpZLowerColumns, buildBdpZDiagramData, profileName } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs?v=0.1.4";
+import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.9";
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
-import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
+import { formatDeg, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { bearingDeg, formatHeadingDeg, offsetViewTitle } from "./offset-view-style-v0.1.mjs";
 
 // Offset Z-Diagram — the BDP Z of the profile Offset solved, with Offset footer rows (Common Z
@@ -13,7 +13,8 @@ export const OFFSET_Z_DIAGRAM_V0_1 = Object.freeze({
   // 0.1.1 (2026-09-29): Common Z 0.1.7 items (halo, speed value, 45°/4°, long-press labels).
   // 0.1.2 (2026-10-01): BDP title classification (e.g. "Offset HADB 45 #1"); Common 0.1.8 top row;
   // the BDP rows stay and the Offset rows follow them.
-  version: "0.1.2",
+  // 0.1.3 (2026-10-01): two-column lower block (offsetZLowerColumns) with ΔTime; every aircraft.
+  version: "0.1.3",
   subject: "Offset",
   view: "Z-Diagram",
 });
@@ -31,6 +32,34 @@ function zRoot(svg) {
   return svg.querySelector("[data-z-root]") ?? svg.appendChild(svgNode("g", { "data-z-root": "" }));
 }
 
+// Offset lower block (user layout 2026-10-01), two columns. Times are from the full-precision
+// result and only rounded for display; ΔTime is the drop-order delta the caller passes
+// (computeDropOrderDelta: #(n-1) Impact − #n Release; #1 shows #2's, so #1 and #2 match).
+export function offsetZLowerColumns(result, { deltaTime = null } = {}) {
+  const g = result.geometry;
+  const t = result.timing;
+  const p = result.profile.public;
+  const bdp = bdpZLowerColumns(result.profile, { attackHeadingText: formatHeadingDeg(g.attackHeadingDeg) });
+  const releaseToImpactSec = t.rollToReleaseSec + p.bombTofSec;
+  const left = [
+    { label: "Action Range", value: `${formatNm(g.actionRangeNm)} NM` },
+    { label: "Offset Angle", value: `${formatDeg(g.offsetAngleDeg)}°` },
+    { label: "Approaching Range", value: `${formatNm(result.resolved.approachRangeNm)} NM` },
+    ...bdp.left,
+  ];
+  const right = [
+    { label: "IP-Target Heading", value: formatHeadingDeg(bearingDeg(g.points.ip, g.points.target)) },
+    { label: "Approaching Heading", value: formatHeadingDeg(g.offsetHeadingDeg) },
+    ...bdp.right,
+    { label: "IP to Impact Time", value: `${formatSec(t.offsetIpToReleaseSec + p.bombTofSec)} s` },
+    { label: "Action to Impact Time", value: `${formatSec(t.offsetTurnSec + t.approachSec + releaseToImpactSec)} s` },
+  ];
+  if (deltaTime && Number.isFinite(deltaTime.seconds)) {
+    right.push({ label: `ΔTime #${deltaTime.impactNumber} Impact − #${deltaTime.releaseNumber} Release`, value: `${formatSec(deltaTime.seconds)} s` });
+  }
+  return { left, right };
+}
+
 export function renderOffsetZDiagram(svg, result, options = {}) {
   const aircraftNumber = options.aircraftNumber ?? 1;
   svg.setAttribute("aria-label", offsetZDiagramTitle({ aircraftNumber }));
@@ -46,22 +75,12 @@ export function renderOffsetZDiagram(svg, result, options = {}) {
     }
     return false;
   }
-  const points = result.geometry.points;
-  const reference = result.reference?.point ?? points.ip;
-  const targetRange = Math.hypot(points.target.x - reference.x, points.target.y - reference.y);
   renderCommonZDiagram(svg, {
     ...data,
     uniformBodyText: true,
     compactAngleLabels: true,
     profileTitle: title,
-    // Drawn after the BDP rows (Roll-in Lead Angle, Tracking Time, Roll-in to Impact Time).
-    footerRows: [
-      { label: "Action Range", value: `${formatNm(result.geometry.actionRangeNm)} NM` },
-      { label: "Offset Angle", value: `${formatDeg(result.geometry.offsetAngleDeg)}°` },
-      { label: "Angle Off", value: `${formatDeg(result.geometry.angleOffDeg)}°` },
-      { label: "Target Bearing", value: formatHeadingDeg(bearingDeg(reference, points.target)) },
-      { label: "Range", value: `${formatNm(targetRange)} NM` },
-    ],
+    lowerColumns: offsetZLowerColumns(result, { deltaTime: options.deltaTime }),
   });
   return true;
 }
