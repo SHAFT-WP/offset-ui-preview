@@ -50,7 +50,9 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
     initialAglFt = initialMslFt - input.targetElevationMslFt;
     roll = integrateRollIn(rollParams, initialMslFt);
     trackAglFt = initialAglFt - roll.altitudeLossFt;
-    if (!(trackAglFt > releaseAglFt)) throw new Error("Initial altitude minus roll-in loss is below effective Release altitude");
+    // Track Point below Release: an error, or (allowNegativeTrackingTime) a negative path and
+    // Tracking Time — the shortfall the pilot adds to the Roll-in Altitude.
+    if (!(trackAglFt > releaseAglFt) && !input.allowNegativeTrackingTime) throw new Error("Initial altitude minus roll-in loss is below effective Release altitude");
     pathFt = (trackAglFt - releaseAglFt) / Math.sin(angleRad);
     trackingTimeSec = pathFt / meanTrackSpeedFps(roll.finalTasKt);
   } else {

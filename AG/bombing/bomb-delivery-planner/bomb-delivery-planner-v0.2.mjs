@@ -14,7 +14,9 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
   // 0.2.8 (2026-09-29): Dive Angle is the ground-referenced flight path (FPM line) in wind — the
   // bomb leaves along it at ground speed and tracking runs at ground speed (SPEC §8); local AOD in ft.
   // 0.2.9 (2026-10-01): public.resolvedSolveMode reports the mode actually used ("time" at Dive 0°).
-  version: "0.2.9",
+  // 0.2.10 (2026-10-02): opt-in allowNegativeTrackingTime — in height mode a Roll-in Altitude below
+  // Release + Roll-in loss gives a negative Tracking Time (the altitude to add) instead of an error.
+  version: "0.2.10",
   flightPathReference: "GROUND",
   legacyGeometrySource: "Bomb Profile REV.1.9 · R_20260830",
   applicability: Object.freeze({
@@ -51,6 +53,10 @@ function normalizeInput(raw) {
     initialSpeedMode: raw.initialSpeedMode ?? raw.initialUnit ?? "CAS",
     enteredInitialAltitudeMslFt: raw.initialAltitudeMslFt ?? raw.initialAltitude,
     solveMode: raw.solveMode ?? "height",
+    // Opt-in (2026-10-02, Offset / BDP FE): in height mode a Roll-in Altitude too low for the
+    // roll-in loss gives a negative Tracking Time instead of an error, so the pilot sees how far
+    // short the altitude is. Default false keeps the error for the pattern BEs.
+    allowNegativeTrackingTime: raw.allowNegativeTrackingTime === true,
     enteredTrackingTimeSec: Math.round(raw.trackingTimeSec ?? raw.trackingTime ?? 0),
     enteredReleaseAltitudeMslFt: raw.releaseAltitudeMslFt ?? raw.releaseMsl,
     angleOffDeg: raw.angleOffDeg ?? raw.rollHeading,
@@ -88,7 +94,7 @@ function validate(p) {
   if (!(p.angleOffDeg > 0 && p.angleOffDeg < 180)) throw new RangeError("angleOffDeg must be > 0 and < 180");
   if (!(p.rollInBankAngleDeg > 0 && p.rollInBankAngleDeg < 180)) throw new RangeError("rollInBankAngleDeg must be > 0 and < 180");
   if (!(p.rollInG > 1 && p.rollInG <= 9)) throw new RangeError("rollInG must be > 1 and <= 9");
-  if (p.diveAngleDeg > 0 && p.solveMode === "height" && !(p.enteredInitialAltitudeMslFt > p.enteredReleaseAltitudeMslFt)) {
+  if (p.diveAngleDeg > 0 && p.solveMode === "height" && !p.allowNegativeTrackingTime && !(p.enteredInitialAltitudeMslFt > p.enteredReleaseAltitudeMslFt)) {
     throw new RangeError("Initial altitude must be above entered Release altitude in height mode");
   }
   if ((p.solveMode === "time" || Math.abs(p.diveAngleDeg) < 1e-9) && !(p.enteredTrackingTimeSec > 0)) {

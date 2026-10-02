@@ -12,7 +12,8 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_3 = Object.freeze({
   id: "bomb-delivery-planner-v0.3-js-facade",
   // 0.3.10 (2026-09-29): v0.2.8 core — ground-referenced Dive Angle in wind; local.aimOffDistanceFt.
   // 0.3.11 (2026-10-01): v0.2.9 core — public.resolvedSolveMode.
-  version: "0.3.11",
+  // 0.3.12 (2026-10-02): v0.2.10 core — allowNegativeTrackingTime passthrough.
+  version: "0.3.12",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   officialOracle: "Bomb Profile REV.1.9 · R_20260830",
 });
@@ -66,6 +67,7 @@ function canonicalInput(rawInput) {
     initialSpeedMode: rawInput.initialSpeedMode,
     initialAltitudeMslFt: rawInput.initialAltitudeMslFt,
     solveMode: rawInput.solveMode ?? "height",
+    allowNegativeTrackingTime: rawInput.allowNegativeTrackingTime === true,
     trackingTimeSec: rawInput.trackingTimeSec ?? 0,
     releaseAltitudeMslFt: rawInput.releaseAltitudeMslFt,
     angleOffDeg: rawInput.angleOffDeg,

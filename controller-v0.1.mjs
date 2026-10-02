@@ -340,6 +340,8 @@ function buildInput() {
       // In Offset composition that module entry is OA1 / Roll-In Altitude.
       initialAltitudeMslFt: numberValue("rollInAltitudeMslFt"),
       solveMode: bdpSolveMode,
+      // A Roll-in Altitude too low gives a negative Tracking Time, not an error (user 2026-10-02).
+      allowNegativeTrackingTime: true,
       trackingTimeSec: bdpSolveMode === "time" ? numberValue("trackingTimeSec") : enteredTrackingTimeSec,
       releaseAltitudeMslFt: numberValue("releaseAltitudeMslFt"),
       angleOffDeg: numberValue("angleOffDeg"),
@@ -538,6 +540,11 @@ function dedRangeText(rangeNm) {
   return `${Math.round(rangeNm * FT_PER_NM)} ft (${formatNm(rangeNm)} NM)`;
 }
 
+// A field being edited may not parse; DED then shows the value the solve used.
+function orFallback(read, fallback) {
+  try { return read(); } catch { return fallback; }
+}
+
 function dedElevationText(elevationFt) {
   return `${Math.round(elevationFt)} ft`;
 }
@@ -551,7 +558,8 @@ function renderDed(result) {
   $("#ded-page-title").textContent = isVip ? "VIP" : "VRP";
   $("#ded-bearing").textContent = `${formatDeg(isVip ? result.resolved.vipToTargetBearingDeg : result.resolved.vrpBearingDeg)}°`;
   $("#ded-range").textContent = dedRangeText(isVip ? result.resolved.vipRangeNm : result.resolved.vrpRangeNm);
-  $("#ded-elevation").textContent = dedElevationText(targetElevationMslFt);
+  // VRP page ELEV is the Initial Altitude (user 2026-10-02); the VIP page keeps the Target elevation.
+  $("#ded-elevation").textContent = dedElevationText(isVip ? targetElevationMslFt : orFallback(() => numberValue("initialAltitudeMslFt"), rollInStartAltitudeMslFt));
 
   const oa1Base = isVip ? points.vip : points.target;
   $("#ded-oa1-bearing").textContent = `${formatDeg(bearingBetween(oa1Base, points.rollStart))}°`;
@@ -581,7 +589,8 @@ function renderFollowerDed(number, slot, result) {
     out("reference-bearing").textContent = `${formatDeg(bearingBetween(points.target, points.realActionPoint))}°`;
     out("reference-range").textContent = dedRangeText(pointDistanceNm(points.target, points.realActionPoint));
   }
-  out("reference-elevation").textContent = dedElevationText(targetElevationMslFt);
+  // VRP page ELEV is this aircraft's Initial Altitude (user 2026-10-02); VIP keeps the Target elevation.
+  out("reference-elevation").textContent = dedElevationText(isVip ? targetElevationMslFt : orFallback(() => followerNumberValue(slot, flightDraft(number), "initialAltitudeMslFt"), result.profile.public.resolvedInitialAltitudeMslFt));
   const oa1Base = isVip ? lastResult.geometry.points.vip : points.target;
   out("oa1-bearing").textContent = `${formatDeg(bearingBetween(oa1Base, points.rollStart))}°`;
   out("oa1-range").textContent = dedRangeText(pointDistanceNm(oa1Base, points.rollStart));
@@ -1269,18 +1278,17 @@ const TAB_TOOLS = {
   formation: ["save", "default"],
 };
 
-// Full BDP diagrams (BDP Top View + Profile) of one aircraft's BDP tab, drawn from the profile
-// its own solve used; only while that tab's Full BDP is on (they are hidden otherwise).
+// BDP Top View + Profile of one aircraft (user 2026-10-02): their own block between that aircraft's
+// Offset Top View and Z-Diagram, drawn from the profile its own solve used, shown only while the
+// Top View's Full button is on. (The BDP tab's Full BDP now reveals only the BDP extra inputs.)
 function bdpDiagramsContainer(number) {
-  const section = number === 1
-    ? document.querySelector('#offset-calculator > .section[data-tab="bdp"]')
-    : document.querySelector(`.flight-slot[data-aircraft="${number}"] .section[data-tab="bdp"]`);
+  const section = document.querySelector(`[data-bdp-views="${number}"]`);
   return section ? { section, container: section.querySelector("[data-bdp-diagrams]") } : null;
 }
 
 function refreshBdpDiagrams(number) {
   const target = bdpDiagramsContainer(number);
-  if (!target?.container || !target.section.classList.contains("show-full-bdp")) return;
+  if (!target?.container || !target.section.classList.contains("show-full-views")) return;
   const result = flightResultOf(number);
   if (!result?.profile) {
     clearBdpDiagrams(target.container);
@@ -1298,6 +1306,26 @@ function refreshBdpDiagrams(number) {
     clearBdpDiagrams(target.container);
   }
 }
+
+// Full (Offset Top View header, left of PNG): per aircraft, shows its BDP Top View and Profile.
+const fullViewsOn = new Set();
+function applyFullViews(number) {
+  const on = fullViewsOn.has(number);
+  document.querySelector(`[data-bdp-views="${number}"]`)?.classList.toggle("show-full-views", on);
+  document.querySelectorAll(`[data-full-views="${number}"]`).forEach((button) => {
+    button.setAttribute("aria-pressed", String(on));
+    button.classList.toggle("active", on);
+  });
+  if (on) refreshBdpDiagrams(number);
+}
+document.addEventListener("click", (event) => {
+  const button = event.target.closest?.("[data-full-views]");
+  if (!button) return;
+  const number = Number(button.dataset.fullViews);
+  if (fullViewsOn.has(number)) fullViewsOn.delete(number);
+  else fullViewsOn.add(number);
+  applyFullViews(number);
+});
 
 function flashSaved(button) {
   const previous = button.textContent;
@@ -1337,7 +1365,6 @@ function installSectionTools(root = document) {
           button.classList.toggle("active", on);
           button.setAttribute("aria-pressed", String(on));
           button.textContent = `${label}: ${on ? "On" : "Off"}`;
-          if (tool === "fullBdp" && on) refreshBdpDiagrams(aircraft);
         });
       } else if (tool === "save") {
         make(tool, "Save").addEventListener("click", (event) => {
@@ -1474,7 +1501,7 @@ function followerExtraField(key, label) {
 
 // Same Text / Size / Reset / PNG / Advanced toolbar as Top View #1, scoped to one follower.
 function followerTopViewToolbar(number) {
-  return `<div class="diagram-actions"><div class="diagram-action-row"><div class="font-scale-control" role="group" aria-label="Top View #${number} font size"><span class="diagram-control-label">Text</span><button class="capture-button" type="button" data-ftv="text-down" aria-label="Top View #${number} font smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="text-reset" aria-label="Reset Top View #${number} text size to 100%">100%</button><button class="capture-button" type="button" data-ftv="text-up" aria-label="Top View #${number} font larger">+</button></div><div class="view-scale-control" role="group" aria-label="Top View #${number} picture size"><span class="diagram-control-label">Size</span><button class="capture-button" type="button" data-ftv="zoom-out" aria-label="Picture smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="size-reset" aria-label="Reset Top View #${number} size to 100%">100%</button><button class="capture-button" type="button" data-ftv="zoom-in" aria-label="Picture larger">+</button></div><button class="capture-button" type="button" data-ftv="reset">Reset</button><button class="capture-button" type="button" data-ftv="png">PNG</button><button class="capture-button view-toggle" type="button" data-ftv="ip-bottom" aria-pressed="true" title="Run-In (IP → Target) up; off = north up">IP Bottom</button><button class="capture-button" type="button" data-ftv="advanced" aria-pressed="false">Advanced: Off</button></div></div>`;
+  return `<div class="diagram-actions"><div class="diagram-action-row"><div class="font-scale-control" role="group" aria-label="Top View #${number} font size"><span class="diagram-control-label">Text</span><button class="capture-button" type="button" data-ftv="text-down" aria-label="Top View #${number} font smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="text-reset" aria-label="Reset Top View #${number} text size to 100%">100%</button><button class="capture-button" type="button" data-ftv="text-up" aria-label="Top View #${number} font larger">+</button></div><div class="view-scale-control" role="group" aria-label="Top View #${number} picture size"><span class="diagram-control-label">Size</span><button class="capture-button" type="button" data-ftv="zoom-out" aria-label="Picture smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="size-reset" aria-label="Reset Top View #${number} size to 100%">100%</button><button class="capture-button" type="button" data-ftv="zoom-in" aria-label="Picture larger">+</button></div><button class="capture-button" type="button" data-ftv="reset">Reset</button><button class="capture-button view-toggle" type="button" data-full-views="${number}" aria-pressed="false" title="Show BDP Top View and BDP Profile">Full</button><button class="capture-button" type="button" data-ftv="png">PNG</button><button class="capture-button view-toggle" type="button" data-ftv="ip-bottom" aria-pressed="true" title="Run-In (IP → Target) up; off = north up">IP Bottom</button><button class="capture-button" type="button" data-ftv="advanced" aria-pressed="false">Advanced: Off</button></div></div>`;
 }
 
 function followerDraftMarkup(number) {
@@ -1501,10 +1528,13 @@ function followerCalculatingMarkup(number) {
   const wingman = FLIGHT_WINGMEN.has(number);
   return [
     flightSection(number, "Formation", `<p class="flight-draft-note">Start point relative to #${leadNumber}'s own IP; feeds this aircraft's Run-In line.</p>${followerFormationMarkup(leadNumber)}`, { calculating: true, tab: "formation" }),
-    flightSection(number, "BDP", `<div class="input-grid"><label class="field flight-weapon-field"><span>Bomb</span><select data-flight-field="weaponId"></select></label><label class="field"><span>Initial Speed (KCAS)</span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Initial Altitude (ft MSL)</span><button class="lock-button" type="button" data-flight-field="rollInAltitudeLinked" aria-label="Link Initial Altitude to Roll-in Altitude" aria-pressed="true">LINKED</button></span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"><span class="unit" data-initial-link-note>Linked to Roll-in Altitude</span></label><label class="field"><span>Roll-in Altitude (ft MSL)</span><input data-flight-field="rollInAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">BDP entry altitude</span></label><label class="field"><span>Dive Angle (deg)</span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"><span class="unit">Whole seconds</span></label><label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label><label class="field"><span>Release Speed (KCAS)</span><input data-flight-field="releaseSpeedKcas" type="text" inputmode="decimal"></label>${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}</div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target). Full BDP fields left blank follow #1 (Roll-in Bank: automatic from this aircraft's Dive Angle).</p>${bdpDiagramsMarkup({ aircraftNumber: number })}`, { calculating: true, tab: "bdp" }),
+    flightSection(number, "BDP", `<div class="input-grid"><label class="field flight-weapon-field"><span>Bomb</span><select data-flight-field="weaponId"></select></label><label class="field"><span>Initial Speed (KCAS)</span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Initial Altitude (ft MSL)</span><button class="lock-button" type="button" data-flight-field="rollInAltitudeLinked" aria-label="Link Initial Altitude to Roll-in Altitude" aria-pressed="true">LINKED</button></span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"><span class="unit" data-initial-link-note>Linked to Roll-in Altitude</span></label><label class="field"><span>Roll-in Altitude (ft MSL)</span><input data-flight-field="rollInAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">BDP entry altitude</span></label><label class="field"><span>Dive Angle (deg)</span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"><span class="unit">Whole seconds</span></label><label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label><label class="field"><span>Release Speed (KCAS)</span><input data-flight-field="releaseSpeedKcas" type="text" inputmode="decimal"></label>${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}</div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target). Full BDP fields left blank follow #1 (Roll-in Bank: automatic from this aircraft's Dive Angle).</p>`, { calculating: true, tab: "bdp" }),
     flightSection(number, "Offset", `<div class="section-head"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div><div class="input-grid"><label class="field"><span>Run-In Heading</span><output data-flight-readout="runInHeadingDeg">-</output><span class="unit">Follows #1 · parallel Run-In</span></label><label class="field"><span>IP Range from Target</span><output data-flight-readout="ipRangeFromTargetNm">-</output><span class="unit">NM · from Formation position</span></label><label class="field"><span>Attack Heading (deg)</span><input data-flight-field="attackHeadingDeg" type="text" inputmode="decimal"></label><label class="field"><span>Angle-Off (deg)</span><input data-flight-field="angleOffDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Offset Angle (deg)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="offsetAngleLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameAngleAsLead" aria-pressed="false" title="Align Offset Angle to #${leadNumber}">ANGLE #${leadNumber}</button>` : ""}</span></span><input data-flight-field="offsetAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Action Range (NM)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="actionRangeLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameTimeAsLead" aria-pressed="false" title="Align Action timing to #${leadNumber}">TIME #${leadNumber}</button>` : ""}</span></span><input data-flight-field="actionRangeNm" type="text" inputmode="decimal"><span class="unit">Target → Action Point</span></label></div><div id="flight-status-${number}" class="status-message valid">-</div>`, { calculating: true, tab: "offset" }),
-    flightSection(number, "Z-Diagram", `<div class="diagram-actions"><div class="diagram-action-row"><button class="capture-button" type="button" data-flight-z-png>PNG</button></div></div><div class="z-diagram-shell"><svg data-flight-z viewBox="0 0 650 710" role="img" aria-label="${offsetZDiagramTitle({ aircraftNumber: number })}"><g data-z-root></g></svg></div>`, { calculating: true, heading: offsetZDiagramTitle({ aircraftNumber: number }) }),
     flightSection(number, "Top View", `${followerTopViewToolbar(number)}<div class="top-view-shell"><svg data-flight-topview viewBox="0 0 ${TOP_VIEW_WIDTH} ${OFFSET_TOP_VIEW_V0_1.canvas.maxHeight}" role="img" aria-label="${offsetTopViewTitle({ aircraftNumber: number })}"></svg></div><p class="flight-draft-note">Leader #${leadNumber}'s already-solved profile is drawn in full alongside this aircraft's own, sharing Target and scale; it does not feed aircraft #${number}'s own solve.</p>`, { calculating: true, heading: offsetTopViewTitle({ aircraftNumber: number }) }),
+    // View order for every aircraft (user 2026-10-02): Offset Top View, BDP Top View, BDP Profile,
+    // Z-Diagram. The two BDP views show only while the Top View's Full is on.
+    `<div class="bdp-views" data-bdp-views="${number}">${bdpDiagramsMarkup({ aircraftNumber: number })}</div>`,
+    flightSection(number, "Z-Diagram", `<div class="diagram-actions"><div class="diagram-action-row"><button class="capture-button" type="button" data-flight-z-png>PNG</button></div></div><div class="z-diagram-shell"><svg data-flight-z viewBox="0 0 650 710" role="img" aria-label="${offsetZDiagramTitle({ aircraftNumber: number })}"><g data-z-root></g></svg></div>`, { calculating: true, heading: offsetZDiagramTitle({ aircraftNumber: number }) }),
     // Same variables as Result #1 first (same groups and order), then what only this aircraft has.
     flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${predecessor}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true }),
     FLIGHT_DED_AIRCRAFT.has(number) ? flightSection(number, "DED", followerDedMarkup(), { calculating: true }) : flightSection(number, "DED", `<p class="flight-draft-note">Aircraft #${number} DED is pending its profile result.</p>`),
@@ -1514,7 +1544,8 @@ function followerCalculatingMarkup(number) {
 // Same two green boxes as DED #1: the reference page (VRP or VIP, following #1's Reference Point
 // mode) and OA1.
 function followerDedMarkup() {
-  const rows = (page) => ["bearing:TBRG", "range:RNG", "elevation:ELEV"].map((item) => {
+  // OA1 reads RNG, TBRG, ELEV (user 2026-10-02); the VRP / VIP page keeps TBRG, RNG, ELEV.
+  const rows = (page) => (page === "oa1" ? ["range:RNG", "bearing:TBRG", "elevation:ELEV"] : ["bearing:TBRG", "range:RNG", "elevation:ELEV"]).map((item) => {
     const [key, label] = item.split(":");
     return `<div class="ded-row"><span>${label}</span><output data-flight-ded="${page}-${key}">-</output></div>`;
   }).join("");
@@ -1565,6 +1596,7 @@ function renderFlightLayout() {
   installSectionDisclosure();
   installSectionTools(host);
   host.querySelectorAll(".flight-slot").forEach((slot) => installFollowerTopViewControls(Number(slot.dataset.aircraft), slot));
+  host.querySelectorAll(".flight-slot").forEach((slot) => applyFullViews(Number(slot.dataset.aircraft)));
   // Result #n gets the same Text / Advanced controls as Result #1 (summary rows by default).
   followerResultPanels.clear();
   host.querySelectorAll(".flight-slot").forEach((slot) => {
@@ -1871,6 +1903,7 @@ function buildFollowerInput(number, slot, leaderResult) {
       // Altitude" field, is the actual BDP entry altitude (OA1).
       initialAltitudeMslFt: num("rollInAltitudeMslFt"),
       solveMode: draft.solveMode === "time" ? "time" : "height",
+      allowNegativeTrackingTime: true,
       // Height mode shows a derived Tracking Time; BDP only uses it at Dive 0°, where the last
       // entered value applies (BDP public.resolvedSolveMode).
       trackingTimeSec: draft.solveMode === "time" ? num("trackingTimeSec") : followerEnteredTrackingTimeSec(draft),

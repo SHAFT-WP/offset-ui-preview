@@ -101,6 +101,7 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg) {
     initialSpeedMode: profile.initialSpeedMode ?? "CAS",
     initialAltitudeMslFt: finite("initialAltitudeMslFt", profile.initialAltitudeMslFt),
     solveMode: profile.solveMode ?? "height",
+    allowNegativeTrackingTime: profile.allowNegativeTrackingTime === true,
     trackingTimeSec: profile.trackingTimeSec ?? 0,
     releaseAltitudeMslFt: finite("releaseAltitudeMslFt", profile.releaseAltitudeMslFt),
     angleOffDeg,

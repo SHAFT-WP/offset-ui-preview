@@ -1,4 +1,4 @@
-@import url("./common-ui-v0.2.css?v=031536a43557");
+@import url("./common-ui-v0.2.css?v=c91677ee2331");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -48,3 +48,8 @@ body.show-full-bdp .bdp-extra{display:grid}
 .capture-button.view-toggle[aria-pressed="true"]{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}
 /* Follower LOCK and ANGLE #n / TIME #n sit together at the right of the field title (LOCK button format). */
 .lock-group{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+/* BDP Top View + Profile block (2026-10-02): between each aircraft's Offset Top View and Z-Diagram,
+   shown only while that Top View's Full is on; one column, Top View then Profile. */
+.bdp-views{display:none}
+.bdp-views.show-full-views{display:block}
+.bdp-views.show-full-views .bdp-diagrams{display:grid;grid-template-columns:minmax(0,1fr);margin-top:0}
