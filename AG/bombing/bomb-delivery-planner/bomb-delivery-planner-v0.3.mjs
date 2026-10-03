@@ -13,7 +13,8 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_3 = Object.freeze({
   // 0.3.10 (2026-09-29): v0.2.8 core — ground-referenced Dive Angle in wind; local.aimOffDistanceFt.
   // 0.3.11 (2026-10-01): v0.2.9 core — public.resolvedSolveMode.
   // 0.3.12 (2026-10-02): v0.2.10 core — allowNegativeTrackingTime passthrough.
-  version: "0.3.12",
+  // 0.3.13 (2026-10-03): v0.2.11 core — public.rollInAngleOffDeg.
+  version: "0.3.13",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   officialOracle: "Bomb Profile REV.1.9 · R_20260830",
 });

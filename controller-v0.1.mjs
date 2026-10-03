@@ -25,12 +25,12 @@ import { createValueStateController } from "./common/ui/value-state-controller-v
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
-import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle, renderOffsetTopView } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.2";
+import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle, renderOffsetTopView } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.3";
 import { renderOffsetFlightTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.2";
 import { offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.0";
-import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.4";
+import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.5";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.4.0";
+import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.4.1";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -1338,7 +1338,7 @@ function refreshBdpDiagrams(number) {
     renderBdpDiagrams(target.container, result.profile, {
       scope: `aircraft-${number}`,
       aircraftNumber: number,
-      topView: { orientation: "NORTH_UP", inHeadingDeg: result.geometry.offsetHeadingDeg, rollDirection: result.geometry.direction.rollDirection, context: "PATTERN" },
+      topView: { orientation: "NORTH_UP", inHeadingDeg: result.geometry.offsetHeadingDeg, rollDirection: result.geometry.direction.rollDirection, context: "PATTERN", rollInRangeStyle: "radial" },
     });
   } catch {
     clearBdpDiagrams(target.container);
@@ -1539,7 +1539,7 @@ function followerExtraField(key, label) {
 
 // Same Text / Size / Reset / PNG / Advanced toolbar as Top View #1, scoped to one follower.
 function followerTopViewToolbar(number) {
-  return `<div class="diagram-actions"><div class="diagram-action-row"><div class="font-scale-control" role="group" aria-label="Top View #${number} font size"><span class="diagram-control-label">Text</span><button class="capture-button" type="button" data-ftv="text-down" aria-label="Top View #${number} font smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="text-reset" aria-label="Reset Top View #${number} text size to 100%">100%</button><button class="capture-button" type="button" data-ftv="text-up" aria-label="Top View #${number} font larger">+</button></div><div class="view-scale-control" role="group" aria-label="Top View #${number} picture size"><span class="diagram-control-label">Size</span><button class="capture-button" type="button" data-ftv="zoom-out" aria-label="Picture smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="size-reset" aria-label="Reset Top View #${number} size to 100%">100%</button><button class="capture-button" type="button" data-ftv="zoom-in" aria-label="Picture larger">+</button></div><button class="capture-button" type="button" data-ftv="reset">Reset</button><button class="capture-button view-toggle" type="button" data-full-views="${number}" aria-pressed="false" title="Show BDP Top View and BDP Profile">Full</button><button class="capture-button" type="button" data-ftv="png">PNG</button><button class="capture-button view-toggle" type="button" data-ftv="ip-bottom" aria-pressed="true" title="Run-In (IP → Target) up; off = north up">IP Bottom</button><button class="capture-button" type="button" data-ftv="advanced" aria-pressed="false">Advanced: Off</button></div>${timeDialMarkup(number)}</div>`;
+  return `<div class="diagram-actions"><div class="diagram-action-row"><div class="font-scale-control" role="group" aria-label="Top View #${number} font size"><span class="diagram-control-label">Text</span><button class="capture-button" type="button" data-ftv="text-down" aria-label="Top View #${number} font smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="text-reset" aria-label="Reset Top View #${number} text size to 100%">100%</button><button class="capture-button" type="button" data-ftv="text-up" aria-label="Top View #${number} font larger">+</button></div><div class="view-scale-control" role="group" aria-label="Top View #${number} picture size"><span class="diagram-control-label">Size</span><button class="capture-button" type="button" data-ftv="zoom-out" aria-label="Picture smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="size-reset" aria-label="Reset Top View #${number} size to 100%">100%</button><button class="capture-button" type="button" data-ftv="zoom-in" aria-label="Picture larger">+</button></div><button class="capture-button" type="button" data-ftv="reset">Reset</button><button class="capture-button" type="button" data-ftv="png">PNG</button><button class="capture-button view-toggle" type="button" data-ftv="ip-bottom" aria-pressed="true" title="Run-In (IP → Target) up; off = north up">IP Bottom</button><button class="capture-button" type="button" data-ftv="advanced" aria-pressed="false">Advanced: Off</button><button class="capture-button view-toggle" type="button" data-full-views="${number}" aria-pressed="false" title="Show BDP Top View and BDP Profile">Full</button></div>${timeDialMarkup(number)}</div>`;
 }
 
 function followerDraftMarkup(number) {
@@ -1572,7 +1572,7 @@ function followerCalculatingMarkup(number) {
     // View order for every aircraft (user 2026-10-02): Offset Top View, BDP Top View, BDP Profile,
     // Z-Diagram. The two BDP views show only while the Top View's Full is on.
     `<div class="bdp-views" data-bdp-views="${number}">${bdpDiagramsMarkup({ aircraftNumber: number })}</div>`,
-    flightSection(number, "Z-Diagram", `<div class="diagram-actions"><div class="diagram-action-row"><button class="capture-button" type="button" data-flight-z-png>PNG</button></div></div><div class="z-diagram-shell"><svg data-flight-z viewBox="0 0 650 710" role="img" aria-label="${offsetZDiagramTitle({ aircraftNumber: number })}"><g data-z-root></g></svg></div>`, { calculating: true, heading: offsetZDiagramTitle({ aircraftNumber: number }) }),
+    flightSection(number, "Z-Diagram", `<div class="diagram-actions"><div class="diagram-action-row"><button class="capture-button" type="button" data-flight-z-png>PNG</button>${zAdvancedMarkup(number)}</div></div><div class="z-diagram-shell"><svg data-flight-z viewBox="0 0 650 710" role="img" aria-label="${offsetZDiagramTitle({ aircraftNumber: number })}"><g data-z-root></g></svg></div>`, { calculating: true, heading: offsetZDiagramTitle({ aircraftNumber: number }) }),
     // Same variables as Result #1 first (same groups and order), then what only this aircraft has.
     flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${predecessor}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true }),
     FLIGHT_DED_AIRCRAFT.has(number) ? flightSection(number, "DED", followerDedMarkup(), { calculating: true }) : flightSection(number, "DED", `<p class="flight-draft-note">Aircraft #${number} DED is pending its profile result.</p>`),
@@ -1635,6 +1635,7 @@ function renderFlightLayout() {
   installSectionTools(host);
   host.querySelectorAll(".flight-slot").forEach((slot) => installFollowerTopViewControls(Number(slot.dataset.aircraft), slot));
   host.querySelectorAll(".flight-slot").forEach((slot) => applyFullViews(Number(slot.dataset.aircraft)));
+  host.querySelectorAll("[data-z-advanced]").forEach(syncZAdvancedButton);
   // Result #n gets the same Text / Advanced controls as Result #1 (summary rows by default).
   followerResultPanels.clear();
   host.querySelectorAll(".flight-slot").forEach((slot) => {
@@ -2145,14 +2146,42 @@ function zDeltaTime(releaseNumber) {
   const own = flightResultsFull.get(releaseNumber);
   if (!predecessor || !own) return null;
   const delta = computeDropOrderDelta({ predecessorResult: predecessor, ownResult: own });
-  return { impactNumber: releaseNumber - 1, releaseNumber, seconds: delta.predecessorImpactToOwnReleaseSec };
+  return {
+    impactNumber: releaseNumber - 1, releaseNumber, seconds: delta.predecessorImpactToOwnReleaseSec,
+    impactIpToImpactSec: predecessor.timing.offsetIpToReleaseSec + predecessor.profile.public.bombTofSec,
+  };
 }
 
+// Z Advanced (2026-10-03): off = the Essential lower rows; per aircraft, not saved.
+const zAdvancedOn = new Set();
 function renderZDiagramOf(number, svg, resultFull) {
   if (!svg) return false;
   delete svg.dataset.calculationFailed;
-  return renderOffsetZDiagram(svg, resultFull, { aircraftNumber: number, deltaTime: zDeltaTime(Math.max(2, number)) });
+  return renderOffsetZDiagram(svg, resultFull, { aircraftNumber: number, deltaTime: zDeltaTime(Math.max(2, number)), advanced: zAdvancedOn.has(number) });
 }
+function zAdvancedMarkup(number) {
+  return `<button class="capture-button view-toggle" type="button" data-z-advanced="${number}" aria-pressed="false">Advanced: Off</button>`;
+}
+function syncZAdvancedButton(button) {
+  const on = zAdvancedOn.has(Number(button.dataset.zAdvanced));
+  button.setAttribute("aria-pressed", String(on));
+  button.classList.toggle("active", on);
+  button.textContent = `Advanced: ${on ? "On" : "Off"}`;
+}
+document.addEventListener("click", (event) => {
+  const button = event.target.closest?.("[data-z-advanced]");
+  if (!button) return;
+  const number = Number(button.dataset.zAdvanced);
+  zAdvancedOn.has(number) ? zAdvancedOn.delete(number) : zAdvancedOn.add(number);
+  syncZAdvancedButton(button);
+  if (number === 1) {
+    if (lastResultFull) renderZDiagramOf(1, $("#offset-z-svg"), lastResultFull);
+  } else {
+    const resultFull = flightResultsFull.get(number);
+    const svg = document.querySelector(`.flight-slot[data-aircraft="${number}"] svg[data-flight-z]`);
+    if (resultFull) renderZDiagramOf(number, svg, resultFull);
+  }
+});
 
 // Offset #n Top View: this aircraft and its element lead in one frame (BE-owned Flight view).
 function renderFollowerTopView(number, slot, leaderResult, result) {

@@ -18,9 +18,11 @@ export const FT_PER_NM = 6076.11549;
 // higher and a host may give it as two columns (`lowerColumns: { left, right }`).
 // 0.1.10 (2026-10-01, user): the upper-right group is Roll-in Range (Ground) / (Slant) only; MAP
 // moves to the lower block (the host's columns, or after Roll-in Lead Angle in the single column).
+// 0.1.11 (2026-10-03, user): `rollInAngleOff` (Roll-in Angle Off, deg) heads the Roll-in group: it
+// takes the group's top row and Ground / Slant move one row down; without it the group is unchanged.
 export const COMMON_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "common-z-diagram-v0.1",
-  version: "0.1.10",
+  version: "0.1.11",
   oracle: "Bomb Profile REV.1.9 embedded BE Common Rev0.8 display renderer",
   legacyDisplaySource: "Common Z-Diagram Rev0.6 / BE Common Rev0.8 display grammar",
 });
@@ -167,8 +169,14 @@ export function renderCommonZDiagram(svg, data) {
     text(227, topY + 22, lineText("Dive Angle", formatCommonDegree(data.diveAngle, 0)), "start", 15);
   }
   // Roll-in Range Ground / Slant move together (z-group-roll-in); MAP is a lower-block row (0.1.10).
-  text(360, 106, lineText(labels.rollInRange, `${format(rollInNm, 1)} NM (Ground)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
-  text(360, 132, lineText(labels.rollInRange, `${format(slantNm, 1)} NM (Slant)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+  // Roll-in Angle Off (0.1.11) keeps the group's top row; Ground / Slant follow it.
+  let rollInGroupY = 106;
+  if (Number.isFinite(Number(data.rollInAngleOff))) {
+    text(360, rollInGroupY, lineText(labels.rollInAngleOff ?? "Roll-in Angle Off", formatCommonDegree(data.rollInAngleOff, 0)), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+    rollInGroupY += 26;
+  }
+  text(360, rollInGroupY, lineText(labels.rollInRange, `${format(rollInNm, 1)} NM (Ground)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+  text(360, rollInGroupY + 26, lineText(labels.rollInRange, `${format(slantNm, 1)} NM (Slant)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
   // Release Altitude and NLT Release both start LABEL_GAP after their line's right end.
   const LABEL_GAP = 20;
   const plannedEnd = 330, nltEnd = nltX + 130;

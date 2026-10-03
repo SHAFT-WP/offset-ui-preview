@@ -12,6 +12,7 @@ import { createSmartLabelLayout } from "../../../../common/diagram/svg-smart-lab
 import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { offsetTimeline } from "./offset-time-path-v0.1.mjs";
+import { rollInAngleRangeText } from "../../bomb-delivery-planner/view/bdp-view-style-v0.1.mjs";
 import { formatHeadingDeg, OFFSET_FOLLOWER_COLORS, OFFSET_VIEW_COLORS, offsetTopViewLegend, offsetViewTitle } from "./offset-view-style-v0.1.mjs";
 
 // Offset Top View — Offset-owned view in the V2 unified view grammar (common/diagram/SPEC.md;
@@ -32,7 +33,10 @@ export const OFFSET_TOP_VIEW_V0_1 = Object.freeze({
   // velocity vector, the bomb after Release; offset-time-path-v0.1.mjs). The rest of the drawing fades.
   // 0.1.2 (2026-10-03, user feedback "화살표가 두개야"): one arrow per aircraft — the triangle at the head
   // of the flown path; the fixed-length velocity vector, which only repeated its direction, is removed.
-  version: "0.1.2",
+  // 0.1.3 (2026-10-03, user): Roll-in label detail "NN°/N.NNM" (Roll-in Angle Off / Roll-in Range);
+  // Action Point label carries the Action Range (the separate mid-guide label is gone); the VRP/VIP
+  // marker is drawn only in Advanced and only when it is not at the Action Point (0.002 NM).
+  version: "0.1.3",
   subject: "Offset",
   view: "Top View",
   canvas: Object.freeze({ width: 900, minHeight: 560, maxHeight: 1100, margins: 40 }),
@@ -41,6 +45,8 @@ export const OFFSET_TOP_VIEW_V0_1 = Object.freeze({
 
 export const offsetTopViewTitle = (options) => offsetViewTitle("Top View", options);
 export { offsetTopViewLegend };
+
+const REFERENCE_AT_ACTION_POINT_NM = 0.002;
 
 function finitePoint(point) { return point && Number.isFinite(point.x) && Number.isFinite(point.y); }
 function add(a, b) { return { x: a.x + b.x, y: a.y + b.y }; }
@@ -223,7 +229,10 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
   const points = Object.fromEntries(Object.entries(geometry.points).map(([key, point]) => [key, finitePoint(point) ? frame.rotate(point) : point]));
   const project = frame.projectRotated;
   const p = Object.fromEntries(Object.entries(points).map(([key, point]) => [key, finitePoint(point) ? project(point) : null]));
-  const referencePoint = finitePoint(result.reference?.point) ? frame.project(result.reference.point) : null;
+  // VRP / VIP: Advanced only, and only when it is not the Action Point (Offset SPEC tolerance).
+  const referenceWorld = result.reference?.point;
+  const referenceApart = finitePoint(referenceWorld) && len(sub(referenceWorld, geometry.points.realActionPoint)) > REFERENCE_AT_ACTION_POINT_NM;
+  const referencePoint = options.advanced === true && referenceApart ? frame.project(referenceWorld) : null;
   const rollPath = geometry.rollInTrajectorySamples.filter(finitePoint).map((point) => frame.project(point));
   const offsetArc = sampleArc(points.offsetCenter, points.realActionPoint, points.turnEnd, geometry.direction.offsetDirection).map(project);
   const approachRangeNm = result.resolved.approachRangeNm;
@@ -357,10 +366,9 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
     if (ipLimitPoint) appendLabel(ipLimitPoint, "IP limit", {
       key: "ip-limit", color: C.invalid, textAttributes: { "data-top-view-role": "ip-limit-label" },
     });
-    appendLabel(p.realActionPoint, "Action Point", { key: "action-point", color: C.offset });
-    // Action Range is Target → Action Point for the lead and followers alike.
-    appendLabel(frame.project(add(geometry.points.realActionPoint, mul(sub(geometry.points.target, geometry.points.realActionPoint), 0.5))), "Action Range", {
-      key: "action-range", color: C.offset, detail: `${formatNm(len(geometry.points.realActionPoint))} NM`,
+    // Action Range (Target → Action Point, lead and followers alike) rides on the Action Point label.
+    appendLabel(p.realActionPoint, "Action Point", {
+      key: "action-point", color: C.offset, detail: `${formatNm(len(geometry.points.realActionPoint))} NM`,
       textAttributes: { "data-result-key": "actionRangeNm" },
     });
     if (!follower && len(sub(points.realActionPoint, points.ip)) > 0.05) {
@@ -385,7 +393,10 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
     // A follower's Essential view keeps its own Roll-in / Track Point as marked points only (labels
     // in Advanced) and drops an Attack Heading label identical to the lead's.
     const followerDetail = !follower || advanced;
-    if (followerDetail) appendLabel(p.rollStart, "Roll-in", { key: "roll-in", color: C.rollText });
+    if (followerDetail) appendLabel(p.rollStart, "Roll-in", {
+      key: "roll-in", color: C.rollText, detail: rollInAngleRangeText(result.profile?.public),
+      textAttributes: { "data-top-view-role": "roll-in" },
+    });
     if (followerDetail) appendLabel(p.trackPoint, "Track Point", { key: "track-point", color: C.rollText });
     const sameAttackAsLead = follower && formatHeadingDeg(geometry.attackHeadingDeg) === formatHeadingDeg(options.leadAttackHeadingDeg);
     if (followerDetail || !sameAttackAsLead) {

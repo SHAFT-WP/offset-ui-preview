@@ -1,5 +1,5 @@
-import { bdpZLowerColumns, buildBdpZDiagramData, profileName } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs?v=0.1.5";
-import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.10";
+import { bdpZLowerColumns, buildBdpZDiagramData, profileName } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs?v=0.1.6";
+import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.11";
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { formatDeg, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { bearingDeg, formatHeadingDeg, offsetViewTitle } from "./offset-view-style-v0.1.mjs";
@@ -15,7 +15,10 @@ export const OFFSET_Z_DIAGRAM_V0_1 = Object.freeze({
   // the BDP rows stay and the Offset rows follow them.
   // 0.1.3 (2026-10-01): two-column lower block (offsetZLowerColumns) with ΔTime; every aircraft.
   // 0.1.4 (2026-10-01, user): MAP replaces the lower Roll-in Range row (via bdpZLowerColumns).
-  version: "0.1.4",
+  // 0.1.5 (2026-10-03, user): Essential / Advanced lower block. Essential = Action Range, Offset
+  // Angle, Roll-in Lead Angle, Attack Heading | ΔTime; Advanced = every row. "IP to Impact Time" reads
+  // "#k IP to Impact Time" for the ΔTime Impact aircraft k; "Action to Impact Time" is removed.
+  version: "0.1.5",
   subject: "Offset",
   view: "Z-Diagram",
 });
@@ -33,31 +36,40 @@ function zRoot(svg) {
   return svg.querySelector("[data-z-root]") ?? svg.appendChild(svgNode("g", { "data-z-root": "" }));
 }
 
-// Offset lower block (user layout 2026-10-01), two columns. Times are from the full-precision
-// result and only rounded for display; ΔTime is the drop-order delta the caller passes
-// (computeDropOrderDelta: #(n-1) Impact − #n Release; #1 shows #2's, so #1 and #2 match).
-export function offsetZLowerColumns(result, { deltaTime = null } = {}) {
+// Offset lower block, two columns (user layout 2026-10-01; Essential / Advanced 2026-10-03). Times
+// are from the full-precision results and only rounded for display. ΔTime is the drop-order delta the
+// caller passes (computeDropOrderDelta: #(n-1) Impact − #n Release; #1 shows #2's, so #1 and #2
+// match) with `impactIpToImpactSec`, the IP → Impact time of its Impact aircraft (#n-1). Without a
+// ΔTime (single aircraft) "#k IP to Impact Time" is this aircraft's own.
+export const OFFSET_Z_ESSENTIAL_ROWS = Object.freeze(["Action Range", "Offset Angle", "Roll-in Lead Angle", "Attack Heading"]);
+export function offsetZLowerColumns(result, { deltaTime = null, advanced = false, aircraftNumber = 1 } = {}) {
   const g = result.geometry;
   const t = result.timing;
   const p = result.profile.public;
   const bdp = bdpZLowerColumns(result.profile, { attackHeadingText: formatHeadingDeg(g.attackHeadingDeg) });
-  const releaseToImpactSec = t.rollToReleaseSec + p.bombTofSec;
+  const hasDelta = Boolean(deltaTime && Number.isFinite(deltaTime.seconds));
+  const deltaRow = hasDelta
+    ? [{ label: `ΔTime #${deltaTime.impactNumber} Impact − #${deltaTime.releaseNumber} Release`, value: `${formatSec(deltaTime.seconds)} s` }]
+    : [];
   const left = [
     { label: "Action Range", value: `${formatNm(g.actionRangeNm)} NM` },
     { label: "Offset Angle", value: `${formatDeg(g.offsetAngleDeg)}°` },
     { label: "Approaching Range", value: `${formatNm(result.resolved.approachRangeNm)} NM` },
     ...bdp.left,
   ];
+  if (!advanced) {
+    return { left: OFFSET_Z_ESSENTIAL_ROWS.map((label) => left.find((row) => row.label === label)).filter(Boolean), right: deltaRow };
+  }
+  const ipImpact = hasDelta && Number.isFinite(deltaTime.impactIpToImpactSec)
+    ? { number: deltaTime.impactNumber, seconds: deltaTime.impactIpToImpactSec }
+    : { number: aircraftNumber, seconds: t.offsetIpToReleaseSec + p.bombTofSec };
   const right = [
     { label: "IP-Target Heading", value: formatHeadingDeg(bearingDeg(g.points.ip, g.points.target)) },
     { label: "Approaching Heading", value: formatHeadingDeg(g.offsetHeadingDeg) },
     ...bdp.right,
-    { label: "IP to Impact Time", value: `${formatSec(t.offsetIpToReleaseSec + p.bombTofSec)} s` },
-    { label: "Action to Impact Time", value: `${formatSec(t.offsetTurnSec + t.approachSec + releaseToImpactSec)} s` },
+    { label: `#${ipImpact.number} IP to Impact Time`, value: `${formatSec(ipImpact.seconds)} s` },
+    ...deltaRow,
   ];
-  if (deltaTime && Number.isFinite(deltaTime.seconds)) {
-    right.push({ label: `ΔTime #${deltaTime.impactNumber} Impact − #${deltaTime.releaseNumber} Release`, value: `${formatSec(deltaTime.seconds)} s` });
-  }
   return { left, right };
 }
 
@@ -81,7 +93,7 @@ export function renderOffsetZDiagram(svg, result, options = {}) {
     uniformBodyText: true,
     compactAngleLabels: true,
     profileTitle: title,
-    lowerColumns: offsetZLowerColumns(result, { deltaTime: options.deltaTime }),
+    lowerColumns: offsetZLowerColumns(result, { deltaTime: options.deltaTime, advanced: options.advanced === true, aircraftNumber }),
   });
   return true;
 }

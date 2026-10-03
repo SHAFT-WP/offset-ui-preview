@@ -1,4 +1,4 @@
-import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.10";
+import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.11";
 import { formatDeg, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { getWeaponById } from "../weapon-data-v0.1.mjs";
 
@@ -9,7 +9,8 @@ export const BDP_Z_DIAGRAM_V0_1 = Object.freeze({
   // 0.1.3 (2026-10-01): profileName exported for Offset; Common Z 0.1.8 top row / label groups.
   // 0.1.4 (2026-10-01): two-column lower block (bdpZLowerColumns) on Common Z 0.1.9.
   // 0.1.5 (2026-10-01, user): upper group reads Roll-in Range; MAP takes the lower Roll-in Range row.
-  version: "0.1.5",
+  // 0.1.6 (2026-10-03, user): Roll-in Angle Off heads the upper Roll-in group (Common Z 0.1.11).
+  version: "0.1.6",
   oracle: "Bomb Profile REV.1.9 · R_20260830",
   baseRenderer: "common/diagram/z-diagram/z-diagram-v0.1.mjs",
 });
@@ -61,7 +62,8 @@ export function buildBdpZDiagramData(result) {
     nltMsl: result.public.nltReleaseMslFt,
     minAltMsl: result.public.minAltMslFt,
     rollInLead: result.public.leadAngleDeg,
-    labels: { rollInRange: "Roll-in Range", groundRange: "MAP", aimOffAngle: "IAA", releaseAltitude: "Release Altitude", rollInLead: "Roll-in Lead Angle" },
+    rollInAngleOff: result.public.rollInAngleOffDeg,
+    labels: { rollInAngleOff: "Roll-in Angle Off", rollInRange: "Roll-in Range", groundRange: "MAP", aimOffAngle: "IAA", releaseAltitude: "Release Altitude", rollInLead: "Roll-in Lead Angle" },
     aimOffAngle: result.local.aimOffAngleDeg,
     trackingTime: result.public.trackingTimeSec,
     rollInToImpactTime: result.public.rollInTimeSec + result.public.trackingTimeSec + result.public.bombTofSec,

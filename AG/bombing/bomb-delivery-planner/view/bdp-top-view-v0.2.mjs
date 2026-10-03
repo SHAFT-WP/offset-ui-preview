@@ -13,7 +13,7 @@ import {
 import { createSmartLabelLayout } from "../../../../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.4";
 import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.1.mjs?v=0.1.4";
 import { formatDeg, formatFt, formatKt, formatMach, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
-import { BDP_TOP_VIEW_LEGEND, BDP_VIEW_COLORS as C, bdpTopViewTitle } from "./bdp-view-style-v0.1.mjs";
+import { BDP_TOP_VIEW_LEGEND, BDP_VIEW_COLORS as C, bdpTopViewTitle, rollInAngleRangeText } from "./bdp-view-style-v0.1.mjs";
 
 // Roll-in Top View — BDP-owned view in the V2 unified view grammar (common/diagram/SPEC.md;
 // BDP FE SPEC "Roll-in Top View rules — 2026-09-28").
@@ -32,10 +32,15 @@ import { BDP_TOP_VIEW_LEGEND, BDP_VIEW_COLORS as C, bdpTopViewTitle } from "./bd
 // Roll-in Point → Target Roll-in Range and Roll-in Bearing; `context: "PATTERN"` (a pattern host such
 // as Offset, not the BDP FE) adds Roll-in Altitude to the Remark and drops the altitude from the
 // Initial label.
+// 0.2.3 (2026-10-03, user; Offset and BDP FE first, every host later): option
+// `rollInRangeStyle: "radial"` drops the dashed Roll-in Range dimension and names the red
+// Target (Ground Range circle centre) → Roll-in Point line "Roll-in Range" instead; the Roll-in label
+// gets "NN°/N.NNM" (Roll-in Angle Off / Roll-in Range). Default "dimension" keeps the former drawing
+// (BOX / Wheel for now).
 
 export const BDP_TOP_VIEW_V0_2 = Object.freeze({
   id: "bdp-top-view-v0.2",
-  version: "0.2.2",
+  version: "0.2.3",
   subject: "Roll-in",
   view: "Top View",
   orientation: "INITIAL_BOTTOM_TARGET_UP",
@@ -164,10 +169,13 @@ export function renderBdpTopView(svg, result, options = {}) {
   // The Roll-in Range dimension goes on the side away from the Initial track. On a north-up map the
   // OA1 → Target line runs in any direction, so both sides keep room for it.
   let side = w.ingress.x <= w.oa1.x ? 1 : -1;
+  const radialRange = options.rollInRangeStyle === "radial";
+  // Radial style: no dimension lane is needed.
+  const northUpSide = radialRange ? 85 : DIMENSION_LANE_PX - 25;
   const margins = northUp
-    ? { top: 110, bottom: 110, left: DIMENSION_LANE_PX - 25, right: DIMENSION_LANE_PX - 25 }
+    ? { top: 110, bottom: 110, left: northUpSide, right: northUpSide }
     : { top: 64, bottom: 92, left: 56, right: 56 };
-  if (!northUp) {
+  if (!northUp && !radialRange) {
     if (side > 0) margins.right = DIMENSION_LANE_PX; else margins.left = DIMENSION_LANE_PX;
   }
   // The Remark block sits in the top-right corner above the drawing.
@@ -175,7 +183,7 @@ export function renderBdpTopView(svg, result, options = {}) {
   const fitPoints = [w.ingress, w.oa1, w.track, w.target, w.aimOff, w.initialExtension, ...w.rollPath,
     { x: w.target.x - groundRangeNm, y: w.target.y - groundRangeNm },
     { x: w.target.x + groundRangeNm, y: w.target.y + groundRangeNm }].filter(Boolean);
-  if (northUp) {
+  if (northUp && !radialRange) {
     // The Roll-in Range dimension runs parallel to OA1 → Target, one Ground Range out on either side.
     const along = unit(w.oa1, w.target);
     const normal = { x: -along.y * groundRangeNm, y: along.x * groundRangeNm };
@@ -240,7 +248,7 @@ export function renderBdpTopView(svg, result, options = {}) {
 
   // Dimensions: true Roll-in Range along OA1 → Target; Roll-in Lat. D along the OA1 turn-side axis.
   const rangeOffset = side * ((northUp ? radiusPx : Math.max(radiusPx, Math.abs(P.oa1.x - P.target.x))) + 38);
-  appendAlignedDimension(root, {
+  if (!radialRange) appendAlignedDimension(root, {
     // Default: OA1 → Target points up on screen, so the dimension's left normal is +x (right). North-up:
     // `side` was taken from the screen normal above.
     from: P.oa1, to: P.target, offset: rangeOffset, color: C.initialTrack, markerId: "bdp-top-initial",
@@ -381,8 +389,15 @@ export function renderBdpTopView(svg, result, options = {}) {
       return { dx, dy: Math.sin(leadMid) * distance + 5, anchor: anchorFor(dx) };
     })],
   });
+  if (radialRange) label(mid(P.target, P.oa1), "Roll-in Range", {
+    labelKey: "roll-in-range", color: C.rollInTarget, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.dimensionTitlePx * textScale,
+    candidates: lineCandidates(P.target, P.oa1, awaySide(P.target, P.oa1)),
+    textAttributes: { "data-top-view-role": "roll-in-range" },
+  });
   label(P.oa1, "Roll-in", {
     labelKey: "roll-in", color: C.rollInText, fontSize: 12 * textScale,
+    detail: radialRange ? rollInAngleRangeText(pub) : undefined,
+    textAttributes: { "data-top-view-role": "roll-in" },
     candidates: [{ dx: 0, dy: 28, anchor: "middle" }, { dx: -14, dy: 24, anchor: "end" }, { dx: 14, dy: 24, anchor: "start" }, { dx: 0, dy: 48, anchor: "middle" }],
   });
   label(P.track, "Track Point", {

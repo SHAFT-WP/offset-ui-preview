@@ -2,11 +2,23 @@
 // BDP-derived geometry (common/diagram/SPEC.md V2 unified view grammar G5, G10). Roll-in Top View,
 // Dive Profile and the Full BDP panel use it; pattern views (Offset, BOX, Wheel-BOX) import these
 // colours for the BDP segments they draw instead of copying hex values.
+import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
 
 export const BDP_VIEW_STYLE_V0_1 = Object.freeze({
   id: "bdp-view-style-v0.1",
-  version: "0.1.0",
+  // 0.1.1 (2026-10-03): rollInAngleRangeText — the "NN°/N.NNM" Roll-in Point note.
+  version: "0.1.1",
 });
+
+// Roll-in Point note (user 2026-10-03): "NN°/N.NNM" = Roll-in Angle Off (public.rollInAngleOffDeg,
+// nose → Target at the Roll-in Point) / Roll-in Range. Shared by the Roll-in Top View and the
+// pattern Top Views (Offset). undefined when the BDP result lacks either value.
+export function rollInAngleRangeText(profilePublic) {
+  const angle = profilePublic?.rollInAngleOffDeg;
+  const range = profilePublic?.rollInRangeNm;
+  if (!Number.isFinite(angle) || !Number.isFinite(range)) return undefined;
+  return `${formatDeg(angle)}°/${formatNm(range)}NM`;
+}
 
 export const BDP_VIEW_COLORS = Object.freeze({
   // Roll-in Top View

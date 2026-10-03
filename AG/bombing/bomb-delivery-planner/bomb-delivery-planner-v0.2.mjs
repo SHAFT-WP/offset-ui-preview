@@ -16,7 +16,8 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
   // 0.2.9 (2026-10-01): public.resolvedSolveMode reports the mode actually used ("time" at Dive 0°).
   // 0.2.10 (2026-10-02): opt-in allowNegativeTrackingTime — in height mode a Roll-in Altitude below
   // Release + Roll-in loss gives a negative Tracking Time (the altitude to add) instead of an error.
-  version: "0.2.10",
+  // 0.2.11 (2026-10-03): public.rollInAngleOffDeg (Roll-in Point nose → Target angle).
+  version: "0.2.11",
   flightPathReference: "GROUND",
   legacyGeometrySource: "Bomb Profile REV.1.9 · R_20260830",
   applicability: Object.freeze({
@@ -222,6 +223,9 @@ export function calculateBombDeliveryV0_2(rawInput) {
       baseDistanceSlantNm: Math.hypot(profile.initialAglFt, Math.abs(profile.targetTurnSideFt)) / FT_PER_NM,
       rollInAltitudeLossFt: profile.roll.altitudeLossFt,
       leadAngleDeg: profile.leadAngleDeg,
+      // Roll-in Angle Off (TERMINOLOGY, user 2026-10-03): at the Roll-in Point, the angle between the
+      // aircraft nose (Initial heading) and the line to the Target = Angle Off − Roll-in Lead Angle.
+      rollInAngleOffDeg: Math.abs(profile.targetBearingDeg),
       minAltMslFt: safety.minAltMslFt,
       nltReleaseMslFt: safety.nltReleaseMslFt,
     },
