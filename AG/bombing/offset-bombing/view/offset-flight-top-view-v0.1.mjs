@@ -4,7 +4,7 @@ import {
   finishOffsetTopViewFrame,
   offsetTopViewTitle,
   offsetTopViewWorldPoints,
-} from "./offset-top-view-v0.1.mjs";
+} from "./offset-top-view-v0.1.mjs?v=0.1.2";
 
 // Offset Flight Top View — aircraft #n drawn in one frame with its element lead (#1, or #3 for #4).
 // Formerly composed in the Offset FE controller (renderFollowerTopView); now BE-owned view logic
@@ -17,7 +17,8 @@ import {
 export const OFFSET_FLIGHT_TOP_VIEW_V0_1 = Object.freeze({
   id: "offset-flight-top-view-v0.1",
   // 0.1.1 (2026-10-02): options.timeSec passes the Time dial to both layers (one clock: seconds after IP).
-  version: "0.1.1",
+  // 0.1.2 (2026-10-03): imports Top View 0.1.2 with the controller's cache token (one module instance).
+  version: "0.1.2",
   layers: Object.freeze(["offset-plot-lead-<n>", "offset-plot-<n>"]),
 });
 
