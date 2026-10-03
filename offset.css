@@ -1,4 +1,4 @@
-@import url("./common-ui-v0.2.css?v=c91677ee2331");
+@import url("./common-ui-v0.2.css?v=538246b1b612");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -53,3 +53,7 @@ body.show-full-bdp .bdp-extra{display:grid}
 .bdp-views{display:none}
 .bdp-views.show-full-views{display:block}
 .bdp-views.show-full-views .bdp-diagrams{display:grid;grid-template-columns:minmax(0,1fr);margin-top:0}
+.time-dial{margin-top:6px}
+.time-dial-range{width:min(360px,62vw);accent-color:#e8590c}
+.time-dial-output{min-width:118px!important;text-align:left}
+.time-dial.active .time-dial-output{color:#e8590c}

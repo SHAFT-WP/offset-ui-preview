@@ -16,7 +16,8 @@ import {
 
 export const OFFSET_FLIGHT_TOP_VIEW_V0_1 = Object.freeze({
   id: "offset-flight-top-view-v0.1",
-  version: "0.1.0",
+  // 0.1.1 (2026-10-02): options.timeSec passes the Time dial to both layers (one clock: seconds after IP).
+  version: "0.1.1",
   layers: Object.freeze(["offset-plot-lead-<n>", "offset-plot-<n>"]),
 });
 
@@ -27,7 +28,7 @@ export function renderOffsetFlightTopView(svg, leaderResult, result, options = {
   const title = offsetTopViewTitle({ aircraftNumber: number });
   const worldPoints = [...offsetTopViewWorldPoints(leaderResult), ...(result ? offsetTopViewWorldPoints(result) : [])];
   const frame = createOffsetTopViewFrame(svg, worldPoints, { ...options, title });
-  const common = { advanced: options.advanced, upHeadingDeg: options.upHeadingDeg };
+  const common = { advanced: options.advanced, upHeadingDeg: options.upHeadingDeg, timeSec: options.timeSec };
   const lead = drawOffsetTopViewLayer(frame, leaderResult, { ...common, groupId: `offset-plot-lead-${number}`, crowded: Boolean(result) });
   const own = result
     ? drawOffsetTopViewLayer(frame, result, {

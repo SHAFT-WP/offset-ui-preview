@@ -24,6 +24,8 @@ export const OFFSET_VIEW_COLORS = Object.freeze({
   reference: "#5b6f82",
   invalid: "#bd3333",
   guide: "#b1bbc4",
+  // Time dial (2026-10-02): the path flown up to T, the aircraft and its velocity vector.
+  time: "#e8590c",
 });
 
 // Flight followers (#2/#3/#4): one violet family so their layer reads apart from the element lead's.
@@ -36,6 +38,7 @@ export const OFFSET_FOLLOWER_COLORS = Object.freeze({
   rollText: "#5b50c8",
   attack: "#b0307a",
   attackText: "#b0307a",
+  time: "#d6336c",
 });
 
 // Headings are three digits with the degree sign attached (Offset SPEC "Canonical heading").

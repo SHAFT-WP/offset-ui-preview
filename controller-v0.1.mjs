@@ -25,8 +25,9 @@ import { createValueStateController } from "./common/ui/value-state-controller-v
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
-import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle, renderOffsetTopView } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.0";
-import { renderOffsetFlightTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.0";
+import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle, renderOffsetTopView } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.1";
+import { renderOffsetFlightTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.1";
+import { offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.0";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.4";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.4.0";
@@ -127,6 +128,8 @@ let topViewAdvanced = false;
 // IP Bottom (default on): Top View drawn with the Run-In (IP -> Target) pointing up; off = north up
 // with a north arrow.
 let topViewIpBottom = true;
+// Time dial (2026-10-02): seconds after IP drawn on the Top View; null = off (the plain view).
+let topViewTimeSec = null;
 let lastResult = null;
 // Full-precision twin of lastResult (and of each follower result) for BE-to-BE use.
 let lastResultFull = null;
@@ -704,6 +707,39 @@ function exportOffsetTopView(svg, title) {
   return saveSvgAsPng(svg, `${title.replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" });
 }
 
+// Time dial: range 0 → the latest Impact of the drawn aircraft (whole seconds after IP). The output
+// button shows T and the phase; pressing it turns the overlay off.
+const TIME_PHASE_LABELS = Object.freeze({ ingress: "Ingress", turn: "Offset Turn", approach: "Approach", "roll-in": "Roll-in", tracking: "Tracking", released: "Released" });
+function timeDialMaxSec(results) {
+  let max = 0;
+  results.filter(Boolean).forEach((result) => {
+    try { max = Math.max(max, offsetTimeline(result).impactSec); } catch (_) { /* unsolved: no time path */ }
+  });
+  return Math.max(1, Math.ceil(max));
+}
+function syncTimeDial(dial, svg, results, timeSec) {
+  if (!dial) return;
+  const range = dial.querySelector("[data-time-range]");
+  const output = dial.querySelector("[data-time-output]");
+  const maxSec = timeDialMaxSec(results);
+  range.max = String(maxSec);
+  range.value = String(Math.min(timeSec ?? 0, maxSec));
+  const on = Number.isFinite(timeSec);
+  dial.classList.toggle("active", on);
+  const phase = svg?.querySelector('[data-top-view-role="time-overlay"]')?.dataset.timePhase;
+  output.textContent = on ? `${Math.round(Math.min(timeSec, maxSec))} s${phase ? ` · ${TIME_PHASE_LABELS[phase] ?? phase}` : ""}` : "Off";
+  output.setAttribute("aria-pressed", String(on));
+}
+function timeDialMarkup(number) {
+  return `<div class="diagram-action-row time-dial" data-time-dial="${number}" role="group" aria-label="Top View #${number} time after IP"><span class="diagram-control-label">Time</span><input class="time-dial-range" type="range" min="0" max="1" step="1" value="0" data-time-range aria-label="Seconds after IP"><button class="capture-button diagram-scale-output time-dial-output" type="button" data-time-output aria-pressed="false" title="Seconds after IP; press to turn off">Off</button></div>`;
+}
+function installTimeDial(dial, onChange) {
+  if (!dial || dial.dataset.installed) return;
+  dial.dataset.installed = "true";
+  dial.querySelector("[data-time-range]").addEventListener("input", (event) => onChange(Number(event.currentTarget.value)));
+  dial.querySelector("[data-time-output]").addEventListener("click", () => onChange(null));
+}
+
 function renderTopView(result) {
   const svg = $("#offset-top-view");
   delete svg.dataset.calculationFailed;
@@ -714,8 +750,10 @@ function renderTopView(result) {
     advanced: topViewAdvanced,
     upHeadingDeg: topViewIpBottom ? result.resolved.runInHeadingDeg : 0,
     northArrow: !topViewIpBottom,
+    timeSec: topViewTimeSec ?? undefined,
   });
   syncTopViewViewport(svg, rendered, result);
+  syncTimeDial($("#top-view-time-dial"), svg, [result], topViewTimeSec);
   legendItems.splice(0, legendItems.length, ...offsetTopViewLegend(result));
   legend.render();
 }
@@ -1501,7 +1539,7 @@ function followerExtraField(key, label) {
 
 // Same Text / Size / Reset / PNG / Advanced toolbar as Top View #1, scoped to one follower.
 function followerTopViewToolbar(number) {
-  return `<div class="diagram-actions"><div class="diagram-action-row"><div class="font-scale-control" role="group" aria-label="Top View #${number} font size"><span class="diagram-control-label">Text</span><button class="capture-button" type="button" data-ftv="text-down" aria-label="Top View #${number} font smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="text-reset" aria-label="Reset Top View #${number} text size to 100%">100%</button><button class="capture-button" type="button" data-ftv="text-up" aria-label="Top View #${number} font larger">+</button></div><div class="view-scale-control" role="group" aria-label="Top View #${number} picture size"><span class="diagram-control-label">Size</span><button class="capture-button" type="button" data-ftv="zoom-out" aria-label="Picture smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="size-reset" aria-label="Reset Top View #${number} size to 100%">100%</button><button class="capture-button" type="button" data-ftv="zoom-in" aria-label="Picture larger">+</button></div><button class="capture-button" type="button" data-ftv="reset">Reset</button><button class="capture-button view-toggle" type="button" data-full-views="${number}" aria-pressed="false" title="Show BDP Top View and BDP Profile">Full</button><button class="capture-button" type="button" data-ftv="png">PNG</button><button class="capture-button view-toggle" type="button" data-ftv="ip-bottom" aria-pressed="true" title="Run-In (IP → Target) up; off = north up">IP Bottom</button><button class="capture-button" type="button" data-ftv="advanced" aria-pressed="false">Advanced: Off</button></div></div>`;
+  return `<div class="diagram-actions"><div class="diagram-action-row"><div class="font-scale-control" role="group" aria-label="Top View #${number} font size"><span class="diagram-control-label">Text</span><button class="capture-button" type="button" data-ftv="text-down" aria-label="Top View #${number} font smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="text-reset" aria-label="Reset Top View #${number} text size to 100%">100%</button><button class="capture-button" type="button" data-ftv="text-up" aria-label="Top View #${number} font larger">+</button></div><div class="view-scale-control" role="group" aria-label="Top View #${number} picture size"><span class="diagram-control-label">Size</span><button class="capture-button" type="button" data-ftv="zoom-out" aria-label="Picture smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="size-reset" aria-label="Reset Top View #${number} size to 100%">100%</button><button class="capture-button" type="button" data-ftv="zoom-in" aria-label="Picture larger">+</button></div><button class="capture-button" type="button" data-ftv="reset">Reset</button><button class="capture-button view-toggle" type="button" data-full-views="${number}" aria-pressed="false" title="Show BDP Top View and BDP Profile">Full</button><button class="capture-button" type="button" data-ftv="png">PNG</button><button class="capture-button view-toggle" type="button" data-ftv="ip-bottom" aria-pressed="true" title="Run-In (IP → Target) up; off = north up">IP Bottom</button><button class="capture-button" type="button" data-ftv="advanced" aria-pressed="false">Advanced: Off</button></div>${timeDialMarkup(number)}</div>`;
 }
 
 function followerDraftMarkup(number) {
@@ -2039,7 +2077,7 @@ function syncFollowerResolvedFields(number, slot, result, { pairSolved = false }
 // Per-follower Top View presentation state (Text scale / Advanced), same controls as Top View #1.
 const followerTopViewState = new Map();
 function followerTopView(number) {
-  if (!followerTopViewState.has(number)) followerTopViewState.set(number, { textScale: TOP_VIEW_TEXT_SCALE_DEFAULT, advanced: false, ipBottom: true });
+  if (!followerTopViewState.has(number)) followerTopViewState.set(number, { textScale: TOP_VIEW_TEXT_SCALE_DEFAULT, advanced: false, ipBottom: true, timeSec: null });
   return followerTopViewState.get(number);
 }
 
@@ -2089,6 +2127,10 @@ function installFollowerTopViewControls(number, slot) {
     redraw();
   });
   control("png").addEventListener("click", () => exportOffsetTopView(svg, offsetTopViewTitle({ aircraftNumber: number })));
+  installTimeDial(slot.querySelector(`[data-time-dial="${number}"]`), (timeSec) => {
+    state.timeSec = timeSec;
+    redraw();
+  });
   syncText();
   const zPng = slot.querySelector("[data-flight-z-png]");
   const zSvg = slot.querySelector("svg[data-flight-z]");
@@ -2127,8 +2169,10 @@ function renderFollowerTopView(number, slot, leaderResult, result) {
     advanced: view.advanced,
     upHeadingDeg: view.ipBottom ? leaderResult.resolved.runInHeadingDeg : 0,
     northArrow: !view.ipBottom,
+    timeSec: view.timeSec ?? undefined,
   });
   syncTopViewViewport(svg, rendered, result ?? leaderResult);
+  syncTimeDial(slot.querySelector(`[data-time-dial="${number}"]`), svg, [leaderResult, result], view.timeSec);
 }
 
 function calculateFollower(number) {
@@ -2461,6 +2505,10 @@ function install() {
   $("#top-view-ip-bottom").addEventListener("click", (event) => {
     topViewIpBottom = !topViewIpBottom;
     event.currentTarget.setAttribute("aria-pressed", String(topViewIpBottom));
+    if (lastResult) renderTopView(lastResult);
+  });
+  installTimeDial($("#top-view-time-dial"), (timeSec) => {
+    topViewTimeSec = timeSec;
     if (lastResult) renderTopView(lastResult);
   });
   $("#top-view-advanced").addEventListener("click", (event) => {

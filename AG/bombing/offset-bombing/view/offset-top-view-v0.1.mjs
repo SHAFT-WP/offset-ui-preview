@@ -11,6 +11,7 @@ import {
 import { createSmartLabelLayout } from "../../../../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
 import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
+import { offsetTimeline } from "./offset-time-path-v0.1.mjs";
 import { formatHeadingDeg, OFFSET_FOLLOWER_COLORS, OFFSET_VIEW_COLORS, offsetTopViewLegend, offsetViewTitle } from "./offset-view-style-v0.1.mjs";
 
 // Offset Top View — Offset-owned view in the V2 unified view grammar (common/diagram/SPEC.md;
@@ -27,7 +28,9 @@ import { formatHeadingDeg, OFFSET_FOLLOWER_COLORS, OFFSET_VIEW_COLORS, offsetTop
 
 export const OFFSET_TOP_VIEW_V0_1 = Object.freeze({
   id: "offset-top-view-v0.1",
-  version: "0.1.0",
+  // 0.1.1 (2026-10-02): options.timeSec — the Time dial overlay (path flown up to T, aircraft and
+  // velocity vector, the bomb after Release; offset-time-path-v0.1.mjs). The rest of the drawing fades.
+  version: "0.1.1",
   subject: "Offset",
   view: "Top View",
   canvas: Object.freeze({ width: 900, minHeight: 560, maxHeight: 1100, margins: 40 }),
@@ -212,7 +215,7 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
   const tag = typeof options.aircraftTag === "string" && options.aircraftTag ? `${options.aircraftTag} ` : "";
   const advanced = options.advanced === true;
   const markerId = (name) => `offset-arrow-${name}-${groupId}`;
-  ["run", "offset", "approach", "roll", "attack"].forEach((name) => frame.defs.append(createOpenArrowMarker(markerId(name), C[name])));
+  ["run", "offset", "approach", "roll", "attack", "time"].forEach((name) => frame.defs.append(createOpenArrowMarker(markerId(name), C[name])));
 
   // Rotated world points (view frame) for the turn arc; screen points for drawing.
   const points = Object.fromEntries(Object.entries(geometry.points).map(([key, point]) => [key, finitePoint(point) ? frame.rotate(point) : point]));
@@ -288,6 +291,8 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
     group.append(svgNode("line", { x1: p.target.x - 10, y1: p.target.y, x2: p.target.x + 10, y2: p.target.y, stroke: C.target, "stroke-width": 2 }));
     group.append(svgNode("line", { x1: p.target.x, y1: p.target.y - 10, x2: p.target.x, y2: p.target.y + 10, stroke: C.target, "stroke-width": 2 }));
   }
+
+  if (Number.isFinite(options.timeSec)) drawTimeOverlay(frame, group, result, options.timeSec, C, markerId("time"));
 
   // Label obstacles shared by every layer of the frame.
   const obstacles = frame.obstacles;
@@ -403,6 +408,55 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
   }
 
   return { group, placeLabels };
+}
+
+// Time dial overlay: everything drawn so far fades, then the path flown up to T (Offset Time path),
+// the aircraft as a triangle pointing along its track, the velocity vector arrow, and after Release
+// the bomb on its way to the Target. Not a label obstacle, so moving the dial never moves a label.
+function drawTimeOverlay(frame, group, result, timeSec, C, markerId) {
+  let state;
+  try {
+    state = offsetTimeline(result).at(timeSec);
+  } catch (_) {
+    return;
+  }
+  [...group.children].forEach((node) => {
+    const opacity = Number(node.getAttribute("opacity") ?? 1);
+    node.setAttribute("opacity", String(opacity * 0.3));
+  });
+  const overlay = svgNode("g", { "data-top-view-role": "time-overlay", "data-time-sec": String(state.timeSec), "data-time-phase": state.phase });
+  group.append(overlay);
+  const flown = state.flown.filter(finitePoint).map((point) => frame.project(point));
+  if (flown.length >= 2) appendPolyline(overlay, flown, { color: C.time, width: 5.5 }).setAttribute("data-top-view-role", "time-path");
+  if (!finitePoint(state.aircraft)) return;
+  const at = frame.project(state.aircraft);
+  let direction = null;
+  if (state.heading) {
+    const ahead = frame.project({ x: state.aircraft.x + state.heading.x * 0.05, y: state.aircraft.y + state.heading.y * 0.05 });
+    const magnitude = len(sub(ahead, at));
+    if (magnitude > 1e-9) direction = mul(sub(ahead, at), 1 / magnitude);
+  }
+  if (state.bomb) {
+    const bomb = frame.project(state.bomb);
+    appendDirectedLine(overlay, at, bomb, { color: C.time, width: 1.6, dasharray: "4 5" });
+    appendCircle(overlay, bomb, 5.5, "#243240", "#ffffff", 2, { "data-top-view-role": "time-bomb" });
+  }
+  if (direction) {
+    const vectorLength = 60 * frame.fontScale;
+    const tip = add(at, mul(direction, vectorLength));
+    appendDirectedLine(overlay, at, tip, { color: C.time, width: 3, markerEndId: markerId, fromGap: 10 }).setAttribute("data-top-view-role", "time-vector");
+    const normal = { x: -direction.y, y: direction.x };
+    const size = 12 * frame.fontScale;
+    const nose = add(at, mul(direction, size));
+    const left = add(sub(at, mul(direction, size * 0.7)), mul(normal, size * 0.75));
+    const right = sub(sub(at, mul(direction, size * 0.7)), mul(normal, size * 0.75));
+    overlay.append(svgNode("polygon", {
+      points: [nose, left, right].map((point) => `${point.x},${point.y}`).join(" "),
+      fill: C.time, stroke: "#ffffff", "stroke-width": 2, "stroke-linejoin": "round", "data-top-view-role": "time-aircraft",
+    }));
+  } else {
+    appendCircle(overlay, at, 8, C.time, "#ffffff", 2, { "data-top-view-role": "time-aircraft" });
+  }
 }
 
 export function finishOffsetTopViewFrame(frame, { scope = "offset-top" } = {}) {
