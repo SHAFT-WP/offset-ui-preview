@@ -34,9 +34,10 @@ export const OFFSET_TOP_VIEW_V0_1 = Object.freeze({
   // 0.1.2 (2026-10-03, user feedback "화살표가 두개야"): one arrow per aircraft — the triangle at the head
   // of the flown path; the fixed-length velocity vector, which only repeated its direction, is removed.
   // 0.1.3 (2026-10-03, user): Roll-in label detail "NN°/N.NNM" (Roll-in Angle Off / Roll-in Range);
-  // Action Point label carries the Action Range (the separate mid-guide label is gone); the VRP/VIP
-  // marker is drawn only in Advanced and only when it is not at the Action Point (0.002 NM).
-  version: "0.1.3",
+  // the VRP/VIP marker is drawn only in Advanced and only when it is not at the Action Point (0.002 NM).
+  // 0.1.4 (2026-10-03, user answers): the mid-guide Action Range label stays (Action Point label
+  // unchanged); followers show Roll-in with its note in Essential too.
+  version: "0.1.4",
   subject: "Offset",
   view: "Top View",
   canvas: Object.freeze({ width: 900, minHeight: 560, maxHeight: 1100, margins: 40 }),
@@ -366,9 +367,10 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
     if (ipLimitPoint) appendLabel(ipLimitPoint, "IP limit", {
       key: "ip-limit", color: C.invalid, textAttributes: { "data-top-view-role": "ip-limit-label" },
     });
-    // Action Range (Target → Action Point, lead and followers alike) rides on the Action Point label.
-    appendLabel(p.realActionPoint, "Action Point", {
-      key: "action-point", color: C.offset, detail: `${formatNm(len(geometry.points.realActionPoint))} NM`,
+    appendLabel(p.realActionPoint, "Action Point", { key: "action-point", color: C.offset });
+    // Action Range is Target → Action Point for the lead and followers alike.
+    appendLabel(frame.project(add(geometry.points.realActionPoint, mul(sub(geometry.points.target, geometry.points.realActionPoint), 0.5))), "Action Range", {
+      key: "action-range", color: C.offset, detail: `${formatNm(len(geometry.points.realActionPoint))} NM`,
       textAttributes: { "data-result-key": "actionRangeNm" },
     });
     if (!follower && len(sub(points.realActionPoint, points.ip)) > 0.05) {
@@ -390,10 +392,11 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
       key: "approach-range", color: approachInvalid ? C.invalid : C.approach, detail: `${formatNm(approachRangeNm)} NM`,
       textAttributes: { "data-result-key": "approachRangeNm" },
     });
-    // A follower's Essential view keeps its own Roll-in / Track Point as marked points only (labels
-    // in Advanced) and drops an Attack Heading label identical to the lead's.
+    // A follower's Essential view keeps its own Track Point as a marked point only (label in Advanced)
+    // and drops an Attack Heading label identical to the lead's.
     const followerDetail = !follower || advanced;
-    if (followerDetail) appendLabel(p.rollStart, "Roll-in", {
+    // Roll-in with its "NN°/N.NNM" note shows for every aircraft (user 2026-10-03).
+    appendLabel(p.rollStart, "Roll-in", {
       key: "roll-in", color: C.rollText, detail: rollInAngleRangeText(result.profile?.public),
       textAttributes: { "data-top-view-role": "roll-in" },
     });
