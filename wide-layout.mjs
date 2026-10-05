@@ -1,6 +1,6 @@
 // Presentation-only companion to index-wide.html. All calculations, inputs and
 // persistence remain in the unchanged Offset controller and owning view modules.
-import "./controller-v0.1.mjs?v=e8e2baf64b7e";
+import "./controller-v0.1.mjs?v=5c3a9fb9e615";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");

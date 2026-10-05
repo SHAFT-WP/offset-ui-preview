@@ -1,4 +1,4 @@
-/* Wide entrypoint only. PC compact controls are an explicitly approved local exception. Style the
+/* Wide entrypoint only. External UI chrome has an owner-approved 50% PC scale. Style the
    SVG boxes, never the tactical paths, labels, metrics or viewBox. */
 body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .offset-wide .app { width:100%; max-width:none; margin:0; padding:16px 20px 0; }
@@ -145,23 +145,29 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 }
 
 
-/* Owner-requested half-height PC value controls; keep mobile touch targets. */
-@media(min-width:761px) {
-  .offset-wide .wide-inputs input,
-  .offset-wide .wide-inputs select,
-  .offset-wide .wide-inputs .readout {
-    min-height:27px; height:27px; padding:4px 6px; border-radius:6px;
-    font-size:14px; line-height:17px;
-  }
-  .offset-wide .wide-inputs .compound { grid-template-columns:minmax(0,1fr) 62px; }
-  .offset-wide .wide-inputs .compound input { border-radius:6px 0 0 6px; }
-  .offset-wide .wide-inputs .compound select { border-radius:0 6px 6px 0; padding-inline:4px; }
-  .offset-wide .wide-inputs .formation-bearing-control select { border-radius:6px 0 0 6px; }
-  .offset-wide .wide-inputs .formation-bearing-control input { border-radius:0 6px 6px 0; }
-  .offset-wide .wide-inputs .input-grid,
-  .offset-wide .wide-inputs .offset-grid { gap:8px 10px; }
-  .offset-wide .wide-inputs .field { gap:3px; }
-  .offset-wide .wide-inputs .field > span:first-child { min-height:0; }
-}
 .wide-bdp-button { min-height:32px; padding:6px 10px; font-size:12px; flex-shrink:0; }
 .wide-bdp-button[aria-pressed="true"] { color:var(--blue); background:var(--blue-soft); }
+
+/* Owner clarification: only chrome outside the blue-masked input/plot bodies.
+   zoom lays out at half size; do not scale the whole pane or any SVG canvas.
+   Comments (.subline, .unit, hints, validation and footer) remain unscaled. */
+@media(min-width:761px) {
+  .offset-wide .wide-eyebrow,
+  .offset-wide .topbar h1,
+  .offset-wide .topbar > .toolbar,
+  .offset-wide .wide-aircraft-nav,
+  .offset-wide .wide-selected-label,
+  .offset-wide .wide-status,
+  .offset-wide .wide-bdp-button,
+  .offset-wide .wide-input-nav,
+  .offset-wide .wide-pane-heading,
+  .offset-wide .section-head,
+  .offset-wide .result-panel-head:not(.section-head .result-panel-head),
+  .offset-wide .bdp-diagram > summary,
+  .offset-wide .diagram-actions:not(.section-head .diagram-actions) {
+    zoom:0.5;
+  }
+  .offset-wide .topbar { gap:10px; margin-bottom:7px; }
+  .offset-wide .wide-workspace-bar { gap:7px; padding-block:4.5px; margin-bottom:6px; }
+  .offset-wide .wide-map-section > .section-head { margin-bottom:5px; }
+}
