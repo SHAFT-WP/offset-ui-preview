@@ -1,4 +1,4 @@
-@import url("./common-ui-v0.2.css?v=5c3a9fb9e615");
+@import url("./common-ui-v0.2.css?v=c31eda3b117c");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -57,3 +57,11 @@ body.show-full-bdp .bdp-extra{display:grid}
 .time-dial-range{width:min(360px,62vw);accent-color:#e8590c}
 .time-dial-output{min-width:118px!important;text-align:left}
 .time-dial.active .time-dial-output{color:#e8590c}
+/* Offset Top View aircraft buttons (2026-10-05): on = filled; the underline is the aircraft's drawing colour. */
+.top-view-aircraft [data-top-view-aircraft-button]{min-width:42px;opacity:.7;border-bottom-width:3px}
+.top-view-aircraft [data-top-view-aircraft-button][aria-pressed="true"]{opacity:1;background:var(--blue);border-color:var(--blue);color:#fff}
+.top-view-aircraft [data-top-view-aircraft-button="1"]{border-bottom-color:#4c5966}
+.top-view-aircraft [data-top-view-aircraft-button="2"]{border-bottom-color:#8a3ab9}
+.top-view-aircraft [data-top-view-aircraft-button="3"]{border-bottom-color:#2f9e6e}
+.top-view-aircraft [data-top-view-aircraft-button="4"]{border-bottom-color:#b5651d}
+.top-view-aircraft [data-top-view-aircraft-button][hidden]{display:none}

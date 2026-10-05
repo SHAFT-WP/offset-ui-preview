@@ -25,8 +25,8 @@ import { createValueStateController } from "./common/ui/value-state-controller-v
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
-import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle, renderOffsetTopView } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.5";
-import { offsetFlightTopViewLegend, renderOffsetFlightTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.4";
+import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.6";
+import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.5";
 import { offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.0";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.5";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
@@ -130,6 +130,9 @@ let topViewAdvanced = false;
 let topViewIpBottom = true;
 // Time dial (2026-10-02): seconds after IP drawn on the Top View; null = off (the plain view).
 let topViewTimeSec = null;
+// One Offset Top View for the Flight (user 2026-10-05): the #1–#4 buttons choose the aircraft drawn;
+// several can be on together. Default: #1 only.
+const topViewAircraft = new Set([1]);
 let lastResult = null;
 // Full-precision twin of lastResult (and of each follower result) for BE-to-BE use.
 let lastResultFull = null;
@@ -690,15 +693,17 @@ function installOffsetTopViewControls(svg, controls = {}) {
 
 // After each render: the view's canvas becomes the Size 100% base; a new result refits, the same
 // result (Text, Advanced, IP Bottom) keeps the user's zoom/pan; moved labels return to their offsets.
-function syncTopViewViewport(svg, rendered, result) {
+// The key names what is drawn (the chosen aircraft and their results), so switching an aircraft on or
+// off refits the canvas like a new result.
+function syncTopViewViewport(svg, rendered, key) {
   const viewport = topViewViewports.get(svg);
   if (viewport) {
     viewport.setBaseViewBox({ x: 0, y: 0, w: rendered.canvas.width, h: rendered.canvas.height });
-    if (topViewLastResults.get(svg) !== result) viewport.autoFit();
+    if (topViewLastResults.get(svg) !== key) viewport.autoFit();
     else if (viewport.isUserAdjusted()) viewport.refresh();
     else viewport.ensureBaseWhenUnadjusted();
   }
-  topViewLastResults.set(svg, result);
+  topViewLastResults.set(svg, key);
   topViewLabelDrags.get(svg)?.applyStoredPositions();
 }
 
@@ -740,22 +745,79 @@ function installTimeDial(dial, onChange) {
   dial.querySelector("[data-time-output]").addEventListener("click", () => onChange(null));
 }
 
-function renderTopView(result) {
+// Identity of a solved result for the viewport key (a new solve is a new object).
+const topViewResultIds = new WeakMap();
+let topViewResultCounter = 0;
+function topViewResultId(result) {
+  if (!topViewResultIds.has(result)) topViewResultIds.set(result, ++topViewResultCounter);
+  return topViewResultIds.get(result);
+}
+
+// The aircraft the Top View buttons can show: #1 and the calculating followers of the Flight size.
+function topViewAvailableAircraft() {
+  return [1, 2, 3, 4].filter((number) => number === 1 || (number <= flightLayout.size && FLIGHT_CALCULATING_AIRCRAFT.has(number)));
+}
+function syncTopViewAircraftButtons() {
+  const available = topViewAvailableAircraft();
+  document.querySelectorAll("[data-top-view-aircraft-button]").forEach((button) => {
+    const number = Number(button.dataset.topViewAircraftButton);
+    const shown = available.includes(number);
+    const on = shown && topViewAircraft.has(number);
+    button.hidden = !shown;
+    button.setAttribute("aria-pressed", String(on));
+    button.classList.toggle("active", on);
+  });
+}
+
+// Offset Top View (user 2026-10-05): the aircraft switched on with #1–#4, drawn together in one frame
+// fitted to all of them. One rotation for every aircraft: #1's Run-In (followers fly parallel Run-Ins).
+function renderTopView() {
   const svg = $("#offset-top-view");
+  const selected = topViewAvailableAircraft().filter((number) => topViewAircraft.has(number));
+  syncTopViewAircraftButtons();
+  const aircraft = selected.map((number) => ({ number, result: flightResultOf(number) })).filter((item) => item.result);
+  const title = offsetCombinedTopViewTitle(selected);
+  svg.dataset.exportTitle = title;
+  if (!aircraft.length) {
+    const failed = selected.length ? `#${selected.join(", #")} has no current result` : "Choose an aircraft (#1–#4)";
+    showCalculationFailed(svg, title, failed);
+    syncTimeDial($("#top-view-time-dial"), svg, [], topViewTimeSec);
+    legendItems.splice(0, legendItems.length);
+    legend.render();
+    return;
+  }
   delete svg.dataset.calculationFailed;
-  const rendered = renderOffsetTopView(svg, result, {
-    aircraftNumber: 1,
+  const upResult = lastResult ?? aircraft[0].result;
+  const rendered = renderOffsetCombinedTopView(svg, aircraft, {
     textScale: topViewTextScale,
     viewportWidth: globalThis.innerWidth,
     advanced: topViewAdvanced,
-    upHeadingDeg: topViewIpBottom ? result.resolved.runInHeadingDeg : 0,
+    upHeadingDeg: topViewIpBottom ? upResult.resolved.runInHeadingDeg : 0,
     northArrow: !topViewIpBottom,
     timeSec: topViewTimeSec ?? undefined,
   });
-  syncTopViewViewport(svg, rendered, result);
-  syncTimeDial($("#top-view-time-dial"), svg, [result], topViewTimeSec);
-  legendItems.splice(0, legendItems.length, ...offsetTopViewLegend(result));
+  syncTopViewViewport(svg, rendered, aircraft.map((item) => `${item.number}:${topViewResultId(item.result)}`).join(","));
+  syncTimeDial($("#top-view-time-dial"), svg, aircraft.map((item) => item.result), topViewTimeSec);
+  legendItems.splice(0, legendItems.length, ...topViewLegendItems(aircraft));
   legend.render();
+}
+
+// Legend: #1 alone keeps #1's legend; otherwise the highest aircraft shown against the aircraft it
+// releases after (#n vs #(n-1), the ΔTime reference; user 2026-10-05), in their drawing colours.
+function topViewLegendItems(aircraft) {
+  const own = aircraft[aircraft.length - 1];
+  if (own.number === 1) return offsetTopViewLegend(own.result);
+  const referenceNumber = own.number - 1;
+  const referenceFull = flightResultFullOf(referenceNumber) ?? null;
+  const ownFull = flightResultFullOf(own.number) ?? null;
+  const delta = referenceFull && ownFull ? computeDropOrderDelta({ predecessorResult: referenceFull, ownResult: ownFull }) : null;
+  return offsetFlightTopViewLegend({
+    reference: { number: referenceNumber, result: referenceFull },
+    own: { number: own.number, result: ownFull },
+    deltaTimeSec: delta?.predecessorImpactToOwnReleaseSec ?? null,
+    referenceColor: offsetAircraftColors(referenceNumber).run,
+    ownColor: offsetAircraftColors(own.number).run,
+  });
 }
 
 function calculate() {
@@ -771,7 +833,6 @@ function calculate() {
     renderOffsetResult(result);
     renderProfileResult(result);
     resultPanel.refresh();
-    renderTopView(result);
     refreshBdpDiagrams(1);
     renderDed(result);
     applyResultChangeStates(result);
@@ -791,7 +852,6 @@ function calculate() {
     // or re-solving from the previous success.
     lastResult = null;
     lastResultFull = null;
-    showCalculationFailed($("#offset-top-view"), "Offset #1 Top View", error.message);
     showCalculationFailed($("#offset-z-svg"), "Offset #1 Z-Diagram", error.message);
     $("#capture-z").disabled = true;
     clearDed();
@@ -1345,20 +1405,38 @@ function refreshBdpDiagrams(number) {
   }
 }
 
-// Full (Offset Top View header, left of PNG): per aircraft, shows its BDP Top View and Profile.
+// Full (Offset Top View toolbar, last button; one Top View for the Flight since 2026-10-05): its
+// data-full-views="all" shows the BDP Top View and Profile of every aircraft. A data-full-views="n"
+// button (PC wide workspace "BDP Views") still toggles aircraft #n alone.
 const fullViewsOn = new Set();
-function applyFullViews(number) {
-  const on = fullViewsOn.has(number);
-  document.querySelector(`[data-bdp-views="${number}"]`)?.classList.toggle("show-full-views", on);
-  document.querySelectorAll(`[data-full-views="${number}"]`).forEach((button) => {
+function fullViewsAircraft() {
+  return [1, 2, 3, 4].filter((number) => document.querySelector(`[data-bdp-views="${number}"]`));
+}
+function syncFullViewButtons() {
+  const all = fullViewsAircraft();
+  document.querySelectorAll("[data-full-views]").forEach((button) => {
+    const key = button.dataset.fullViews;
+    const on = key === "all" ? all.length > 0 && all.every((number) => fullViewsOn.has(number)) : fullViewsOn.has(Number(key));
     button.setAttribute("aria-pressed", String(on));
     button.classList.toggle("active", on);
   });
+}
+function applyFullViews(number) {
+  const on = fullViewsOn.has(number);
+  document.querySelector(`[data-bdp-views="${number}"]`)?.classList.toggle("show-full-views", on);
+  syncFullViewButtons();
   if (on) refreshBdpDiagrams(number);
 }
 document.addEventListener("click", (event) => {
   const button = event.target.closest?.("[data-full-views]");
   if (!button) return;
+  if (button.dataset.fullViews === "all") {
+    const all = fullViewsAircraft();
+    const allOn = all.every((number) => fullViewsOn.has(number));
+    [1, 2, 3, 4].forEach((number) => (allOn ? fullViewsOn.delete(number) : fullViewsOn.add(number)));
+    [1, 2, 3, 4].forEach(applyFullViews);
+    return;
+  }
   const number = Number(button.dataset.fullViews);
   if (fullViewsOn.has(number)) fullViewsOn.delete(number);
   else fullViewsOn.add(number);
@@ -1538,9 +1616,6 @@ function followerExtraField(key, label) {
 }
 
 // Same Text / Size / Reset / PNG / Advanced toolbar as Top View #1, scoped to one follower.
-function followerTopViewToolbar(number) {
-  return `<div class="diagram-actions"><div class="diagram-action-row"><div class="font-scale-control" role="group" aria-label="Top View #${number} font size"><span class="diagram-control-label">Text</span><button class="capture-button" type="button" data-ftv="text-down" aria-label="Top View #${number} font smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="text-reset" aria-label="Reset Top View #${number} text size to 100%">100%</button><button class="capture-button" type="button" data-ftv="text-up" aria-label="Top View #${number} font larger">+</button></div><div class="view-scale-control" role="group" aria-label="Top View #${number} picture size"><span class="diagram-control-label">Size</span><button class="capture-button" type="button" data-ftv="zoom-out" aria-label="Picture smaller">-</button><button class="capture-button diagram-scale-output" type="button" data-ftv="size-reset" aria-label="Reset Top View #${number} size to 100%">100%</button><button class="capture-button" type="button" data-ftv="zoom-in" aria-label="Picture larger">+</button></div><button class="capture-button" type="button" data-ftv="reset">Reset</button><button class="capture-button" type="button" data-ftv="png">PNG</button><button class="capture-button view-toggle" type="button" data-ftv="ip-bottom" aria-pressed="true" title="Run-In (IP → Target) up; off = north up">IP Bottom</button><button class="capture-button" type="button" data-ftv="advanced" aria-pressed="false">Advanced: Off</button><button class="capture-button view-toggle" type="button" data-full-views="${number}" aria-pressed="false" title="Show BDP Top View and BDP Profile">Full</button></div>${timeDialMarkup(number)}</div>`;
-}
 
 function followerDraftMarkup(number) {
   const leadNumber = elementLeadNumber(number);
@@ -1568,9 +1643,8 @@ function followerCalculatingMarkup(number) {
     flightSection(number, "Formation", `<p class="flight-draft-note">Start point relative to #${leadNumber}'s own IP; feeds this aircraft's Run-In line.</p>${followerFormationMarkup(leadNumber)}`, { calculating: true, tab: "formation" }),
     flightSection(number, "BDP", `<div class="input-grid"><label class="field flight-weapon-field"><span>Bomb</span><select data-flight-field="weaponId"></select></label><label class="field"><span>Initial Speed (KCAS)</span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Initial Altitude (ft MSL)</span><button class="lock-button" type="button" data-flight-field="rollInAltitudeLinked" aria-label="Link Initial Altitude to Roll-in Altitude" aria-pressed="true">LINKED</button></span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"><span class="unit" data-initial-link-note>Linked to Roll-in Altitude</span></label><label class="field"><span>Roll-in Altitude (ft MSL)</span><input data-flight-field="rollInAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">BDP entry altitude</span></label><label class="field"><span>Dive Angle (deg)</span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"><span class="unit">Whole seconds</span></label><label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label><label class="field"><span>Release Speed (KCAS)</span><input data-flight-field="releaseSpeedKcas" type="text" inputmode="decimal"></label>${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}</div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target). Full BDP fields left blank follow #1 (Roll-in Bank: automatic from this aircraft's Dive Angle).</p>`, { calculating: true, tab: "bdp" }),
     flightSection(number, "Offset", `<div class="section-head"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div><div class="input-grid"><label class="field"><span>Run-In Heading</span><output data-flight-readout="runInHeadingDeg">-</output><span class="unit">Follows #1 · parallel Run-In</span></label><label class="field"><span>IP Range from Target</span><output data-flight-readout="ipRangeFromTargetNm">-</output><span class="unit">NM · from Formation position</span></label><label class="field"><span>Attack Heading (deg)</span><input data-flight-field="attackHeadingDeg" type="text" inputmode="decimal"></label><label class="field"><span>Angle-Off (deg)</span><input data-flight-field="angleOffDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Offset Angle (deg)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="offsetAngleLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameAngleAsLead" aria-pressed="false" title="Align Offset Angle to #${leadNumber}">ANGLE #${leadNumber}</button>` : ""}</span></span><input data-flight-field="offsetAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Action Range (NM)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="actionRangeLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameTimeAsLead" aria-pressed="false" title="Align Action timing to #${leadNumber}">TIME #${leadNumber}</button>` : ""}</span></span><input data-flight-field="actionRangeNm" type="text" inputmode="decimal"><span class="unit">Target → Action Point</span></label></div><div id="flight-status-${number}" class="status-message valid">-</div>`, { calculating: true, tab: "offset" }),
-    flightSection(number, "Top View", `${followerTopViewToolbar(number)}<div class="top-view-shell"><svg data-flight-topview data-export-legend="offset-legend-${number}" viewBox="0 0 ${TOP_VIEW_WIDTH} ${OFFSET_TOP_VIEW_V0_1.canvas.maxHeight}" role="img" aria-label="${offsetTopViewTitle({ aircraftNumber: number })}"></svg></div><svg class="diagram-legend-box" id="offset-legend-${number}" data-flight-legend="${number}" role="img" aria-label="${offsetTopViewTitle({ aircraftNumber: number })} legend"></svg><p class="flight-draft-note">Leader #${leadNumber}'s already-solved profile is drawn in full alongside this aircraft's own, sharing Target and scale; it does not feed aircraft #${number}'s own solve.${number === 3 ? " #2's path is also drawn, without labels." : ""}</p>`, { calculating: true, heading: offsetTopViewTitle({ aircraftNumber: number }) }),
-    // View order for every aircraft (user 2026-10-02): Offset Top View, BDP Top View, BDP Profile,
-    // Z-Diagram. The two BDP views show only while the Top View's Full is on.
+    // View order (user 2026-10-02): BDP Top View, BDP Profile, Z-Diagram; the Offset Top View is the
+    // one Flight view under #1 (user 2026-10-05). The two BDP views show only while its Full is on.
     `<div class="bdp-views" data-bdp-views="${number}">${bdpDiagramsMarkup({ aircraftNumber: number })}</div>`,
     flightSection(number, "Z-Diagram", `<div class="diagram-actions"><div class="diagram-action-row"><button class="capture-button" type="button" data-flight-z-png>PNG</button>${zAdvancedMarkup(number)}</div></div><div class="z-diagram-shell"><svg data-flight-z viewBox="0 0 650 710" role="img" aria-label="${offsetZDiagramTitle({ aircraftNumber: number })}"><g data-z-root></g></svg></div>`, { calculating: true, heading: offsetZDiagramTitle({ aircraftNumber: number }) }),
     // Same variables as Result #1 first (same groups and order), then what only this aircraft has.
@@ -2070,72 +2144,13 @@ function syncFollowerResolvedFields(number, slot, result, { pairSolved = false }
 }
 
 
-// Both Top View calls below share one auto-fit projection (each passes the other's world points
-// as extraFitPoints), so the element lead's full-fidelity render and this aircraft's own render
-// land in the same scale/frame and their Target markers coincide. The lead layer is drawn exactly
-// as in its own Top View; this aircraft's layer uses the follower palette, "#n"-prefixed labels,
-// and places its labels clear of the lead's labels and paths (and vice versa for the paths).
-// Per-follower Top View presentation state (Text scale / Advanced), same controls as Top View #1.
-const followerTopViewState = new Map();
-function followerTopView(number) {
-  if (!followerTopViewState.has(number)) followerTopViewState.set(number, { textScale: TOP_VIEW_TEXT_SCALE_DEFAULT, advanced: false, ipBottom: true, timeSec: null });
-  return followerTopViewState.get(number);
-}
-
+// Follower Z PNG (the follower Top View controls left with the one Flight Top View, 2026-10-05).
 function installFollowerTopViewControls(number, slot) {
-  const svg = slot.querySelector("svg[data-flight-topview]");
-  if (!svg || svg.dataset.controlsInstalled) return;
-  svg.dataset.controlsInstalled = "true";
-  const control = (name) => slot.querySelector(`[data-ftv="${name}"]`);
-  installOffsetTopViewControls(svg, {
-    zoomInButton: control("zoom-in"),
-    zoomOutButton: control("zoom-out"),
-    sizeResetButton: control("size-reset"),
-    resetButton: control("reset"),
-  });
-  const state = followerTopView(number);
-  const syncText = () => {
-    control("text-reset").textContent = `${Math.round(state.textScale * 100)}%`;
-    control("text-down").disabled = state.textScale <= 0.5;
-    control("text-up").disabled = state.textScale >= 2;
-    const advanced = control("advanced");
-    advanced.setAttribute("aria-pressed", String(state.advanced));
-    advanced.classList.toggle("active", state.advanced);
-    advanced.textContent = `Advanced: ${state.advanced ? "On" : "Off"}`;
-    control("ip-bottom").setAttribute("aria-pressed", String(state.ipBottom));
-  };
-  const redraw = () => {
-    const leadNumber = elementLeadNumber(number);
-    const leaderResult = leadNumber === 1 ? lastResult : flightResults.get(leadNumber);
-    if (leaderResult) renderFollowerTopView(number, slot, leaderResult, flightResults.get(number) ?? null);
-  };
-  const setText = (value) => {
-    state.textScale = Math.max(0.5, Math.min(2, Math.round(value * 10) / 10));
-    syncText();
-    redraw();
-  };
-  control("text-down").addEventListener("click", () => setText(state.textScale - 0.1));
-  control("text-up").addEventListener("click", () => setText(state.textScale + 0.1));
-  control("text-reset").addEventListener("click", () => setText(TOP_VIEW_TEXT_SCALE_DEFAULT));
-  control("advanced").addEventListener("click", () => {
-    state.advanced = !state.advanced;
-    syncText();
-    redraw();
-  });
-  control("ip-bottom").addEventListener("click", () => {
-    state.ipBottom = !state.ipBottom;
-    syncText();
-    redraw();
-  });
-  control("png").addEventListener("click", () => exportOffsetTopView(svg, offsetTopViewTitle({ aircraftNumber: number })));
-  installTimeDial(slot.querySelector(`[data-time-dial="${number}"]`), (timeSec) => {
-    state.timeSec = timeSec;
-    redraw();
-  });
-  syncText();
   const zPng = slot.querySelector("[data-flight-z-png]");
   const zSvg = slot.querySelector("svg[data-flight-z]");
-  if (zPng && zSvg) zPng.addEventListener("click", () => saveSvgAsPng(zSvg, `${offsetZDiagramTitle({ aircraftNumber: number }).replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" }));
+  if (!zPng || !zSvg || zPng.dataset.installed) return;
+  zPng.dataset.installed = "true";
+  zPng.addEventListener("click", () => saveSvgAsPng(zSvg, `${offsetZDiagramTitle({ aircraftNumber: number }).replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" }));
 }
 
 // Offset #n Z (every aircraft, 2026-10-01). ΔTime is the drop-order delta: #(n-1) Impact − #n
@@ -2182,63 +2197,6 @@ document.addEventListener("click", (event) => {
     if (resultFull) renderZDiagramOf(number, svg, resultFull);
   }
 });
-
-// Offset #n Top View: this aircraft and its element lead in one frame (BE-owned Flight view).
-function renderFollowerTopView(number, slot, leaderResult, result) {
-  const svg = slot.querySelector("svg[data-flight-topview]");
-  if (!svg) return;
-  delete svg.dataset.calculationFailed;
-  const view = followerTopView(number);
-  // Both layers share one rotation: the lead's Run-In (followers fly parallel Run-In lines).
-  const rendered = renderOffsetFlightTopView(svg, leaderResult, result, {
-    aircraftNumber: number,
-    leadNumber: elementLeadNumber(number),
-    textScale: view.textScale,
-    viewportWidth: globalThis.innerWidth,
-    advanced: view.advanced,
-    upHeadingDeg: view.ipBottom ? leaderResult.resolved.runInHeadingDeg : 0,
-    northArrow: !view.ipBottom,
-    timeSec: view.timeSec ?? undefined,
-    companions: followerTopViewCompanions(number),
-  });
-  syncTopViewViewport(svg, rendered, result ?? leaderResult);
-  syncTimeDial(slot.querySelector(`[data-time-dial="${number}"]`), svg, [leaderResult, result], view.timeSec);
-  renderFollowerLegend(number, slot);
-}
-
-// The aircraft ahead (#(n-1), the ΔTime reference) is drawn without labels when it is not the element
-// lead (user 2026-10-05): Offset #3 Top View draws #1, #2 and #3.
-function followerTopViewCompanions(number) {
-  const referenceNumber = number - 1;
-  if (referenceNumber === elementLeadNumber(number) || referenceNumber < 2) return [];
-  const result = flightResults.get(referenceNumber);
-  return result ? [{ number: referenceNumber, result }] : [];
-}
-
-// #n Top View legend (user 2026-10-05): #n against #(n-1), the ΔTime reference aircraft.
-const followerLegends = new WeakMap();
-function renderFollowerLegend(number, slot) {
-  const legendSvg = slot.querySelector(`svg[data-flight-legend="${number}"]`);
-  if (!legendSvg) return;
-  const referenceNumber = number - 1;
-  const referenceFull = flightResultFullOf(referenceNumber) ?? null;
-  const ownFull = flightResultsFull.get(number) ?? null;
-  const delta = referenceFull && ownFull ? computeDropOrderDelta({ predecessorResult: referenceFull, ownResult: ownFull }) : null;
-  const items = offsetFlightTopViewLegend({
-    reference: { number: referenceNumber, result: referenceFull },
-    own: { number, result: ownFull },
-    deltaTimeSec: delta?.predecessorImpactToOwnReleaseSec ?? null,
-    referencePalette: followerTopViewCompanions(number).length ? "companion" : "lead",
-  });
-  let entry = followerLegends.get(legendSvg);
-  if (!entry) {
-    entry = { items: [] };
-    entry.legend = installSvgLegend(legendSvg, entry.items);
-    followerLegends.set(legendSvg, entry);
-  }
-  entry.items.splice(0, entry.items.length, ...items);
-  entry.legend.render();
-}
 
 function calculateFollower(number) {
   const slot = document.querySelector(`.flight-slot[data-aircraft="${number}"]`);
@@ -2305,7 +2263,6 @@ function calculateFollower(number) {
     syncFollowerResolvedFields(number, slot, resultFull, { pairSolved });
     syncFollowerExtraPlaceholders(slot, result);
     renderFollowerStatus(number, result.state, result.errors.length ? result.errors.join(" / ") : result.warnings[0] ?? "-");
-    renderFollowerTopView(number, slot, flightResultOf(leadNumber), result);
     const runInReadout = slot.querySelector('[data-flight-readout="runInHeadingDeg"]');
     if (runInReadout) runInReadout.textContent = fmtHeading(result.resolved.runInHeadingDeg);
     const ipRangeReadout = slot.querySelector('[data-flight-readout="ipRangeFromTargetNm"]');
@@ -2328,20 +2285,6 @@ function calculateFollower(number) {
     const zPng = slot.querySelector("[data-flight-z-png]");
     if (zPng) zPng.disabled = true;
     refreshBdpDiagrams(number);
-    const leaderResult = flightResultOf(leadNumber);
-    if (leaderResult) renderFollowerTopView(number, slot, leaderResult, null);
-    else showCalculationFailed(slot.querySelector("svg[data-flight-topview]"), offsetTopViewTitle({ aircraftNumber: number }), error.message);
-  }
-}
-
-// Presentation-only refresh (text scale, Advanced toggle, viewport): redraw each calculating
-// follower's Top View from the results already solved, without re-solving.
-function refreshFollowerTopViews() {
-  for (let number = 2; number <= flightLayout.size; number += 1) {
-    if (!FLIGHT_CALCULATING_AIRCRAFT.has(number)) continue;
-    const slot = document.querySelector(`.flight-slot[data-aircraft="${number}"]`);
-    const leaderResult = flightResultOf(elementLeadNumber(number));
-    if (slot && leaderResult) renderFollowerTopView(number, slot, leaderResult, flightResults.get(number) ?? null);
   }
 }
 
@@ -2351,6 +2294,8 @@ function recalculateFollowers(from = 2) {
   }
   // Z #1 last, so its ΔTime row follows #2's current solve (a failed #1 keeps its placeholder).
   if (lastResultFull) $("#capture-z").disabled = !renderZDiagramOf(1, $("#offset-z-svg"), lastResultFull);
+  // The Flight Top View once every aircraft has its current result.
+  renderTopView();
 }
 
 function installSectionDisclosure() {
@@ -2538,8 +2483,7 @@ function install() {
   const setTextScale = (value) => {
     topViewTextScale = Math.max(0.5, Math.min(2, Math.round(value * 10) / 10));
     syncTextControls();
-    if (lastResult) renderTopView(lastResult);
-    refreshFollowerTopViews();
+    renderTopView();
   };
   fontScaleSelect?.addEventListener("change", () => {
     const value = Number.parseFloat(fontScaleSelect.value);
@@ -2554,8 +2498,7 @@ function install() {
     const nextCompact = globalThis.innerWidth <= TOP_VIEW_MOBILE_MAX_WIDTH_PX;
     if (nextCompact === compactTextViewport) return;
     compactTextViewport = nextCompact;
-    if (lastResult) renderTopView(lastResult);
-    refreshFollowerTopViews();
+    renderTopView();
   };
   globalThis.addEventListener?.("resize", syncViewportTextBase);
   globalThis.visualViewport?.addEventListener?.("resize", syncViewportTextBase);
@@ -2566,22 +2509,27 @@ function install() {
     topViewViewportObserver.observe(document.documentElement);
     if (document.body) topViewViewportObserver.observe(document.body);
   }
-  $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg, offsetTopViewTitle({ aircraftNumber: 1 })));
+  $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg, svg.dataset.exportTitle || offsetTopViewTitle({ aircraftNumber: 1 })));
+  document.querySelectorAll("[data-top-view-aircraft-button]").forEach((button) => button.addEventListener("click", () => {
+    const number = Number(button.dataset.topViewAircraftButton);
+    if (topViewAircraft.has(number)) topViewAircraft.delete(number);
+    else topViewAircraft.add(number);
+    renderTopView();
+  }));
   $("#top-view-ip-bottom").addEventListener("click", (event) => {
     topViewIpBottom = !topViewIpBottom;
     event.currentTarget.setAttribute("aria-pressed", String(topViewIpBottom));
-    if (lastResult) renderTopView(lastResult);
+    renderTopView();
   });
   installTimeDial($("#top-view-time-dial"), (timeSec) => {
     topViewTimeSec = timeSec;
-    if (lastResult) renderTopView(lastResult);
+    renderTopView();
   });
   $("#top-view-advanced").addEventListener("click", (event) => {
     topViewAdvanced = !topViewAdvanced;
     event.currentTarget.setAttribute("aria-pressed", String(topViewAdvanced));
     event.currentTarget.textContent = `Advanced: ${topViewAdvanced ? "On" : "Off"}`;
-    if (lastResult) renderTopView(lastResult);
-    refreshFollowerTopViews();
+    renderTopView();
   });
   $("#capture-z").addEventListener("click", () => saveSvgAsPng($("#offset-z-svg"), `${offsetZDiagramTitle({ aircraftNumber: 1 }).replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" }));
 

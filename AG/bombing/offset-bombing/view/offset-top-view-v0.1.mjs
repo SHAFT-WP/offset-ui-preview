@@ -13,7 +13,7 @@ import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.
 import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { offsetTimeline } from "./offset-time-path-v0.1.mjs";
 import { rollInAngleRangeText } from "../../bomb-delivery-planner/view/bdp-view-style-v0.1.mjs";
-import { formatHeadingDeg, OFFSET_COMPANION_COLORS, OFFSET_FOLLOWER_COLORS, OFFSET_VIEW_COLORS, offsetTopViewLegend, offsetViewTitle } from "./offset-view-style-v0.1.mjs";
+import { formatHeadingDeg, OFFSET_PALETTE_COLORS, OFFSET_VIEW_COLORS, offsetTopViewLegend, offsetViewTitle } from "./offset-view-style-v0.1.mjs?v=0.1.3";
 
 // Offset Top View — Offset-owned view in the V2 unified view grammar (common/diagram/SPEC.md;
 // AG Offset SPEC owns the content; Offset FE SPEC "Top View").
@@ -38,7 +38,10 @@ export const OFFSET_TOP_VIEW_V0_1 = Object.freeze({
   // 0.1.4 (2026-10-03, user answers): the mid-guide Action Range label stays (Action Point label
   // unchanged); followers show Roll-in with its note in Essential too.
   // 0.1.5 (2026-10-05): palette "companion" (label-less aircraft in a Flight view).
-  version: "0.1.5",
+  // 0.1.6 (2026-10-05, user: one Top View with #1–#4 buttons): palette "fourth" (#4); options.role
+  // ("lead" | "follower") decides the drawing rules apart from the palette, so any aircraft can be the
+  // base layer (Target marker, full label set) in its own colours.
+  version: "0.1.6",
   subject: "Offset",
   view: "Top View",
   canvas: Object.freeze({ width: 900, minHeight: 560, maxHeight: 1100, margins: 40 }),
@@ -222,8 +225,8 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
   const geometry = result.geometry;
   // A companion layer (Flight view, user 2026-10-05) follows the follower rules in its own palette;
   // its host never calls placeLabels(), so it shows paths and stations only.
-  const follower = options.palette === "follower" || options.palette === "companion";
-  const C = options.palette === "companion" ? OFFSET_COMPANION_COLORS : follower ? OFFSET_FOLLOWER_COLORS : OFFSET_VIEW_COLORS;
+  const C = OFFSET_PALETTE_COLORS[options.palette] ?? OFFSET_VIEW_COLORS;
+  const follower = options.role ? options.role === "follower" : C !== OFFSET_VIEW_COLORS;
   const tag = typeof options.aircraftTag === "string" && options.aircraftTag ? `${options.aircraftTag} ` : "";
   const advanced = options.advanced === true;
   const markerId = (name) => `offset-arrow-${name}-${groupId}`;
@@ -338,12 +341,12 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
     frame.placedLabels.forEach((rect) => labels.reserveRect(rect));
     const appendLabel = (point, title, labelOptions = {}) => {
       if (!point) return null;
-      const { textAttributes = {}, key, ...rest } = labelOptions;
-      return labels.append(point, `${tag}${title}`, {
+      const { textAttributes = {}, key, untagged = false, ...rest } = labelOptions;
+      return labels.append(point, `${untagged ? "" : tag}${title}`, {
         background: false,
         leaderMarkerId: "offset-arrow-label",
         ...rest,
-        labelKey: follower ? `${groupId}-${key}` : key,
+        labelKey: follower || tag ? `${groupId}-${key}` : key,
         // Two layers in one frame (Flight view): every label gets the wider candidate ring.
         candidates: rest.candidates ?? (follower || options.crowded ? FOLLOWER_LABEL_CANDIDATES : undefined),
         fontSize: frame.titleSize,
@@ -352,8 +355,9 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
       });
     };
 
+    // The Target is the Flight's, so its label carries no aircraft tag.
     if (!follower) appendLabel(p.target, "Target", {
-      key: "target", color: C.target,
+      key: "target", color: C.target, untagged: true,
       candidates: candidatesAwayFromLine(p.trackPoint, p.target),
       textAttributes: { "data-top-view-role": "target" },
     });

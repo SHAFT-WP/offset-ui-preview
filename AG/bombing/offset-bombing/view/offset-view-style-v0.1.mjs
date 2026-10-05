@@ -10,7 +10,10 @@ export const OFFSET_VIEW_STYLE_V0_1 = Object.freeze({
   // 0.1.1 (2026-10-05, user): offsetFlightTopViewLegend — the #n Top View comparison legend.
   // 0.1.2 (2026-10-05, user): OFFSET_COMPANION_COLORS; the legend's reference rows take the companion
   // colour when the reference aircraft is drawn as a companion (referencePalette: "companion").
-  version: "0.1.2",
+  // 0.1.3 (2026-10-05, user): one Offset Top View with #1–#4 buttons. Each aircraft keeps one colour
+  // family wherever it is drawn (#1 lead, #2 follower, #3 green, #4 brown: OFFSET_AIRCRAFT_COLORS);
+  // the legend takes the drawn aircraft's colours (referenceColor / ownColor).
+  version: "0.1.3",
 });
 
 // Lead aircraft: pattern segments are Offset colours kept apart from the BDP set; the approach leg
@@ -58,6 +61,26 @@ export const OFFSET_COMPANION_COLORS = Object.freeze({
   time: "#2b8a3e",
 });
 
+// Aircraft #4 (2026-10-05, user: one Top View for the Flight): a brown family.
+export const OFFSET_FOURTH_COLORS = Object.freeze({
+  ...OFFSET_VIEW_COLORS,
+  run: "#7b4f2c",
+  offset: "#b5651d",
+  approach: "#b5651d",
+  roll: "#a0522d",
+  rollText: "#a0522d",
+  attack: "#8d6e00",
+  attackText: "#8d6e00",
+  time: "#e67700",
+});
+
+// Palette name and colours of each aircraft in the Offset Top View (same aircraft, same colours).
+export const OFFSET_AIRCRAFT_PALETTES = Object.freeze({ 1: "lead", 2: "follower", 3: "companion", 4: "fourth" });
+export const OFFSET_PALETTE_COLORS = Object.freeze({ lead: OFFSET_VIEW_COLORS, follower: OFFSET_FOLLOWER_COLORS, companion: OFFSET_COMPANION_COLORS, fourth: OFFSET_FOURTH_COLORS });
+export function offsetAircraftColors(number) {
+  return OFFSET_PALETTE_COLORS[OFFSET_AIRCRAFT_PALETTES[number]] ?? OFFSET_VIEW_COLORS;
+}
+
 // Headings are three digits with the degree sign attached (Offset SPEC "Canonical heading").
 export function formatHeadingDeg(value) {
   if (!Number.isFinite(value)) return "-";
@@ -96,11 +119,11 @@ export function offsetTopViewLegend(result = null) {
 // Dive Angle, Release Alt for #k then #n; #k IP to Impact Time; #n IP to Release Time; ΔTime #k Impact
 // − #n Release. `reference` / `own` are { number, result } (result null when that solve failed: its
 // rows are left out); `deltaTimeSec` comes from computeDropOrderDelta. Values are display-rounded only.
-export function offsetFlightTopViewLegend({ reference = null, own = null, deltaTimeSec = null, referencePalette = "lead" } = {}) {
+export function offsetFlightTopViewLegend({ reference = null, own = null, deltaTimeSec = null, referencePalette = "lead", referenceColor: referenceColorOverride = null, ownColor = null } = {}) {
   const rows = [];
   const sides = [reference, own].filter((side) => side?.result);
-  const referenceColor = referencePalette === "companion" ? OFFSET_COMPANION_COLORS.run : OFFSET_VIEW_COLORS.run;
-  const colorOf = (side) => (side === own ? OFFSET_FOLLOWER_COLORS.run : referenceColor);
+  const referenceColor = referenceColorOverride ?? (referencePalette === "companion" ? OFFSET_COMPANION_COLORS.run : OFFSET_VIEW_COLORS.run);
+  const colorOf = (side) => (side === own ? ownColor ?? OFFSET_FOLLOWER_COLORS.run : referenceColor);
   const per = (name, value) => sides.forEach((side) => rows.push({ label: `#${side.number} ${name} · ${value(side.result)}`, color: colorOf(side) }));
   per("Roll-in Alt", (r) => `${formatFt(r.profile.public.resolvedInitialAltitudeMslFt)} ft`);
   per("Dive Angle", (r) => `${formatDeg(r.profile.canonicalInputs.diveAngleDeg)}°`);

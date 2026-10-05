@@ -1,6 +1,6 @@
 // Presentation-only companion to index-wide.html. All calculations, inputs and
 // persistence remain in the unchanged Offset controller and owning view modules.
-import "./controller-v0.1.mjs?v=5c3a9fb9e615";
+import "./controller-v0.1.mjs?v=c31eda3b117c";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
@@ -185,9 +185,15 @@ function syncBdpViewsButton() {
   bdpViewsButton.setAttribute("aria-label", "Show BDP Top View and Profile for aircraft #" + selectedAircraft);
 }
 
+// The Offset Top View is one view for the Flight (2026-10-05, #1–#4 buttons): it moves (live
+// node, listeners kept) to the centre pane of whichever aircraft workspace is shown.
+const flightTopView = document.getElementById("offset-top-view")?.closest("section");
+
 function selectAircraft(number) {
   selectedAircraft = workspaces.has(number) ? number : 1;
   for (const [n, root] of workspaces) root.hidden = n !== selectedAircraft;
+  const center = workspaces.get(selectedAircraft)?.querySelector(".wide-center");
+  if (flightTopView && center && flightTopView.parentElement !== center) center.prepend(flightTopView);
   followers.hidden = selectedAircraft === 1;
   for (const button of aircraftNav.children) {
     const n = Number(button.dataset.wideAircraft);

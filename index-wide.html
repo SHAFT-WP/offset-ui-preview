@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · PC Wide Preview</title>
-<link rel="stylesheet" href="./offset.css?v=5c3a9fb9e615">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=5c3a9fb9e615">
-<link rel="stylesheet" href="./wide-layout.css?v=5c3a9fb9e615">
+<link rel="stylesheet" href="./offset.css?v=c31eda3b117c">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=c31eda3b117c">
+<link rel="stylesheet" href="./wide-layout.css?v=c31eda3b117c">
 </head>
 <body class="offset-wide">
 <main class="app" id="offset-calculator">
@@ -138,8 +138,15 @@
 
   <section class="section top-view-section" aria-labelledby="top-view-title">
     <div class="section-head">
-      <h2 id="top-view-title">Offset #1 Top View</h2>
+      <h2 id="top-view-title">Offset Top View</h2>
       <div class="diagram-actions">
+        <div class="diagram-action-row top-view-aircraft" role="group" aria-label="Aircraft drawn in the Top View">
+          <span class="diagram-control-label">Aircraft</span>
+          <button class="capture-button view-toggle active" type="button" data-top-view-aircraft-button="1" aria-pressed="true">#1</button>
+          <button class="capture-button view-toggle" type="button" data-top-view-aircraft-button="2" aria-pressed="false" hidden>#2</button>
+          <button class="capture-button view-toggle" type="button" data-top-view-aircraft-button="3" aria-pressed="false" hidden>#3</button>
+          <button class="capture-button view-toggle" type="button" data-top-view-aircraft-button="4" aria-pressed="false" hidden>#4</button>
+        </div>
         <div class="diagram-action-row">
           <div class="font-scale-control" role="group" aria-label="Top View font size">
             <span class="diagram-control-label">Text</span>
@@ -158,7 +165,7 @@
           <button class="capture-button" id="capture-top-view" type="button">PNG</button>
           <button class="capture-button view-toggle" id="top-view-ip-bottom" type="button" aria-pressed="true" title="Run-In (IP → Target) up; off = north up">IP Bottom</button>
           <button class="capture-button" id="top-view-advanced" type="button" aria-pressed="false">Advanced: Off</button>
-          <button class="capture-button view-toggle" id="full-views-1" type="button" data-full-views="1" aria-pressed="false" title="Show BDP Top View and BDP Profile">Full</button>
+          <button class="capture-button view-toggle" id="full-views-1" type="button" data-full-views="all" aria-pressed="false" title="Show BDP Top View and BDP Profile of every aircraft">Full</button>
         </div>
         <div class="diagram-action-row time-dial" id="top-view-time-dial" data-time-dial="1" role="group" aria-label="Top View #1 time after IP">
           <span class="diagram-control-label">Time</span>
@@ -167,7 +174,7 @@
         </div>
       </div>
     </div>
-    <div class="top-view-shell"><svg data-export-legend="offset-legend" id="offset-top-view" viewBox="0 0 900 1100" role="img" aria-label="Offset #1 Top View"></svg></div>
+    <div class="top-view-shell"><svg data-export-legend="offset-legend" id="offset-top-view" viewBox="0 0 900 1100" role="img" aria-label="Offset #1 Top View" data-export-title="Offset #1 Top View"></svg></div>
     <svg class="diagram-legend-box" id="offset-legend" role="img" aria-label="Offset Top View legend"></svg>
   </section>
 
@@ -207,7 +214,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=5c3a9fb9e615"></script>
+<script type="module" src="./wide-layout.mjs?v=c31eda3b117c"></script>
 
 </body>
 </html>
