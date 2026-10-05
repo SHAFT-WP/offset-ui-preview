@@ -1,6 +1,6 @@
 // Presentation-only companion to index-wide.html. All calculations, inputs and
 // persistence remain in the unchanged Offset controller and owning view modules.
-import "./controller-v0.1.mjs?v=7035a6bb0d9d";
+import "./controller-v0.1.mjs?v=e8e2baf64b7e";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
@@ -53,7 +53,23 @@ const hint = make("span", "wide-workspace-hint", "Inputs · Top View · Review")
 const validation = make("p", "wide-validation");
 validation.hidden = true;
 validation.setAttribute("role", "alert");
-workspaceBar.append(aircraftNav, selectedLabel, status, hint, validation);
+const bdpViewsButton = make("button", "btn wide-bdp-button", "BDP Views");
+bdpViewsButton.type = "button";
+bdpViewsButton.dataset.fullViews = "1";
+bdpViewsButton.setAttribute("aria-pressed", "false");
+bdpViewsButton.title = "Show Roll-in Top View and Dive Profile for the selected aircraft";
+bdpViewsButton.addEventListener("click", () => {
+  // The existing controller owns the toggle/render. Scroll only after it runs.
+  requestAnimationFrame(() => {
+    const views = workspaces.get(selectedAircraft)?.querySelector(".bdp-views.show-full-views");
+    if (views) {
+      const pane = views.closest(".wide-center");
+      pane.scrollTop = views.offsetTop - pane.offsetTop;
+      if (window.innerWidth <= 760) views.scrollIntoView({ block: "start" });
+    }
+  });
+});
+workspaceBar.append(aircraftNav, selectedLabel, status, bdpViewsButton, hint, validation);
 header.after(workspaceBar);
 
 const lead = make("div", "wide-workspace");
@@ -162,6 +178,13 @@ function syncStatus() {
   selectedLabel.textContent = "AIRCRAFT #" + selectedAircraft;
 }
 
+function syncBdpViewsButton() {
+  bdpViewsButton.dataset.fullViews = String(selectedAircraft);
+  const views = workspaces.get(selectedAircraft)?.querySelector(".bdp-views");
+  bdpViewsButton.setAttribute("aria-pressed", String(views?.classList.contains("show-full-views") ?? false));
+  bdpViewsButton.setAttribute("aria-label", "Show BDP Top View and Profile for aircraft #" + selectedAircraft);
+}
+
 function selectAircraft(number) {
   selectedAircraft = workspaces.has(number) ? number : 1;
   for (const [n, root] of workspaces) root.hidden = n !== selectedAircraft;
@@ -173,6 +196,7 @@ function selectAircraft(number) {
     button.setAttribute("aria-controls", "wide-aircraft-" + n);
   }
   syncStatus();
+  syncBdpViewsButton();
   // Existing SVG legends and result grids observe their rendered box size.
   requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
 }
@@ -196,6 +220,7 @@ document.addEventListener("keydown", event => {
 new MutationObserver(syncFollowers).observe(followers, { childList: true });
 for (const root of [lead, followers]) {
   new MutationObserver(records => {
+    if (records.some(record => record.target.nodeType === Node.ELEMENT_NODE && record.target.matches(".bdp-views"))) syncBdpViewsButton();
     if (records.some(record => (record.target.nodeType === Node.ELEMENT_NODE ? record.target : record.target.parentElement)?.closest("#state-pill, [id^='flight-state-pill-'], #constraint-message, [id^='flight-status-']"))) syncStatus();
   }).observe(root, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class"] });
 }

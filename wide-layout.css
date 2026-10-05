@@ -1,4 +1,4 @@
-/* Wide entrypoint only. Keep inputs at the shared physical size. Style the
+/* Wide entrypoint only. PC compact controls are an explicitly approved local exception. Style the
    SVG boxes, never the tactical paths, labels, metrics or viewBox. */
 body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .offset-wide .app { width:100%; max-width:none; margin:0; padding:16px 20px 0; }
@@ -144,3 +144,24 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
   .offset-wide .wide-map-section .top-view-shell > svg { height:auto; }
 }
 
+
+/* Owner-requested half-height PC value controls; keep mobile touch targets. */
+@media(min-width:761px) {
+  .offset-wide .wide-inputs input,
+  .offset-wide .wide-inputs select,
+  .offset-wide .wide-inputs .readout {
+    min-height:27px; height:27px; padding:4px 6px; border-radius:6px;
+    font-size:14px; line-height:17px;
+  }
+  .offset-wide .wide-inputs .compound { grid-template-columns:minmax(0,1fr) 62px; }
+  .offset-wide .wide-inputs .compound input { border-radius:6px 0 0 6px; }
+  .offset-wide .wide-inputs .compound select { border-radius:0 6px 6px 0; padding-inline:4px; }
+  .offset-wide .wide-inputs .formation-bearing-control select { border-radius:6px 0 0 6px; }
+  .offset-wide .wide-inputs .formation-bearing-control input { border-radius:0 6px 6px 0; }
+  .offset-wide .wide-inputs .input-grid,
+  .offset-wide .wide-inputs .offset-grid { gap:8px 10px; }
+  .offset-wide .wide-inputs .field { gap:3px; }
+  .offset-wide .wide-inputs .field > span:first-child { min-height:0; }
+}
+.wide-bdp-button { min-height:32px; padding:6px 10px; font-size:12px; flex-shrink:0; }
+.wide-bdp-button[aria-pressed="true"] { color:var(--blue); background:var(--blue-soft); }
