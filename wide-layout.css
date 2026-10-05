@@ -151,7 +151,9 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 
 /* Final owner scope: every non-view UI root at half physical size.
    Keep Top View/Profile/Z canvases and SVG legends at zoom 1.
-   Each UI subtree receives this scale exactly once. */
+   Each UI subtree receives this scale exactly once.
+   Owner 2026-10-05 ("DED값과 Result 값은 원래대로"): the DED boxes and the Result values keep
+   their original size; only their headings, tabs and controls are halved. */
 @media(min-width:761px) {
   body.offset-wide { --wide-input-width:200px; }
   .offset-wide .topbar,
@@ -159,8 +161,9 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
   .offset-wide .wide-inputs,
   .offset-wide .wide-footer,
   .offset-wide .wide-pane-heading,
-  .offset-wide .wide-review .section:not(:has(.z-diagram-shell)),
-  .offset-wide .section-head:not(.wide-inputs .section-head, .wide-review .section:not(:has(.z-diagram-shell)) .section-head),
+  .offset-wide .section-head:not(.wide-inputs .section-head),
+  .offset-wide .wide-review .result-panel-head,
+  .offset-wide .wide-review .ded-section .section-disclosure-body > :not(.ded-boxes),
   .offset-wide .bdp-diagram > summary,
   .offset-wide .diagram-actions:not(.section-head .diagram-actions),
   .offset-wide .wide-center .flight-draft-note {
