@@ -1,6 +1,6 @@
 // Presentation-only companion to index-wide.html. All calculations, inputs and
 // persistence remain in the unchanged Offset controller and owning view modules.
-import "./controller-v0.1.mjs?v=d43993d788d0";
+import "./controller-v0.1.mjs?v=2a7eef465ada";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
@@ -27,7 +27,7 @@ const utilities = make("details", "wide-utilities");
 utilities.append(make("summary", "", "Temp Def"), temp);
 toolbar.append(utilities);
 const originalLink = make("a", "btn wide-standard-link", "Standard layout");
-originalLink.href = "./index.html";
+originalLink.href = "./index-standard.html";
 toolbar.append(originalLink);
 const focusButton = make("button", "btn wide-focus-button", "Focus view");
 focusButton.type = "button";
