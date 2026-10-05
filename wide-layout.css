@@ -1,4 +1,4 @@
-/* Wide entrypoint only. External UI chrome has an owner-approved 50% PC scale. Style the
+/* Wide entrypoint only. All non-view PC UI has an owner-approved 50% scale. Style the
    SVG boxes, never the tactical paths, labels, metrics or viewBox. */
 body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .offset-wide .app { width:100%; max-width:none; margin:0; padding:16px 20px 0; }
@@ -148,26 +148,34 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .wide-bdp-button { min-height:32px; padding:6px 10px; font-size:12px; flex-shrink:0; }
 .wide-bdp-button[aria-pressed="true"] { color:var(--blue); background:var(--blue-soft); }
 
-/* Owner clarification: only chrome outside the blue-masked input/plot bodies.
-   zoom lays out at half size; do not scale the whole pane or any SVG canvas.
-   Comments (.subline, .unit, hints, validation and footer) remain unscaled. */
+
+/* Final owner scope: every non-view UI root at half physical size.
+   Keep Top View/Profile/Z canvases and SVG legends at zoom 1.
+   Each UI subtree receives this scale exactly once. */
 @media(min-width:761px) {
-  .offset-wide .wide-eyebrow,
-  .offset-wide .topbar h1,
-  .offset-wide .topbar > .toolbar,
-  .offset-wide .wide-aircraft-nav,
-  .offset-wide .wide-selected-label,
-  .offset-wide .wide-status,
-  .offset-wide .wide-bdp-button,
-  .offset-wide .wide-input-nav,
+  body.offset-wide { --wide-input-width:200px; }
+  .offset-wide .topbar,
+  .offset-wide .wide-workspace-bar,
+  .offset-wide .wide-inputs,
+  .offset-wide .wide-footer,
   .offset-wide .wide-pane-heading,
-  .offset-wide .section-head,
-  .offset-wide .result-panel-head:not(.section-head .result-panel-head),
+  .offset-wide .wide-review .section:not(:has(.z-diagram-shell)),
+  .offset-wide .section-head:not(.wide-inputs .section-head, .wide-review .section:not(:has(.z-diagram-shell)) .section-head),
   .offset-wide .bdp-diagram > summary,
-  .offset-wide .diagram-actions:not(.section-head .diagram-actions) {
+  .offset-wide .diagram-actions:not(.section-head .diagram-actions),
+  .offset-wide .wide-center .flight-draft-note {
     zoom:0.5;
   }
-  .offset-wide .topbar { gap:10px; margin-bottom:7px; }
-  .offset-wide .wide-workspace-bar { gap:7px; padding-block:4.5px; margin-bottom:6px; }
+  .offset-wide .topbar { margin-bottom:7px; }
+  .offset-wide .wide-workspace-bar { margin-bottom:6px; }
   .offset-wide .wide-map-section > .section-head { margin-bottom:5px; }
+}
+@media(min-width:1100px) and (max-width:1599px) {
+  body.offset-wide { --wide-input-width:180px; }
+}
+@media(min-width:2300px) {
+  body.offset-wide { --wide-input-width:220px; }
+}
+@media(min-width:761px) and (max-width:1099px) {
+  .offset-wide .wide-workspace { grid-template-columns:165px minmax(0,1fr); }
 }

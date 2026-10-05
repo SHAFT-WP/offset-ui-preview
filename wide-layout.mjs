@@ -1,6 +1,6 @@
 // Presentation-only companion to index-wide.html. All calculations, inputs and
 // persistence remain in the unchanged Offset controller and owning view modules.
-import "./controller-v0.1.mjs?v=c31eda3b117c";
+import "./controller-v0.1.mjs?v=d43993d788d0";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
@@ -231,7 +231,7 @@ for (const root of [lead, followers]) {
   }).observe(root, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class"] });
 }
 const measureHeader = () => {
-  const top = workspaceBar.offsetTop + workspaceBar.offsetHeight + 12;
+  const top = workspaceBar.getBoundingClientRect().bottom - app.getBoundingClientRect().top + 12;
   app.style.setProperty("--wide-top", Math.ceil(top) + "px");
 };
 new ResizeObserver(measureHeader).observe(header);
