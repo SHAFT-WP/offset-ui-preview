@@ -1,5 +1,5 @@
 import { BDP_VIEW_COLORS } from "../../bomb-delivery-planner/view/bdp-view-style-v0.1.mjs";
-import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
+import { formatDeg, formatFt, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 
 // Offset view style — Offset-owned colours, heading notation, titles and legend items for the
 // Offset Top View / Flight Top View / Z-Diagram (common/diagram/SPEC.md V2 unified view grammar G5,
@@ -7,7 +7,8 @@ import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.
 
 export const OFFSET_VIEW_STYLE_V0_1 = Object.freeze({
   id: "offset-view-style-v0.1",
-  version: "0.1.0",
+  // 0.1.1 (2026-10-05, user): offsetFlightTopViewLegend — the #n Top View comparison legend.
+  version: "0.1.1",
 });
 
 // Lead aircraft: pattern segments are Offset colours kept apart from the BDP set; the approach leg
@@ -73,3 +74,29 @@ export function offsetTopViewLegend(result = null) {
     { label: `Roll-in Radius${value(`${formatNm(g?.rollInRadiusNm)} NM`)}`, color: C.roll },
   ];
 }
+
+// Offset #n Top View legend (user 2026-10-05): this aircraft against the aircraft it releases after
+// (#(n-1), the ΔTime reference: #2 vs #1, #3 vs #2, #4 vs #3). Rows in the user's order: Roll-in Alt,
+// Dive Angle, Release Alt for #k then #n; #k IP to Impact Time; #n IP to Release Time; ΔTime #k Impact
+// − #n Release. `reference` / `own` are { number, result } (result null when that solve failed: its
+// rows are left out); `deltaTimeSec` comes from computeDropOrderDelta. Values are display-rounded only.
+export function offsetFlightTopViewLegend({ reference = null, own = null, deltaTimeSec = null } = {}) {
+  const rows = [];
+  const sides = [reference, own].filter((side) => side?.result);
+  const colorOf = (side) => (side === own ? OFFSET_FOLLOWER_COLORS.run : OFFSET_VIEW_COLORS.run);
+  const per = (name, value) => sides.forEach((side) => rows.push({ label: `#${side.number} ${name} · ${value(side.result)}`, color: colorOf(side) }));
+  per("Roll-in Alt", (r) => `${formatFt(r.profile.public.resolvedInitialAltitudeMslFt)} ft`);
+  per("Dive Angle", (r) => `${formatDeg(r.profile.canonicalInputs.diveAngleDeg)}°`);
+  per("Release Alt", (r) => `${formatFt(r.profile.public.effectiveReleaseAltitudeMslFt)} ft`);
+  if (reference?.result) {
+    rows.push({ label: `#${reference.number} IP to Impact Time · ${formatSec(reference.result.timing.offsetIpToReleaseSec + reference.result.profile.public.bombTofSec)} s`, color: colorOf(reference) });
+  }
+  if (own?.result) {
+    rows.push({ label: `#${own.number} IP to Release Time · ${formatSec(own.result.timing.offsetIpToReleaseSec)} s`, color: colorOf(own) });
+  }
+  if (reference?.result && own?.result && Number.isFinite(deltaTimeSec)) {
+    rows.push({ label: `ΔTime #${reference.number} Impact − #${own.number} Release · ${formatSec(deltaTimeSec)} s`, color: OFFSET_VIEW_COLORS.time, dashed: true });
+  }
+  return rows;
+}
+
