@@ -13,7 +13,7 @@ import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.
 import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { offsetTimeline } from "./offset-time-path-v0.1.mjs";
 import { rollInAngleRangeText } from "../../bomb-delivery-planner/view/bdp-view-style-v0.1.mjs";
-import { formatHeadingDeg, OFFSET_FOLLOWER_COLORS, OFFSET_VIEW_COLORS, offsetTopViewLegend, offsetViewTitle } from "./offset-view-style-v0.1.mjs";
+import { formatHeadingDeg, OFFSET_COMPANION_COLORS, OFFSET_FOLLOWER_COLORS, OFFSET_VIEW_COLORS, offsetTopViewLegend, offsetViewTitle } from "./offset-view-style-v0.1.mjs";
 
 // Offset Top View — Offset-owned view in the V2 unified view grammar (common/diagram/SPEC.md;
 // AG Offset SPEC owns the content; Offset FE SPEC "Top View").
@@ -37,7 +37,8 @@ export const OFFSET_TOP_VIEW_V0_1 = Object.freeze({
   // the VRP/VIP marker is drawn only in Advanced and only when it is not at the Action Point (0.002 NM).
   // 0.1.4 (2026-10-03, user answers): the mid-guide Action Range label stays (Action Point label
   // unchanged); followers show Roll-in with its note in Essential too.
-  version: "0.1.4",
+  // 0.1.5 (2026-10-05): palette "companion" (label-less aircraft in a Flight view).
+  version: "0.1.5",
   subject: "Offset",
   view: "Top View",
   canvas: Object.freeze({ width: 900, minHeight: 560, maxHeight: 1100, margins: 40 }),
@@ -219,8 +220,10 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
   const group = svgNode("g", { id: groupId });
   frame.root.append(group);
   const geometry = result.geometry;
-  const follower = options.palette === "follower";
-  const C = follower ? OFFSET_FOLLOWER_COLORS : OFFSET_VIEW_COLORS;
+  // A companion layer (Flight view, user 2026-10-05) follows the follower rules in its own palette;
+  // its host never calls placeLabels(), so it shows paths and stations only.
+  const follower = options.palette === "follower" || options.palette === "companion";
+  const C = options.palette === "companion" ? OFFSET_COMPANION_COLORS : follower ? OFFSET_FOLLOWER_COLORS : OFFSET_VIEW_COLORS;
   const tag = typeof options.aircraftTag === "string" && options.aircraftTag ? `${options.aircraftTag} ` : "";
   const advanced = options.advanced === true;
   const markerId = (name) => `offset-arrow-${name}-${groupId}`;
