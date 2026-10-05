@@ -1,6 +1,6 @@
-// Presentation-only companion to index-wide.html. All calculations, inputs and
+// Presentation-only companion to index.html (the default PC Wide entry). All calculations, inputs and
 // persistence remain in the unchanged Offset controller and owning view modules.
-import "./controller-v0.1.mjs?v=25d4354e03ac";
+import "./controller-v0.1.mjs?v=ebb1f97fad37";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
@@ -82,7 +82,7 @@ app.insertBefore(lead, followers);
 
 const footer = make("footer", "wide-footer");
 footer.append(
-  make("span", "", "WIDE LAYOUT · PREVIEW"),
+  make("span", "", "WIDE LAYOUT"),
   make("span", "", "Independent panel scrolling · Focus view: Esc to return")
 );
 app.append(footer);

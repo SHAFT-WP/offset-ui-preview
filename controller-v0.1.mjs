@@ -410,7 +410,8 @@ function syncInitialLinkUi() {
   }
   const note = $("[data-initial-link-note]");
   if (note) note.textContent = rollInAltitudeLinked ? "Linked to Roll-in Altitude" : "Reference only (not linked)";
-  const section = $('#offset-calculator > .section[data-tab="bdp"]');
+  // #1's BDP section: a direct child of the calculator in Standard, inside the #1 workspace in PC Wide.
+  const section = button?.closest('.section[data-tab="bdp"]');
   if (section) section.dataset.solveMode = bdpSolveMode;
 }
 

@@ -46,9 +46,11 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .offset-wide .section-collapse-icon { width:30px; height:30px; border-radius:7px; }
 .offset-wide .wide-inputs .input-grid,
 .offset-wide .wide-inputs .offset-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 10px; }
-.offset-wide .wide-inputs .compound { grid-template-columns:minmax(0,1fr) 82px; }
+.offset-wide .wide-inputs .compound { grid-template-columns:minmax(0,1fr) 110px; }
 .offset-wide .wide-inputs .compound select { padding-inline:6px; }
 .offset-wide .wide-inputs .offset-card.span2 { grid-column:1/-1; }
+/* A dropdown needs the full row in the narrow input pane, or its text ("Mk-82 (LD)", "kcas") is cut. */
+.offset-wide .wide-inputs .field:has(> select, > .compound) { grid-column:1/-1; }
 .offset-wide .wide-inputs .input-panel-body { padding:12px; }
 .offset-wide .wide-inputs .lock-title { flex-wrap:wrap; }
 .offset-wide .wide-inputs .step { display:none; }
@@ -180,5 +182,5 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
   body.offset-wide { --wide-input-width:220px; }
 }
 @media(min-width:761px) and (max-width:1099px) {
-  .offset-wide .wide-workspace { grid-template-columns:165px minmax(0,1fr); }
+  .offset-wide .wide-workspace { grid-template-columns:180px minmax(0,1fr); }
 }
