@@ -12,11 +12,9 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .wide-standard-link { text-decoration:none; font-size:12px; display:inline-flex; align-items:center; }
 .wide-focus-button { font-size:12px; color:var(--green); border-color:color-mix(in srgb,var(--green) 45%,var(--line)); }
 .wide-focus-button[aria-pressed="true"] { background:var(--green-soft); }
-.wide-utilities { position:relative; font-size:12px; color:var(--muted); }
-.wide-utilities > summary { cursor:pointer; padding:10px; white-space:nowrap; }
-.wide-utilities .temp-def { position:absolute; top:calc(100% + 8px); right:0; z-index:10; background:var(--panel); width:310px; padding:14px; box-shadow:0 8px 30px #0006; }
 .wide-workspace-bar { display:flex; align-items:center; flex-wrap:wrap; gap:14px; border-block:1px solid var(--line); padding:9px 0; margin-bottom:12px; }
-.wide-aircraft-nav { display:flex; align-items:center; gap:5px; }
+.wide-edit-nav { display:flex; align-items:center; gap:5px; padding:8px 8px 0; flex-shrink:0; background:var(--bg); }
+.wide-control-label { color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.06em; margin-right:auto; }
 .wide-aircraft-button { border:1px solid transparent; background:transparent; color:var(--muted); font-size:13px; font-weight:800; min-width:42px; min-height:32px; border-radius:7px; cursor:pointer; }
 .wide-aircraft-button[aria-pressed="true"] { color:var(--green); border-color:color-mix(in srgb,var(--green) 35%,var(--line)); background:var(--green-soft); }
 .wide-selected-label { font-size:11px; font-weight:800; letter-spacing:.09em; color:var(--muted); }
@@ -60,7 +58,25 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .offset-wide .wide-inputs .offset-card { min-width:0; }
 .offset-wide .wide-inputs .field > span:first-child { min-height:32px; align-content:end; }
 .offset-wide .wide-inputs .unit { overflow-wrap:anywhere; line-height:1.45; }
-.wide-center { display:flex; flex-direction:column; overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--line) transparent; gap:14px; }
+.wide-center { display:flex; flex-direction:column; gap:10px; overflow:hidden; }
+.wide-center > .wide-tab-nav { border:1px solid var(--line); border-radius:13px; }
+.wide-center-body { flex:1; min-height:0; display:flex; flex-direction:column; overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
+.wide-center-panel { display:flex; flex-direction:column; gap:12px; min-height:0; }
+.wide-center-panel[data-center-panel="topview"] { flex:1 0 100%; }
+.wide-panel-card { border:1px solid var(--line); border-radius:13px; background:var(--panel); padding:14px; }
+.wide-panel-title { margin:0; font-size:var(--ui-font-section-title); }
+.wide-blocks { display:flex; flex-direction:column; gap:14px; min-width:0; }
+.wide-block { display:flex; flex-direction:column; gap:8px; min-width:0; padding-top:10px; border-top:3px solid var(--aircraft-color,var(--line)); }
+.wide-block:first-child { border-top-width:3px; }
+.wide-block-head { display:flex; align-items:center; gap:10px; }
+.wide-block-number { font-weight:900; font-size:15px; color:var(--text); padding:2px 10px; border-radius:7px; background:color-mix(in srgb,var(--aircraft-color) 35%,transparent); }
+.wide-block-state { font-size:11px; padding:4px 9px; }
+.wide-block > .section { margin:0; padding:0; border:0; }
+.wide-review-head { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); background:var(--bg); flex-shrink:0; }
+.wide-empty { margin:0; padding:18px; text-align:center; color:var(--muted); font-size:14px; font-weight:800; border:1px dashed var(--line); border-radius:10px; }
+.wide-pending { display:grid; gap:10px; }
+.wide-pending-line { margin:0; padding:16px; border:1px dashed var(--line); border-radius:10px; color:var(--muted); font-weight:850; text-align:center; }
+.wide-show-aircraft { flex-wrap:wrap; }
 .offset-wide .wide-map-section { border:1px solid var(--line); border-radius:13px; background:var(--panel); padding:14px; display:flex; flex-direction:column; flex:1 0 100%; min-height:0; min-width:0; }
 .offset-wide .wide-map-section > .section-head { flex:none; margin:0 0 10px; }
 .offset-wide .wide-map-section > .section-head h2 { margin-bottom:8px; }
@@ -70,13 +86,24 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .offset-wide .wide-map-section .diagram-legend-box { flex:none; border-radius:7px; background:#000; }
 .offset-wide .wide-map-section > .section-disclosure-body > .diagram-actions { flex:none; }
 .offset-wide .wide-map-section .flight-draft-note { flex:none; font-size:11px; }
-.offset-wide .wide-center .bdp-views { flex:none; border:1px solid var(--line); border-radius:13px; padding:14px; background:var(--panel); }
+.offset-wide .wide-center .bdp-views { flex:none; }
 .offset-wide .wide-center .bdp-diagrams { margin:0; gap:14px; }
 .offset-wide .wide-review .z-diagram-shell { border-radius:8px; }
 .offset-wide .wide-review .ded-boxes { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
 .offset-wide .wide-review .ded-screen { padding:11px 10px; border-radius:8px; }
 .offset-wide .wide-review .ded-row { grid-template-columns:36px minmax(0,1fr); gap:5px; font-size:11px; }
 .offset-wide .wide-review .result-panel-head { flex-wrap:wrap; }
+.offset-wide .ded-section > .section-head .ded-png-button,
+.offset-wide .flight-draft-section .ded-png-button { margin-left:auto; min-height:30px; padding:5px 10px; font-size:12px; }
+.offset-wide .input-group-title { margin:14px 0 8px; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+.offset-wide .section > .input-group-title:first-of-type,
+.offset-wide .section-disclosure-body > .input-group-title:first-child { margin-top:4px; }
+.offset-wide .save-actions,
+.offset-wide .save-developer { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:10px 0; }
+.offset-wide .save-developer { padding:8px; border:1px dashed var(--amber); border-radius:10px; }
+.offset-wide .save-developer[hidden] { display:none; }
+.offset-wide .save-developer-label { color:var(--amber); font-size:11px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+.offset-wide #save-status { display:block; }
 .offset-wide .wide-review [data-result-controls] { max-width:100%; overflow:auto; }
 .wide-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; height:32px; color:var(--muted); font-size:10px; }
 .wide-footer > span:first-child { letter-spacing:.12em; }
@@ -105,6 +132,7 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
   .wide-workspace { height:auto; grid-template-columns:330px minmax(0,1fr); align-items:start; }
   .wide-inputs { grid-column:1; grid-row:1 / span 2; position:sticky; top:12px; max-height:calc(100dvh - 24px); }
   .wide-center { grid-column:2; grid-row:1; overflow:visible; }
+  .wide-center-body { overflow:visible; }
   .wide-review { grid-column:2; grid-row:2; }
   .wide-input-scroll,.wide-review-scroll { overscroll-behavior:auto; }
   .wide-review-scroll { overflow:visible; }
@@ -128,6 +156,7 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
   .wide-input-scroll { overflow:visible; }
   .wide-pane { width:100%; }
   .wide-center { overflow:visible; }
+  .wide-center-body { overflow:visible; }
   .offset-wide .wide-map-section { min-height:0; padding:12px; }
   .offset-wide .wide-map-section .top-view-shell { min-height:0; }
   .offset-wide .wide-map-section .top-view-shell > svg { height:auto; }
@@ -147,9 +176,6 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 }
 
 
-.wide-bdp-button { min-height:32px; padding:6px 10px; font-size:12px; flex-shrink:0; }
-.wide-bdp-button[aria-pressed="true"] { color:var(--blue); background:var(--blue-soft); }
-
 
 /* Final owner scope: every non-view UI root at half physical size.
    Keep Top View/Profile/Z canvases and SVG legends at zoom 1.
@@ -168,7 +194,12 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
   .offset-wide .wide-review .ded-section .section-disclosure-body > :not(.ded-boxes),
   .offset-wide .bdp-diagram > summary,
   .offset-wide .diagram-actions:not(.section-head .diagram-actions),
-  .offset-wide .wide-center .flight-draft-note {
+  .offset-wide .wide-center .flight-draft-note,
+  .offset-wide .wide-tab-nav,
+  .offset-wide .wide-review-head,
+  .offset-wide .wide-block-head,
+  .offset-wide .wide-panel-card > :is(.wide-panel-title,.wide-show-aircraft,.wide-empty,.wide-pending),
+  .offset-wide .wide-review-scroll > .wide-empty {
     zoom:0.5;
   }
   .offset-wide .topbar { margin-bottom:7px; }

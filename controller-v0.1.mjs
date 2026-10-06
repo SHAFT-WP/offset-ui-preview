@@ -49,8 +49,19 @@ const flightResults = new Map();
 const FLIGHT_CALCULATING_AIRCRAFT = new Set([2, 3, 4]);
 // Wingmen carry the Angle #n / Time #n element-lead options; #3 is element lead B and has none.
 const FLIGHT_WINGMEN = new Set([2, 4]);
-// Follower DED panels (2026-09-28: #2 only; #3 / #4 wait and keep the placeholder).
-const FLIGHT_DED_AIRCRAFT = new Set([2]);
+// Follower DED panels (2026-09-28: #2 only; #3 / #4 from 2026-10-06, index UI handoff §8.2: the
+// same per-aircraft rule on each aircraft's own result).
+const FLIGHT_DED_AIRCRAFT = new Set([2, 3, 4]);
+// Developer default preset (index UI handoff 2026-10-06 §3): replaces the built-in defaults in this
+// browser only. The work save keeps the two existing records (STORAGE_KEY + FLIGHT_LAYOUT_KEY).
+const PRESET_KEY = "flight-sim-tools.offset.v2.default-preset.v1";
+const PRESET_SCHEMA_VERSION = 1;
+const FLIGHT_LAYOUT_SCHEMA_VERSION = 2;
+// index.html (body.offset-wide) groups the inputs as Offset (profile + geometry) / BDP (settings);
+// index-standard.html keeps the earlier BDP / Offset grouping. Same keys and state either way.
+const INDEX_LAYOUT = document.body.classList.contains("offset-wide");
+const LEAD_DRIVERS = new Set(["vrpRangeNm", "actionRangeNm", "runInHeadingDeg", "approachRangeNm", "attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "ipRangeNm", "vrpBearingDeg", "referenceLock"]);
+const LEAD_TURN_DRIVERS = new Set(["offsetG", "offsetBankDeg", "offsetRadiusNm"]);
 // "Angle #n" / "Time #n" toggles are LOCK-style buttons, not checkboxes: turning one on turns off
 // its own manual LOCK (they substitute the same field a LOCK would otherwise hold). When both the
 // Offset Angle (Angle #n or LOCK) and the Action Point (Time #n or Action Range LOCK) are fixed,
@@ -411,7 +422,7 @@ function syncInitialLinkUi() {
   const note = $("[data-initial-link-note]");
   if (note) note.textContent = rollInAltitudeLinked ? "Linked to Roll-in Altitude" : "Reference only (not linked)";
   // #1's BDP section: a direct child of the calculator in Standard, inside the #1 workspace in PC Wide.
-  const section = button?.closest('.section[data-tab="bdp"]');
+  const section = button?.closest(".section[data-tab]");
   if (section) section.dataset.solveMode = bdpSolveMode;
 }
 
@@ -579,7 +590,7 @@ function renderDed(result) {
 // VIP is the Flight's shared ground reference (#1's VIP), and OA1 is VIP -> own Roll-in Start.
 function renderFollowerDed(number, slot, result) {
   if (!FLIGHT_DED_AIRCRAFT.has(number)) return;
-  const out = (key) => slot.querySelector(`[data-flight-ded="${key}"]`);
+  const out = (key) => flightOutput(number, `[data-flight-ded="${key}"]`);
   if (!out("reference-title")) return;
   const isVip = lastResult?.referenceMode === "VIP";
   out("reference-title").textContent = isVip ? "VIP" : "VRP";
@@ -760,6 +771,8 @@ function topViewAvailableAircraft() {
 }
 function syncTopViewAircraftButtons() {
   const available = topViewAvailableAircraft();
+  const visible = available.filter((number) => topViewAircraft.has(number));
+  visibleAircraftListeners.forEach((listener) => listener(visible));
   document.querySelectorAll("[data-top-view-aircraft-button]").forEach((button) => {
     const number = Number(button.dataset.topViewAircraftButton);
     const shown = available.includes(number);
@@ -770,15 +783,52 @@ function syncTopViewAircraftButtons() {
   });
 }
 
+// Shown aircraft (handoff 2026-10-06 §5): the Top View #1–#4 set is the one visibleAircraftIds every
+// output tab of the index shares; display only, never a solve input.
+const visibleAircraftListeners = new Set();
+function toggleVisibleAircraft(number) {
+  if (topViewAircraft.has(number)) topViewAircraft.delete(number);
+  else topViewAircraft.add(number);
+  renderTopView();
+}
+// Flight Size shrink: drop the numbers it removed; a selection cut to nothing returns to #1.
+function pruneVisibleAircraft() {
+  const before = topViewAircraft.size;
+  [...topViewAircraft].forEach((number) => { if (number > flightLayout.size) topViewAircraft.delete(number); });
+  if (before && !topViewAircraft.size) topViewAircraft.add(1);
+}
+document.addEventListener("click", (event) => {
+  const button = event.target.closest?.("[data-top-view-aircraft-button]");
+  if (button && !button.disabled) toggleVisibleAircraft(Number(button.dataset.topViewAircraftButton));
+});
+
 // Offset Top View (user 2026-10-05): the aircraft switched on with #1–#4, drawn together in one frame
 // fitted to all of them. One rotation for every aircraft: #1's Run-In (followers fly parallel Run-Ins).
 function renderTopView() {
   const svg = $("#offset-top-view");
   const selected = topViewAvailableAircraft().filter((number) => topViewAircraft.has(number));
   syncTopViewAircraftButtons();
+  if (persistenceReady) syncDedPngButtons();
   const aircraft = selected.map((number) => ({ number, result: flightResultOf(number) })).filter((item) => item.result);
   const title = offsetCombinedTopViewTitle(selected);
   svg.dataset.exportTitle = title;
+  // A shown aircraft without a current result is named, not silently left out (§7.1).
+  const missing = selected.filter((number) => !flightResultOf(number));
+  const shell = svg.closest(".top-view-shell");
+  let note = shell?.parentElement?.querySelector("[data-top-view-missing]");
+  if (!note && shell) {
+    note = document.createElement("p");
+    note.className = "flight-draft-note top-view-missing";
+    note.dataset.topViewMissing = "";
+    note.setAttribute("role", "status");
+    shell.after(note);
+  }
+  if (note) {
+    note.hidden = !(aircraft.length && missing.length);
+    note.textContent = note.hidden ? "" : `#${missing.join(", #")} not drawn · no current result`;
+  }
+  const capture = $("#capture-top-view");
+  if (capture) capture.disabled = !aircraft.length;
   if (!aircraft.length) {
     const failed = selected.length ? `#${selected.join(", #")} has no current result` : "Choose an aircraft (#1–#4)";
     showCalculationFailed(svg, title, failed);
@@ -912,6 +962,7 @@ function rememberLeadEditStart(event) {
   if (!field || field.tagName === "SELECT" || field.id === "ip-bearing-input") return;
   const key = field.dataset.key;
   leadEditStart = { key, text: field.value, solved: solvedInputValues.get(key), driver, turnDriver };
+  if (key === "initialAltitudeMslFt") rememberDeveloperEditStart(field);
 }
 
 // Text for a field whose value the solve derives from the other values (null: plain input).
@@ -981,6 +1032,11 @@ function fillEmptyLeadField(key) {
 function handleFieldChange(event) {
   const field = event.target.closest?.("[data-key]");
   if (!field || field.id === "ip-bearing-input") return;
+  // 7777 in Initial Altitude is the developer command (index only): not an altitude, never solved.
+  if (field.dataset.key === "initialAltitudeMslFt" && isDeveloperCommand(field)) {
+    if (event.type === "change") runDeveloperCommand(field);
+    return;
+  }
   if (field.tagName !== "SELECT" && field.value.trim() === "") {
     if (event.type === "change") fillEmptyLeadField(field.dataset.key);
     return;
@@ -1239,11 +1295,16 @@ function capturePersistedState() {
     vrpBearingExplicit,
     vrpRangeExplicit,
     rollBankAuto,
+    // Persisted since 2026-10-06 (handoff §3.1): the last tactical / turn edit decides the solve,
+    // so a restored save re-solves to the same result.
+    driver,
+    turnDriver,
     locks: { ...locks },
   };
 }
 
-function createDefaultPersistedState() {
+// Built-in (deployed) defaults; a developer preset saved in this browser replaces them (§3.2).
+function factoryPersistedState() {
   return {
     version: 3,
     inputs: { ...DEFAULT_INPUT_VALUES },
@@ -1263,8 +1324,18 @@ function createDefaultPersistedState() {
     vrpBearingExplicit: false,
     vrpRangeExplicit: false,
     rollBankAuto: true,
+    driver: "vrpRangeNm",
+    turnDriver: "offsetG",
     locks: Object.fromEntries(Object.keys(locks).map((key) => [key, false])),
   };
+}
+
+function createDefaultPersistedState() {
+  const factory = factoryPersistedState();
+  const preset = readDefaultPreset();
+  if (!preset) return factory;
+  const lead = JSON.parse(JSON.stringify(preset.lead));
+  return { ...factory, ...lead, inputs: { ...factory.inputs, ...lead.inputs }, locks: { ...factory.locks, ...lead.locks } };
 }
 
 function applyPersistedState(saved) {
@@ -1305,6 +1376,8 @@ function applyPersistedState(saved) {
   vrpBearingExplicit = saved.vrpBearingExplicit === true;
   vrpRangeExplicit = saved.vrpRangeExplicit === true;
   rollBankAuto = saved.rollBankAuto !== false;
+  if (LEAD_DRIVERS.has(saved.driver)) driver = saved.driver;
+  if (LEAD_TURN_DRIVERS.has(saved.turnDriver)) turnDriver = saved.turnDriver;
 
   Object.keys(locks).forEach((key) => {
     locks[key] = saved.locks?.[key] === true;
@@ -1356,8 +1429,10 @@ function savePersistedState() {
     const aircraft = previous?.version === 4 && previous.aircraft && typeof previous.aircraft === "object"
       ? previous.aircraft : {};
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 4, aircraft: { ...aircraft, "1": capturePersistedState() } }));
+    return true;
   } catch {
     // Storage may be unavailable in a restricted browser context; calculation remains usable.
+    return false;
   }
 }
 
@@ -1472,6 +1547,9 @@ function installSectionTools(root = document) {
       return button;
     };
     tools.forEach((tool) => {
+      // index BDP tabs show every BDP setting (no hidden extras), so they need no Full BDP toggle.
+      if (tool === "fullBdp" && !section.querySelector(".bdp-extra")) return;
+      if (tool === "advanced" && !section.querySelector(".advanced-only")) return;
       if (tool === "fullBdp" || tool === "advanced") {
         const className = tool === "fullBdp" ? "show-full-bdp" : "show-advanced";
         const label = tool === "fullBdp" ? "Full BDP" : "Advanced";
@@ -1492,7 +1570,7 @@ function installSectionTools(root = document) {
       } else if (tool === "default") {
         make(tool, "Default").addEventListener("click", () => {
           if (aircraft === 1) resetLeadTab(section.dataset.tab, section);
-          else resetFollowerTab(aircraft, section.dataset.tab);
+          else resetFollowerTab(aircraft, section.dataset.tab, section);
         });
       }
     });
@@ -1502,43 +1580,58 @@ function installSectionTools(root = document) {
   });
 }
 
-// Default for one #1 tab: only that tab's inputs (and its locks / link states) return to
-// their defaults; other tabs keep their current values.
+// Default for one #1 tab: only that tab's inputs (and its locks / link states) return to the
+// current defaults (developer preset, else built-in); other tabs keep their current values.
+// Ownership follows the fields the tab holds (handoff 2026-10-06 §4.2), so the index grouping
+// (profile in Offset) and the Standard grouping (profile in BDP) reset the same state with the field:
+// Initial Altitude carries LINK / solve mode / entered Tracking Time, Roll-in Bank carries AUTO,
+// the tactical fields carry the drivers, the Reference panes carry the reference state.
+const LEAD_TACTICAL_KEYS = ["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "approachRangeNm", "offsetG", "offsetBankDeg", "offsetRadiusNm"];
 function resetLeadTab(tab, section) {
   const current = capturePersistedState();
   const defaults = createDefaultPersistedState();
+  const owns = (key) => !!section.querySelector(`[data-key="${key}"]:not(#ip-bearing-input)`);
   section.querySelectorAll("[data-key]").forEach((control) => {
     const key = control.dataset.key;
     if (control.id !== "ip-bearing-input" && Object.hasOwn(defaults.inputs, key)) current.inputs[key] = defaults.inputs[key];
   });
-  section.querySelectorAll("[data-lock-key]").forEach((button) => { current.locks[button.dataset.lockKey] = false; });
-  if (tab === "bdp") {
-    current.rollInAltitudeLinked = true;
-    current.solveMode = "height";
-    current.enteredTrackingTimeSec = DEFAULT_TRACKING_TIME_SEC;
-    current.rollBankAuto = true;
+  section.querySelectorAll("[data-lock-key]").forEach((button) => { current.locks[button.dataset.lockKey] = defaults.locks?.[button.dataset.lockKey] === true; });
+  if (owns("initialAltitudeMslFt")) {
+    current.rollInAltitudeLinked = defaults.rollInAltitudeLinked;
+    current.solveMode = defaults.solveMode;
+    current.enteredTrackingTimeSec = defaults.enteredTrackingTimeSec;
   }
-  if (tab === "reference") {
+  if (owns("rollInBankAngleDeg")) current.rollBankAuto = defaults.rollBankAuto;
+  if (tab === "reference" || section.querySelector("#vrp-pane")) {
     for (const key of ["vrpBearingInput", "vipBearingInput", "vipRangeInput", "referenceMode", "vipBearingDirection", "ipBearingDirection", "ipLinked", "ipLockHeadingDeg", "vipBearingExplicit", "vipRangeExplicit", "vrpBearingExplicit", "vrpRangeExplicit"]) {
       current[key] = defaults[key];
     }
     current.inputs.runInHeadingDeg = defaults.inputs.runInHeadingDeg;
-    driver = "vrpRangeNm";
+    current.driver = defaults.driver;
   }
-  if (tab === "offset") {
-    driver = "vrpRangeNm";
-    turnDriver = "offsetG";
+  if (LEAD_TACTICAL_KEYS.some(owns)) {
+    current.driver = defaults.driver;
+    current.turnDriver = defaults.turnDriver;
   }
   applyPersistedState(current);
+  if (rollBankAuto) applyAutomaticRollBank("default");
   section.querySelectorAll(".value-dependent-input").forEach((node) => node.classList.remove("value-dependent-input"));
   calculate();
   savePersistedState();
 }
 
-function resetFollowerTab(number, tab) {
+// Follower tab Default: the draft keys of the fields this tab holds (plus the solve mode and entered
+// Tracking Time with Initial Altitude, and the driver with the tactical fields) from the default draft.
+function resetFollowerTab(number, tab, section = null) {
   const draft = flightDraft(number);
   const defaults = defaultFlightDraft(number);
-  (FOLLOWER_TAB_KEYS[tab] ?? []).forEach((key) => {
+  const keys = section
+    ? [...new Set([...section.querySelectorAll("[data-flight-field]")].map((node) => node.dataset.flightField))]
+    : FOLLOWER_TAB_KEYS[tab] ?? [];
+  if (keys.includes("initialAltitudeMslFt")) keys.push("solveMode", "enteredTrackingTimeSec");
+  if (keys.some((key) => FLIGHT_TACTICAL_DRIVERS.includes(key))) keys.push("driver");
+  keys.forEach((key) => {
+    if (!Object.hasOwn(defaults, key)) return;
     draft[key] = defaults[key];
     followerSolvedValues.delete(`${number}:${key}`);
   });
@@ -1562,7 +1655,14 @@ const FOLLOWER_TAB_KEYS = {
 // #1 offsets to its right by default, so the right-hand element solves cleanly from these values.
 const FLIGHT_DEFAULT_POSITIONS = { 2: { side: "LEFT", distanceNm: "1" }, 3: { side: "RIGHT", distanceNm: "2" }, 4: { side: "RIGHT", distanceNm: "1" } };
 
+// Default draft of a follower: the developer preset's draft when one is saved (§3.2), else built-in.
 function defaultFlightDraft(number = 2) {
+  const factory = factoryFlightDraft(number);
+  const record = readDefaultPreset()?.flight?.aircraft?.[number];
+  return record ? normalizeFlightDraft(number, record, factory) : factory;
+}
+
+function factoryFlightDraft(number = 2) {
   const position = FLIGHT_DEFAULT_POSITIONS[number] ?? FLIGHT_DEFAULT_POSITIONS[2];
   return {
     weaponId: "M82", side: position.side, bearingDeg: "90", distanceNm: position.distanceNm,
@@ -1588,6 +1688,13 @@ function elementLeadNumber(number) {
   return number === 4 ? 3 : 1;
 }
 
+// A follower's output sections (Z, Result, DED, BDP views) carry data-output-aircraft="n" so they
+// are found by aircraft number wherever the layout puts them (index moves them out of the slot,
+// whose inputs stay in #flight-followers for the delegated input handlers).
+function flightOutput(number, selector) {
+  return document.querySelector(`[data-output-aircraft="${number}"] ${selector}`);
+}
+
 function flightResultOf(number) {
   return number === 1 ? lastResult : flightResults.get(number) ?? null;
 }
@@ -1599,21 +1706,26 @@ function flightResultFullOf(number) {
 
 function saveFlightLayout() {
   try {
-    localStorage.setItem(FLIGHT_LAYOUT_KEY, JSON.stringify(flightLayout));
+    localStorage.setItem(FLIGHT_LAYOUT_KEY, JSON.stringify({ schemaVersion: FLIGHT_LAYOUT_SCHEMA_VERSION, ...flightLayout }));
+    return true;
   } catch {
     // The UI remains usable when browser storage is unavailable.
+    return false;
   }
 }
 
 // `heading` overrides "<title> #n" for graph sections, whose titles read "<Subject> #n <View>".
-function flightSection(number, title, content, { calculating = false, tab = "", heading = null } = {}) {
+function flightSection(number, title, content, { calculating = false, tab = "", heading = null, output = "", tools = "" } = {}) {
   const badge = calculating ? "" : `<span class="flight-draft-badge">UI draft</span>`;
   const tabAttr = calculating && tab ? ` data-tab="${tab}" data-aircraft-tab="${number}"` : "";
-  return `<section class="section flight-draft-section"${tabAttr}><div class="section-head"><h2>${heading ?? `${title} #${number}`}</h2>${badge}</div>${content}</section>`;
+  const outputAttr = output ? ` data-output-aircraft="${number}" data-aircraft-output="${output}"` : "";
+  return `<section class="section flight-draft-section"${tabAttr}${outputAttr}><div class="section-head"><h2>${heading ?? `${title} #${number}`}</h2>${badge}${tools}</div>${content}</section>`;
 }
 
-function followerExtraField(key, label) {
-  return `<label class="field advanced-only bdp-extra"><span>${label} <span class="adv-tag">ADV</span></span><input data-flight-field="${key}" type="text" inputmode="decimal"></label>`;
+function followerExtraField(key, label, { always = false } = {}) {
+  const className = always ? "field" : "field advanced-only bdp-extra";
+  const tag = always ? "" : ` <span class="adv-tag">ADV</span>`;
+  return `<label class="${className}"><span>${label}${tag}</span><input data-flight-field="${key}" type="text" inputmode="decimal"></label>`;
 }
 
 // Same Text / Size / Reset / PNG / Advanced toolbar as Top View #1, scoped to one follower.
@@ -1640,17 +1752,47 @@ function followerCalculatingMarkup(number) {
   const leadNumber = elementLeadNumber(number);
   const predecessor = number - 1;
   const wingman = FLIGHT_WINGMEN.has(number);
+  const field = {
+    weapon: `<label class="field flight-weapon-field"><span>Bomb</span><select data-flight-field="weaponId"></select></label>`,
+    initialSpeed: `<label class="field"><span>Initial Speed (KCAS)</span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"></label>`,
+    initialAltitude: `<label class="field"><span class="lock-title"><span>Initial Altitude (ft MSL)</span><button class="lock-button" type="button" data-flight-field="rollInAltitudeLinked" aria-label="Link Initial Altitude to Roll-in Altitude" aria-pressed="true">LINKED</button></span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"><span class="unit" data-initial-link-note>Linked to Roll-in Altitude</span></label>`,
+    rollInAltitude: `<label class="field"><span>Roll-in Altitude (ft MSL)</span><input data-flight-field="rollInAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">BDP entry altitude</span></label>`,
+    dive: `<label class="field"><span>Dive Angle (deg)</span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label>`,
+    tracking: `<label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"><span class="unit">Whole seconds</span></label>`,
+    releaseAltitude: `<label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label>`,
+    releaseSpeed: `<label class="field"><span>Release Speed (KCAS)</span><input data-flight-field="releaseSpeedKcas" type="text" inputmode="decimal"></label>`,
+    runIn: `<label class="field"><span>Run-In Heading</span><output data-flight-readout="runInHeadingDeg">-</output><span class="unit">Follows #1 · parallel Run-In</span></label>`,
+    ipRange: `<label class="field"><span>IP Range from Target</span><output data-flight-readout="ipRangeFromTargetNm">-</output><span class="unit">NM · from Formation position</span></label>`,
+    attack: `<label class="field"><span>Attack Heading (deg)</span><input data-flight-field="attackHeadingDeg" type="text" inputmode="decimal"></label>`,
+    angleOff: `<label class="field"><span>Angle-Off (deg)</span><input data-flight-field="angleOffDeg" type="text" inputmode="decimal"></label>`,
+    offsetAngle: `<label class="field"><span class="lock-title"><span>Offset Angle (deg)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="offsetAngleLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameAngleAsLead" aria-pressed="false" title="Align Offset Angle to #${leadNumber}">ANGLE #${leadNumber}</button>` : ""}</span></span><input data-flight-field="offsetAngleDeg" type="text" inputmode="decimal"></label>`,
+    actionRange: `<label class="field"><span class="lock-title"><span>Action Range (NM)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="actionRangeLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameTimeAsLead" aria-pressed="false" title="Align Action timing to #${leadNumber}">TIME #${leadNumber}</button>` : ""}</span></span><input data-flight-field="actionRangeNm" type="text" inputmode="decimal"><span class="unit">Target → Action Point</span></label>`,
+  };
+  const statusHead = `<div class="section-head"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div>`;
+  const statusLine = `<div id="flight-status-${number}" class="status-message valid">-</div>`;
+  const group = (title, content) => `<h3 class="input-group-title">${title}</h3><div class="input-grid">${content}</div>`;
+  // index (handoff 2026-10-06 §4): the frequently edited profile sits with the Offset geometry; the
+  // BDP tab holds the settings (Target / Wind shared with #1, Bomb, Roll-in condition, SEM). Standard
+  // keeps the earlier grouping. Same draft keys either way.
+  const inputSections = INDEX_LAYOUT ? [
+    flightSection(number, "BDP", `<div class="input-grid"><label class="field"><span>Target Elevation (ft MSL)</span><output data-flight-readout="targetElevationMslFt">-</output><span class="unit">Shared with #1</span></label>${field.weapon}</div>${group("Roll-in Condition", `${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`)}${group("Wind", `<label class="field"><span>Wind FROM / Speed</span><output data-flight-readout="wind">-</output><span class="unit">Shared with #1 · TRUE FROM</span></label>`)}${group("SEM / Recovery", `${followerExtraField("recoveryG", "Recovery G (G)", { always: true })}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)", { always: true })}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)", { always: true })}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)", { always: true })}`)}<p class="flight-draft-note">Fields left blank follow #1 (Roll-in Bank: automatic from this aircraft's Dive Angle).</p>`, { calculating: true, tab: "bdp" }),
+    flightSection(number, "Offset", `${statusHead}${group("BDP Profile", `${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}`)}${group("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}`)}${statusLine}`, { calculating: true, tab: "offset" }),
+  ] : [
+    flightSection(number, "BDP", `<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}</div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target). Full BDP fields left blank follow #1 (Roll-in Bank: automatic from this aircraft's Dive Angle).</p>`, { calculating: true, tab: "bdp" }),
+    flightSection(number, "Offset", `${statusHead}<div class="input-grid">${field.runIn}${field.ipRange}${field.attack}${field.angleOff}${field.offsetAngle}${field.actionRange}</div>${statusLine}`, { calculating: true, tab: "offset" }),
+  ];
   return [
     flightSection(number, "Formation", `<p class="flight-draft-note">Start point relative to #${leadNumber}'s own IP; feeds this aircraft's Run-In line.</p>${followerFormationMarkup(leadNumber)}`, { calculating: true, tab: "formation" }),
-    flightSection(number, "BDP", `<div class="input-grid"><label class="field flight-weapon-field"><span>Bomb</span><select data-flight-field="weaponId"></select></label><label class="field"><span>Initial Speed (KCAS)</span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Initial Altitude (ft MSL)</span><button class="lock-button" type="button" data-flight-field="rollInAltitudeLinked" aria-label="Link Initial Altitude to Roll-in Altitude" aria-pressed="true">LINKED</button></span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"><span class="unit" data-initial-link-note>Linked to Roll-in Altitude</span></label><label class="field"><span>Roll-in Altitude (ft MSL)</span><input data-flight-field="rollInAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">BDP entry altitude</span></label><label class="field"><span>Dive Angle (deg)</span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"><span class="unit">Whole seconds</span></label><label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label><label class="field"><span>Release Speed (KCAS)</span><input data-flight-field="releaseSpeedKcas" type="text" inputmode="decimal"></label>${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}</div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target). Full BDP fields left blank follow #1 (Roll-in Bank: automatic from this aircraft's Dive Angle).</p>`, { calculating: true, tab: "bdp" }),
-    flightSection(number, "Offset", `<div class="section-head"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div><div class="input-grid"><label class="field"><span>Run-In Heading</span><output data-flight-readout="runInHeadingDeg">-</output><span class="unit">Follows #1 · parallel Run-In</span></label><label class="field"><span>IP Range from Target</span><output data-flight-readout="ipRangeFromTargetNm">-</output><span class="unit">NM · from Formation position</span></label><label class="field"><span>Attack Heading (deg)</span><input data-flight-field="attackHeadingDeg" type="text" inputmode="decimal"></label><label class="field"><span>Angle-Off (deg)</span><input data-flight-field="angleOffDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Offset Angle (deg)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="offsetAngleLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameAngleAsLead" aria-pressed="false" title="Align Offset Angle to #${leadNumber}">ANGLE #${leadNumber}</button>` : ""}</span></span><input data-flight-field="offsetAngleDeg" type="text" inputmode="decimal"></label><label class="field"><span class="lock-title"><span>Action Range (NM)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="actionRangeLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameTimeAsLead" aria-pressed="false" title="Align Action timing to #${leadNumber}">TIME #${leadNumber}</button>` : ""}</span></span><input data-flight-field="actionRangeNm" type="text" inputmode="decimal"><span class="unit">Target → Action Point</span></label></div><div id="flight-status-${number}" class="status-message valid">-</div>`, { calculating: true, tab: "offset" }),
+    ...inputSections,
     // View order (user 2026-10-02): BDP Top View, BDP Profile, Z-Diagram; the Offset Top View is the
     // one Flight view under #1 (user 2026-10-05). The two BDP views show only while its Full is on.
-    `<div class="bdp-views" data-bdp-views="${number}">${bdpDiagramsMarkup({ aircraftNumber: number })}</div>`,
-    flightSection(number, "Z-Diagram", `<div class="diagram-actions"><div class="diagram-action-row"><button class="capture-button" type="button" data-flight-z-png>PNG</button>${zAdvancedMarkup(number)}</div></div><div class="z-diagram-shell"><svg data-flight-z viewBox="0 0 650 710" role="img" aria-label="${offsetZDiagramTitle({ aircraftNumber: number })}"><g data-z-root></g></svg></div>`, { calculating: true, heading: offsetZDiagramTitle({ aircraftNumber: number }) }),
+    `<div class="bdp-views" data-bdp-views="${number}" data-output-aircraft="${number}" data-aircraft-output="bdp">${bdpDiagramsMarkup({ aircraftNumber: number })}</div>`,
+    flightSection(number, "Z-Diagram", `<div class="diagram-actions"><div class="diagram-action-row"><button class="capture-button" type="button" data-flight-z-png>PNG</button>${zAdvancedMarkup(number)}</div></div><div class="z-diagram-shell"><svg data-flight-z viewBox="0 0 650 710" role="img" aria-label="${offsetZDiagramTitle({ aircraftNumber: number })}"><g data-z-root></g></svg></div>`, { calculating: true, heading: offsetZDiagramTitle({ aircraftNumber: number }), output: "z" }),
     // Same variables as Result #1 first (same groups and order), then what only this aircraft has.
-    flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${predecessor}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true }),
-    FLIGHT_DED_AIRCRAFT.has(number) ? flightSection(number, "DED", followerDedMarkup(), { calculating: true }) : flightSection(number, "DED", `<p class="flight-draft-note">Aircraft #${number} DED is pending its profile result.</p>`),
+    flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${predecessor}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true, output: "result" }),
+    FLIGHT_DED_AIRCRAFT.has(number)
+      ? flightSection(number, "DED", followerDedMarkup(), { calculating: true, output: "ded", tools: `<button class="btn ded-png-button" type="button" data-ded-png="${number}">PNG</button>` })
+      : flightSection(number, "DED", `<p class="flight-draft-note">Aircraft #${number} DED is pending its profile result.</p>`, { output: "ded" }),
   ].join("");
 }
 
@@ -1696,6 +1838,10 @@ function initializeFlightSlotFields(slot, number) {
 function renderFlightLayout() {
   const host = $("#flight-followers");
   $("#flight-size").value = String(flightLayout.size);
+  // Follower outputs the index layout moved out of their slot go with the slot.
+  document.querySelectorAll("[data-output-aircraft]").forEach((node) => {
+    if (node.dataset.outputAircraft !== "1") node.remove();
+  });
   host.replaceChildren();
   for (let number = 2; number <= flightLayout.size; number += 1) {
     const slot = document.createElement("div");
@@ -1720,6 +1866,44 @@ function renderFlightLayout() {
   recalculateFollowers();
 }
 
+// One follower draft record from storage (work save or developer preset): known keys only, typed,
+// blank Full BDP extras kept blank (= follow #1).
+function normalizeFlightDraft(number, record, fallback) {
+  const str = (key) => typeof record[key] === "string" ? record[key] : fallback[key];
+  return {
+    weaponId: typeof record.weaponId === "string" ? record.weaponId : fallback.weaponId,
+    side: record.side === "RIGHT" ? "RIGHT" : "LEFT",
+    bearingDeg: str("bearingDeg"),
+    distanceNm: str("distanceNm"),
+    initialSpeedValue: str("initialSpeedValue"),
+    initialAltitudeMslFt: str("initialAltitudeMslFt"),
+    rollInAltitudeMslFt: str("rollInAltitudeMslFt"),
+    rollInAltitudeLinked: record.rollInAltitudeLinked !== false,
+    diveAngleDeg: str("diveAngleDeg"),
+    trackingTimeSec: str("trackingTimeSec"),
+    solveMode: record.solveMode === "time" ? "time" : "height",
+    // Last entered Tracking Time (a height-mode field holds a derived value); older saves
+    // fall back to the field in time mode, else the default.
+    enteredTrackingTimeSec: typeof record.enteredTrackingTimeSec === "string"
+      ? record.enteredTrackingTimeSec
+      : record.solveMode === "time" ? str("trackingTimeSec") : "18",
+    ...Object.fromEntries(FOLLOWER_BDP_EXTRA_KEYS.map((key) => [key, typeof record[key] === "string" ? record[key] : ""])),
+    releaseAltitudeMslFt: str("releaseAltitudeMslFt"),
+    releaseSpeedKcas: str("releaseSpeedKcas"),
+    attackHeadingDeg: str("attackHeadingDeg"),
+    angleOffDeg: str("angleOffDeg"),
+    offsetAngleDeg: str("offsetAngleDeg"),
+    // Action Range is Target-referenced since 2026-09-26; an old IP-referenced value is
+    // not carried over (different meaning), so the default applies.
+    actionRangeNm: str("actionRangeNm"),
+    offsetAngleLocked: record.offsetAngleLocked === true,
+    sameAngleAsLead: record.sameAngleAsLead === true,
+    actionRangeLocked: record.actionRangeLocked === true,
+    sameTimeAsLead: record.sameTimeAsLead === true,
+    driver: FLIGHT_TACTICAL_DRIVERS.includes(record.driver) ? record.driver : "actionRangeNm",
+  };
+}
+
 function installFlightLayout() {
   try {
     const saved = JSON.parse(localStorage.getItem(FLIGHT_LAYOUT_KEY) || "null");
@@ -1729,48 +1913,20 @@ function installFlightLayout() {
         for (const number of [2, 3, 4]) {
           const record = saved.aircraft[number];
           if (!record || typeof record !== "object" || Array.isArray(record)) continue;
-          const fallback = flightDraft(number);
-          const str = (key) => typeof record[key] === "string" ? record[key] : fallback[key];
-          flightLayout.aircraft[number] = {
-            weaponId: typeof record.weaponId === "string" ? record.weaponId : "M82",
-            side: record.side === "RIGHT" ? "RIGHT" : "LEFT",
-            bearingDeg: str("bearingDeg"),
-            distanceNm: str("distanceNm"),
-            initialSpeedValue: str("initialSpeedValue"),
-            initialAltitudeMslFt: str("initialAltitudeMslFt"),
-            rollInAltitudeMslFt: str("rollInAltitudeMslFt"),
-            rollInAltitudeLinked: record.rollInAltitudeLinked !== false,
-            diveAngleDeg: str("diveAngleDeg"),
-            trackingTimeSec: str("trackingTimeSec"),
-            solveMode: record.solveMode === "time" ? "time" : "height",
-            // Last entered Tracking Time (a height-mode field holds a derived value); older saves
-            // fall back to the field in time mode, else the default.
-            enteredTrackingTimeSec: typeof record.enteredTrackingTimeSec === "string"
-              ? record.enteredTrackingTimeSec
-              : record.solveMode === "time" ? str("trackingTimeSec") : "18",
-            ...Object.fromEntries(FOLLOWER_BDP_EXTRA_KEYS.map((key) => [key, typeof record[key] === "string" ? record[key] : ""])),
-            releaseAltitudeMslFt: str("releaseAltitudeMslFt"),
-            releaseSpeedKcas: str("releaseSpeedKcas"),
-            attackHeadingDeg: str("attackHeadingDeg"),
-            angleOffDeg: str("angleOffDeg"),
-            offsetAngleDeg: str("offsetAngleDeg"),
-            // Action Range is Target-referenced since 2026-09-26; an old IP-referenced value is
-            // not carried over (different meaning), so the default applies.
-            actionRangeNm: str("actionRangeNm"),
-            offsetAngleLocked: record.offsetAngleLocked === true,
-            sameAngleAsLead: record.sameAngleAsLead === true,
-            actionRangeLocked: record.actionRangeLocked === true,
-            sameTimeAsLead: record.sameTimeAsLead === true,
-            driver: FLIGHT_TACTICAL_DRIVERS.includes(record.driver) ? record.driver : "actionRangeNm",
-          };
+          flightLayout.aircraft[number] = normalizeFlightDraft(number, record, flightDraft(number));
         }
       }
+    } else if (!saved) {
+      // No work save: the developer preset's Flight size (its drafts come through flightDraft).
+      const preset = readDefaultPreset();
+      if (preset) flightLayout.size = preset.flight.size;
     }
   } catch {
     // Ignore malformed or unavailable presentation-only storage.
   }
   $("#flight-size").addEventListener("change", (event) => {
     flightLayout.size = Math.max(1, Math.min(4, Number(event.target.value) || 1));
+    pruneVisibleAircraft();
     renderFlightLayout();
     saveFlightLayout();
   });
@@ -1783,6 +1939,10 @@ function installFlightLayout() {
     const number = flightSlotNumber(field);
     if (!field || !number) return;
     const key = field.dataset.flightField;
+    if (key === "initialAltitudeMslFt" && isDeveloperCommand(field)) {
+      if (event.type === "change") runDeveloperCommand(field);
+      return;
+    }
     const draft = flightDraft(number);
     // Empty-field commit, same rule as #1: blank Full-BDP extras keep meaning "follow #1".
     if (field.tagName !== "SELECT" && field.type !== "checkbox" && field.value.trim() === "" && !FOLLOWER_BDP_EXTRA_KEYS.includes(key)) {
@@ -1835,6 +1995,7 @@ function installFlightLayout() {
     if (!field || !number) return;
     const key = field.dataset.flightField;
     followerEditStart = { number, key, text: field.value, driver: flightDraft(number).driver, solved: followerSolvedValues.get(`${number}:${key}`) };
+    if (key === "initialAltitudeMslFt") rememberDeveloperEditStart(field);
   });
   $("#flight-followers").addEventListener("input", updateFlightDraft);
   $("#flight-followers").addEventListener("change", updateFlightDraft);
@@ -2050,7 +2211,8 @@ function syncFollowerExtraPlaceholders(slot, result) {
     const text = key === "rollInBankAngleDeg" ? `auto ${formatDeg(value)}` : `#1 ${key === "rollInG" ? formatG(value) : formatDeg(value)}`;
     field.placeholder = Number.isFinite(value) ? text : "";
   });
-  const section = slot.querySelector('.section[data-tab="bdp"]');
+  // The tab holding Initial Altitude (Standard: BDP, index: Offset) shows the solve mode.
+  const section = followerField(slot, "initialAltitudeMslFt")?.closest(".section");
   if (section) section.dataset.solveMode = flightDraft(Number(slot.dataset.aircraft)).solveMode === "time" ? "time" : "height";
 }
 
@@ -2078,7 +2240,7 @@ function renderFollowerResult(number, slot, options = {}) {
 }
 
 function renderFollowerResultRows(number, slot, { result = null, delta = null, state = "INVALID", message = "" } = {}) {
-  const body = (group) => slot.querySelector(`[data-flight-result="${group}"]`);
+  const body = (group) => flightOutput(number, `[data-flight-result="${group}"]`);
   if (!body("offset")) return;
   if (!result) {
     body("offset").innerHTML = [row("State", state, null, { summary: true }), message ? row("Message", message, null, { summary: true }) : ""].join("");
@@ -2147,8 +2309,8 @@ function syncFollowerResolvedFields(number, slot, result, { pairSolved = false }
 
 // Follower Z PNG (the follower Top View controls left with the one Flight Top View, 2026-10-05).
 function installFollowerTopViewControls(number, slot) {
-  const zPng = slot.querySelector("[data-flight-z-png]");
-  const zSvg = slot.querySelector("svg[data-flight-z]");
+  const zPng = flightOutput(number, "[data-flight-z-png]");
+  const zSvg = flightOutput(number, "svg[data-flight-z]");
   if (!zPng || !zSvg || zPng.dataset.installed) return;
   zPng.dataset.installed = "true";
   zPng.addEventListener("click", () => saveSvgAsPng(zSvg, `${offsetZDiagramTitle({ aircraftNumber: number }).replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" }));
@@ -2194,7 +2356,7 @@ document.addEventListener("click", (event) => {
     if (lastResultFull) renderZDiagramOf(1, $("#offset-z-svg"), lastResultFull);
   } else {
     const resultFull = flightResultsFull.get(number);
-    const svg = document.querySelector(`.flight-slot[data-aircraft="${number}"] svg[data-flight-z]`);
+    const svg = flightOutput(number, "svg[data-flight-z]");
     if (resultFull) renderZDiagramOf(number, svg, resultFull);
   }
 });
@@ -2203,6 +2365,11 @@ function calculateFollower(number) {
   const slot = document.querySelector(`.flight-slot[data-aircraft="${number}"]`);
   if (!slot) return;
   const leadNumber = elementLeadNumber(number);
+  // index BDP tab: Target Elevation and Wind are #1's (shared), shown read-only here.
+  const sharedTarget = slot.querySelector('[data-flight-readout="targetElevationMslFt"]');
+  if (sharedTarget) sharedTarget.textContent = `${value("targetElevationMslFt") ?? "-"} ft`;
+  const sharedWind = slot.querySelector('[data-flight-readout="wind"]');
+  if (sharedWind) sharedWind.textContent = `${value("windDirectionDeg") ?? "-"}° / ${value("windSpeedKt") ?? "-"} kt`;
   try {
     // Solves read the lead's full-precision result; the truncated one is only drawn.
     const leaderResult = flightResultFullOf(leadNumber);
@@ -2271,8 +2438,8 @@ function calculateFollower(number) {
     const predecessorResult = flightResultFullOf(number - 1);
     renderFollowerResult(number, slot, { result, delta: predecessorResult ? computeDropOrderDelta({ predecessorResult, ownResult: resultFull }) : null });
     renderFollowerDed(number, slot, result);
-    const zSvg = slot.querySelector("svg[data-flight-z]");
-    const zPng = slot.querySelector("[data-flight-z-png]");
+    const zSvg = flightOutput(number, "svg[data-flight-z]");
+    const zPng = flightOutput(number, "[data-flight-z-png]");
     const zDrawn = renderZDiagramOf(number, zSvg, resultFull);
     if (zPng) zPng.disabled = !zDrawn;
     refreshBdpDiagrams(number);
@@ -2282,8 +2449,8 @@ function calculateFollower(number) {
     renderFollowerStatus(number, "INVALID", error.message);
     renderFollowerResult(number, slot, { state: "INVALID", message: error.message });
     renderFollowerDed(number, slot, null);
-    showCalculationFailed(slot.querySelector("svg[data-flight-z]"), offsetZDiagramTitle({ aircraftNumber: number }), error.message);
-    const zPng = slot.querySelector("[data-flight-z-png]");
+    showCalculationFailed(flightOutput(number, "svg[data-flight-z]"), offsetZDiagramTitle({ aircraftNumber: number }), error.message);
+    const zPng = flightOutput(number, "[data-flight-z-png]");
     if (zPng) zPng.disabled = true;
     refreshBdpDiagrams(number);
   }
@@ -2297,6 +2464,7 @@ function recalculateFollowers(from = 2) {
   if (lastResultFull) $("#capture-z").disabled = !renderZDiagramOf(1, $("#offset-z-svg"), lastResultFull);
   // The Flight Top View once every aircraft has its current result.
   renderTopView();
+  syncDedPngButtons();
 }
 
 function installSectionDisclosure() {
@@ -2433,6 +2601,308 @@ function installTempDef() {
   renderTempDefStatus();
 }
 
+// ---- DED PNG (handoff 2026-10-06 §8.3) ---------------------------------------------------------
+// The PNG draws the DED boxes from the strings on screen (same formatter, no export rounding):
+// per aircraft the reference page (VRP / VIP) box and the OA1 box, aircraft after aircraft.
+function dedSection(number) {
+  return number === 1 ? $("#ded-reference-screen")?.closest(".section") ?? null : flightOutput(number, ".ded-boxes")?.closest(".section") ?? null;
+}
+function dedCard(number) {
+  const section = dedSection(number);
+  if (!section || !flightResultOf(number)) return null;
+  const boxes = [...section.querySelectorAll(".ded-screen")].map((screen) => ({
+    title: screen.querySelector(".ded-page-title")?.textContent.trim() ?? "",
+    rows: [...screen.querySelectorAll(".ded-row")].map((row) => [row.querySelector("span")?.textContent.trim() ?? "", row.querySelector("output")?.textContent.trim() ?? ""]),
+  }));
+  if (boxes.length !== 2 || boxes.some((box) => box.rows.some(([, text]) => !text || text === "-"))) return null;
+  return { number, mode: boxes[0].title, boxes };
+}
+function dedAvailable(number) {
+  return !!dedCard(number);
+}
+function dedExportSvg(cards) {
+  const pad = 20, boxWidth = 330, gap = 16, headerHeight = 38, boxHeight = 150, cardGap = 18;
+  const width = pad * 2 + boxWidth * 2 + gap;
+  const cardHeight = headerHeight + boxHeight;
+  const height = pad * 2 + cards.length * cardHeight + (cards.length - 1) * cardGap;
+  const svg = svgNode("svg", { xmlns: "http://www.w3.org/2000/svg", viewBox: `0 0 ${width} ${height}`, "data-ded-export": cards.map((card) => card.number).join(",") });
+  svg.append(svgNode("rect", { x: 0, y: 0, width, height, fill: "#ffffff" }));
+  const mono = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+  cards.forEach((card, index) => {
+    const top = pad + index * (cardHeight + cardGap);
+    svg.append(svgNode("text", { x: pad, y: top + 24, "font-size": 20, "font-weight": 800, "font-family": "system-ui, sans-serif", fill: offsetAircraftColors(card.number).run }, `DED #${card.number} · ${card.mode}`));
+    card.boxes.forEach((box, boxIndex) => {
+      const x = pad + boxIndex * (boxWidth + gap);
+      const y = top + headerHeight;
+      svg.append(svgNode("rect", { x, y, width: boxWidth, height: boxHeight, rx: 12, fill: "#07120c", stroke: "#2f6b45", "stroke-width": 1.5 }));
+      svg.append(svgNode("text", { x: x + 16, y: y + 30, "font-size": 17, "font-weight": 900, "font-family": mono, fill: "#9ef0af" }, box.title));
+      svg.append(svgNode("line", { x1: x + 16, x2: x + boxWidth - 16, y1: y + 42, y2: y + 42, stroke: "#9ef0af", "stroke-opacity": 0.3 }));
+      box.rows.forEach(([label, text], rowIndex) => {
+        const rowY = y + 72 + rowIndex * 28;
+        svg.append(svgNode("text", { x: x + 16, y: rowY, "font-size": 15, "font-family": mono, fill: "#9ef0af" }, label));
+        svg.append(svgNode("text", { x: x + 86, y: rowY, "font-size": 15, "font-family": mono, fill: "#9ef0af" }, text));
+      });
+    });
+  });
+  return svg;
+}
+let lastDedExport = null;
+function exportDedPng(numbers) {
+  const ordered = [...new Set(numbers)].sort((a, b) => a - b);
+  const cards = ordered.map(dedCard);
+  if (!ordered.length || cards.some((card) => !card)) return null;
+  const svg = dedExportSvg(cards);
+  const filename = `Offset_DED_${ordered.join("-")}_${cards[0].mode}.png`;
+  lastDedExport = { filename, numbers: ordered, svg: svg.outerHTML };
+  // Attached while exporting so the computed text styles are read (svg-png-export clones them).
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:-10000px;top:0;width:800px";
+  host.append(svg);
+  document.body.append(host);
+  const done = saveSvgAsPng(svg, filename, { scale: 2, background: "#ffffff" });
+  host.remove();
+  return done;
+}
+function syncDedPngButtons() {
+  document.querySelectorAll("[data-ded-png]").forEach((button) => {
+    const key = button.dataset.dedPng;
+    const numbers = key === "visible" ? offsetIndexUi.visibleAircraft() : [Number(key)];
+    const missing = numbers.filter((number) => !dedAvailable(number));
+    button.disabled = !numbers.length || missing.length > 0;
+    button.title = !numbers.length ? "No aircraft shown" : missing.length ? `No current DED for #${missing.join(", #")}` : `Save DED #${numbers.join(", #")} as PNG`;
+  });
+}
+document.addEventListener("click", (event) => {
+  const button = event.target.closest?.("[data-ded-png]");
+  if (!button || button.disabled) return;
+  const key = button.dataset.dedPng;
+  exportDedPng(key === "visible" ? offsetIndexUi.visibleAircraft() : [Number(key)]);
+});
+
+// ---- Save / Default / developer Save as Default (handoff 2026-10-06 §3) -------------------------
+// Work save: the existing #1 record (STORAGE_KEY, version 4) and Flight record (FLIGHT_LAYOUT_KEY),
+// kept for Standard and earlier saves; Save writes both and reads both back. Developer preset:
+// PRESET_KEY, its own schemaVersion, read by every Default; built-in defaults when absent.
+let presetCache = { raw: undefined, value: null };
+const NON_NUMERIC_INPUTS = new Set(["weaponId", "initialSpeedMode", "offsetSpeedMode"]);
+function validDefaultPreset(record) {
+  if (!record || typeof record !== "object" || record.schemaVersion !== PRESET_SCHEMA_VERSION) return null;
+  const { lead, flight } = record;
+  if (!lead || typeof lead !== "object" || !lead.inputs || typeof lead.inputs !== "object") return null;
+  for (const key of Object.keys(DEFAULT_INPUT_VALUES)) {
+    const text = lead.inputs[key];
+    if (typeof text !== "string") return null;
+    if (!NON_NUMERIC_INPUTS.has(key) && !Number.isFinite(Number.parseFloat(text))) return null;
+  }
+  if (lead.locks && typeof lead.locks !== "object") return null;
+  if (!flight || !Number.isInteger(flight.size) || flight.size < 1 || flight.size > 4) return null;
+  if (!flight.aircraft || typeof flight.aircraft !== "object" || Array.isArray(flight.aircraft)) return null;
+  for (const number of [2, 3, 4]) {
+    const draft = flight.aircraft[number];
+    if (draft === undefined) continue;
+    if (!draft || typeof draft !== "object" || Array.isArray(draft)) return null;
+  }
+  return record;
+}
+function readDefaultPreset() {
+  let raw = null;
+  try { raw = localStorage.getItem(PRESET_KEY); } catch { raw = null; }
+  if (raw !== presetCache.raw) {
+    let value = null;
+    try { value = raw ? validDefaultPreset(JSON.parse(raw)) : null; } catch { value = null; }
+    presetCache = { raw, value };
+  }
+  return presetCache.value;
+}
+
+function saveWorkState() {
+  const leadSaved = savePersistedState();
+  const flightSaved = saveFlightLayout();
+  try {
+    const lead = JSON.parse(localStorage.getItem(STORAGE_KEY))?.aircraft?.["1"];
+    const flight = JSON.parse(localStorage.getItem(FLIGHT_LAYOUT_KEY));
+    return leadSaved && flightSaved && JSON.stringify(lead) === JSON.stringify(capturePersistedState())
+      && flight?.size === flightLayout.size && JSON.stringify(flight.aircraft) === JSON.stringify(flightLayout.aircraft);
+  } catch {
+    return false;
+  }
+}
+
+// Ends the edit in progress through the normal commit (change / empty-field rules) first.
+function commitActiveEdit() {
+  const active = document.activeElement;
+  if (active?.matches?.("input, select") && active.closest("#offset-calculator")) active.blur();
+}
+
+function currentFlightPreset() {
+  const aircraft = {};
+  for (const number of [2, 3, 4]) {
+    if (flightLayout.aircraft[number]) aircraft[number] = JSON.parse(JSON.stringify(flightLayout.aircraft[number]));
+  }
+  return { size: flightLayout.size, aircraft };
+}
+
+function saveDefaultPreset() {
+  if (!lastResult) return { ok: false, message: "#1 has no current result" };
+  const missing = [];
+  for (let number = 2; number <= flightLayout.size; number += 1) {
+    if (FLIGHT_CALCULATING_AIRCRAFT.has(number) && !flightResults.has(number)) missing.push(number);
+  }
+  if (missing.length) return { ok: false, message: `#${missing.join(", #")} has no current result` };
+  const record = { schemaVersion: PRESET_SCHEMA_VERSION, kind: "offset-v2-default-preset", savedAt: new Date().toISOString(), lead: capturePersistedState(), flight: currentFlightPreset() };
+  if (!validDefaultPreset(record)) return { ok: false, message: "current inputs are not a valid preset" };
+  let previous = null;
+  try { previous = localStorage.getItem(PRESET_KEY); } catch { previous = null; }
+  const text = JSON.stringify(record);
+  try {
+    localStorage.setItem(PRESET_KEY, text);
+    if (localStorage.getItem(PRESET_KEY) !== text) throw new Error("read-back mismatch");
+  } catch (error) {
+    try {
+      if (previous === null) localStorage.removeItem(PRESET_KEY);
+      else localStorage.setItem(PRESET_KEY, previous);
+    } catch { /* the previous preset stays as storage left it */ }
+    return { ok: false, message: `storage write failed (${error.message})` };
+  }
+  return { ok: true, message: "Saved as Default" };
+}
+
+// Save tab Default: every aircraft and the shared settings from the current defaults; the Flight size
+// too when a developer preset holds one (built-in defaults keep the current size).
+function applyFlightDefaults() {
+  const preset = readDefaultPreset();
+  applyPersistedState(createDefaultPersistedState());
+  if (rollBankAuto) applyAutomaticRollBank("default");
+  clearPendingInputStates();
+  if (preset) flightLayout.size = preset.flight.size;
+  for (const number of [2, 3, 4]) flightLayout.aircraft[number] = defaultFlightDraft(number);
+  followerSolvedValues.clear();
+  pruneVisibleAircraft();
+  renderFlightLayout();
+  calculate();
+  return saveWorkState();
+}
+
+// Developer mode (temporary, §3.3): typing 7777 into the edited aircraft's Initial Altitude and
+// committing it turns on Save as Default for this page only. The 7777 is a command: it is never
+// solved or saved, and the state from the start of that edit (values with their full precision,
+// LINK, solve mode, entered Tracking Time, LOCKs, drivers, the Flight drafts) comes back.
+const DEVELOPER_COMMAND = "7777";
+let developerMode = false;
+let developerEditStart = null;
+function developerCommandAvailable() {
+  return !!$("#save-as-default");
+}
+function isDeveloperCommand(field) {
+  return developerCommandAvailable() && field?.value?.trim() === DEVELOPER_COMMAND;
+}
+function captureEditSnapshot() {
+  return {
+    lead: capturePersistedState(),
+    texts: [...$$("[data-key]"), $("#vrp-bearing-input"), $("#vip-bearing-input"), $("#vip-range-input")].filter(Boolean).map((node) => [node, node.value]),
+    solved: new Map(solvedInputValues),
+    flight: JSON.parse(JSON.stringify(flightLayout)),
+    followerSolved: new Map(followerSolvedValues),
+  };
+}
+function restoreEditSnapshot(snapshot) {
+  applyPersistedState(snapshot.lead);
+  snapshot.texts.forEach(([node, text]) => { node.value = text; });
+  solvedInputValues.clear();
+  snapshot.solved.forEach((entry, key) => solvedInputValues.set(key, entry));
+  syncInitialLinkUi();
+  flightLayout.size = snapshot.flight.size;
+  Object.keys(flightLayout.aircraft).forEach((key) => { delete flightLayout.aircraft[key]; });
+  Object.assign(flightLayout.aircraft, snapshot.flight.aircraft);
+  followerSolvedValues.clear();
+  snapshot.followerSolved.forEach((entry, key) => followerSolvedValues.set(key, entry));
+  document.querySelectorAll("#flight-followers .flight-slot").forEach((slot) => initializeFlightSlotFields(slot, Number(slot.dataset.aircraft)));
+  clearPendingInputStates();
+  calculate();
+  saveFlightLayout();
+}
+function rememberDeveloperEditStart(field) {
+  if (developerCommandAvailable()) developerEditStart = { field, snapshot: captureEditSnapshot() };
+}
+function runDeveloperCommand(field) {
+  const start = developerEditStart?.field === field ? developerEditStart.snapshot : null;
+  if (start) restoreEditSnapshot(start);
+  developerEditStart = null;
+  developerMode = true;
+  syncDeveloperUi();
+  renderSaveStatus("Developer mode: Save as Default is on until this page reloads", "warning");
+}
+
+function renderSaveStatus(message, state = "valid") {
+  const status = $("#save-status");
+  if (!status) return;
+  status.textContent = message;
+  status.className = `status-message ${state}`;
+}
+function syncDeveloperUi() {
+  const dev = $("#save-developer");
+  if (dev) dev.hidden = !developerMode;
+  const preset = readDefaultPreset();
+  const presetStatus = $("#preset-status");
+  if (presetStatus) {
+    const when = preset?.savedAt ? new Date(preset.savedAt) : null;
+    presetStatus.textContent = preset
+      ? `Default: developer preset${when && !Number.isNaN(when.getTime()) ? ` · ${when.toLocaleDateString()} ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""} · Flight of ${preset.flight.size}`
+      : "Default: built-in";
+  }
+}
+function installSaveTab() {
+  if (!$("#work-save")) return;
+  $("#work-save").addEventListener("click", () => {
+    commitActiveEdit();
+    const ok = saveWorkState();
+    renderSaveStatus(ok ? `Saved · Flight of ${flightLayout.size} · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Save failed · browser storage unavailable; inputs stay usable", ok ? "valid" : "invalid");
+  });
+  $("#work-default").addEventListener("click", () => {
+    commitActiveEdit();
+    const ok = applyFlightDefaults();
+    renderSaveStatus(`${readDefaultPreset() ? "Developer preset" : "Built-in Default"} applied${ok ? "" : " · save failed"}`, ok ? "valid" : "invalid");
+  });
+  $("#save-as-default").addEventListener("click", () => {
+    if (!developerMode) return;
+    commitActiveEdit();
+    const outcome = saveDefaultPreset();
+    syncDeveloperUi();
+    renderSaveStatus(outcome.ok ? outcome.message : `Save as Default failed · ${outcome.message} · previous Default kept`, outcome.ok ? "valid" : "invalid");
+  });
+  $("#preset-clear")?.addEventListener("click", () => {
+    if (!developerMode) return;
+    try { localStorage.removeItem(PRESET_KEY); } catch { /* nothing stored */ }
+    syncDeveloperUi();
+    renderSaveStatus("Developer preset removed · Default is built-in again", "valid");
+  });
+  syncDeveloperUi();
+}
+
+// index layout hooks (wide-layout.mjs): the shared shown-aircraft set, the centre BDP views and the
+// DED PNG state. Display only: nothing here changes a solve input.
+export const offsetIndexUi = Object.freeze({
+  visibleAircraft: () => topViewAvailableAircraft().filter((number) => topViewAircraft.has(number)),
+  toggleVisibleAircraft,
+  syncShowAircraftButtons: syncTopViewAircraftButtons,
+  onVisibleAircraftChange(listener) {
+    visibleAircraftListeners.add(listener);
+    listener(this.visibleAircraft());
+  },
+  // Centre BDP tab: BDP Top View + Profile of exactly these aircraft (empty: none drawn).
+  showBdpViews(numbers) {
+    fullViewsOn.clear();
+    numbers.forEach((number) => fullViewsOn.add(number));
+    [1, 2, 3, 4].forEach(applyFullViews);
+  },
+  flightSize: () => flightLayout.size,
+  hasResult: (number) => !!flightResultOf(number),
+  dedAvailable,
+  exportDedPng,
+  lastDedExport: () => lastDedExport,
+  syncDedPngButtons,
+});
+
 function install() {
   // Header shows the Offset BE version actually loaded.
   const rev = $(".rev");
@@ -2455,6 +2925,7 @@ function install() {
   installSectionDisclosure();
   installSectionTools();
   installTempDef();
+  installSaveTab();
   syncReferencePanes();
   defaultPersistedState = createDefaultPersistedState();
 
@@ -2511,12 +2982,6 @@ function install() {
     if (document.body) topViewViewportObserver.observe(document.body);
   }
   $("#capture-top-view").addEventListener("click", () => exportOffsetTopView(svg, svg.dataset.exportTitle || offsetTopViewTitle({ aircraftNumber: 1 })));
-  document.querySelectorAll("[data-top-view-aircraft-button]").forEach((button) => button.addEventListener("click", () => {
-    const number = Number(button.dataset.topViewAircraftButton);
-    if (topViewAircraft.has(number)) topViewAircraft.delete(number);
-    else topViewAircraft.add(number);
-    renderTopView();
-  }));
   $("#top-view-ip-bottom").addEventListener("click", (event) => {
     topViewIpBottom = !topViewIpBottom;
     event.currentTarget.setAttribute("aria-pressed", String(topViewIpBottom));
