@@ -12,7 +12,7 @@ import {
 } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.5";
 import { createSmartLabelLayout } from "../../../../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.4";
 import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.1.mjs?v=0.1.4";
-import { formatDeg, formatFt, formatKt, formatMach, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
+import { formatDeg, formatFt, formatG, formatKt, formatMach, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { BDP_TOP_VIEW_LEGEND, BDP_VIEW_COLORS as C, bdpTopViewTitle, rollInAngleRangeText } from "./bdp-view-style-v0.1.mjs";
 
 // Roll-in Top View — BDP-owned view in the V2 unified view grammar (common/diagram/SPEC.md;
@@ -40,7 +40,14 @@ import { BDP_TOP_VIEW_LEGEND, BDP_VIEW_COLORS as C, bdpTopViewTitle, rollInAngle
 
 export const BDP_TOP_VIEW_V0_2 = Object.freeze({
   id: "bdp-top-view-v0.2",
-  version: "0.2.3",
+  // 0.2.4 (2026-10-06, user, Offset): host options `title` (replaces the "Roll-in #n Top View"
+  // title), `lateralDistance: false` (no Roll-in Lat. D dimension, label or returned value) and
+  // `referenceLine: "ANGLE_OFF_90"` (the dashed Initial-track reference line only at Angle Off 90°).
+  // Without them the view is unchanged.
+  // 0.2.5 (2026-10-06, user, Offset): `remarkDetail: true` adds Attack Heading (the host's
+  // `attackHeadingDeg`, else the Track Point → Target bearing on a north-up map), Dive Angle, Roll-in
+  // Bank Angle, Roll-in G and AOD to the Remark; `oneLineLabels: true` draws MAP as "MAP: 2.0 NM".
+  version: "0.2.5",
   subject: "Roll-in",
   view: "Top View",
   orientation: "INITIAL_BOTTOM_TARGET_UP",
@@ -162,6 +169,18 @@ export function renderBdpTopView(svg, result, options = {}) {
     ["Roll-in Bearing", rollInBearingText],
     ...(patternHost ? [["Roll-in Altitude", `${formatFt(pub.resolvedInitialAltitudeMslFt)} ft MSL`]] : []),
   ];
+  if (options.remarkDetail === true) {
+    const attackDeg = Number.isFinite(Number(options.attackHeadingDeg))
+      ? Number(options.attackHeadingDeg)
+      : northUp ? (Math.atan2(w.target.x - w.track.x, w.target.y - w.track.y) * 180) / Math.PI : null;
+    if (attackDeg !== null) remarkRows.push(["Attack Heading", headingText(attackDeg)]);
+    remarkRows.push(
+      ["Dive Angle", `${formatDeg(input.diveAngleDeg)}°`],
+      ["Roll-in Bank Angle", `${formatDeg(input.rollInBankAngleDeg)}°`],
+      ["Roll-in G", `${formatG(input.rollInG)} G`],
+      ["AOD", result.local?.aimOffDistanceFt != null && Number.isFinite(Number(result.local.aimOffDistanceFt)) ? `${formatFt(result.local.aimOffDistanceFt)} ft` : "-"],
+    );
+  }
   const remarkSize = SVG_DIAGRAM_STYLE_V0_1.font.detailPx * textScale;
   const remarkLineHeight = remarkSize * 1.45;
   const remarkHeight = 22 + (remarkRows.length + 1) * remarkLineHeight;
@@ -214,7 +233,7 @@ export function renderBdpTopView(svg, result, options = {}) {
   svg.replaceChildren();
   svg.dataset.canvasHeight = String(HEIGHT);
   svg.style.aspectRatio = `${WIDTH} / ${HEIGHT}`;
-  const title = bdpTopViewTitle({ aircraftNumber: options.aircraftNumber });
+  const title = options.title || bdpTopViewTitle({ aircraftNumber: options.aircraftNumber });
   svg.setAttribute("aria-label", title);
   const defs = svgNode("defs");
   [["initial", C.initialTrack], ["roll", C.rollIn], ["map", C.map], ["red", C.rollInTarget], ["aim", C.aimOff]]
@@ -231,8 +250,10 @@ export function renderBdpTopView(svg, result, options = {}) {
   }));
 
   appendDirectedLine(root, P.ingress, P.oa1, { color: C.initialTrack, width: 3.5, markerEndId: "bdp-top-initial", toGap: 15 });
-  // Initial track extended through OA1: the reference line of Roll-in Long. D / Lat. D.
-  root.append(svgNode("line", {
+  // Initial track extended through OA1: the reference line of Roll-in Long. D / Lat. D. A host may
+  // keep it only at Angle Off 90° (referenceLine "ANGLE_OFF_90").
+  const referenceLineVisible = options.referenceLine !== "ANGLE_OFF_90" || Math.abs(Number(input.angleOffDeg) - 90) < 1e-9;
+  if (referenceLineVisible) root.append(svgNode("line", {
     x1: P.oa1.x, y1: P.oa1.y, x2: P.initialExtension.x, y2: P.initialExtension.y,
     stroke: C.initialTrack, "stroke-width": 1.3, "stroke-dasharray": "6 5", opacity: 0.75, "data-top-view-role": "initial-extension",
   }));
@@ -261,7 +282,9 @@ export function renderBdpTopView(svg, result, options = {}) {
   const lateral = unit(P.lateralFoot, P.track);
   const lateralSign = (-lateral.y) * forward.x + lateral.x * forward.y >= 0 ? 1 : -1;
   // Too short to read (e.g. a small Angle-Off): the value stays in Roll-in Information.
-  const lateralVisible = Math.hypot(P.track.x - P.lateralFoot.x, P.track.y - P.lateralFoot.y) >= 24;
+  // A host may hide it altogether (lateralDistance: false).
+  const lateralShown = options.lateralDistance !== false;
+  const lateralVisible = lateralShown && Math.hypot(P.track.x - P.lateralFoot.x, P.track.y - P.lateralFoot.y) >= 24;
   // Its label goes through the smart layout below (it sits among the Roll-in stations).
   const lateralDimension = lateralVisible
     ? appendAlignedDimension(root, { from: P.lateralFoot, to: P.track, offset: lateralSign * 30, color: C.initialTrack, markerId: "bdp-top-initial" })
@@ -360,8 +383,9 @@ export function renderBdpTopView(svg, result, options = {}) {
     labelKey: "target", color: C.frame, fontSize: 12 * textScale,
     candidates: [{ dx: 14, dy: 20, anchor: "start" }, { dx: -14, dy: 20, anchor: "end" }, { dx: 0, dy: 34, anchor: "middle" }, { dx: 24, dy: 42, anchor: "start" }],
   });
-  label(mid(P.track, P.target), "MAP", {
-    labelKey: "map", color: C.mapText, detail: `${formatNm(groundRangeNm)} NM`,
+  const oneLine = options.oneLineLabels === true;
+  label(mid(P.track, P.target), oneLine ? `MAP: ${formatNm(groundRangeNm)} NM` : "MAP", {
+    labelKey: "map", color: C.mapText, detail: oneLine ? undefined : `${formatNm(groundRangeNm)} NM`,
     candidates: lineCandidates(P.track, P.target, awaySide(P.track, P.target) * -1),
   });
   // Angle label in the compact `Title: value` form (G2). A small angle leaves no room inside its
@@ -446,7 +470,7 @@ export function renderBdpTopView(svg, result, options = {}) {
     canvas: { width: WIDTH, height: HEIGHT },
     groundRangeCircleCenter: "TARGET",
     rollInRangeNm: pub.rollInRangeNm,
-    rollInLateralDistanceNm: Math.abs(lateralNm),
+    rollInLateralDistanceNm: lateralShown ? Math.abs(lateralNm) : null,
     groundRangeNm,
     screen: { oa1: P.oa1, target: P.target, track: P.track },
     zoom,

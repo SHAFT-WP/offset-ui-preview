@@ -1,5 +1,5 @@
 import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./bdp-profile-view-v0.2.mjs?v=0.2.1";
-import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.3";
+import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.5";
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 
 // Full BDP diagrams panel — BDP-owned presentation reused by every BE that embeds a BDP input tab
@@ -24,7 +24,10 @@ import { installSvgViewControls, svgViewControlsMarkup } from "../../../../commo
 export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   id: "bdp-diagrams-panel-v0.1",
   // 0.4.1 (2026-10-03): Roll-in Top View 0.2.3 (hosts may pass topView.rollInRangeStyle).
-  version: "0.4.1",
+  // 0.4.2 (2026-10-06): `topTitle` (markup) / `topView.title` name the Top View panel for a host
+  // (Offset: "BDP (Bomb Delivery Planner) #n Top View").
+  // 0.4.3 (2026-10-06): Roll-in Top View 0.2.5 (remarkDetail, oneLineLabels).
+  version: "0.4.3",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id]),
 });
 
@@ -32,12 +35,12 @@ function escapeText(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 }
 
-export function bdpDiagramsMarkup({ aircraftNumber } = {}) {
+export function bdpDiagramsMarkup({ aircraftNumber, topTitle } = {}) {
   const panel = (kind, title) => `<details class="input-panel bdp-diagram" open data-bdp-diagram="${kind}">`
     + `<summary>${escapeText(title)}</summary><div class="diagram-actions">${svgViewControlsMarkup({ title })}</div><div class="bdp-diagram-canvas">`
     + `<svg viewBox="0 0 900 700" role="img" aria-label="${escapeText(title)}"></svg></div></details>`;
   return `<div class="bdp-diagrams" data-bdp-diagrams>`
-    + panel("top", bdpTopViewTitle({ aircraftNumber }))
+    + panel("top", topTitle || bdpTopViewTitle({ aircraftNumber }))
     + panel("profile", bdpProfileTitle({ aircraftNumber }))
     + `</div>`;
 }

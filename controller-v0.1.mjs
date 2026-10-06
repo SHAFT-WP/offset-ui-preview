@@ -25,12 +25,12 @@ import { createValueStateController } from "./common/ui/value-state-controller-v
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
-import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.6";
-import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.5";
+import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.7";
+import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.6";
 import { offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.0";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.6";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.4.1";
+import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.4.3";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -1455,6 +1455,7 @@ const TAB_TOOLS = {
 // BDP Top View + Profile of one aircraft (user 2026-10-02): their own block between that aircraft's
 // Offset Top View and Z-Diagram, drawn from the profile its own solve used, shown only while the
 // Top View's Full button is on. (The BDP tab's Full BDP now reveals only the BDP extra inputs.)
+const offsetBdpTopViewTitle = (number) => `BDP (Bomb Delivery Planner) #${number} Top View`;
 function bdpDiagramsContainer(number) {
   const section = document.querySelector(`[data-bdp-views="${number}"]`);
   return section ? { section, container: section.querySelector("[data-bdp-diagrams]") } : null;
@@ -1474,7 +1475,11 @@ function refreshBdpDiagrams(number) {
     renderBdpDiagrams(target.container, result.profile, {
       scope: `aircraft-${number}`,
       aircraftNumber: number,
-      topView: { orientation: "NORTH_UP", inHeadingDeg: result.geometry.offsetHeadingDeg, rollDirection: result.geometry.direction.rollDirection, context: "PATTERN", rollInRangeStyle: "radial" },
+      // 2026-10-06 (user): spelled-out BDP title; no Roll-in Lat. D; dashed reference line only at Angle Off 90°.
+      topView: { orientation: "NORTH_UP", inHeadingDeg: result.geometry.offsetHeadingDeg, rollDirection: result.geometry.direction.rollDirection, context: "PATTERN", rollInRangeStyle: "radial",
+        title: offsetBdpTopViewTitle(number), lateralDistance: false, referenceLine: "ANGLE_OFF_90",
+        // 2026-10-06 (user): Remark adds Attack Heading, Dive Angle, Roll-in Bank Angle, Roll-in G, AOD; MAP on one line.
+        remarkDetail: true, attackHeadingDeg: result.geometry.attackHeadingDeg, oneLineLabels: true },
     });
   } catch {
     clearBdpDiagrams(target.container);
@@ -1786,7 +1791,7 @@ function followerCalculatingMarkup(number) {
     ...inputSections,
     // View order (user 2026-10-02): BDP Top View, BDP Profile, Z-Diagram; the Offset Top View is the
     // one Flight view under #1 (user 2026-10-05). The two BDP views show only while its Full is on.
-    `<div class="bdp-views" data-bdp-views="${number}" data-output-aircraft="${number}" data-aircraft-output="bdp">${bdpDiagramsMarkup({ aircraftNumber: number })}</div>`,
+    `<div class="bdp-views" data-bdp-views="${number}" data-output-aircraft="${number}" data-aircraft-output="bdp">${bdpDiagramsMarkup({ aircraftNumber: number, topTitle: offsetBdpTopViewTitle(number) })}</div>`,
     flightSection(number, "Z-Diagram", `<div class="diagram-actions"><div class="diagram-action-row"><button class="capture-button" type="button" data-flight-z-png>PNG</button>${zAdvancedMarkup(number)}</div></div><div class="z-diagram-shell"><svg data-flight-z viewBox="0 0 650 710" role="img" aria-label="${offsetZDiagramTitle({ aircraftNumber: number })}"><g data-z-root></g></svg></div>`, { calculating: true, heading: offsetZDiagramTitle({ aircraftNumber: number }), output: "z" }),
     // Same variables as Result #1 first (same groups and order), then what only this aircraft has.
     flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${predecessor}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true, output: "result" }),
@@ -2921,7 +2926,7 @@ function install() {
   installValueStateBindings();
   installFlightLayout();
   const leadDiagramsHost = document.querySelector('[data-bdp-diagrams-host="1"]');
-  if (leadDiagramsHost) leadDiagramsHost.outerHTML = bdpDiagramsMarkup({ aircraftNumber: 1 });
+  if (leadDiagramsHost) leadDiagramsHost.outerHTML = bdpDiagramsMarkup({ aircraftNumber: 1, topTitle: offsetBdpTopViewTitle(1) });
   installSectionDisclosure();
   installSectionTools();
   installTempDef();

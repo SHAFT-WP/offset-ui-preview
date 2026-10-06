@@ -4,7 +4,7 @@ import {
   finishOffsetTopViewFrame,
   offsetTopViewTitle,
   offsetTopViewWorldPoints,
-} from "./offset-top-view-v0.1.mjs?v=0.1.6";
+} from "./offset-top-view-v0.1.mjs?v=0.1.7";
 import { OFFSET_AIRCRAFT_PALETTES } from "./offset-view-style-v0.1.mjs?v=0.1.3";
 export { offsetAircraftColors, offsetFlightTopViewLegend } from "./offset-view-style-v0.1.mjs?v=0.1.3";
 
@@ -26,7 +26,8 @@ export const OFFSET_FLIGHT_TOP_VIEW_V0_1 = Object.freeze({
   // aircraft as paths and stations only, no labels or values (Offset #3 Top View draws #2).
   // 0.1.5 (2026-10-05, user): renderOffsetCombinedTopView — one Offset Top View for the Flight,
   // drawing the aircraft chosen with the #1–#4 buttons in one frame fitted to all of them.
-  version: "0.1.5",
+  // 0.1.6 (2026-10-06): Top View 0.1.7 token (same instance as the controller's).
+  version: "0.1.6",
   layers: Object.freeze(["offset-plot-lead-<n>", "offset-plot-companion-<k>", "offset-plot-<n>"]),
   combinedLayers: Object.freeze(["offset-plot-aircraft-<n>"]),
 });

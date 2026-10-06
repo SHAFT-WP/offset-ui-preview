@@ -41,7 +41,8 @@ export const OFFSET_TOP_VIEW_V0_1 = Object.freeze({
   // 0.1.6 (2026-10-05, user: one Top View with #1–#4 buttons): palette "fourth" (#4); options.role
   // ("lead" | "follower") decides the drawing rules apart from the palette, so any aircraft can be the
   // base layer (Target marker, full label set) in its own colours.
-  version: "0.1.6",
+  // 0.1.7 (2026-10-06, user): "Radius (EFF): 0.6 NM" on one line (value beside the name).
+  version: "0.1.7",
   subject: "Offset",
   view: "Top View",
   canvas: Object.freeze({ width: 900, minHeight: 560, maxHeight: 1100, margins: 40 }),
@@ -420,8 +421,9 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
         textAttributes: { "data-result-key": "offsetRadiusNm" },
       });
       if (p.rollCenter) {
-        appendLabel(frame.project(add(geometry.points.rollCenter, mul(sub(geometry.points.rollStart, geometry.points.rollCenter), 0.5))), "Radius (EFF)", {
-          key: "roll-radius", color: C.rollText, detail: `${formatNm(geometry.rollInRadiusNm)} NM`,
+        appendLabel(frame.project(add(geometry.points.rollCenter, mul(sub(geometry.points.rollStart, geometry.points.rollCenter), 0.5))), `Radius (EFF): ${formatNm(geometry.rollInRadiusNm)} NM`, {
+          // One line, value beside the name (user 2026-10-06).
+          key: "roll-radius", color: C.rollText,
           textAttributes: { "data-result-key": "rollInRadiusNm" },
         });
       }
