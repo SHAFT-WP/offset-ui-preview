@@ -20,9 +20,11 @@ export const FT_PER_NM = 6076.11549;
 // moves to the lower block (the host's columns, or after Roll-in Lead Angle in the single column).
 // 0.1.11 (2026-10-03, user): `rollInAngleOff` (Roll-in Angle Off, deg) heads the Roll-in group: it
 // takes the group's top row and Ground / Slant move one row down; without it the group is unchanged.
+// 0.1.12 (2026-10-06, user): a host may move the top-left Roll-in Altitude with `rollInAltitudeX`
+// (default 42, unchanged); Offset draws it one character (8 units) further left.
 export const COMMON_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "common-z-diagram-v0.1",
-  version: "0.1.11",
+  version: "0.1.12",
   oracle: "Bomb Profile REV.1.9 embedded BE Common Rev0.8 display renderer",
   legacyDisplaySource: "Common Z-Diagram Rev0.6 / BE Common Rev0.8 display grammar",
 });
@@ -142,7 +144,8 @@ export function renderCommonZDiagram(svg, data) {
   text(325, data.uniformBodyText ? 36 : 28, diagramTitle, "middle", TITLE_FS, FONT_WEIGHT, null);
   // Top row (0.1.8, every host): the Roll-in Altitude value only at the left margin and the Initial
   // Speed value right-aligned to the top line's end (topX); names live in the aria-labels.
-  const altitude = text(42, 82, `${format(data.initialMsl, 0)} ft`, "start", 15, FONT_WEIGHT, "z-roll-in-altitude");
+  const altitudeX = Number.isFinite(Number(data.rollInAltitudeX)) ? Number(data.rollInAltitudeX) : 42;
+  const altitude = text(altitudeX, 82, `${format(data.initialMsl, 0)} ft`, "start", 15, FONT_WEIGHT, "z-roll-in-altitude");
   altitude.setAttribute("aria-label", lineText("Roll-in Altitude", `${format(data.initialMsl, 0)} ft`));
   const speed = text(topX, 82, `${format(data.initialKcas, 0)} KCAS`, "end", 15, FONT_WEIGHT, "z-initial-speed");
   speed.setAttribute("aria-label", lineText("Initial Speed", `${format(data.initialKcas, 0)} KCAS`));

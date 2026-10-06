@@ -1,5 +1,5 @@
 import { bdpZLowerColumns, buildBdpZDiagramData, profileName } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs?v=0.1.6";
-import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.11";
+import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.12";
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { formatDeg, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { bearingDeg, formatHeadingDeg, offsetViewTitle } from "./offset-view-style-v0.1.mjs?v=0.1.3";
@@ -18,7 +18,8 @@ export const OFFSET_Z_DIAGRAM_V0_1 = Object.freeze({
   // 0.1.5 (2026-10-03, user): Essential / Advanced lower block. Essential = Action Range, Offset
   // Angle, Roll-in Lead Angle, Attack Heading | ΔTime; Advanced = every row. "IP to Impact Time" reads
   // "#k IP to Impact Time" for the ΔTime Impact aircraft k; "Action to Impact Time" is removed.
-  version: "0.1.5",
+  // 0.1.6 (2026-10-06, user): Roll-in Altitude (top-left value) one character left (x 42 → 34).
+  version: "0.1.6",
   subject: "Offset",
   view: "Z-Diagram",
 });
@@ -92,6 +93,7 @@ export function renderOffsetZDiagram(svg, result, options = {}) {
     ...data,
     uniformBodyText: true,
     compactAngleLabels: true,
+    rollInAltitudeX: 34,
     profileTitle: title,
     lowerColumns: offsetZLowerColumns(result, { deltaTime: options.deltaTime, advanced: options.advanced === true, aircraftNumber }),
   });
