@@ -1475,9 +1475,10 @@ function refreshBdpDiagrams(number) {
     renderBdpDiagrams(target.container, result.profile, {
       scope: `aircraft-${number}`,
       aircraftNumber: number,
-      // 2026-10-06 (user): spelled-out BDP title; no Roll-in Lat. D; dashed reference line only at Angle Off 90°.
+      // 2026-10-06 (user): spelled-out BDP title; no Roll-in Lat. D (the dashed reference line stays;
+      // its Angle-Off-90 rule and Base Distance were cancelled the same day).
       topView: { orientation: "NORTH_UP", inHeadingDeg: result.geometry.offsetHeadingDeg, rollDirection: result.geometry.direction.rollDirection, context: "PATTERN", rollInRangeStyle: "radial",
-        title: offsetBdpTopViewTitle(number), lateralDistance: false, referenceLine: "ANGLE_OFF_90",
+        title: offsetBdpTopViewTitle(number), lateralDistance: false,
         // 2026-10-06 (user): Remark adds Attack Heading, Dive Angle, Roll-in Bank Angle, Roll-in G, AOD; MAP on one line.
         remarkDetail: true, attackHeadingDeg: result.geometry.attackHeadingDeg, oneLineLabels: true },
     });
