@@ -32,7 +32,8 @@ export const BDP_PROFILE_VIEW_V0_2 = Object.freeze({
   // Release); Dive Angle drawn at the Aim-off Point (its corresponding angle with the ground) instead of
   // at Track Point; Vertical Tracking Distance not drawn; the Remark becomes `legend` items for the
   // host's legend box under the drawing (Offset Top View legend format).
-  version: "0.2.2",
+  // 0.2.3 (2026-10-07, user, Offset): the Offset-layout legend asks for two columns (legendColumns: 2).
+  version: "0.2.3",
   subject: "Dive",
   view: "Profile",
   semanticStart: "TRACK_POINT",
@@ -306,5 +307,7 @@ export function renderBdpProfileView(svg, result, options = {}) {
       { label: `Vertical Tracking Distance · ${formatFt(verticalTrackingFt)} ft`, color: C.verticalTracking },
       ...(diving ? [{ label: `IAA · ${formatDeg(local.aimOffAngleDeg)}°`, color: C.los }, { label: `Dive Angle · ${formatDeg(input.diveAngleDeg)}°`, color: C.flightPath }] : []),
     ] : null,
+    // Two legend columns (2026-10-07, user).
+    legendColumns: offsetLayout ? 2 : null,
   };
 }

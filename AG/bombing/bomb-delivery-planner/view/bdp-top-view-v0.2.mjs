@@ -53,7 +53,11 @@ export const BDP_TOP_VIEW_V0_2 = Object.freeze({
   // host's legend box under the drawing (Offset Top View legend format) instead of the top-right block.
   // 0.2.7 (2026-10-07, user, Offset): the Roll-in Radius label is hidden again (no Roll-in Radius on
   // the BDP Top View).
-  version: "0.2.7",
+  // 0.2.8 (2026-10-07, user, Offset): `advanced` (host toggle). Offset layout: the Roll-in Range line
+  // label carries its value; the legend shows Roll-in Angle Off instead of Roll-in Bearing in two
+  // columns (`legendColumns: 2`); Advanced brings back Roll-in Bearing (legend) and the Roll-in Radius
+  // label. Roll-in Lat. D stays hidden for a host that passes lateralDistance: false, Advanced or not.
+  version: "0.2.8",
   subject: "Roll-in",
   view: "Top View",
   orientation: "INITIAL_BOTTOM_TARGET_UP",
@@ -67,6 +71,7 @@ export { bdpTopViewTitle };
 const BDP_TOP_LEGEND_COLORS = Object.freeze({
   "Roll-in Range": C.rollInTarget,
   "Roll-in Bearing": C.rollInTarget,
+  "Roll-in Angle Off": C.rollInTarget,
   "Roll-in Altitude": C.rollIn,
   "Attack Heading": C.map,
   "Dive Angle": C.initialTrack,
@@ -139,6 +144,7 @@ export function renderBdpTopView(svg, result, options = {}) {
   const pub = result.public;
   const input = result.canonicalInputs;
   const offsetLayout = options.layout === "OFFSET";
+  const advanced = options.advanced === true;
   const textScale = clamp(Number(options.textScale) || 1, 0.5, 2) * (offsetLayout ? 2 : 1);
 
   // World frame (NM): x = pre-roll-in forward, y = turn side (drawn up before rotation).
@@ -184,7 +190,9 @@ export function renderBdpTopView(svg, result, options = {}) {
     : `${formatDeg(Math.abs(offInitialDeg))}° ${offInitialDeg >= 0 ? "L" : "R"} of Initial heading`;
   const remarkRows = [
     ["Roll-in Range", `${formatNm(pub.rollInRangeNm)} NM`],
-    ["Roll-in Bearing", rollInBearingText],
+    // Offset layout (2026-10-07, user): Roll-in Angle Off in place of Roll-in Bearing; Advanced shows both.
+    ...(offsetLayout ? [["Roll-in Angle Off", `${formatDeg(pub.rollInAngleOffDeg)}°`]] : []),
+    ...(!offsetLayout || advanced ? [["Roll-in Bearing", rollInBearingText]] : []),
     ...(patternHost ? [["Roll-in Altitude", `${formatFt(pub.resolvedInitialAltitudeMslFt)} ft MSL`]] : []),
   ];
   if (options.remarkDetail === true) {
@@ -433,7 +441,7 @@ export function renderBdpTopView(svg, result, options = {}) {
       return { dx, dy: Math.sin(leadMid) * distance + 5, anchor: anchorFor(dx) };
     })],
   });
-  if (radialRange) label(mid(P.target, P.oa1), "Roll-in Range", {
+  if (radialRange) label(mid(P.target, P.oa1), offsetLayout ? `Roll-in Range: ${formatNm(pub.rollInRangeNm)} NM` : "Roll-in Range", {
     labelKey: "roll-in-range", color: C.rollInTarget, fontSize: SVG_DIAGRAM_STYLE_V0_1.font.dimensionTitlePx * textScale,
     candidates: lineCandidates(P.target, P.oa1, awaySide(P.target, P.oa1)),
     textAttributes: { "data-top-view-role": "roll-in-range" },
@@ -444,6 +452,20 @@ export function renderBdpTopView(svg, result, options = {}) {
     textAttributes: { "data-top-view-role": "roll-in" },
     candidates: [{ dx: 0, dy: 28, anchor: "middle" }, { dx: -14, dy: 24, anchor: "end" }, { dx: 14, dy: 24, anchor: "start" }, { dx: 0, dy: 48, anchor: "middle" }],
   });
+  // Offset layout, Advanced only: Roll-in Radius with its value on the Roll-in turn.
+  if (offsetLayout && advanced && Number.isFinite(Number(pub.rollInRadiusNm)) && P.rollPath.length > 1) {
+    const midIndex = Math.floor(P.rollPath.length / 2);
+    const at = P.rollPath[midIndex];
+    const out = unit(P.target, at);
+    label(at, `Roll-in Radius: ${formatNm(pub.rollInRadiusNm)} NM`, {
+      labelKey: "roll-in-radius", color: C.rollInText, fontSize: 12 * textScale,
+      textAttributes: { "data-top-view-role": "roll-in-radius" },
+      candidates: [16, 40, 70].flatMap((distance) => [
+        { dx: out.x * distance, dy: out.y * distance + 4, anchor: out.x >= 0 ? "start" : "end" },
+        { dx: -out.x * distance, dy: -out.y * distance + 4, anchor: out.x >= 0 ? "end" : "start" },
+      ]),
+    });
+  }
   label(P.track, "Track Point", {
     labelKey: "track-point", color: C.rollInText, fontSize: 12 * textScale,
     candidates: [{ dx: 14, dy: -8, anchor: "start" }, { dx: -14, dy: -8, anchor: "end" }, { dx: 14, dy: 20, anchor: "start" }, { dx: -14, dy: 20, anchor: "end" }, { dx: 30, dy: -30, anchor: "start" }, { dx: -30, dy: -30, anchor: "end" }],
@@ -493,6 +515,7 @@ export function renderBdpTopView(svg, result, options = {}) {
     rollInLateralDistanceNm: lateralShown ? Math.abs(lateralNm) : null,
     // Offset layout: the Remark rows as legend-box items (label "Name · value", Offset legend format).
     legend: offsetLayout ? remarkRows.map(([name, value]) => ({ label: `${name} · ${value}`, color: BDP_TOP_LEGEND_COLORS[name] ?? C.frame })) : null,
+    legendColumns: offsetLayout ? 2 : null,
     groundRangeNm,
     screen: { oa1: P.oa1, target: P.target, track: P.track },
     zoom,

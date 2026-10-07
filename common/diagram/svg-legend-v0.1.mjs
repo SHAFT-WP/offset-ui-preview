@@ -2,7 +2,10 @@ import { SVG_NS, svgNode } from './svg-primitives-v0.1.mjs';
 
 // A separate SVG footer stays fixed while its associated plot is zoomed/panned.
 // Labels and colours come from the owning renderer, never from Common policy.
-export function installSvgLegend(svg, items, notes = []) {
+// `options.columns` (2026-10-07): lay the items out in that many equal columns, row by row, instead
+// of flowing them across the width.
+export function installSvgLegend(svg, items, notes = [], options = {}) {
+  const columns = Number.isInteger(options.columns) && options.columns > 1 ? options.columns : 0;
   function render() {
     const width = Math.max(160, Math.round(svg.getBoundingClientRect().width || 600));
     const padding = 12, gap = 18, rowHeight = 23;
@@ -10,16 +13,20 @@ export function installSvgLegend(svg, items, notes = []) {
     const background = svgNode('rect', { width, fill: '#000' });
     svg.append(background);
     let x = padding, y = padding + 13;
-    for (const item of items) {
+    const columnWidth = columns ? (width - padding * 2) / columns : 0;
+    items.forEach((item, index) => {
       const text = svgNode('text', { x: 0, y: 0, fill: '#fff', 'font-size': 13, 'font-family': 'sans-serif' });
       text.textContent = item.label;
       svg.append(text);
       const itemWidth = 28 + text.getComputedTextLength();
-      if (x > padding && x + itemWidth > width - padding) { x = padding; y += rowHeight; }
+      if (columns) {
+        x = padding + (index % columns) * columnWidth;
+        if (index > 0 && index % columns === 0) y += rowHeight;
+      } else if (x > padding && x + itemWidth > width - padding) { x = padding; y += rowHeight; }
       svg.append(svgNode('line', { x1: x, x2: x + 18, y1: y - 4, y2: y - 4, stroke: item.color, 'stroke-width': 3, ...(item.dashed ? { 'stroke-dasharray': '4 3' } : {}) }));
       text.setAttribute('x', x + 25); text.setAttribute('y', y);
       x += itemWidth + gap;
-    }
+    });
     // Plain-text notes wrap by measured glyph width, including narrow screens.
     for (const note of notes) {
       y += rowHeight;

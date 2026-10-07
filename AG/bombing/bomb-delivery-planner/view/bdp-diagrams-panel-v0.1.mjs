@@ -1,7 +1,7 @@
-import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./bdp-profile-view-v0.2.mjs?v=0.2.2";
-import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.7";
+import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./bdp-profile-view-v0.2.mjs?v=0.2.3";
+import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.8";
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
-import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs";
+import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 
 // Full BDP diagrams panel — BDP-owned presentation reused by every BE that embeds a BDP input tab
 // (Offset now; BOX, Wheel and Wheel-BOX next). While the consumer's Full BDP is on, the tab shows
@@ -31,7 +31,10 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.5.0 (2026-10-07, user, Offset): `layout` passes to both views; a view that returns `legend`
   // items (layout "OFFSET") gets them in a legend box under its drawing (Offset Top View format).
   // 0.5.1 (2026-10-07): imports BDP Top View 0.2.7 (no Roll-in Radius label in the Offset layout).
-  version: "0.5.1",
+  // 0.6.0 (2026-10-07, user, Offset): bdpDiagramsMarkup({ topAdvanced: true }) puts an
+  // "Advanced: Off/On" button beside the Top View title; it redraws the Top View with
+  // topView.advanced. Legend boxes follow a view's `legendColumns`.
+  version: "0.6.0",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id]),
 });
 
@@ -39,9 +42,12 @@ function escapeText(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 }
 
-export function bdpDiagramsMarkup({ aircraftNumber, topTitle } = {}) {
+export function bdpDiagramsMarkup({ aircraftNumber, topTitle, topAdvanced = false } = {}) {
+  const advancedButton = (kind) => kind === "top" && topAdvanced
+    ? `<button class="capture-button view-toggle bdp-advanced-toggle" type="button" data-bdp-advanced aria-pressed="false" style="margin-left:12px;margin-right:auto">Advanced: Off</button>`
+    : "";
   const panel = (kind, title) => `<details class="input-panel bdp-diagram" open data-bdp-diagram="${kind}">`
-    + `<summary>${escapeText(title)}</summary><div class="diagram-actions">${svgViewControlsMarkup({ title })}</div><div class="bdp-diagram-canvas">`
+    + `<summary>${escapeText(title)}${advancedButton(kind)}</summary><div class="diagram-actions">${svgViewControlsMarkup({ title })}</div><div class="bdp-diagram-canvas">`
     + `<svg viewBox="0 0 900 700" role="img" aria-label="${escapeText(title)}"></svg>`
     + `<svg class="diagram-legend-box" data-bdp-legend="${kind}" role="img" aria-label="${escapeText(title)} legend" hidden></svg></div></details>`;
   return `<div class="bdp-diagrams" data-bdp-diagrams>`
@@ -69,23 +75,38 @@ function panelView(container, kind, draw) {
 
 // The legend box under a panel's drawing, rebuilt with each draw's items (hidden without any).
 const panelLegends = new WeakMap();
-function showLegend(container, kind, items) {
+function showLegend(container, kind, items, columns) {
   const box = container.querySelector(`[data-bdp-legend="${kind}"]`);
   if (!box) return;
   panelLegends.get(box)?.destroy();
   panelLegends.delete(box);
   box.toggleAttribute("hidden", !items?.length);
-  if (items?.length) panelLegends.set(box, installSvgLegend(box, items));
+  if (items?.length) panelLegends.set(box, installSvgLegend(box, items, [], { columns: columns ?? 0 }));
 }
 
 export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraftNumber, topView = {}, layout } = {}) {
   if (!container) return false;
-  const withLegend = (kind, rendered) => { showLegend(container, kind, rendered?.legend); return rendered; };
+  const withLegend = (kind, rendered) => { showLegend(container, kind, rendered?.legend, rendered?.legendColumns); return rendered; };
+  // Advanced button (bdpDiagramsMarkup topAdvanced): its state lives on the button.
+  const advancedButton = container.querySelector("[data-bdp-advanced]");
+  const advancedOn = () => advancedButton?.getAttribute("aria-pressed") === "true";
   const top = panelView(container, "top", (svg, textScale) =>
-    withLegend("top", renderBdpTopView(svg, bdpResult, { ...topView, layout, textScale, movableLabels: true, scope: `${scope}-top`, aircraftNumber })));
+    withLegend("top", renderBdpTopView(svg, bdpResult, { ...topView, ...(advancedButton ? { advanced: advancedOn() } : {}), layout, textScale, movableLabels: true, scope: `${scope}-top`, aircraftNumber })));
   const profile = panelView(container, "profile", (svg, textScale) =>
     withLegend("profile", renderBdpProfileView(svg, bdpResult, { layout, textScale, movableLabels: true, scope: `${scope}-profile`, aircraftNumber })));
   if (!top || !profile) return false;
+  if (advancedButton && !advancedButton.dataset.bdpAdvancedReady) {
+    advancedButton.dataset.bdpAdvancedReady = "true";
+    advancedButton.addEventListener("click", (event) => {
+      // The button sits in the panel's <summary>: keep the panel open.
+      event.preventDefault();
+      event.stopPropagation();
+      const on = !advancedOn();
+      advancedButton.setAttribute("aria-pressed", String(on));
+      advancedButton.textContent = `Advanced: ${on ? "On" : "Off"}`;
+      panelControls.get(container.querySelector('[data-bdp-diagram="top"] svg'))?.controls.redraw();
+    });
+  }
   top.redraw();
   profile.redraw();
   container.dataset.bdpDiagramsState = "rendered";
