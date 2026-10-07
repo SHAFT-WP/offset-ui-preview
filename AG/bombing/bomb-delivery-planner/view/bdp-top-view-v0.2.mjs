@@ -51,7 +51,9 @@ export const BDP_TOP_VIEW_V0_2 = Object.freeze({
   // Angle-Off label at the common label size, a "Roll-in Radius: x NM" label on the Roll-in turn, the
   // Roll-in Range line's arrow at the Target, and the Remark rows returned as `legend` items for the
   // host's legend box under the drawing (Offset Top View legend format) instead of the top-right block.
-  version: "0.2.6",
+  // 0.2.7 (2026-10-07, user, Offset): the Roll-in Radius label is hidden again (no Roll-in Radius on
+  // the BDP Top View).
+  version: "0.2.7",
   subject: "Roll-in",
   view: "Top View",
   orientation: "INITIAL_BOTTOM_TARGET_UP",
@@ -442,20 +444,6 @@ export function renderBdpTopView(svg, result, options = {}) {
     textAttributes: { "data-top-view-role": "roll-in" },
     candidates: [{ dx: 0, dy: 28, anchor: "middle" }, { dx: -14, dy: 24, anchor: "end" }, { dx: 14, dy: 24, anchor: "start" }, { dx: 0, dy: 48, anchor: "middle" }],
   });
-  // Offset layout: Roll-in Radius with its value on the Roll-in turn.
-  if (offsetLayout && Number.isFinite(Number(pub.rollInRadiusNm)) && P.rollPath.length > 1) {
-    const midIndex = Math.floor(P.rollPath.length / 2);
-    const at = P.rollPath[midIndex];
-    const out = unit(P.target, at);
-    label(at, `Roll-in Radius: ${formatNm(pub.rollInRadiusNm)} NM`, {
-      labelKey: "roll-in-radius", color: C.rollInText, fontSize: 12 * textScale,
-      textAttributes: { "data-top-view-role": "roll-in-radius" },
-      candidates: [16, 40, 70].flatMap((distance) => [
-        { dx: out.x * distance, dy: out.y * distance + 4, anchor: out.x >= 0 ? "start" : "end" },
-        { dx: -out.x * distance, dy: -out.y * distance + 4, anchor: out.x >= 0 ? "end" : "start" },
-      ]),
-    });
-  }
   label(P.track, "Track Point", {
     labelKey: "track-point", color: C.rollInText, fontSize: 12 * textScale,
     candidates: [{ dx: 14, dy: -8, anchor: "start" }, { dx: -14, dy: -8, anchor: "end" }, { dx: 14, dy: 20, anchor: "start" }, { dx: -14, dy: 20, anchor: "end" }, { dx: 30, dy: -30, anchor: "start" }, { dx: -30, dy: -30, anchor: "end" }],
