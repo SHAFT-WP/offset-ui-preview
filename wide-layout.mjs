@@ -2,7 +2,7 @@
 // stay in the shared Offset controller; this module only places its live nodes (index UI handoff
 // 2026-10-06): left = Edit aircraft (one) + input tabs, centre = Offset Top View / BDP / SEM & Rejoin,
 // right = Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=0455422751f2";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=ddb889f9342f";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
@@ -78,7 +78,9 @@ for (let n = 1; n <= 4; n += 1) {
 }
 const inputNav = make("nav", "wide-input-nav");
 inputNav.setAttribute("aria-label", "Input tabs");
-const INPUT_TABS = [["offset", "Offset"], ["bdp", "BDP"], ["reference", "Reference"], ["save", "Save"]];
+// Tab order (owner 2026-10-07): BDP, Offset, Reference (#1) / Formation (#2-#4), Save. Offset stays
+// the tab shown on first entry.
+const INPUT_TABS = [["bdp", "BDP"], ["offset", "Offset"], ["reference", "Reference"], ["save", "Save"]];
 for (const [key, label] of INPUT_TABS) {
   const tab = button("wide-input-button", label, { "data-wide-input": key, "aria-pressed": "false" });
   tab.addEventListener("click", () => chooseInput(key));

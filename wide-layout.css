@@ -95,7 +95,10 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .offset-wide .wide-review .result-panel-head { flex-wrap:wrap; }
 .offset-wide .ded-section > .section-head .ded-png-button,
 .offset-wide .flight-draft-section .ded-png-button { margin-left:auto; min-height:30px; padding:5px 10px; font-size:12px; }
-.offset-wide .input-group-title { margin:14px 0 8px; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+/* Owner 2026-10-07: input group headings (BDP Profile, Offset Geometry, ...) use the Result box heading
+   style (Offset / Bomb Profile): bold, normal case, full text colour, rule underneath. 17px at the 75%
+   UI scale draws about as large as the 13px Result heading. */
+.offset-wide .input-group-title { margin:14px 0 8px; padding-bottom:4px; border-bottom:1px solid #40464e; font-size:17px; font-weight:700; letter-spacing:0; text-transform:none; color:var(--text); }
 .offset-wide .section > .input-group-title:first-of-type,
 .offset-wide .section-disclosure-body > .input-group-title:first-child { margin-top:4px; }
 .offset-wide .save-actions,
