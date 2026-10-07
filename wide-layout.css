@@ -181,9 +181,12 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
    Keep Top View/Profile/Z canvases and SVG legends at zoom 1.
    Each UI subtree receives this scale exactly once.
    Owner 2026-10-05 ("DED값과 Result 값은 원래대로"): the DED boxes and the Result values keep
-   their original size; only their headings, tabs and controls are halved. */
+   their original size; only their headings, tabs and controls are halved.
+   Owner 2026-10-07 ("빨간 박스 말고 글자 크기들 다 1.5배"): that UI scale goes from 50% to 75%
+   (1.5x); the diagrams, their legends and the Result values stay as they were. The input column
+   widths grow by the same 1.5x. */
 @media(min-width:761px) {
-  body.offset-wide { --wide-input-width:200px; }
+  body.offset-wide { --wide-input-width:300px; }
   .offset-wide .topbar,
   .offset-wide .wide-workspace-bar,
   .offset-wide .wide-inputs,
@@ -200,18 +203,18 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
   .offset-wide .wide-block-head,
   .offset-wide .wide-panel-card > :is(.wide-panel-title,.wide-show-aircraft,.wide-empty,.wide-pending),
   .offset-wide .wide-review-scroll > .wide-empty {
-    zoom:0.5;
+    zoom:0.75;
   }
   .offset-wide .topbar { margin-bottom:7px; }
   .offset-wide .wide-workspace-bar { margin-bottom:6px; }
   .offset-wide .wide-map-section > .section-head { margin-bottom:5px; }
 }
 @media(min-width:1100px) and (max-width:1599px) {
-  body.offset-wide { --wide-input-width:180px; }
+  body.offset-wide { --wide-input-width:270px; }
 }
 @media(min-width:2300px) {
-  body.offset-wide { --wide-input-width:220px; }
+  body.offset-wide { --wide-input-width:330px; }
 }
 @media(min-width:761px) and (max-width:1099px) {
-  .offset-wide .wide-workspace { grid-template-columns:180px minmax(0,1fr); }
+  .offset-wide .wide-workspace { grid-template-columns:270px minmax(0,1fr); }
 }
