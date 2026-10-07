@@ -2,7 +2,7 @@
 // stay in the shared Offset controller; this module only places its live nodes (index UI handoff
 // 2026-10-06): left = Edit aircraft (one) + input tabs, centre = Offset Top View / BDP / SEM & Rejoin,
 // right = Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=80c4bc4e0520";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=d661f5017aa6";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");

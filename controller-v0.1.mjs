@@ -30,7 +30,7 @@ import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLe
 import { offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.0";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.6";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.4.3";
+import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.5.0";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -1475,6 +1475,8 @@ function refreshBdpDiagrams(number) {
     renderBdpDiagrams(target.container, result.profile, {
       scope: `aircraft-${number}`,
       aircraftNumber: number,
+      // 2026-10-07 (user): Offset layout — 2× text, legend box under each BDP view, Profile labels.
+      layout: "OFFSET",
       // 2026-10-06 (user): spelled-out BDP title; no Roll-in Lat. D (the dashed reference line stays;
       // its Angle-Off-90 rule and Base Distance were cancelled the same day).
       topView: { orientation: "NORTH_UP", inHeadingDeg: result.geometry.offsetHeadingDeg, rollDirection: result.geometry.direction.rollDirection, context: "PATTERN", rollInRangeStyle: "radial",

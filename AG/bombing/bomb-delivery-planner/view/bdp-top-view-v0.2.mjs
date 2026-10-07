@@ -47,7 +47,11 @@ export const BDP_TOP_VIEW_V0_2 = Object.freeze({
   // 0.2.5 (2026-10-06, user, Offset): `remarkDetail: true` adds Attack Heading (the host's
   // `attackHeadingDeg`, else the Track Point → Target bearing on a north-up map), Dive Angle, Roll-in
   // Bank Angle, Roll-in G and AOD to the Remark; `oneLineLabels: true` draws MAP as "MAP: 2.0 NM".
-  version: "0.2.5",
+  // 0.2.6 (2026-10-07, user, Offset): `layout: "OFFSET"` — text at twice the old size at 100%, the
+  // Angle-Off label at the common label size, a "Roll-in Radius: x NM" label on the Roll-in turn, the
+  // Roll-in Range line's arrow at the Target, and the Remark rows returned as `legend` items for the
+  // host's legend box under the drawing (Offset Top View legend format) instead of the top-right block.
+  version: "0.2.6",
   subject: "Roll-in",
   view: "Top View",
   orientation: "INITIAL_BOTTOM_TARGET_UP",
@@ -57,6 +61,17 @@ export const BDP_TOP_VIEW_V0_2 = Object.freeze({
 });
 
 export { bdpTopViewTitle };
+
+const BDP_TOP_LEGEND_COLORS = Object.freeze({
+  "Roll-in Range": C.rollInTarget,
+  "Roll-in Bearing": C.rollInTarget,
+  "Roll-in Altitude": C.rollIn,
+  "Attack Heading": C.map,
+  "Dive Angle": C.initialTrack,
+  "Roll-in Bank Angle": C.rollIn,
+  "Roll-in G": C.rollIn,
+  "AOD": C.aimOff,
+});
 
 const WIDTH = BDP_TOP_VIEW_V0_2.canvas.width;
 const DIMENSION_LANE_PX = 175;
@@ -121,7 +136,8 @@ export function renderBdpTopView(svg, result, options = {}) {
   if (!semantic?.stations || !semantic?.paths) throw new TypeError("BDP semantic visualization state is required");
   const pub = result.public;
   const input = result.canonicalInputs;
-  const textScale = clamp(Number(options.textScale) || 1, 0.5, 2);
+  const offsetLayout = options.layout === "OFFSET";
+  const textScale = clamp(Number(options.textScale) || 1, 0.5, 2) * (offsetLayout ? 2 : 1);
 
   // World frame (NM): x = pre-roll-in forward, y = turn side (drawn up before rotation).
   const s = semantic.stations;
@@ -198,7 +214,7 @@ export function renderBdpTopView(svg, result, options = {}) {
     if (side > 0) margins.right = DIMENSION_LANE_PX; else margins.left = DIMENSION_LANE_PX;
   }
   // The Remark block sits in the top-right corner above the drawing.
-  margins.top = Math.max(margins.top, remarkHeight + 18);
+  if (!offsetLayout) margins.top = Math.max(margins.top, remarkHeight + 18);
   const fitPoints = [w.ingress, w.oa1, w.track, w.target, w.aimOff, w.initialExtension, ...w.rollPath,
     { x: w.target.x - groundRangeNm, y: w.target.y - groundRangeNm },
     { x: w.target.x + groundRangeNm, y: w.target.y + groundRangeNm }].filter(Boolean);
@@ -257,7 +273,9 @@ export function renderBdpTopView(svg, result, options = {}) {
     x1: P.oa1.x, y1: P.oa1.y, x2: P.initialExtension.x, y2: P.initialExtension.y,
     stroke: C.initialTrack, "stroke-width": 1.3, "stroke-dasharray": "6 5", opacity: 0.75, "data-top-view-role": "initial-extension",
   }));
-  appendDirectedLine(root, P.target, P.oa1, { color: C.rollInTarget, width: 3.2, markerEndId: "bdp-top-red", fromGap: 12, toGap: 15 });
+  // Offset layout: the arrow points at the Target (Roll-in Point → Target).
+  if (offsetLayout) appendDirectedLine(root, P.oa1, P.target, { color: C.rollInTarget, width: 3.2, markerEndId: "bdp-top-red", fromGap: 15, toGap: 12 });
+  else appendDirectedLine(root, P.target, P.oa1, { color: C.rollInTarget, width: 3.2, markerEndId: "bdp-top-red", fromGap: 12, toGap: 15 });
   appendDirectedLine(root, P.track, P.target, { color: C.map, width: 3.6, markerEndId: "bdp-top-map", fromGap: 8, toGap: 12 });
   const aimOffVisible = P.aimOff && Math.hypot(P.aimOff.x - P.target.x, P.aimOff.y - P.target.y) > 12;
   if (aimOffVisible) appendDirectedLine(root, P.target, P.aimOff, { color: C.aimOff, width: 2.6, markerEndId: "bdp-top-aim", fromGap: 10, toGap: 9 });
@@ -324,7 +342,7 @@ export function renderBdpTopView(svg, result, options = {}) {
     x: remarkRight, y: 22 + remarkLineHeight * (index + 1.8), "text-anchor": "end", "font-size": remarkSize, "font-weight": 750, fill: C.frame,
     "data-remark-key": name,
   }, `${name}: ${value}`)));
-  root.append(remark);
+  if (!offsetLayout) root.append(remark);
   const remarkWidth = Math.max(...["Remark · Roll-in Point → Target", ...remarkRows.map(([name, value]) => `${name}: ${value}`)].map((text) => text.length)) * remarkSize * 0.6;
   const remarkRect = { x: remarkRight - remarkWidth, y: 14, w: remarkWidth + 8, h: remarkHeight };
 
@@ -348,7 +366,7 @@ export function renderBdpTopView(svg, result, options = {}) {
   // Labels: on their element, or joined to it by a leader (Common smart labels).
   const labels = createSmartLabelLayout(root, { width: WIDTH, height: HEIGHT, labelPad: 8, pathPad: 6, charWidthEm: 0.64 });
   if (northArrowRect) labels.reserveRect(northArrowRect);
-  labels.reserveRect(remarkRect);
+  if (!offsetLayout) labels.reserveRect(remarkRect);
   [P.oa1, P.track, P.target].forEach((point) => labels.reservePoint(point, 11));
   if (aimOffVisible) labels.reservePoint(P.aimOff, 9);
   const reserve = (points, pad = 6) => { for (let i = 1; i < points.length; i += 1) labels.reserveSegment(points[i - 1], points[i], pad); };
@@ -376,7 +394,7 @@ export function renderBdpTopView(svg, result, options = {}) {
     return (-d.y) * (m.x - P.target.x) + d.x * (m.y - P.target.y) >= 0 ? 1 : -1;
   };
   label(P.target, `Angle-Off ${formatDeg(input.angleOffDeg)}°`, {
-    labelKey: "angle-off", color: C.frame, fontSize: 17 * textScale,
+    labelKey: "angle-off", color: C.frame, fontSize: (offsetLayout ? 12 : 17) * textScale,
     candidates: [{ dx: 0, dy: -24, anchor: "middle" }, { dx: 22, dy: -22, anchor: "start" }, { dx: -22, dy: -22, anchor: "end" }, { dx: 0, dy: -52, anchor: "middle" }],
   });
   label(P.target, "Target", {
@@ -424,6 +442,20 @@ export function renderBdpTopView(svg, result, options = {}) {
     textAttributes: { "data-top-view-role": "roll-in" },
     candidates: [{ dx: 0, dy: 28, anchor: "middle" }, { dx: -14, dy: 24, anchor: "end" }, { dx: 14, dy: 24, anchor: "start" }, { dx: 0, dy: 48, anchor: "middle" }],
   });
+  // Offset layout: Roll-in Radius with its value on the Roll-in turn.
+  if (offsetLayout && Number.isFinite(Number(pub.rollInRadiusNm)) && P.rollPath.length > 1) {
+    const midIndex = Math.floor(P.rollPath.length / 2);
+    const at = P.rollPath[midIndex];
+    const out = unit(P.target, at);
+    label(at, `Roll-in Radius: ${formatNm(pub.rollInRadiusNm)} NM`, {
+      labelKey: "roll-in-radius", color: C.rollInText, fontSize: 12 * textScale,
+      textAttributes: { "data-top-view-role": "roll-in-radius" },
+      candidates: [16, 40, 70].flatMap((distance) => [
+        { dx: out.x * distance, dy: out.y * distance + 4, anchor: out.x >= 0 ? "start" : "end" },
+        { dx: -out.x * distance, dy: -out.y * distance + 4, anchor: out.x >= 0 ? "end" : "start" },
+      ]),
+    });
+  }
   label(P.track, "Track Point", {
     labelKey: "track-point", color: C.rollInText, fontSize: 12 * textScale,
     candidates: [{ dx: 14, dy: -8, anchor: "start" }, { dx: -14, dy: -8, anchor: "end" }, { dx: 14, dy: 20, anchor: "start" }, { dx: -14, dy: 20, anchor: "end" }, { dx: 30, dy: -30, anchor: "start" }, { dx: -30, dy: -30, anchor: "end" }],
@@ -471,6 +503,8 @@ export function renderBdpTopView(svg, result, options = {}) {
     groundRangeCircleCenter: "TARGET",
     rollInRangeNm: pub.rollInRangeNm,
     rollInLateralDistanceNm: lateralShown ? Math.abs(lateralNm) : null,
+    // Offset layout: the Remark rows as legend-box items (label "Name · value", Offset legend format).
+    legend: offsetLayout ? remarkRows.map(([name, value]) => ({ label: `${name} · ${value}`, color: BDP_TOP_LEGEND_COLORS[name] ?? C.frame })) : null,
     groundRangeNm,
     screen: { oa1: P.oa1, target: P.target, track: P.track },
     zoom,
