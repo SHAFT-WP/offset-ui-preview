@@ -2,7 +2,7 @@ import { bdpZLowerColumns, buildBdpZDiagramData, profileName } from "../../bomb-
 import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.12";
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { formatDeg, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
-import { bearingDeg, formatHeadingDeg, offsetViewTitle } from "./offset-view-style-v0.1.mjs?v=0.1.3";
+import { bearingDeg, formatHeadingDeg, offsetViewTitle } from "./offset-view-style-v0.1.mjs?v=0.1.4";
 
 // Offset Z-Diagram — the BDP Z of the profile Offset solved, with Offset footer rows (Common Z
 // grammar; formerly apps/bombing-calculator-v2/offset/offset-z-diagram-v0.1.mjs). Values use the
@@ -19,7 +19,8 @@ export const OFFSET_Z_DIAGRAM_V0_1 = Object.freeze({
   // Angle, Roll-in Lead Angle, Attack Heading | ΔTime; Advanced = every row. "IP to Impact Time" reads
   // "#k IP to Impact Time" for the ΔTime Impact aircraft k; "Action to Impact Time" is removed.
   // 0.1.6 (2026-10-06, user): Roll-in Altitude (top-left value) one character left (x 42 → 34).
-  version: "0.1.6",
+  // 0.1.7 (2026-10-07): view style 0.1.4 token only (no drawing change).
+  version: "0.1.7",
   subject: "Offset",
   view: "Z-Diagram",
 });

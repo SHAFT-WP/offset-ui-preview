@@ -13,7 +13,9 @@ export const OFFSET_VIEW_STYLE_V0_1 = Object.freeze({
   // 0.1.3 (2026-10-05, user): one Offset Top View with #1–#4 buttons. Each aircraft keeps one colour
   // family wherever it is drawn (#1 lead, #2 follower, #3 green, #4 brown: OFFSET_AIRCRAFT_COLORS);
   // the legend takes the drawn aircraft's colours (referenceColor / ownColor).
-  version: "0.1.3",
+  // 0.1.4 (2026-10-07, user): Tracking Time and Bomb TOF in the Top View legends (#1 legend; the #n
+  // legend per aircraft after Release Alt).
+  version: "0.1.4",
 });
 
 // Lead aircraft: pattern segments are Offset colours kept apart from the BDP set; the approach leg
@@ -104,6 +106,7 @@ export function offsetViewTitle(view, { aircraftNumber = 1 } = {}) {
 export function offsetTopViewLegend(result = null) {
   const C = OFFSET_VIEW_COLORS;
   const g = result?.geometry;
+  const p = result?.profile?.public;
   const value = (text) => (g ? ` · ${text}` : "");
   return [
     { label: `Offset Angle${value(`${formatDeg(g?.offsetAngleDeg)}°`)}`, color: C.offset },
@@ -111,12 +114,14 @@ export function offsetTopViewLegend(result = null) {
     { label: `Roll-in Radial${value(g ? formatHeadingDeg(bearingDeg(g.points.target, g.points.rollStart)) : "")}`, color: C.roll },
     { label: `Roll-in Heading${value(formatHeadingDeg(g?.offsetHeadingDeg))}`, color: C.roll },
     { label: `Roll-in Radius${value(`${formatNm(g?.rollInRadiusNm)} NM`)}`, color: C.roll },
+    { label: `Tracking Time${value(`${formatSec(p?.trackingTimeSec)} s`)}`, color: C.attack },
+    { label: `Bomb TOF${value(`${formatSec(p?.bombTofSec)} s`)}`, color: BDP_VIEW_COLORS.bomb },
   ];
 }
 
 // Offset #n Top View legend (user 2026-10-05): this aircraft against the aircraft it releases after
 // (#(n-1), the ΔTime reference: #2 vs #1, #3 vs #2, #4 vs #3). Rows in the user's order: Roll-in Alt,
-// Dive Angle, Release Alt for #k then #n; #k IP to Impact Time; #n IP to Release Time; ΔTime #k Impact
+// Dive Angle, Release Alt, Tracking Time, Bomb TOF (2026-10-07) for #k then #n; #k IP to Impact Time; #n IP to Release Time; ΔTime #k Impact
 // − #n Release. `reference` / `own` are { number, result } (result null when that solve failed: its
 // rows are left out); `deltaTimeSec` comes from computeDropOrderDelta. Values are display-rounded only.
 export function offsetFlightTopViewLegend({ reference = null, own = null, deltaTimeSec = null, referencePalette = "lead", referenceColor: referenceColorOverride = null, ownColor = null } = {}) {
@@ -128,6 +133,8 @@ export function offsetFlightTopViewLegend({ reference = null, own = null, deltaT
   per("Roll-in Alt", (r) => `${formatFt(r.profile.public.resolvedInitialAltitudeMslFt)} ft`);
   per("Dive Angle", (r) => `${formatDeg(r.profile.canonicalInputs.diveAngleDeg)}°`);
   per("Release Alt", (r) => `${formatFt(r.profile.public.effectiveReleaseAltitudeMslFt)} ft`);
+  per("Tracking Time", (r) => `${formatSec(r.profile.public.trackingTimeSec)} s`);
+  per("Bomb TOF", (r) => `${formatSec(r.profile.public.bombTofSec)} s`);
   if (reference?.result) {
     rows.push({ label: `#${reference.number} IP to Impact Time · ${formatSec(reference.result.timing.offsetIpToReleaseSec + reference.result.profile.public.bombTofSec)} s`, color: colorOf(reference) });
   }

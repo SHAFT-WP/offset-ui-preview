@@ -169,6 +169,9 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
   .wide-focus-button { display:none; }
   .offset-wide.wide-focus .wide-inputs,
   .offset-wide.wide-focus .wide-review { display:flex; }
+  /* BDP tab (owner 2026-10-07, mobile): Target Elevation and Bomb on one row, #1 and followers. */
+  .offset-wide .wide-inputs .input-grid:has(> .field > [data-key="targetElevationMslFt"], > .field > [data-flight-readout="targetElevationMslFt"]) { grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr); }
+  .offset-wide .wide-inputs .input-grid:has(> .field > [data-key="targetElevationMslFt"], > .field > [data-flight-readout="targetElevationMslFt"]) > .field:has(> select) { grid-column:auto; }
 }
 @media print {
   .offset-wide .toolbar,.wide-footer,.wide-workspace-bar,.wide-inputs { display:none; }

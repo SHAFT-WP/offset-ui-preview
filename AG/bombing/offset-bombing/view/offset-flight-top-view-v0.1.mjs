@@ -4,9 +4,9 @@ import {
   finishOffsetTopViewFrame,
   offsetTopViewTitle,
   offsetTopViewWorldPoints,
-} from "./offset-top-view-v0.1.mjs?v=0.1.7";
-import { OFFSET_AIRCRAFT_PALETTES } from "./offset-view-style-v0.1.mjs?v=0.1.3";
-export { offsetAircraftColors, offsetFlightTopViewLegend } from "./offset-view-style-v0.1.mjs?v=0.1.3";
+} from "./offset-top-view-v0.1.mjs?v=0.1.8";
+import { OFFSET_AIRCRAFT_PALETTES } from "./offset-view-style-v0.1.mjs?v=0.1.4";
+export { offsetAircraftColors, offsetFlightTopViewLegend } from "./offset-view-style-v0.1.mjs?v=0.1.4";
 
 // Offset Flight Top View — aircraft #n drawn in one frame with its element lead (#1, or #3 for #4).
 // Formerly composed in the Offset FE controller (renderFollowerTopView); now BE-owned view logic
@@ -27,7 +27,8 @@ export const OFFSET_FLIGHT_TOP_VIEW_V0_1 = Object.freeze({
   // 0.1.5 (2026-10-05, user): renderOffsetCombinedTopView — one Offset Top View for the Flight,
   // drawing the aircraft chosen with the #1–#4 buttons in one frame fitted to all of them.
   // 0.1.6 (2026-10-06): Top View 0.1.7 token (same instance as the controller's).
-  version: "0.1.6",
+  // 0.1.7 (2026-10-07): Top View 0.1.8 / view style 0.1.4 tokens (MAP circle, legend timing rows).
+  version: "0.1.7",
   layers: Object.freeze(["offset-plot-lead-<n>", "offset-plot-companion-<k>", "offset-plot-<n>"]),
   combinedLayers: Object.freeze(["offset-plot-aircraft-<n>"]),
 });

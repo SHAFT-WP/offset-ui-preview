@@ -2,7 +2,7 @@
 // stay in the shared Offset controller; this module only places its live nodes (index UI handoff
 // 2026-10-06): left = Edit aircraft (one) + input tabs, centre = Offset Top View / BDP / SEM & Rejoin,
 // right = Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=ddb889f9342f";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=1db5f938f1f3";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
@@ -78,9 +78,10 @@ for (let n = 1; n <= 4; n += 1) {
 }
 const inputNav = make("nav", "wide-input-nav");
 inputNav.setAttribute("aria-label", "Input tabs");
-// Tab order (owner 2026-10-07): BDP, Offset, Reference (#1) / Formation (#2-#4), Save. Offset stays
-// the tab shown on first entry.
-const INPUT_TABS = [["bdp", "BDP"], ["offset", "Offset"], ["reference", "Reference"], ["save", "Save"]];
+// Tab order (owner 2026-10-07): BDP, Offset, Formation (#2-#4), Save. Offset stays the tab shown on
+// first entry. #1 has no third tab (owner 2026-10-07): its Reference Point (VRP / VIP, IP) sits on top
+// of the Offset tab, as on the standard page.
+const INPUT_TABS = [["bdp", "BDP"], ["offset", "Offset"], ["reference", "Formation"], ["save", "Save"]];
 for (const [key, label] of INPUT_TABS) {
   const tab = button("wide-input-button", label, { "data-wide-input": key, "aria-pressed": "false" });
   tab.addEventListener("click", () => chooseInput(key));
@@ -239,13 +240,19 @@ function pressed(nav, attribute, key) {
 function sectionAircraft(section) {
   return section.closest(".flight-slot") ? Number(section.closest(".flight-slot").dataset.aircraft) : 1;
 }
+// The tab a section belongs to: Formation shares the third tab; #1's Reference Point is in Offset.
+function sectionTab(section) {
+  if (section.dataset.tab === "formation") return "reference";
+  return section.dataset.tab === "reference" && sectionAircraft(section) === 1 ? "offset" : section.dataset.tab;
+}
 function chooseInput(key) {
+  // inputTab keeps the choice, so a follower's Formation tab comes back after visiting #1.
   inputTab = key;
-  pressed(inputNav, "data-wide-input", key);
+  const shownKey = key === "reference" && editAircraft === 1 ? "offset" : key;
+  pressed(inputNav, "data-wide-input", shownKey);
   const sections = [...leadInputs, ...followers.querySelectorAll(".flight-slot > .section[data-tab]")];
   for (const section of sections) {
-    const tab = section.dataset.tab === "formation" ? "reference" : section.dataset.tab;
-    section.hidden = key === "save" || sectionAircraft(section) !== editAircraft || tab !== key;
+    section.hidden = shownKey === "save" || sectionAircraft(section) !== editAircraft || sectionTab(section) !== shownKey;
   }
   if (saveSection) saveSection.hidden = key !== "save";
   inputScroll.scrollTop = 0;
@@ -258,7 +265,9 @@ function selectEditAircraft(number) {
     node.hidden = n > size;
     node.setAttribute("aria-pressed", String(n === editAircraft));
   }
-  inputNav.querySelector('[data-wide-input="reference"]').textContent = editAircraft === 1 ? "Reference" : "Formation";
+  const formationTab = inputNav.querySelector('[data-wide-input="reference"]');
+  formationTab.textContent = "Formation";
+  formationTab.hidden = editAircraft === 1;
   chooseInput(inputTab);
   syncStatus();
 }

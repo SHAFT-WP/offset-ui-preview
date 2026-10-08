@@ -13,7 +13,7 @@ import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.
 import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { offsetTimeline } from "./offset-time-path-v0.1.mjs";
 import { rollInAngleRangeText } from "../../bomb-delivery-planner/view/bdp-view-style-v0.1.mjs";
-import { formatHeadingDeg, OFFSET_PALETTE_COLORS, OFFSET_VIEW_COLORS, offsetTopViewLegend, offsetViewTitle } from "./offset-view-style-v0.1.mjs?v=0.1.3";
+import { formatHeadingDeg, OFFSET_PALETTE_COLORS, OFFSET_VIEW_COLORS, offsetTopViewLegend, offsetViewTitle } from "./offset-view-style-v0.1.mjs?v=0.1.4";
 
 // Offset Top View — Offset-owned view in the V2 unified view grammar (common/diagram/SPEC.md;
 // AG Offset SPEC owns the content; Offset FE SPEC "Top View").
@@ -42,7 +42,9 @@ export const OFFSET_TOP_VIEW_V0_1 = Object.freeze({
   // ("lead" | "follower") decides the drawing rules apart from the palette, so any aircraft can be the
   // base layer (Target marker, full label set) in its own colours.
   // 0.1.7 (2026-10-06, user): "Radius (EFF): 0.6 NM" on one line (value beside the name).
-  version: "0.1.7",
+  // 0.1.8 (2026-10-07, user): Advanced draws MAP as a dashed circle around the Target, labelled
+  // "MAP: 2.0 NM". It is not a fit point: the canvas keeps its size and the circle may be clipped.
+  version: "0.1.8",
   subject: "Offset",
   view: "Top View",
   canvas: Object.freeze({ width: 900, minHeight: 560, maxHeight: 1100, margins: 40 }),
@@ -282,6 +284,17 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
     }));
   }
 
+  // MAP (Track Point → Target ground range) as a dashed circle around the Target, Advanced only
+  // (user 2026-10-07). Not added to the fit, so turning Advanced on never resizes the canvas.
+  const mapNm = Number(result.profile?.public?.groundRangeNm);
+  const showMap = advanced && Number.isFinite(mapNm) && mapNm > 0 && p.target;
+  if (showMap) {
+    group.append(svgNode("circle", {
+      cx: p.target.x, cy: p.target.y, r: mapNm * frame.scale, fill: "none", stroke: C.attack,
+      "stroke-width": 1.8, "stroke-dasharray": "9 7", "data-top-view-role": "map-circle",
+    }));
+  }
+
   // IP limit (follower rule): when the Action Point is below the Flight IP (#1's IP), draw the limit
   // line through that IP across the Run-In so the violation is visible.
   const ipLimit = options.ipLimit;
@@ -413,6 +426,21 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
     if (followerDetail || !sameAttackAsLead) {
       appendLabel(frame.project(add(geometry.points.trackPoint, mul(sub(geometry.points.target, geometry.points.trackPoint), 0.5))), "Attack Heading", {
         key: "attack", color: C.attackText, detail: formatHeadingDeg(geometry.attackHeadingDeg),
+      });
+    }
+    if (showMap) {
+      // On the circle, beside the Target, on the side away from the Roll-in; the other side, then
+      // beyond the Target, when that spot is off the canvas.
+      const target = geometry.points.target;
+      const toTrack = sub(geometry.points.trackPoint, target);
+      const unit = len(toTrack) > 0 ? mul(toTrack, 1 / len(toTrack)) : { x: 0, y: 1 };
+      const normal = { x: -unit.y, y: unit.x };
+      const side = normal.x * (geometry.points.rollStart.x - target.x) + normal.y * (geometry.points.rollStart.y - target.y) > 0 ? -1 : 1;
+      const inside = (point) => point.x >= 0 && point.x <= frame.width && point.y >= 0 && point.y <= frame.height;
+      const spot = [mul(normal, side), mul(normal, -side), mul(unit, -1)]
+        .map((direction) => frame.project(add(target, mul(direction, mapNm)))).find(inside);
+      if (spot) appendLabel(spot, `MAP: ${formatNm(mapNm)} NM`, {
+        key: "map", color: C.attackText, textAttributes: { "data-top-view-role": "map-label" },
       });
     }
     if (advanced) {

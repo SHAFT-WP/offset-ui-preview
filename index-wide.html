@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=ddb889f9342f">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=ddb889f9342f">
-<link rel="stylesheet" href="./wide-layout.css?v=ddb889f9342f">
+<link rel="stylesheet" href="./offset.css?v=1db5f938f1f3">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=1db5f938f1f3">
+<link rel="stylesheet" href="./wide-layout.css?v=1db5f938f1f3">
 </head>
 <body class="offset-wide">
 <main class="app" id="offset-calculator">
@@ -75,8 +75,9 @@
       </div>
     </div>
 
-    <details class="input-panel reference-advanced advanced-only">
-      <summary id="reference-advanced-title">IP · Advanced</summary>
+    <!-- IP is shown without Advanced on this page (owner 2026-10-07: "VRP, VIP 선택 및 IP 설정 복원"). -->
+    <details class="input-panel reference-advanced" open>
+      <summary id="reference-advanced-title">IP Settings</summary>
       <div class="input-panel-body reference-advanced-body">
         <div id="ip-pane" class="mode-pane">
           <div class="lock-title"><div class="offset-title">IP</div><button id="ip-lock-btn" class="lock-button" type="button" data-lock-key="ipReference" aria-label="Lock IP" aria-pressed="false">LOCK</button></div>
@@ -230,7 +231,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=ddb889f9342f"></script>
+<script type="module" src="./wide-layout.mjs?v=1db5f938f1f3"></script>
 
 </body>
 </html>
