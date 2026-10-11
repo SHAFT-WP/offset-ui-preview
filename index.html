@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=6083b50cb44f">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=6083b50cb44f">
-<link rel="stylesheet" href="./wide-layout.css?v=6083b50cb44f">
+<link rel="stylesheet" href="./offset.css?v=195cede6c484">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=195cede6c484">
+<link rel="stylesheet" href="./wide-layout.css?v=195cede6c484">
 </head>
 <body class="offset-wide">
 <main class="app" id="offset-calculator">
@@ -135,14 +135,15 @@
     <div id="constraint-message" class="status-message valid">-</div>
   </section>
 
-  <!-- Save tab (handoff 2026-10-06 §3): the whole Flight, in this browser. Save as Default appears only
-       after the developer command (7777 committed in Initial Altitude) for this page session. -->
+  <!-- Save/Load tab (handoff 2026-10-06 §3; renamed and made Save-only storage 2026-10-11, user): the
+       whole Flight, in this browser. Save as Default appears only after the developer command (7777
+       committed in Initial Altitude) for this page session. -->
   <section class="section save-section" data-tab="save" aria-labelledby="save-title">
-    <div class="section-head"><h2 id="save-title">Save</h2></div>
-    <p class="flight-draft-note">Save keeps every aircraft's inputs, LOCK / LINK / AUTO and the Flight size in this browser. Default restores the whole Flight to the current Default; each input tab's own Default restores only that tab.</p>
+    <div class="section-head"><h2 id="save-title">Save/Load</h2></div>
+    <p class="flight-draft-note">Save keeps every aircraft's (#1–#4) BDP and Offset inputs, LOCK / LINK / AUTO and the Flight size in this browser. A reload or a newly opened page loads the last Save; changes made after it are not kept until you press Save again. Load Default loads the Default conditions (not saved until Save); each input tab's own Default restores only that tab.</p>
     <div class="save-actions">
       <button class="btn" id="work-save" type="button">Save</button>
-      <button class="btn" id="work-default" type="button">Default</button>
+      <button class="btn" id="work-default" type="button">Load Default</button>
     </div>
     <div class="save-developer" id="save-developer" hidden>
       <span class="save-developer-label">Developer</span>
@@ -231,7 +232,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=6083b50cb44f"></script>
+<script type="module" src="./wide-layout.mjs?v=195cede6c484"></script>
 
 </body>
 </html>

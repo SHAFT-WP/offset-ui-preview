@@ -911,7 +911,6 @@ function calculate() {
     lastResultSnapshot = null;
     recalculateFollowers();
   }
-  if (persistenceReady) savePersistedState();
 }
 
 // Placeholder drawn in a view whose solve failed (no stale geometry is left on screen).
@@ -1223,10 +1222,10 @@ function installReferenceBearingControls() {
     syncIpBearingInput(canonical, { includeActive: true });
   };
 
-  $("#vip-to-target-btn").addEventListener("click", () => { setVipDirection("TO_TARGET"); savePersistedState(); });
-  $("#vip-from-target-btn").addEventListener("click", () => { setVipDirection("FROM_TARGET"); savePersistedState(); });
-  $("#ip-to-target-btn").addEventListener("click", () => { setIpDirection("TO_TARGET"); savePersistedState(); });
-  $("#ip-from-target-btn").addEventListener("click", () => { setIpDirection("FROM_TARGET"); savePersistedState(); });
+  $("#vip-to-target-btn").addEventListener("click", () => setVipDirection("TO_TARGET"));
+  $("#vip-from-target-btn").addEventListener("click", () => setVipDirection("FROM_TARGET"));
+  $("#ip-to-target-btn").addEventListener("click", () => setIpDirection("TO_TARGET"));
+  $("#ip-from-target-btn").addEventListener("click", () => setIpDirection("FROM_TARGET"));
 
   vipBearingInput.addEventListener("input", handleVipBearingInput);
   vipBearingInput.addEventListener("blur", () => syncVipBearingInput(readVipToTargetBearing(), { includeActive: true }));
@@ -1271,15 +1270,21 @@ function populateWeapons() {
 
 function capturePersistedState() {
   const inputs = {};
+  // Display text of a field that holds a rounded solved value (inputs keep the full value), so a
+  // restored save shows the same rounded text with the full value behind it (2026-10-11).
+  const inputTexts = {};
   $$("[data-key]").forEach((control) => {
     const key = control.dataset.key;
     if (!key || control.id === "ip-bearing-input" || Object.prototype.hasOwnProperty.call(inputs, key)) return;
     const solved = solvedInputValues.get(key);
-    inputs[key] = solved && valuesEquivalent(control.value, solved.text) ? String(solved.value) : control.value;
+    const useSolved = solved && valuesEquivalent(control.value, solved.text);
+    inputs[key] = useSolved ? String(solved.value) : control.value;
+    if (useSolved && control.value !== inputs[key]) inputTexts[key] = control.value;
   });
   return {
     version: 3,
     inputs,
+    inputTexts,
     vrpBearingInput: $("#vrp-bearing-input")?.value ?? "",
     vipBearingInput: $("#vip-bearing-input")?.value ?? "",
     vipRangeInput: $("#vip-range-input")?.value ?? "",
@@ -1355,6 +1360,17 @@ function applyPersistedState(saved) {
   delete saved.locks.offsetRangeNm;
   Object.entries(saved.inputs ?? {}).forEach(([key, next]) => {
     if (firstField(key)) setValue(key, next, { includeActive: true });
+  });
+  // Rounded display text over the saved full value (see capturePersistedState).
+  Object.entries(saved.inputTexts && typeof saved.inputTexts === "object" ? saved.inputTexts : {}).forEach(([key, text]) => {
+    const full = Number.parseFloat(saved.inputs[key]);
+    if (!firstField(key) || typeof text !== "string" || !Number.isFinite(full) || !Number.isFinite(Number.parseFloat(text))) return;
+    // Only a rounding of that full value (a stale text over a changed value is ignored).
+    const decimals = (text.split(".")[1] ?? "").length;
+    if (Math.abs(Number.parseFloat(text) - full) > 0.5 * 10 ** -decimals + 1e-9) return;
+    // Equal values in another spelling (035 vs 35) are skipped by setValue: write the text itself.
+    if (!setValue(key, text, { includeActive: true })) fields(key).forEach((field) => { field.value = text; });
+    solvedInputValues.set(key, { text, value: full });
   });
 
   if ($("#vrp-bearing-input") && typeof saved.vrpBearingInput === "string") $("#vrp-bearing-input").value = saved.vrpBearingInput;
@@ -1573,8 +1589,8 @@ function installSectionTools(root = document) {
         });
       } else if (tool === "save") {
         make(tool, "Save").addEventListener("click", (event) => {
-          savePersistedState();
-          saveFlightLayout();
+          commitActiveEdit();
+          saveWorkState();
           flashSaved(event.currentTarget);
         });
       } else if (tool === "default") {
@@ -1603,7 +1619,11 @@ function resetLeadTab(tab, section) {
   const owns = (key) => !!section.querySelector(`[data-key="${key}"]:not(#ip-bearing-input)`);
   section.querySelectorAll("[data-key]").forEach((control) => {
     const key = control.dataset.key;
-    if (control.id !== "ip-bearing-input" && Object.hasOwn(defaults.inputs, key)) current.inputs[key] = defaults.inputs[key];
+    if (control.id !== "ip-bearing-input" && Object.hasOwn(defaults.inputs, key)) {
+      current.inputs[key] = defaults.inputs[key];
+      if (Object.hasOwn(defaults.inputTexts ?? {}, key)) current.inputTexts[key] = defaults.inputTexts[key];
+      else delete current.inputTexts[key];
+    }
   });
   section.querySelectorAll("[data-lock-key]").forEach((button) => { current.locks[button.dataset.lockKey] = defaults.locks?.[button.dataset.lockKey] === true; });
   if (owns("initialAltitudeMslFt")) {
@@ -1627,7 +1647,6 @@ function resetLeadTab(tab, section) {
   if (rollBankAuto) applyAutomaticRollBank("default");
   section.querySelectorAll(".value-dependent-input").forEach((node) => node.classList.remove("value-dependent-input"));
   calculate();
-  savePersistedState();
 }
 
 // Follower tab Default: the draft keys of the fields this tab holds (plus the solve mode and entered
@@ -1647,7 +1666,6 @@ function resetFollowerTab(number, tab, section = null) {
   });
   const slot = document.querySelector(`.flight-slot[data-aircraft="${number}"]`);
   if (slot) initializeFlightSlotFields(slot, number);
-  saveFlightLayout();
   if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) recalculateFollowers(number);
 }
 
@@ -1938,7 +1956,6 @@ function installFlightLayout() {
     flightLayout.size = Math.max(1, Math.min(4, Number(event.target.value) || 1));
     pruneVisibleAircraft();
     renderFlightLayout();
-    saveFlightLayout();
   });
   const flightSlotNumber = (node) => {
     const number = Number(node?.closest?.(".flight-slot")?.dataset.aircraft);
@@ -1995,7 +2012,6 @@ function installFlightLayout() {
     // Same rule as #1's handleFieldChange: only tactical Offset edits become the driver; BDP
     // edits keep the last tactical constraint so the unlocked geometry re-solves around it.
     if (FLIGHT_TACTICAL_DRIVERS.includes(key)) draft.driver = key;
-    saveFlightLayout();
     // Later aircraft depend on this one (drop-order predecessor, #4 on #3).
     if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) recalculateFollowers(number);
   };
@@ -2034,7 +2050,6 @@ function installFlightLayout() {
         if (excludedButton) syncFlightToggleButton(excludedButton, false);
       });
     }
-    saveFlightLayout();
     // Later aircraft depend on this one (drop-order predecessor, #4 on #3).
     if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) recalculateFollowers(number);
   });
@@ -2080,7 +2095,6 @@ function fillEmptyFollowerField(number, field, key) {
   const solvedKey = `${number}:${key}`;
   if (start?.solved && start.solved.text === text) followerSolvedValues.set(solvedKey, start.solved);
   else followerSolvedValues.delete(solvedKey);
-  saveFlightLayout();
   if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) recalculateFollowers(number);
   // The field is still focused, which the normal solved-value sync skips: write it here.
   const derived = followerDerivedFieldText(key, flightResults.get(number));
@@ -2089,7 +2103,6 @@ function fillEmptyFollowerField(number, field, key) {
     field.value = derived.text;
     draft[key] = derived.text;
     followerSolvedValues.set(solvedKey, derived);
-    saveFlightLayout();
   }
 }
 
@@ -2689,9 +2702,11 @@ document.addEventListener("click", (event) => {
   exportDedPng(key === "visible" ? offsetIndexUi.visibleAircraft() : [Number(key)]);
 });
 
-// ---- Save / Default / developer Save as Default (handoff 2026-10-06 §3) -------------------------
+// ---- Save / Load Default / developer Save as Default (handoff 2026-10-06 §3) --------------------
 // Work save: the existing #1 record (STORAGE_KEY, version 4) and Flight record (FLIGHT_LAYOUT_KEY),
-// kept for Standard and earlier saves; Save writes both and reads both back. Developer preset:
+// kept for Standard and earlier saves; Save writes both and reads both back. Since 2026-10-11 (user)
+// nothing else writes them: edits, tab Defaults and Load Default stay unsaved until Save, and a
+// reload or a newly opened page loads the last Save. Developer preset:
 // PRESET_KEY, its own schemaVersion, read by every Default; built-in defaults when absent.
 let presetCache = { raw: undefined, value: null };
 const NON_NUMERIC_INPUTS = new Set(["weaponId", "initialSpeedMode", "offsetSpeedMode"]);
@@ -2777,8 +2792,9 @@ function saveDefaultPreset() {
   return { ok: true, message: "Saved as Default" };
 }
 
-// Save tab Default: every aircraft and the shared settings from the current defaults; the Flight size
-// too when a developer preset holds one (built-in defaults keep the current size).
+// Save/Load tab Load Default: every aircraft and the shared settings from the current defaults; the
+// Flight size too when a developer preset holds one (built-in defaults keep the current size). It
+// does not touch the saved conditions: only Save writes browser storage (2026-10-11, user).
 function applyFlightDefaults() {
   const preset = readDefaultPreset();
   applyPersistedState(createDefaultPersistedState());
@@ -2790,7 +2806,6 @@ function applyFlightDefaults() {
   pruneVisibleAircraft();
   renderFlightLayout();
   calculate();
-  return saveWorkState();
 }
 
 // Developer mode (temporary, §3.3): typing 7777 into the edited aircraft's Initial Altitude and
@@ -2829,7 +2844,6 @@ function restoreEditSnapshot(snapshot) {
   document.querySelectorAll("#flight-followers .flight-slot").forEach((slot) => initializeFlightSlotFields(slot, Number(slot.dataset.aircraft)));
   clearPendingInputStates();
   calculate();
-  saveFlightLayout();
 }
 function rememberDeveloperEditStart(field) {
   if (developerCommandAvailable()) developerEditStart = { field, snapshot: captureEditSnapshot() };
@@ -2868,10 +2882,11 @@ function installSaveTab() {
     const ok = saveWorkState();
     renderSaveStatus(ok ? `Saved · Flight of ${flightLayout.size} · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Save failed · browser storage unavailable; inputs stay usable", ok ? "valid" : "invalid");
   });
+  // Load Default (2026-10-11, user): loads the Default conditions; nothing is stored until Save.
   $("#work-default").addEventListener("click", () => {
     commitActiveEdit();
-    const ok = applyFlightDefaults();
-    renderSaveStatus(`${readDefaultPreset() ? "Developer preset" : "Built-in Default"} applied${ok ? "" : " · save failed"}`, ok ? "valid" : "invalid");
+    applyFlightDefaults();
+    renderSaveStatus(`${readDefaultPreset() ? "Developer preset" : "Built-in Default"} loaded · press Save to keep it`, "valid");
   });
   $("#save-as-default").addEventListener("click", () => {
     if (!developerMode) return;
