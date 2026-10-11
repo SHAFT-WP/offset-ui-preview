@@ -191,8 +191,10 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
    Owner 2026-10-07 ("빨간 박스 말고 글자 크기들 다 1.5배"): that UI scale goes from 50% to 75%
    (1.5x); the diagrams, their legends and the Result values stay as they were. The input column
    widths grow by the same 1.5x. */
+/* Owner 2026-10-11: the input column is as wide as the review (Result) column on PC; the centre
+   diagram column gives up the difference. */
 @media(min-width:761px) {
-  body.offset-wide { --wide-input-width:300px; }
+  body.offset-wide { --wide-input-width:var(--wide-review-width); }
   .offset-wide .topbar,
   .offset-wide .wide-workspace-bar,
   .offset-wide .wide-inputs,
@@ -214,12 +216,6 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
   .offset-wide .topbar { margin-bottom:7px; }
   .offset-wide .wide-workspace-bar { margin-bottom:6px; }
   .offset-wide .wide-map-section > .section-head { margin-bottom:5px; }
-}
-@media(min-width:1100px) and (max-width:1599px) {
-  body.offset-wide { --wide-input-width:270px; }
-}
-@media(min-width:2300px) {
-  body.offset-wide { --wide-input-width:330px; }
 }
 @media(min-width:761px) and (max-width:1099px) {
   .offset-wide .wide-workspace { grid-template-columns:270px minmax(0,1fr); }
