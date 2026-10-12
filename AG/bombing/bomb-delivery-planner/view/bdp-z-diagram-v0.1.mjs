@@ -1,5 +1,5 @@
 import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.12";
-import { formatDeg, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
+import { formatDeg, formatNm, formatSec, formatSecTenths } from "../../../../common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { getWeaponById } from "../weapon-data-v0.1.mjs";
 
 const FT_PER_NM = 6076.11549;
@@ -10,7 +10,9 @@ export const BDP_Z_DIAGRAM_V0_1 = Object.freeze({
   // 0.1.4 (2026-10-01): two-column lower block (bdpZLowerColumns) on Common Z 0.1.9.
   // 0.1.5 (2026-10-01, user): upper group reads Roll-in Range; MAP takes the lower Roll-in Range row.
   // 0.1.6 (2026-10-03, user): Roll-in Angle Off heads the upper Roll-in group (Common Z 0.1.11).
-  version: "0.1.6",
+  // 0.1.7 (2026-10-12, user): bdpZLowerColumns option trackingTimeTenths (Offset shows Tracking Time
+  // in 0.1 s; the BDP page keeps whole seconds).
+  version: "0.1.7",
   oracle: "Bomb Profile REV.1.9 · R_20260830",
   baseRenderer: "common/diagram/z-diagram/z-diagram-v0.1.mjs",
 });
@@ -74,8 +76,8 @@ export function buildBdpZDiagramData(result) {
 // BDP lower block (user layout 2026-10-01), two columns. Left: Angle Off, Attack Heading (only
 // when the host has one; the standalone BDP has no Attack Heading input), Roll-in Lead Angle,
 // MAP (user 2026-10-01: Roll-in Range is the upper-right group). Right: Tracking Time, Bomb TOF.
-// Offset builds on these lists.
-export function bdpZLowerColumns(result, { attackHeadingText = null } = {}) {
+// Offset builds on these lists; `trackingTimeTenths` shows Tracking Time in 0.1 s (Offset, 2026-10-12).
+export function bdpZLowerColumns(result, { attackHeadingText = null, trackingTimeTenths = false } = {}) {
   const p = result.public;
   return {
     left: [
@@ -85,7 +87,7 @@ export function bdpZLowerColumns(result, { attackHeadingText = null } = {}) {
       { label: "MAP", value: `${formatNm(p.groundRangeNm)} NM` },
     ],
     right: [
-      { label: "Tracking Time", value: `${formatSec(p.trackingTimeSec)} s` },
+      { label: "Tracking Time", value: `${(trackingTimeTenths ? formatSecTenths : formatSec)(p.trackingTimeSec)} s` },
       { label: "Bomb TOF", value: `${formatSec(p.bombTofSec)} s` },
     ],
   };

@@ -1,4 +1,4 @@
-import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSignedSec, truncateBeOutput } from "./common/ui/display-precision-v0.1.mjs";
+import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSecTenths, formatSignedSec, truncateBeOutput } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
 import { formationPositionMarkup, installFormationSideSelects } from "./common/ui/formation-position-v0.1.mjs";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
@@ -9,9 +9,9 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // The BE runs in a Worker (offset-flight-worker-v0.1.mjs); calculation-client-v0.1.mjs decides when a
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
-import { OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=2026-10-12c";
+import { OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=2026-10-12d";
 import { createCalculationScheduler, createWorkerTransport } from "./calculation-client-v0.1.mjs?v=0.1.0";
-const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.0", import.meta.url);
+const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.1", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -21,10 +21,10 @@ import { createValueStateController } from "./common/ui/value-state-controller-v
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
-import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.8";
-import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.7";
+import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.9";
+import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.8";
 import { offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.0";
-import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.7";
+import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.8";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.6.0";
 
@@ -57,7 +57,7 @@ const LEAD_DRIVERS = new Set(["vrpRangeNm", "actionRangeNm", "runInHeadingDeg", 
 const LEAD_TURN_DRIVERS = new Set(["offsetG", "offsetBankDeg", "offsetRadiusNm"]);
 // Follower driver keys a stored draft may carry ("Angle #n" / "Time #n" toggles, their exclusivity
 // with the LOCKs and the both-fixed Roll-in Altitude / Tracking Time solve are the BE's).
-const FLIGHT_TACTICAL_DRIVERS = ["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm"];
+const FLIGHT_TACTICAL_DRIVERS = ["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "approachRangeNm"];
 const DEFAULT_INPUT_VALUES = Object.freeze({
   weaponId: "M82",
   targetElevationMslFt: "31",
@@ -158,7 +158,9 @@ const setValue = (key, next, { includeActive = false } = {}) => {
   const nextText = String(next);
   const active = document.activeElement;
   const targets = fields(key);
-  const changed = targets.some((field) => (includeActive || field !== active) && !valuesEquivalent(field.value, nextText));
+  // Tracking Time compares as text, so a committed "12" is rewritten as "12.0" (0.1 s display).
+  const same = key === "trackingTimeSec" ? (a, b) => String(a) === String(b) : valuesEquivalent;
+  const changed = targets.some((field) => (includeActive || field !== active) && !same(field.value, nextText));
   if (!changed) return false;
 
   if (key === "runInHeadingDeg") {
@@ -274,14 +276,16 @@ function setDirectionButtons(prefix, direction) {
 // plus the raw edit event; the BE decides every consequence and returns the next state, which is
 // written back here (display text with the Full value behind it) without any further rule.
 const LEAD_VALUE_KEYS = Object.keys(DEFAULT_INPUT_VALUES);
-// Display digits of fields a solve writes back (docs/TERMINOLOGY.md): angles and ft / sec integer,
-// NM and G one decimal; the Full value stays behind the text (solvedInputValues / draft.solved).
-const FIELD_DISPLAY_DIGITS = Object.freeze({ attackHeadingDeg: 0, angleOffDeg: 0, offsetAngleDeg: 0, actionRangeNm: 1, approachRangeNm: 1, ipRangeNm: 1, vrpRangeNm: 1, offsetG: 1, offsetBankDeg: 0, offsetRadiusNm: 1, trackingTimeSec: 0, rollInAltitudeMslFt: 0, initialAltitudeMslFt: 0, releaseAltitudeMslFt: 0, rollInBankAngleDeg: 0, rollInG: 1 });
+// Display digits of fields a solve writes back (docs/TERMINOLOGY.md): angles and ft integer, NM and G
+// one decimal, Tracking Time one decimal (user 2026-10-12; entered in 0.1 s); the Full value stays
+// behind the text (solvedInputValues / draft.solved).
+const FIELD_DISPLAY_DIGITS = Object.freeze({ attackHeadingDeg: 0, angleOffDeg: 0, offsetAngleDeg: 0, actionRangeNm: 1, approachRangeNm: 1, ipRangeNm: 1, vrpRangeNm: 1, offsetG: 1, offsetBankDeg: 0, offsetRadiusNm: 1, trackingTimeSec: 1, rollInAltitudeMslFt: 0, initialAltitudeMslFt: 0, releaseAltitudeMslFt: 0, rollInBankAngleDeg: 0, rollInG: 1 });
 function fieldDisplayText(key, value) {
   if (key === "runInHeadingDeg") return formatBearingInput(value);
   return Object.hasOwn(FIELD_DISPLAY_DIGITS, key) ? value.toFixed(FIELD_DISPLAY_DIGITS[key]) : String(value);
 }
 const sameStateValue = (a, b) => Object.is(a, b);
+const REFORMAT_ON_COMMIT = new Set(["runInHeadingDeg", "trackingTimeSec"]);
 
 function collectLeadRecord() {
   const values = Object.fromEntries(LEAD_VALUE_KEYS.map((key) => [key, readFieldValue(key)]));
@@ -349,7 +353,8 @@ function applyLeadState(lead, sentLead, activeKey, commit) {
     const value = lead.values[key];
     const own = key === activeKey;
     if (typeof value !== "number") continue;
-    if (sameStateValue(value, sentLead.values[key]) && !(commit && own && key === "runInHeadingDeg")) continue;
+    // A committed Run-In Heading / Tracking Time is rewritten in its display format ("030", "18.0").
+    if (sameStateValue(value, sentLead.values[key]) && !(commit && own && REFORMAT_ON_COMMIT.has(key))) continue;
     const text = fieldDisplayText(key, value);
     setAutoValue(key, text, activeKey, { includeActive: commit && own });
     if (valuesEquivalent(firstField(key)?.value, text)) solvedInputValues.set(key, { text, value });
@@ -422,7 +427,7 @@ function profileResultRows(result, { keyed = true } = {}) {
     r("Effective Release Altitude", `${formatFt(p.effectiveReleaseAltitudeMslFt)} ft MSL`, "effectiveReleaseAltitudeMslFt"),
     r("Roll-In Altitude", `${formatFt(p.resolvedInitialAltitudeMslFt)} ft MSL`, "resolvedInitialAltitudeMslFt"),
     r("Track Point Altitude", `${formatFt(p.trackPointAltitudeMslFt)} ft MSL`, "trackPointAltitudeMslFt"),
-    r("Tracking Time", `${formatSec(p.trackingTimeSec)} sec`, "trackingTimeSecResult"),
+    r("Tracking Time", `${formatSecTenths(p.trackingTimeSec)} sec`, "trackingTimeSecResult"),
     r("Roll-in Range", `${formatNm(p.rollInRangeNm)} NM`, "rollInRangeNm"),
     r("Ground Range", `${formatNm(p.groundRangeNm)} NM`, "groundRangeNm"),
     r("Roll-in Radius", `${formatNm(p.rollInRadiusNm)} NM`, "rollInRadiusNm"),
@@ -460,6 +465,38 @@ function renderStatus(result) {
   if (!parts.length) parts.push("VALID");
   message.textContent = parts.join("  ");
   message.className = `status-message ${result.state.toLowerCase()}`;
+  markInvalidFields(1, result.state === "INVALID" ? result.errors : []);
+}
+
+// INVALID input titles (2026-10-12, user): the title above each input an INVALID message names turns
+// red (names as the BE writes them, e.g. "LOCK conflict: Offset Angle …"). When the message names
+// no input, the input edited last on that aircraft is marked instead (#2–#4: only when the message
+// is not about another aircraft, e.g. "#1 has no result"). Cleared by the next VALID / WARNING result.
+const INVALID_FIELD_NAMES = {
+  runInHeadingDeg: ["run-in heading"], angleOffDeg: ["angle-off", "angle off"], attackHeadingDeg: ["attack heading"],
+  offsetAngleDeg: ["offset angle", "angle #"], actionRangeNm: ["action range", "action point", "time #"], approachRangeNm: ["approach range"],
+  vrpRangeNm: ["vrp range", "vrp would"], ipRangeNm: ["ip range", "flight ip", "ip bearing"],
+  offsetG: ["offset g "], offsetBankDeg: ["offset bank"], offsetRadiusNm: ["offset radius"], offsetSpeedValue: ["offset speed"],
+  initialAltitudeMslFt: ["initial altitude"], rollInAltitudeMslFt: ["roll-in altitude"], diveAngleDeg: ["dive angle"],
+  trackingTimeSec: ["tracking time"], releaseAltitudeMslFt: ["release altitude"], releaseSpeedKcas: ["release speed"],
+  distanceNm: ["distancenm"], bearingDeg: ["relativebearingdeg"],
+};
+const lastEditedField = new Map();
+function markInvalidFields(number, messages) {
+  const scope = number === 1 ? document.querySelector("#offset-calculator") : document.querySelector(`.flight-slot[data-aircraft="${number}"]`);
+  if (!scope) return;
+  const attr = number === 1 ? "data-key" : "data-flight-field";
+  const labelsOf = (key) => [...scope.querySelectorAll(`[${attr}="${key}"]`)]
+    .filter((node) => node.id !== "ip-bearing-input" && (number !== 1 || !node.closest(".flight-slot")))
+    .map((node) => node.closest("label")).filter(Boolean);
+  scope.querySelectorAll("label.input-invalid").forEach((label) => {
+    if (number !== 1 || !label.closest(".flight-slot")) label.classList.remove("input-invalid");
+  });
+  const text = ` ${messages.filter(Boolean).join(" / ").toLowerCase()} `;
+  if (!text.trim()) return;
+  const keys = Object.entries(INVALID_FIELD_NAMES).filter(([, names]) => names.some((name) => text.includes(name))).map(([key]) => key);
+  if (!keys.length && lastEditedField.has(number) && (number === 1 || !/#\d/.test(text))) keys.push(lastEditedField.get(number));
+  keys.forEach((key) => labelsOf(key).forEach((label) => label.classList.add("input-invalid")));
 }
 
 // DED pages come from the BE (aircraftResults[n].ded: bearing, range in NM and ft, elevation);
@@ -860,6 +897,7 @@ function renderLead(entry) {
   const message = $("#constraint-message");
   message.textContent = `INVALID · ${errorMessage}`;
   message.className = "status-message invalid";
+  markInvalidFields(1, [errorMessage]);
   const pill = $("#state-pill");
   pill.textContent = "INVALID";
   pill.className = "status bad";
@@ -960,6 +998,7 @@ function handleFieldChange(event) {
   }
   syncDuplicates(field);
   const key = field.dataset.key;
+  lastEditedField.set(1, key);
   dropSolvedIfEdited(solvedInputValues, key, field.value);
   // previousValue: this field's value in the state last returned (the IP link no-op commit).
   const edit = { aircraft: 1, kind: "set", key, commit: event.type !== "input", previousValue: lastLeadState?.values?.[key] ?? null };
@@ -1509,11 +1548,13 @@ function resetFollowerTab(number, tab, section = null) {
 // (#2 / #3: #1, #4: #3; Roll-in Bank: automatic from this aircraft's own Dive Angle), shown as the
 // placeholder; the BE resolves it (AG SPEC "Flight entrypoint").
 const FOLLOWER_BDP_EXTRA_KEYS = ["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInBankAngleDeg", "rollInG"];
+// Follower LOCKs and element-lead options (BE options; same LOCK fields as #1 since 2026-10-12).
+const FOLLOWER_LOCK_OPTIONS = ["offsetAngleLocked", "sameAngleAsLead", "actionRangeLocked", "sameTimeAsLead", "rollInAltitudeLocked", "attackHeadingLocked", "angleOffLocked", "approachRangeLocked", "diveAngleLocked"];
 // Per-tab keys reset by that tab's Default (follower aircraft).
 const FOLLOWER_TAB_KEYS = {
   formation: ["side", "bearingDeg", "distanceNm"],
-  bdp: ["weaponId", "initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "rollInAltitudeLinked", "diveAngleDeg", "trackingTimeSec", "solveMode", "enteredTrackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas", ...FOLLOWER_BDP_EXTRA_KEYS],
-  offset: ["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "offsetAngleLocked", "sameAngleAsLead", "actionRangeLocked", "sameTimeAsLead", "rollInAltitudeLocked", "driver"],
+  bdp: ["weaponId", "initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "rollInAltitudeLinked", "diveAngleDeg", "diveAngleLocked", "trackingTimeSec", "solveMode", "enteredTrackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas", ...FOLLOWER_BDP_EXTRA_KEYS],
+  offset: ["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "approachRangeNm", ...FOLLOWER_LOCK_OPTIONS, "driver"],
 };
 
 // Default 4-ship positions (fingertip): #2 left of #1, #3 right of #1 at 2 NM, #4 right of #3.
@@ -1533,13 +1574,13 @@ function factoryFlightDraft(number = 2) {
     weaponId: "M82", side: position.side, bearingDeg: "90", distanceNm: position.distanceNm,
     initialSpeedValue: "350", initialAltitudeMslFt: "16000", diveAngleDeg: "45",
     rollInAltitudeMslFt: "16000", rollInAltitudeLinked: true,
-    trackingTimeSec: "18", solveMode: "height", enteredTrackingTimeSec: "18", releaseAltitudeMslFt: "6800", releaseSpeedKcas: "450",
+    trackingTimeSec: "18.0", solveMode: "height", enteredTrackingTimeSec: "18", releaseAltitudeMslFt: "6800", releaseSpeedKcas: "450",
     ...Object.fromEntries(FOLLOWER_BDP_EXTRA_KEYS.map((key) => [key, ""])),
     attackHeadingDeg: "030", angleOffDeg: "70",
-    offsetAngleDeg: "40", actionRangeNm: "7.0",
+    offsetAngleDeg: "40", actionRangeNm: "7.0", approachRangeNm: "",
     offsetAngleLocked: false, sameAngleAsLead: true,
     actionRangeLocked: false, sameTimeAsLead: false,
-    rollInAltitudeLocked: false,
+    rollInAltitudeLocked: false, attackHeadingLocked: false, angleOffLocked: false, approachRangeLocked: false, diveAngleLocked: false,
     driver: "actionRangeNm",
     // Full values behind fields that show a rounded solved value ({ key: { text, value } }).
     solved: {},
@@ -1572,9 +1613,14 @@ function flightResultFullOf(number) {
   return number === 1 ? lastResultFull : flightResultsFull.get(number) ?? null;
 }
 
+// Save also keeps what the index shows (2026-10-12, user: Save is the whole Offset page, #1–#4):
+// the Top View #1–#4 set and the edited aircraft come back with the saved conditions.
+let editAircraftOf = () => 1;
+let loadedSave = null;
 function saveFlightLayout() {
   try {
-    localStorage.setItem(FLIGHT_LAYOUT_KEY, JSON.stringify({ schemaVersion: FLIGHT_LAYOUT_SCHEMA_VERSION, ...flightLayout }));
+    const view = { shownAircraft: [...topViewAircraft].sort(), editAircraft: editAircraftOf() };
+    localStorage.setItem(FLIGHT_LAYOUT_KEY, JSON.stringify({ schemaVersion: FLIGHT_LAYOUT_SCHEMA_VERSION, ...flightLayout, view, savedAt: new Date().toISOString() }));
     return true;
   } catch {
     // The UI remains usable when browser storage is unavailable.
@@ -1593,7 +1639,7 @@ function flightSection(number, title, content, { calculating = false, tab = "", 
 function followerExtraField(key, label, { always = false } = {}) {
   const className = always ? "field" : "field advanced-only bdp-extra";
   const tag = always ? "" : ` <span class="adv-tag">ADV</span>`;
-  return `<label class="${className}"><span>${label}${tag}</span><input data-flight-field="${key}" type="text" inputmode="decimal"></label>`;
+  return `<label class="${className}"><span>${label}${tag}</span><input data-flight-field="${key}" type="text" inputmode="decimal"><span class="unit" data-follow-note></span></label>`;
 }
 
 // Same Text / Size / Reset / PNG / Advanced toolbar as Top View #1, scoped to one follower.
@@ -1625,16 +1671,18 @@ function followerCalculatingMarkup(number) {
     initialSpeed: `<label class="field"><span>Initial Speed (KCAS)</span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"></label>`,
     initialAltitude: `<label class="field"><span class="lock-title"><span>Initial Altitude (ft MSL)</span><button class="lock-button" type="button" data-flight-field="rollInAltitudeLinked" aria-label="Link Initial Altitude to Roll-in Altitude" aria-pressed="true">LINKED</button></span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"><span class="unit" data-initial-link-note>Linked to Roll-in Altitude</span></label>`,
     rollInAltitude: `<label class="field"><span>Roll-in Altitude (ft MSL)</span><input data-flight-field="rollInAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">BDP entry altitude</span></label>`,
-    dive: `<label class="field"><span>Dive Angle (deg)</span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label>`,
-    tracking: `<label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"><span class="unit">Whole seconds</span></label>`,
+    dive: `<label class="field"><span class="lock-title"><span>Dive Angle (deg)</span><button class="lock-button" type="button" data-flight-field="diveAngleLocked" aria-label="Lock Dive Angle" aria-pressed="false">LOCK</button></span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label>`,
+    tracking: `<label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"><span class="unit">Track Point → Release · 0.1 s</span></label>`,
     releaseAltitude: `<label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label>`,
     releaseSpeed: `<label class="field"><span>Release Speed (KCAS)</span><input data-flight-field="releaseSpeedKcas" type="text" inputmode="decimal"></label>`,
     runIn: `<label class="field"><span>Run-In Heading</span><output data-flight-readout="runInHeadingDeg">-</output><span class="unit">Follows #1 · parallel Run-In</span></label>`,
     ipRange: `<label class="field"><span>IP Range from Target</span><output data-flight-readout="ipRangeFromTargetNm">-</output><span class="unit">NM · from Formation position</span></label>`,
-    attack: `<label class="field"><span>Attack Heading (deg)</span><input data-flight-field="attackHeadingDeg" type="text" inputmode="decimal"></label>`,
-    angleOff: `<label class="field"><span>Angle-Off (deg)</span><input data-flight-field="angleOffDeg" type="text" inputmode="decimal"></label>`,
+    attack: `<label class="field"><span class="lock-title"><span>Attack Heading (deg)</span><button class="lock-button" type="button" data-flight-field="attackHeadingLocked" aria-label="Lock Attack Heading" aria-pressed="false">LOCK</button></span><input data-flight-field="attackHeadingDeg" type="text" inputmode="decimal"></label>`,
+    angleOff: `<label class="field"><span class="lock-title"><span>Angle-Off (deg)</span><button class="lock-button" type="button" data-flight-field="angleOffLocked" aria-label="Lock Angle-Off" aria-pressed="false">LOCK</button></span><input data-flight-field="angleOffDeg" type="text" inputmode="decimal"></label>`,
     offsetAngle: `<label class="field"><span class="lock-title"><span>Offset Angle (deg)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="offsetAngleLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameAngleAsLead" aria-pressed="false" title="Align Offset Angle to #${leadNumber}">ANGLE #${leadNumber}</button>` : ""}</span></span><input data-flight-field="offsetAngleDeg" type="text" inputmode="decimal"></label>`,
     actionRange: `<label class="field"><span class="lock-title"><span>Action Range (NM)</span><span class="lock-group"><button class="lock-button" type="button" data-flight-field="actionRangeLocked" aria-pressed="false">LOCK</button>${wingman ? `<button class="lock-button" type="button" data-flight-field="sameTimeAsLead" aria-pressed="false" title="Align Action timing to #${leadNumber}">TIME #${leadNumber}</button>` : ""}</span></span><input data-flight-field="actionRangeNm" type="text" inputmode="decimal"><span class="unit">Target → Action Point</span></label>`,
+    approachRange: `<label class="field"><span class="lock-title"><span>Approach Range (NM)</span><button class="lock-button" type="button" data-flight-field="approachRangeLocked" aria-label="Lock Approach Range" aria-pressed="false">LOCK</button></span><input data-flight-field="approachRangeNm" type="text" inputmode="decimal"><span class="unit">Offset Turn End → Roll-in Start</span></label>`,
+    approachingHeading: `<label class="field"><span>Approaching Heading</span><output data-flight-readout="offsetHeadingDeg">-</output><span class="unit">Offset Turn completion → Roll-in Start</span></label>`,
   };
   const statusHead = `<div class="section-head"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div>`;
   const statusLine = `<div id="flight-status-${number}" class="status-message valid">-</div>`;
@@ -1647,11 +1695,11 @@ function followerCalculatingMarkup(number) {
   // BDP tab holds the settings (Target / Wind shared with #1, Bomb, Roll-in condition, SEM). Standard
   // keeps the earlier grouping. Same draft keys either way.
   const inputSections = INDEX_LAYOUT ? [
-    flightSection(number, "BDP", `<div class="input-grid"><label class="field"><span>Target Elevation (ft MSL)</span><output data-flight-readout="targetElevationMslFt">-</output><span class="unit">Shared with #1</span></label>${field.weapon}</div>${group("Wind", `<label class="field"><span>Wind FROM / Speed</span><output data-flight-readout="wind">-</output><span class="unit">Shared with #1 · TRUE FROM</span></label>`)}${group("SEM / Recovery", `${followerExtraField("recoveryG", "Recovery G (G)", { always: true })}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)", { always: true })}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)", { always: true })}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)", { always: true })}`)}<p class="flight-draft-note">Fields left blank follow #${leadNumber}.</p>`, { calculating: true, tab: "bdp" }),
-    flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${field.initialSpeed}${field.initialAltitude}${rollInLocked}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}`)}${foldGroup("Roll-in Condition", `${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}<p class="flight-draft-note">Roll-in Condition fields left blank follow #${leadNumber} (Roll-in Bank: automatic from this aircraft's Dive Angle).</p>${statusLine}`, { calculating: true, tab: "offset" }),
+    flightSection(number, "BDP", `<div class="input-grid"><label class="field"><span>Target Elevation (ft MSL)</span><output data-flight-readout="targetElevationMslFt">-</output><span class="unit">Shared with #1</span></label>${field.weapon}</div>${group("Wind", `<label class="field"><span>Wind FROM / Speed</span><output data-flight-readout="wind">-</output><span class="unit">Shared with #1 · TRUE FROM</span></label>`)}${group("SEM / Recovery", `${followerExtraField("recoveryG", "Recovery G (G)", { always: true })}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)", { always: true })}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)", { always: true })}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)", { always: true })}`)}`, { calculating: true, tab: "bdp" }),
+    flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${field.initialSpeed}${field.initialAltitude}${rollInLocked}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${foldGroup("Roll-in Condition", `${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${statusLine}`, { calculating: true, tab: "offset" }),
   ] : [
-    flightSection(number, "BDP", `<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}</div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target). Full BDP fields left blank follow #${leadNumber} (Roll-in Bank: automatic from this aircraft's Dive Angle).</p>`, { calculating: true, tab: "bdp" }),
-    flightSection(number, "Offset", `${statusHead}<div class="input-grid">${field.runIn}${field.ipRange}${field.attack}${field.angleOff}${field.offsetAngle}${field.actionRange}</div>${statusLine}`, { calculating: true, tab: "offset" }),
+    flightSection(number, "BDP", `<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerExtraField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}</div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target).</p>`, { calculating: true, tab: "bdp" }),
+    flightSection(number, "Offset", `${statusHead}<div class="input-grid">${field.runIn}${field.ipRange}${field.attack}${field.angleOff}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}</div>${statusLine}`, { calculating: true, tab: "offset" }),
   ];
   return [
     flightSection(number, "Formation", `<p class="flight-draft-note">Start point relative to #${leadNumber}'s own IP; feeds this aircraft's Run-In line.</p>${followerFormationMarkup(leadNumber)}`, { calculating: true, tab: "formation" }),
@@ -1681,7 +1729,7 @@ function followerDedMarkup() {
 
 // Follower LOCK / ANGLE #n / TIME #n buttons share #1's LOCK button format: pressed state via
 // aria-pressed, and a LOCK reads LOCKED while on (same as installLocks on #1).
-const FOLLOWER_LOCK_KEYS = new Set(["offsetAngleLocked", "actionRangeLocked", "rollInAltitudeLocked"]);
+const FOLLOWER_LOCK_KEYS = new Set(FOLLOWER_LOCK_OPTIONS.filter((key) => key.endsWith("Locked")));
 function syncFlightToggleButton(button, on) {
   button.setAttribute("aria-pressed", String(on));
   button.classList.toggle("active", on);
@@ -1771,11 +1819,8 @@ function normalizeFlightDraft(number, record, fallback) {
     // Action Range is Target-referenced since 2026-09-26; an old IP-referenced value is
     // not carried over (different meaning), so the default applies.
     actionRangeNm: str("actionRangeNm"),
-    offsetAngleLocked: record.offsetAngleLocked === true,
-    rollInAltitudeLocked: record.rollInAltitudeLocked === true,
-    sameAngleAsLead: record.sameAngleAsLead === true,
-    actionRangeLocked: record.actionRangeLocked === true,
-    sameTimeAsLead: record.sameTimeAsLead === true,
+    approachRangeNm: str("approachRangeNm"),
+    ...Object.fromEntries(FOLLOWER_LOCK_OPTIONS.map((key) => [key, record[key] === true])),
     driver: FLIGHT_TACTICAL_DRIVERS.includes(record.driver) ? record.driver : "actionRangeNm",
     solved: normalizeSolvedValues(record),
   };
@@ -1793,6 +1838,10 @@ function installFlightLayout() {
     const saved = JSON.parse(localStorage.getItem(FLIGHT_LAYOUT_KEY) || "null");
     if (saved && Number.isInteger(saved.size) && saved.size >= 1 && saved.size <= 4) {
       flightLayout.size = saved.size;
+      const shown = Array.isArray(saved.view?.shownAircraft) ? saved.view.shownAircraft.filter((number) => Number.isInteger(number) && number >= 1 && number <= saved.size) : [];
+      if (shown.length) { topViewAircraft.clear(); shown.forEach((number) => topViewAircraft.add(number)); }
+      const edit = saved.view?.editAircraft;
+      loadedSave = { savedAt: typeof saved.savedAt === "string" ? saved.savedAt : null, editAircraft: Number.isInteger(edit) && edit >= 1 && edit <= saved.size ? edit : 1 };
       if (saved.aircraft && typeof saved.aircraft === "object" && !Array.isArray(saved.aircraft)) {
         for (const number of [2, 3, 4]) {
           const record = saved.aircraft[number];
@@ -1833,6 +1882,10 @@ function installFlightLayout() {
     }
     if (event.type === "change" && !selection && enterCommitted(field)) return;
     if (event.type === "input") enterCommit = null;
+    if (FOLLOWER_BDP_EXTRA_KEYS.includes(key)) {
+      if (event.type !== "input" && unchangedFollowingField(field)) return;
+      delete field.dataset.following;
+    }
     const draft = flightDraft(number);
     // Empty-field commit, same rule as #1: blank inherited BDP values keep meaning "follow the lead".
     if (!selection && field.value.trim() === "" && !FOLLOWER_BDP_EXTRA_KEYS.includes(key)) {
@@ -1841,6 +1894,7 @@ function installFlightLayout() {
       return;
     }
     draft[key] = field.type === "checkbox" ? field.checked : field.value;
+    lastEditedField.set(number, key);
     dropSolvedIfEdited(draft.solved, key, field.value);
     const edit = { aircraft: number, kind: "set", key, commit: event.type !== "input" };
     if (selection || event.type === "enter") calculate(edit);
@@ -1850,7 +1904,14 @@ function installFlightLayout() {
   $("#flight-followers").addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
     const field = event.target.closest?.("input[data-flight-field]");
-    if (!field || field.type === "checkbox" || field.value.trim() === "" || !flightSlotNumber(field)) return;
+    if (!field || field.type === "checkbox" || !flightSlotNumber(field)) return;
+    // A cleared BDP extra follows again at once and shows the followed value (focus stays).
+    if (field.value.trim() === "" && FOLLOWER_BDP_EXTRA_KEYS.includes(field.dataset.flightField)) {
+      field.dataset.refill = "true";
+      updateFlightDraft({ type: "enter", target: field });
+      return;
+    }
+    if (field.value.trim() === "") return;
     if (field.dataset.flightField === "initialAltitudeMslFt" && isDeveloperCommand(field)) return;
     updateFlightDraft({ type: "enter", target: field });
     enterCommit = { field, text: field.value };
@@ -1902,19 +1963,22 @@ function followerSlot(number) {
 
 // Follower input record for the BE: the field text when the slot is shown, else the draft (Full
 // value behind a rounded solved text, blank = null = follow the element lead for the BDP extras).
-const FOLLOWER_VALUE_KEYS = ["weaponId", "initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "diveAngleDeg", "trackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas", "attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", ...FOLLOWER_BDP_EXTRA_KEYS];
+const FOLLOWER_VALUE_KEYS = ["weaponId", "initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "diveAngleDeg", "trackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas", "attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "approachRangeNm", ...FOLLOWER_BDP_EXTRA_KEYS];
 function collectFollowerRecord(number) {
   const draft = flightDraft(number);
   const slot = followerSlot(number);
   const text = (key) => (slot ? followerField(slot, key)?.value : undefined) ?? draft[key];
   const read = (key) => parsedFieldValue(text(key), draft.solved?.[key]);
   const values = Object.fromEntries(FOLLOWER_VALUE_KEYS.map((key) => [key, read(key)]));
+  // A BDP extra that follows its lead shows the applied value in its field, but it is blank (null)
+  // in the draft; the draft is what counts for these (a typed value reaches it on input).
+  FOLLOWER_BDP_EXTRA_KEYS.forEach((key) => { values[key] = parsedFieldValue(draft[key], draft.solved?.[key]); });
   values.weaponId = text("weaponId") || draft.weaponId;
   const entered = Number.parseFloat(draft.enteredTrackingTimeSec);
   return {
     values,
     formation: { side: text("side") === "RIGHT" ? "RIGHT" : "LEFT", bearingDeg: read("bearingDeg"), distanceNm: read("distanceNm") },
-    options: { offsetAngleLocked: draft.offsetAngleLocked === true, sameAngleAsLead: draft.sameAngleAsLead === true, actionRangeLocked: draft.actionRangeLocked === true, sameTimeAsLead: draft.sameTimeAsLead === true, rollInAltitudeLocked: draft.rollInAltitudeLocked === true },
+    options: Object.fromEntries(FOLLOWER_LOCK_OPTIONS.map((key) => [key, draft[key] === true])),
     state: { driver: draft.driver, solveMode: draft.solveMode, enteredTrackingTimeSec: Number.isFinite(entered) ? entered : null, rollInAltitudeLinked: draft.rollInAltitudeLinked !== false },
   };
 }
@@ -1935,7 +1999,16 @@ function applyFollowerState(number, record, sent, activeKey, commit) {
     draft[key] = text;
     draft.solved[key] = { text, value };
   };
-  Object.entries(record.values).forEach(([key, value]) => { if (!sameStateValue(value, sent.values[key])) write(key, value); });
+  Object.entries(record.values).forEach(([key, value]) => {
+    if (sameStateValue(value, sent.values[key]) && !(commit && key === activeKey && REFORMAT_ON_COMMIT.has(key))) return;
+    // A BDP extra the BE returned to "follow" (null, e.g. Roll-in Bank AUTO after a Dive edit).
+    if (value === null && FOLLOWER_BDP_EXTRA_KEYS.includes(key)) {
+      draft[key] = "";
+      delete draft.solved[key];
+      return;
+    }
+    write(key, value);
+  });
   ["bearingDeg", "distanceNm"].forEach((key) => { if (!sameStateValue(record.formation[key], sent.formation[key])) write(key, record.formation[key]); });
   Object.entries(record.options).forEach(([key, on]) => { draft[key] = on; });
   draft.driver = record.state.driver;
@@ -1945,20 +2018,44 @@ function applyFollowerState(number, record, sent, activeKey, commit) {
   slot?.querySelectorAll(".lock-button[data-flight-field]").forEach((button) => syncFlightToggleButton(button, draft[button.dataset.flightField] === true));
 }
 
-// Placeholders show what a blank follower BDP extra currently follows (the BE's applied value).
-function syncFollowerExtraPlaceholders(slot, result, leadNumber) {
+// Follower BDP extras (2026-10-12, user: #2–#4 Roll-in Condition looked locked): a field left to
+// follow shows the applied value in the field like any input, and its note says where it comes from
+// (Roll-in Bank: AUTO from this aircraft's Dive Angle; the others: the element lead). Typing over it
+// gives the aircraft its own value; clearing it follows again.
+const FOLLOWER_EXTRA_DIGITS = { fragmentHeightMarginPercent: 0, recoveryG: 1, speedOvershootKcas: 0, gOnsetTimeSec: 1, rollInBankAngleDeg: 0, rollInG: 1 };
+const followerExtraText = (key, value) => String(Number(value.toFixed(FOLLOWER_EXTRA_DIGITS[key])));
+function syncFollowerExtraFields(slot, entry, result, leadNumber) {
+  const number = Number(slot.dataset.aircraft);
+  const draft = flightDraft(number);
   const inputs = result.profile.canonicalInputs;
   FOLLOWER_BDP_EXTRA_KEYS.forEach((key) => {
     const field = followerField(slot, key);
     if (!field) return;
     const value = inputs[key];
-    const text = key === "rollInBankAngleDeg" ? `auto ${formatDeg(value)}` : `#${leadNumber} ${key === "rollInG" ? formatG(value) : formatDeg(value)}`;
-    field.placeholder = Number.isFinite(value) ? text : "";
+    const source = entry.inheritance?.[key]?.source;
+    const following = String(draft[key] ?? "").trim() === "";
+    const note = field.closest(".field")?.querySelector("[data-follow-note]");
+    const own = key === "rollInBankAngleDeg" ? "Own value · clear for AUTO" : `Own value · clear to follow #${leadNumber}`;
+    if (note) note.textContent = !following ? (source === "derived" ? "From Roll-in Bank (level turn)" : own) : key === "rollInBankAngleDeg" ? "AUTO · from Dive Angle" : `Follows #${leadNumber}`;
+    field.placeholder = "";
+    if (!following || !Number.isFinite(value)) {
+      delete field.dataset.refill;
+      delete field.dataset.following;
+      delete field.dataset.followingText;
+      return;
+    }
+    field.dataset.following = "true";
+    field.dataset.followingText = followerExtraText(key, value);
+    if (field !== document.activeElement || field.dataset.refill) field.value = field.dataset.followingText;
+    delete field.dataset.refill;
   });
   // The tab holding Initial Altitude (Standard: BDP, index: Offset) shows the solve mode.
   const section = followerField(slot, "initialAltitudeMslFt")?.closest(".section");
-  if (section) section.dataset.solveMode = flightDraft(Number(slot.dataset.aircraft)).solveMode === "time" ? "time" : "height";
+  if (section) section.dataset.solveMode = draft.solveMode === "time" ? "time" : "height";
 }
+
+// A following extra field committed without a change (focus + Enter / Tab) stays following.
+const unchangedFollowingField = (field) => field.dataset.following === "true" && field.value.trim() === field.dataset.followingText;
 
 function renderFollowerStatus(number, state, message) {
   const pill = $(`#flight-state-pill-${number}`);
@@ -1971,6 +2068,7 @@ function renderFollowerStatus(number, state, message) {
     status.textContent = message ?? "-";
     status.className = `status-message ${state === "VALID" ? "valid" : state === "WARNING" ? "warning" : "invalid"}`;
   }
+  markInvalidFields(number, state === "INVALID" ? [message] : []);
 }
 
 // Result #n: the same Offset / Bomb Profile variables as Result #1 first, then the variables only
@@ -2085,12 +2183,17 @@ function renderFollower(number, entry) {
   const result = truncateBeOutput(resultFull);
   flightResultsFull.set(number, resultFull);
   flightResults.set(number, result);
-  syncFollowerExtraPlaceholders(slot, result, entry.elementLead);
-  renderFollowerStatus(number, result.state, result.errors.length ? result.errors.join(" / ") : result.warnings[0] ?? "-");
+  syncFollowerExtraFields(slot, entry, result, entry.elementLead);
+  // The entry's state and warnings: the Flight entrypoint adds what the aircraft result cannot know
+  // (a typed value its LOCK / ANGLE / TIME then replaced).
+  const warnings = entry.warnings ?? result.warnings;
+  renderFollowerStatus(number, entry.status ?? result.state, result.errors.length ? result.errors.join(" / ") : warnings[0] ?? "-");
   const runInReadout = slot.querySelector('[data-flight-readout="runInHeadingDeg"]');
   if (runInReadout) runInReadout.textContent = fmtHeading(result.resolved.runInHeadingDeg);
   const ipRangeReadout = slot.querySelector('[data-flight-readout="ipRangeFromTargetNm"]');
   if (ipRangeReadout) ipRangeReadout.textContent = formatNm(result.resolved.ipRangeNm);
+  const headingReadout = slot.querySelector('[data-flight-readout="offsetHeadingDeg"]');
+  if (headingReadout) headingReadout.textContent = fmtHeading(result.resolved.offsetHeadingDeg);
   renderFollowerResult(number, slot, { result, delta: flightTimingOf(number) });
   renderFollowerDed(number, entry.ded);
   const zDrawn = renderZDiagramOf(number, zSvg, resultFull);
@@ -2136,6 +2239,8 @@ function installSectionDisclosure() {
     icon.setAttribute("aria-expanded", "true");
     button.addEventListener("click", toggle);
     icon.addEventListener("click", toggle);
+    // Reference Point starts collapsed (2026-10-12, user); its title or ＋ opens it.
+    if (section.classList.contains("reference-point-section")) toggle();
   });
 }
 
@@ -2457,6 +2562,9 @@ function runDeveloperCommand(field) {
   developerEditStart = null;
   developerMode = true;
   syncDeveloperUi();
+  // index (2026-10-12, user): the developer row lives in the Save/Load tab; open it so the
+  // Save as Default button is in view instead of hidden behind the tab being edited.
+  document.querySelector('[data-wide-input="save"]')?.click();
   renderSaveStatus("Developer mode: Save as Default is on until this page reloads", "warning");
 }
 
@@ -2485,7 +2593,7 @@ function installSaveTab() {
     commitActiveEdit();
     await calculationScheduler.flush();
     const ok = saveWorkState();
-    renderSaveStatus(ok ? `Saved · Flight of ${flightLayout.size} · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Save failed · browser storage unavailable; inputs stay usable", ok ? "valid" : "invalid");
+    renderSaveStatus(ok ? `Saved · #1–#${flightLayout.size} · ${savedTimeText(new Date())}` : "Save failed · browser storage unavailable; inputs stay usable", ok ? "valid" : "invalid");
   });
   // Load Default (2026-10-11, user): loads the Default conditions; nothing is stored until Save.
   $("#work-default").addEventListener("click", () => {
@@ -2508,6 +2616,14 @@ function installSaveTab() {
     renderSaveStatus("Developer preset removed · Default is built-in again", "valid");
   });
   syncDeveloperUi();
+  // Opening the page loads the saved conditions; say so, with when they were saved.
+  if (loadedSave) {
+    const when = loadedSave.savedAt ? new Date(loadedSave.savedAt) : null;
+    renderSaveStatus(`Saved conditions loaded · #1–#${flightLayout.size}${when && !Number.isNaN(when.getTime()) ? ` · saved ${savedTimeText(when)}` : ""}`, "valid");
+  }
+}
+function savedTimeText(date) {
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
 }
 
 // index layout hooks (wide-layout.mjs): the shared shown-aircraft set, the centre BDP views and the
@@ -2527,6 +2643,9 @@ export const offsetIndexUi = Object.freeze({
     [1, 2, 3, 4].forEach(applyFullViews);
   },
   flightSize: () => flightLayout.size,
+  // Saved edit aircraft (null without a work save) and the getter Save reads it from.
+  savedEditAircraft: () => loadedSave?.editAircraft ?? null,
+  registerEditAircraft(getter) { editAircraftOf = getter; },
   hasResult: (number) => !!flightResultOf(number),
   dedAvailable,
   exportDedPng,

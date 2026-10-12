@@ -1,8 +1,8 @@
-import { bdpZLowerColumns, buildBdpZDiagramData, profileName } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs?v=0.1.6";
+import { bdpZLowerColumns, buildBdpZDiagramData, profileName } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs?v=0.1.7";
 import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.12";
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { formatDeg, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
-import { bearingDeg, formatHeadingDeg, offsetViewTitle } from "./offset-view-style-v0.1.mjs?v=0.1.4";
+import { bearingDeg, formatHeadingDeg, offsetViewTitle } from "./offset-view-style-v0.1.mjs?v=0.1.5";
 
 // Offset Z-Diagram — the BDP Z of the profile Offset solved, with Offset footer rows (Common Z
 // grammar; formerly apps/bombing-calculator-v2/offset/offset-z-diagram-v0.1.mjs). Values use the
@@ -20,7 +20,8 @@ export const OFFSET_Z_DIAGRAM_V0_1 = Object.freeze({
   // "#k IP to Impact Time" for the ΔTime Impact aircraft k; "Action to Impact Time" is removed.
   // 0.1.6 (2026-10-06, user): Roll-in Altitude (top-left value) one character left (x 42 → 34).
   // 0.1.7 (2026-10-07): view style 0.1.4 token only (no drawing change).
-  version: "0.1.7",
+  // 0.1.8 (2026-10-12, user): Tracking Time in 0.1 s (BDP Z 0.1.7 trackingTimeTenths).
+  version: "0.1.8",
   subject: "Offset",
   view: "Z-Diagram",
 });
@@ -48,7 +49,7 @@ export function offsetZLowerColumns(result, { deltaTime = null, advanced = false
   const g = result.geometry;
   const t = result.timing;
   const p = result.profile.public;
-  const bdp = bdpZLowerColumns(result.profile, { attackHeadingText: formatHeadingDeg(g.attackHeadingDeg) });
+  const bdp = bdpZLowerColumns(result.profile, { attackHeadingText: formatHeadingDeg(g.attackHeadingDeg), trackingTimeTenths: true });
   const hasDelta = Boolean(deltaTime && Number.isFinite(deltaTime.seconds));
   const deltaRow = hasDelta
     ? [{ label: `ΔTime #${deltaTime.impactNumber} Impact − #${deltaTime.releaseNumber} Release`, value: `${formatSec(deltaTime.seconds)} s` }]

@@ -2,13 +2,14 @@
 // "Variable casing and display precision" and docs/FE-BE-RULES.md "Numeric precision".
 //
 // FE display (rounded): NM 1 decimal, seconds integer, feet integer, angles/headings integer,
-// Mach 2 decimals, G 1 decimal, speeds (KCAS/KTAS/kt) integer.
+// Mach 2 decimals, G 1 decimal, speeds (KCAS/KTAS/kt) integer. Exception: Offset Tracking Time
+// is entered and shown in 0.1 s (formatSecTenths, Offset SPEC 2026-10-12).
 // BE output (truncated toward zero): 5 decimals, applied once at a public BE entrypoint's result;
 // internal calculation and solvers keep full precision.
 
 export const DISPLAY_PRECISION_V0_1 = Object.freeze({
   id: "display-precision-v0.1",
-  version: "0.1.0",
+  version: "0.1.1",
   digits: Object.freeze({ nm: 1, sec: 0, ft: 0, deg: 0, mach: 2, g: 1, kt: 0 }),
   beOutputDecimals: 5,
 });
@@ -25,6 +26,7 @@ function fixed(value, digits) {
 
 export const formatNm = (value) => fixed(value, 1);
 export const formatSec = (value) => fixed(value, 0);
+export const formatSecTenths = (value) => fixed(value, 1);
 export const formatFt = (value) => fixed(value, 0);
 export const formatDeg = (value) => fixed(value, 0);
 export const formatMach = (value) => fixed(value, 2);

@@ -19,7 +19,9 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
   // 0.2.11 (2026-10-03): public.rollInAngleOffDeg (Roll-in Point nose → Target angle).
   // 0.2.12 (2026-10-12): time mode solves the Initial Altitude fixed point by secant (converged,
   // about 6 Roll-in integrations instead of 30 damped steps).
-  version: "0.2.12",
+  // 0.2.13 (2026-10-12): opt-in trackingTimeStepSec 0.1 (Offset, user) — the entered Tracking Time is
+  // rounded to 0.1 s instead of whole seconds; the default stays whole seconds.
+  version: "0.2.13",
   flightPathReference: "GROUND",
   legacyGeometrySource: "Bomb Profile REV.1.9 · R_20260830",
   applicability: Object.freeze({
@@ -29,6 +31,12 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
 
 function finite(name, value) {
   if (typeof value !== "number" || !Number.isFinite(value)) throw new TypeError(`${name} must be finite`);
+}
+
+// Entered Tracking Time unit: whole seconds (default, user 2026-10-01) or 0.1 s (opt-in, 2026-10-12).
+function roundEnteredTrackingTime(value, stepSec = 1) {
+  if (stepSec !== 1 && stepSec !== 0.1) throw new RangeError("trackingTimeStepSec must be 1 or 0.1");
+  return stepSec === 1 ? Math.round(value) : Math.round(value * 10) / 10;
 }
 
 function normalizeInput(raw) {
@@ -60,7 +68,7 @@ function normalizeInput(raw) {
     // roll-in loss gives a negative Tracking Time instead of an error, so the pilot sees how far
     // short the altitude is. Default false keeps the error for the pattern BEs.
     allowNegativeTrackingTime: raw.allowNegativeTrackingTime === true,
-    enteredTrackingTimeSec: Math.round(raw.trackingTimeSec ?? raw.trackingTime ?? 0),
+    enteredTrackingTimeSec: roundEnteredTrackingTime(raw.trackingTimeSec ?? raw.trackingTime ?? 0, raw.trackingTimeStepSec ?? 1),
     enteredReleaseAltitudeMslFt: raw.releaseAltitudeMslFt ?? raw.releaseMsl,
     angleOffDeg: raw.angleOffDeg ?? raw.rollHeading,
     rollInBankAngleDeg: raw.rollInBankAngleDeg ?? raw.rollBank,

@@ -23,7 +23,10 @@ export const OFFSET_FORMATION_GEOMETRY_V0_1 = Object.freeze({
   id: "offset-formation-geometry-v0.1",
   // 0.1.5 (2026-10-12): same Offset Angle scan range and shared root scan as offset-be-v0.2 0.2.8 (F4);
   // Offset Speed / non-finite result guards come with resolveOffsetTurn (F5).
-  version: "0.1.5",
+  // 0.1.6 (2026-10-12, user: followers like #1): Approach Range as a range constraint (LOCK or driver,
+  // after an Action Range LOCK), its LOCK check, `headingDriver` (which of Attack Heading / Angle-Off
+  // a fixed Offset Angle or range solve holds, apart from the range driver), trackingTimeStepSec.
+  version: "0.1.6",
   status: "work",
   purpose:
     "Off-axis Offset geometry for a Flight follower whose IP is displaced from the shared Target-through Run-In axis by its Formation position, while Target and Run-In heading stay shared with its element lead. Reuses offset-geometry-v0.2.mjs's pure heading/vector helpers without modifying offset-be-v0.2.mjs or offset-geometry-v0.2.mjs's own single-aircraft (on-axis) contract.",
@@ -70,6 +73,7 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg) {
     solveMode: profile.solveMode ?? "height",
     allowNegativeTrackingTime: profile.allowNegativeTrackingTime === true,
     trackingTimeSec: profile.trackingTimeSec ?? 0,
+    trackingTimeStepSec: profile.trackingTimeStepSec,
     releaseAltitudeMslFt: finite("releaseAltitudeMslFt", profile.releaseAltitudeMslFt),
     angleOffDeg,
     rollInBankAngleDeg: finite("rollInBankAngleDeg", profile.rollInBankAngleDeg),
@@ -208,6 +212,9 @@ export function calculateOffAxisOffsetFull(input) {
   const enteredAttackHeadingDeg = finite("attackHeadingDeg", input.attackHeadingDeg);
   const enteredAngleOffDeg = Math.abs(finite("angleOffDeg", input.angleOffDeg));
   const driver = input.driver ?? "angleOffDeg";
+  // Attack Heading vs Angle-Off hold: the driver unless the caller names the last heading edit apart
+  // from a range / Offset Angle driver (a follower holding its Action Range keeps an Angle-Off edit).
+  const headingDriver = input.headingDriver ?? driver;
   const direction = directionRule(runInHeadingDeg, enteredAttackHeadingDeg);
   if (direction.ambiguous) throw new Error("Run-In / Attack relation is directionally ambiguous");
 
@@ -216,7 +223,7 @@ export function calculateOffAxisOffsetFull(input) {
   warnings.push(...turn.warnings);
 
   const evaluate = (offsetAngleDeg) => {
-    const headings = resolveHeadingForOffset({ input, locks, driver, direction, runInHeadingDeg, offsetAngleDeg });
+    const headings = resolveHeadingForOffset({ input, locks, driver: headingDriver, direction, runInHeadingDeg, offsetAngleDeg });
     if (!(headings.angleOffDeg > 0 && headings.angleOffDeg < 179.5)) throw new Error("Angle-Off outside supported range");
     const derivedDirection = directionRule(runInHeadingDeg, headings.attackHeadingDeg);
     if (derivedDirection.ambiguous || derivedDirection.attackSide !== direction.attackSide) throw new Error("Heading solve would switch the fixed Offset/Roll-in side");
@@ -237,10 +244,12 @@ export function calculateOffAxisOffsetFull(input) {
 
   // Range constraint: `actionRangeNm` is the Target-referenced Action Range (the follower's own
   // field); `actionRangeFromIpNm` (IP-referenced) remains for the Same-Time solve, whose time
-  // metric is linear in it. A LOCK outranks the driver.
-  const RANGE_KEYS = ["actionRangeFromIpNm", "actionRangeNm"];
+  // metric is linear in it; `approachRangeNm` (Offset Turn End -> Roll-in Start) as on #1, after an
+  // Action Range LOCK. A LOCK outranks the driver.
+  const RANGE_KEYS = ["actionRangeFromIpNm", "actionRangeNm", "approachRangeNm"];
   const rangeKey = RANGE_KEYS.find((key) => locks[key]) ?? (RANGE_KEYS.includes(driver) ? driver : null);
   const rangeFixed = rangeKey !== null;
+  const rangeLabel = rangeKey === "approachRangeNm" ? "Approach Range" : "Action Range";
   const rangeTargetNm = rangeFixed ? finite(rangeKey, input[rangeKey]) : null;
   const offsetCanVary = !locks.offsetAngleDeg && driver !== "offsetAngleDeg" && !(locks.attackHeadingDeg && locks.angleOffDeg);
   let candidate = null;
@@ -248,7 +257,7 @@ export function calculateOffAxisOffsetFull(input) {
   let exact = true;
 
   if (rangeFixed && offsetCanVary) {
-    const maxAngle = offsetAngleScanMaxDeg({ locks, driver, direction });
+    const maxAngle = offsetAngleScanMaxDeg({ locks, driver: headingDriver, direction });
     const solved = solveOffsetAngleForActionRange({
       targetRangeNm: rangeTargetNm,
       evaluate: (angle) => {
@@ -261,14 +270,14 @@ export function calculateOffAxisOffsetFull(input) {
     candidate = solved.candidate?.built ?? null;
     residualNm = solved.residualNm;
     exact = solved.exact;
-    if (!candidate) throw new Error(`No valid Offset Angle candidate for the requested Action Range${solved.failureCause ? ` (cause: ${solved.failureCause})` : ""}`);
-    if (!exact) warnings.push(`Action Range root is best-effort; residual ${Number(residualNm).toFixed(3)} NM`);
+    if (!candidate) throw new Error(`No valid Offset Angle candidate for the requested ${rangeLabel}${solved.failureCause ? ` (cause: ${solved.failureCause})` : ""}`);
+    if (!exact) warnings.push(`${rangeLabel} root is best-effort; residual ${Number(residualNm).toFixed(3)} NM`);
   } else {
     candidate = evaluate(initialOffsetAngleDeg);
     if (rangeFixed) {
       residualNm = candidate[rangeKey] - rangeTargetNm;
       exact = Math.abs(residualNm) <= 0.002;
-      if (!exact) errors.push(`CONSTRAINT CONFLICT: Action Range residual ${residualNm.toFixed(3)} NM`);
+      if (!exact) errors.push(`CONSTRAINT CONFLICT: ${rangeLabel} residual ${residualNm.toFixed(3)} NM`);
     }
   }
   if (!candidate) throw new Error("Offset geometry was not produced");
@@ -278,6 +287,7 @@ export function calculateOffAxisOffsetFull(input) {
   if (locks.offsetAngleDeg && !near(Math.abs(input.offsetAngleDeg), candidate.offsetAngleDeg, 0.02)) errors.push("LOCK conflict: Offset Angle cannot be satisfied");
   if (locks.actionRangeFromIpNm && !near(input.actionRangeFromIpNm, candidate.actionRangeFromIpNm, 0.002)) errors.push("LOCK conflict: Action Range cannot be satisfied");
   if (locks.actionRangeNm && !near(input.actionRangeNm, candidate.actionRangeNm, 0.002)) errors.push("LOCK conflict: Action Range cannot be satisfied");
+  if (locks.approachRangeNm && !near(input.approachRangeNm, candidate.approachRangeNm, 0.002)) errors.push("LOCK conflict: Approach Range cannot be satisfied");
 
   const candidateValidation = validateOffAxisOffsetCandidate(candidate);
   errors.push(...candidateValidation.errors);

@@ -2,7 +2,7 @@
 // stay in the shared Offset controller; this module only places its live nodes (index UI handoff
 // 2026-10-06): left = Edit aircraft (one) + input tabs, centre = Offset Top View / BDP / SEM & Rejoin,
 // right = Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=742bf25bc5ce";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=9f334cb05e3d";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
@@ -328,8 +328,10 @@ window.addEventListener("resize", measureHeader);
 syncOutputs();
 offsetIndexUi.onVisibleAircraftChange(applyShown);
 offsetIndexUi.syncShowAircraftButtons();
-// First entry (§2): input Offset, centre Offset Top View, right Result, edit #1, shown #1.
-selectEditAircraft(1);
+// First entry (§2): input Offset, centre Offset Top View, right Result, edit #1, shown #1. A work
+// save brings back its edited aircraft and shown set (2026-10-12, user).
+offsetIndexUi.registerEditAircraft(() => editAircraft);
+selectEditAircraft(offsetIndexUi.savedEditAircraft() ?? 1);
 chooseInput("offset");
 chooseCenter("topview");
 chooseReview("result");

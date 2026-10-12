@@ -13,7 +13,7 @@ import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.
 import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { offsetTimeline } from "./offset-time-path-v0.1.mjs";
 import { rollInAngleRangeText } from "../../bomb-delivery-planner/view/bdp-view-style-v0.1.mjs";
-import { formatHeadingDeg, OFFSET_PALETTE_COLORS, OFFSET_VIEW_COLORS, offsetTopViewLegend, offsetViewTitle } from "./offset-view-style-v0.1.mjs?v=0.1.4";
+import { formatHeadingDeg, OFFSET_PALETTE_COLORS, OFFSET_VIEW_COLORS, offsetTopViewLegend, offsetViewTitle } from "./offset-view-style-v0.1.mjs?v=0.1.5";
 
 // Offset Top View — Offset-owned view in the V2 unified view grammar (common/diagram/SPEC.md;
 // AG Offset SPEC owns the content; Offset FE SPEC "Top View").
@@ -44,7 +44,8 @@ export const OFFSET_TOP_VIEW_V0_1 = Object.freeze({
   // 0.1.7 (2026-10-06, user): "Radius (EFF): 0.6 NM" on one line (value beside the name).
   // 0.1.8 (2026-10-07, user): Advanced draws MAP as a dashed circle around the Target, labelled
   // "MAP: 2.0 NM". It is not a fit point: the canvas keeps its size and the circle may be clipped.
-  version: "0.1.8",
+  // 0.1.9 (2026-10-12): view style 0.1.5 token (Tracking Time 0.1 s in the legend).
+  version: "0.1.9",
   subject: "Offset",
   view: "Top View",
   canvas: Object.freeze({ width: 900, minHeight: 560, maxHeight: 1100, margins: 40 }),

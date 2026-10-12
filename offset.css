@@ -1,4 +1,4 @@
-@import url("./common-ui-v0.2.css?v=742bf25bc5ce");
+@import url("./common-ui-v0.2.css?v=9f334cb05e3d");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -65,3 +65,5 @@ body.show-full-bdp .bdp-extra{display:grid}
 .top-view-aircraft [data-top-view-aircraft-button="3"]{border-bottom-color:#2f9e6e}
 .top-view-aircraft [data-top-view-aircraft-button="4"]{border-bottom-color:#b5651d}
 .top-view-aircraft [data-top-view-aircraft-button][hidden]{display:none}
+/* INVALID input title (2026-10-12): the title of an input named by an INVALID message reads red. */
+label.input-invalid>span:first-child,label.input-invalid>span:first-child>span,label.input-invalid .offset-title,label.input-invalid .offset-title .step{color:var(--red)!important}

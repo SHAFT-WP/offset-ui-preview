@@ -1,4 +1,5 @@
-import { OFFSET_FLIGHT_V0_1, createOffsetFlightSession } from "./offset-flight-v0.1.mjs";
+// Same cache token as the page controller (one module instance in the in-thread fallback).
+import { OFFSET_FLIGHT_V0_1, createOffsetFlightSession } from "./offset-flight-v0.1.mjs?v=2026-10-12d";
 
 // Offset Flight calculation host (Offset BE performance addendum 2026-10-12, P4). The BE owns the
 // calculation and its reuse; this host only runs it off the page's main thread.
@@ -17,7 +18,7 @@ import { OFFSET_FLIGHT_V0_1, createOffsetFlightSession } from "./offset-flight-v
 //
 // The same module is the page's in-thread fallback when a module Worker cannot start.
 
-export const OFFSET_FLIGHT_WORKER_V0_1 = Object.freeze({ id: "offset-flight-worker-v0.1", version: "0.1.0", flight: OFFSET_FLIGHT_V0_1.version });
+export const OFFSET_FLIGHT_WORKER_V0_1 = Object.freeze({ id: "offset-flight-worker-v0.1", version: "0.1.1", flight: OFFSET_FLIGHT_V0_1.version });
 
 export function createOffsetFlightHost() {
   const session = createOffsetFlightSession();

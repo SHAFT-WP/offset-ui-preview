@@ -1,5 +1,5 @@
 import { BDP_VIEW_COLORS } from "../../bomb-delivery-planner/view/bdp-view-style-v0.1.mjs";
-import { formatDeg, formatFt, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
+import { formatDeg, formatFt, formatNm, formatSec, formatSecTenths } from "../../../../common/ui/display-precision-v0.1.mjs?v=0.1.1";
 
 // Offset view style — Offset-owned colours, heading notation, titles and legend items for the
 // Offset Top View / Flight Top View / Z-Diagram (common/diagram/SPEC.md V2 unified view grammar G5,
@@ -15,7 +15,8 @@ export const OFFSET_VIEW_STYLE_V0_1 = Object.freeze({
   // the legend takes the drawn aircraft's colours (referenceColor / ownColor).
   // 0.1.4 (2026-10-07, user): Tracking Time and Bomb TOF in the Top View legends (#1 legend; the #n
   // legend per aircraft after Release Alt).
-  version: "0.1.4",
+  // 0.1.5 (2026-10-12, user): Tracking Time in 0.1 s.
+  version: "0.1.5",
 });
 
 // Lead aircraft: pattern segments are Offset colours kept apart from the BDP set; the approach leg
@@ -114,7 +115,7 @@ export function offsetTopViewLegend(result = null) {
     { label: `Roll-in Radial${value(g ? formatHeadingDeg(bearingDeg(g.points.target, g.points.rollStart)) : "")}`, color: C.roll },
     { label: `Roll-in Heading${value(formatHeadingDeg(g?.offsetHeadingDeg))}`, color: C.roll },
     { label: `Roll-in Radius${value(`${formatNm(g?.rollInRadiusNm)} NM`)}`, color: C.roll },
-    { label: `Tracking Time${value(`${formatSec(p?.trackingTimeSec)} s`)}`, color: C.attack },
+    { label: `Tracking Time${value(`${formatSecTenths(p?.trackingTimeSec)} s`)}`, color: C.attack },
     { label: `Bomb TOF${value(`${formatSec(p?.bombTofSec)} s`)}`, color: BDP_VIEW_COLORS.bomb },
   ];
 }
@@ -133,7 +134,7 @@ export function offsetFlightTopViewLegend({ reference = null, own = null, deltaT
   per("Roll-in Alt", (r) => `${formatFt(r.profile.public.resolvedInitialAltitudeMslFt)} ft`);
   per("Dive Angle", (r) => `${formatDeg(r.profile.canonicalInputs.diveAngleDeg)}°`);
   per("Release Alt", (r) => `${formatFt(r.profile.public.effectiveReleaseAltitudeMslFt)} ft`);
-  per("Tracking Time", (r) => `${formatSec(r.profile.public.trackingTimeSec)} s`);
+  per("Tracking Time", (r) => `${formatSecTenths(r.profile.public.trackingTimeSec)} s`);
   per("Bomb TOF", (r) => `${formatSec(r.profile.public.bombTofSec)} s`);
   if (reference?.result) {
     rows.push({ label: `#${reference.number} IP to Impact Time · ${formatSec(reference.result.timing.offsetIpToReleaseSec + reference.result.profile.public.bombTofSec)} s`, color: colorOf(reference) });

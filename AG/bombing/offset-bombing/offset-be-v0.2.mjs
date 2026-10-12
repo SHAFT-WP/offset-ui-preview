@@ -19,7 +19,8 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 // 0.2.8 (2026-10-12): Offset Speed must give a finite TAS > 0 (F5); a non-finite timing/geometry
 // is never VALID; with Angle-Off held and Attack Heading free the Offset Angle scan is not cut by the
 // entered Attack Heading (F4) and uses the shared scanOffsetAngleRoot.
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.8", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
+// 0.2.9 (2026-10-12): profile.trackingTimeStepSec passes through to BDP (Offset enters 0.1 s).
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.9", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -123,6 +124,7 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg) {
     solveMode: profile.solveMode ?? "height",
     allowNegativeTrackingTime: profile.allowNegativeTrackingTime === true,
     trackingTimeSec: profile.trackingTimeSec ?? 0,
+    trackingTimeStepSec: profile.trackingTimeStepSec,
     releaseAltitudeMslFt: finite("releaseAltitudeMslFt", profile.releaseAltitudeMslFt),
     angleOffDeg,
     rollInBankAngleDeg: finite("rollInBankAngleDeg", profile.rollInBankAngleDeg),

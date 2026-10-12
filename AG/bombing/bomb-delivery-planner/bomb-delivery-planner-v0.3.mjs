@@ -15,7 +15,8 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_3 = Object.freeze({
   // 0.3.11 (2026-10-01): v0.2.9 core — public.resolvedSolveMode.
   // 0.3.12 (2026-10-02): v0.2.10 core — allowNegativeTrackingTime passthrough.
   // 0.3.13 (2026-10-03): v0.2.11 core — public.rollInAngleOffDeg.
-  version: "0.3.13",
+  // 0.3.14 (2026-10-12): v0.2.13 core — trackingTimeStepSec 0.1 passthrough (present only when set).
+  version: "0.3.14",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   officialOracle: "Bomb Profile REV.1.9 · R_20260830",
 });
@@ -71,6 +72,8 @@ function canonicalInput(rawInput) {
     solveMode: rawInput.solveMode ?? "height",
     allowNegativeTrackingTime: rawInput.allowNegativeTrackingTime === true,
     trackingTimeSec: rawInput.trackingTimeSec ?? 0,
+    // Whole seconds unless a caller opts into 0.1 s (kept out of the canonical input otherwise).
+    ...(rawInput.trackingTimeStepSec === undefined || rawInput.trackingTimeStepSec === 1 ? {} : { trackingTimeStepSec: rawInput.trackingTimeStepSec }),
     releaseAltitudeMslFt: rawInput.releaseAltitudeMslFt,
     angleOffDeg: rawInput.angleOffDeg,
     rollInBankAngleDeg: rawInput.rollInBankAngleDeg,
