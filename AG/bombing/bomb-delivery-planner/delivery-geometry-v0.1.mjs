@@ -58,13 +58,27 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
   } else {
     trackingTimeSec = input.enteredTrackingTimeSec;
     initialAglFt = releaseAglFt + trackingTimeSec * releaseTasKt * KT_TO_FPS * Math.sin(angleRad) + 2500;
-    for (let iteration = 0; iteration < 30; iteration += 1) {
-      initialMslFt = input.targetElevationMslFt + initialAglFt;
-      roll = integrateRollIn(rollParams, initialMslFt);
-      pathFt = meanTrackSpeedFps(roll.finalTasKt) * trackingTimeSec;
-      const nextInitial = releaseAglFt + pathFt * Math.sin(angleRad) + roll.altitudeLossFt;
-      initialAglFt = 0.45 * initialAglFt + 0.55 * nextInitial;
+    // Initial AGL is the fixed point of next(x) = Release AGL + tracking climb + Roll-in loss at x.
+    // Secant on next(x) − x from the first damped step (core 0.2.12, 2026-10-12): about 6 Roll-in
+    // integrations instead of 30 damped steps, which did not converge at steep, wide Roll-ins (up to
+    // 15 ft off at Dive 60°, Angle Off 90°, 30 s). Stops at 1e-9 ft; a degenerate step falls back to
+    // the damped iteration.
+    const nextInitial = (aglFt) => {
+      const step = integrateRollIn(rollParams, input.targetElevationMslFt + aglFt);
+      return releaseAglFt + meanTrackSpeedFps(step.finalTasKt) * trackingTimeSec * Math.sin(angleRad) + step.altitudeLossFt;
+    };
+    let previous = initialAglFt;
+    let previousResidual = nextInitial(previous) - previous;
+    let current = 0.45 * previous + 0.55 * (previous + previousResidual);
+    let residual = nextInitial(current) - current;
+    for (let iteration = 0; iteration < 30 && residual !== 0 && Math.abs(current - previous) > 1e-9; iteration += 1) {
+      const secant = current - (residual * (current - previous)) / (residual - previousResidual);
+      previous = current;
+      previousResidual = residual;
+      current = Number.isFinite(secant) ? secant : 0.45 * current + 0.55 * (current + residual);
+      residual = nextInitial(current) - current;
     }
+    initialAglFt = current;
     initialMslFt = input.targetElevationMslFt + initialAglFt;
     roll = integrateRollIn(rollParams, initialMslFt);
     pathFt = meanTrackSpeedFps(roll.finalTasKt) * trackingTimeSec;

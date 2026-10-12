@@ -17,7 +17,9 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
   // 0.2.10 (2026-10-02): opt-in allowNegativeTrackingTime — in height mode a Roll-in Altitude below
   // Release + Roll-in loss gives a negative Tracking Time (the altitude to add) instead of an error.
   // 0.2.11 (2026-10-03): public.rollInAngleOffDeg (Roll-in Point nose → Target angle).
-  version: "0.2.11",
+  // 0.2.12 (2026-10-12): time mode solves the Initial Altitude fixed point by secant (converged,
+  // about 6 Roll-in integrations instead of 30 damped steps).
+  version: "0.2.12",
   flightPathReference: "GROUND",
   legacyGeometrySource: "Bomb Profile REV.1.9 · R_20260830",
   applicability: Object.freeze({
