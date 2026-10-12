@@ -1301,7 +1301,9 @@ function installSectionTools(root = document) {
   root.querySelectorAll(".section[data-tab]").forEach((section) => {
     const header = section.firstElementChild;
     if (!header || header.querySelector(".section-tools")) return;
-    const tools = TAB_TOOLS[section.dataset.tab] ?? [];
+    // index (2026-10-12, user): the Save/Load tab is the one Save, so tabs drop their own Save and
+    // their Default reads "Tab Default" (it resets only that tab). Standard keeps both as before.
+    const tools = (TAB_TOOLS[section.dataset.tab] ?? []).filter((tool) => !(INDEX_LAYOUT && tool === "save"));
     if (!tools.length) return;
     const aircraft = Number(section.dataset.aircraftTab ?? 1);
     const title = header.querySelector("h2")?.textContent.trim() ?? section.dataset.tab;
@@ -1340,7 +1342,7 @@ function installSectionTools(root = document) {
           flashSaved(event.currentTarget);
         });
       } else if (tool === "default") {
-        make(tool, "Default").addEventListener("click", () => {
+        make(tool, INDEX_LAYOUT ? "Tab Default" : "Default").addEventListener("click", () => {
           if (aircraft === 1) resetLeadTab(section.dataset.tab, section);
           else resetFollowerTab(aircraft, section.dataset.tab, section);
         });
