@@ -1,4 +1,5 @@
-import { calculateBombDeliveryV0_2 } from "./bomb-delivery-planner-v0.2.mjs";
+import { BOMB_DELIVERY_PLANNER_MODEL_V0_2, calculateBombDeliveryV0_2 } from "./bomb-delivery-planner-v0.2.mjs";
+import { cachedCalculation } from "../../../common/calculation/calculation-cache-v0.1.mjs";
 import { buildBombDeliveryVisualizationState } from "./visualization-state-v0.1.mjs";
 import { truncateBeOutput, truncateDecimals } from "../../../common/ui/display-precision-v0.1.mjs";
 import {
@@ -80,8 +81,15 @@ function canonicalInput(rawInput) {
 
 // Full-precision result for BE-to-BE composition (Offset, BOX, Wheel). FE-facing callers use
 // calculateBombDeliveryV0_3, whose output is truncated to 5 decimals (docs/FE-BE-RULES.md).
+// Inside an owning BE call (common/calculation/calculation-cache-v0.1.mjs) one canonical input is
+// solved once (Offset candidates and the VRP-start reference re-composition revisit the same
+// profiles); the key is the whole canonical input plus the v0.3 / v0.2 model versions.
 export function calculateBombDeliveryV0_3Full(rawInput) {
   const input = canonicalInput(rawInput);
+  return cachedCalculation("bdp-v0.3", { model: BOMB_DELIVERY_PLANNER_MODEL_V0_3, core: BOMB_DELIVERY_PLANNER_MODEL_V0_2, input }, () => solveCanonical(input));
+}
+
+function solveCanonical(input) {
   const calculation = calculateBombDeliveryV0_2(input);
   const state = buildBombDeliveryVisualizationState(calculation);
 

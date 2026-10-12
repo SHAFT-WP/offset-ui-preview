@@ -9,7 +9,9 @@ import {
 } from "./offset-formation-v0.1.mjs";
 import { add, candidateFailureCause } from "./offset-geometry-v0.2.mjs";
 import { autoRollInBankDegFull, calculateBombDeliveryV0_3Full, isLevelTurnRollIn, levelTurnRollInGFull } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
+import { BOMB_DELIVERY_PLANNER_MODEL_V0_3 } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
+import { calculationCacheStats, calculationKey, createCalculationCache, snapshotCalculationCacheStats, withCalculationCache } from "../../../common/calculation/calculation-cache-v0.1.mjs";
 
 // Offset Flight entrypoint (AG SPEC "Flight entrypoint", 2026-10-12): one call takes the whole Flight
 // input state (#1 and its followers, their LOCKs / options / formation positions / entry history and
@@ -896,14 +898,15 @@ function deriveFollowerNext(follower, result, context, pair, derived) {
   syncLinkedInitial(follower, derived);
 }
 
-function solveFollower({ number, follower, stateError, results, flightLead, flightLeadValues }) {
+// leaderResult / flightLead are the element lead's and #1's leaderView(): the only part of their
+// Full results a follower reads (also its reuse dependency, see calculateFlight).
+function solveFollower({ number, follower, stateError, leaderResult, flightLead, flightLeadValues }) {
   const leadNumber = OFFSET_FLIGHT_ELEMENT_LEAD[number];
   const derived = new Set();
   const base = { aircraft: number, elementLead: leadNumber, predecessor: number - 1, pairSolved: false, solvedVariable: null, inheritance: null, derived };
   const fail = (message, extra = {}) => ({ ...base, status: "FAILED", result: null, error: message, errors: [message], warnings: [], diagnostics: [], ...extra });
   if (!follower) return fail(`Aircraft #${number} input is missing`);
   if (stateError) return fail(stateError);
-  const leaderResult = results[leadNumber]?.result ?? null;
   // A leader without a result in this call fails its followers (never an earlier result).
   if (!leaderResult) return fail(`Aircraft #${leadNumber} has no current result`);
   let context;
@@ -1003,29 +1006,113 @@ function outputRecord(number, record) {
   return { values: record.values, formation: record.formation, options: record.options, state: record.state };
 }
 
-export function calculateOffsetFlightFull(input) {
-  const { flightSize, aircraft, stateErrors } = normalizeFlightInput(input);
+// Applies the one-shot edit events in the order they happened. `edit` (one event) and `edits` (the
+// ordered events of one coalesced FE request, addendum P4-B) are the same contract: each event is a
+// state transition on the record left by the previous one, then the final state is solved once.
+function flightEdits(input) {
+  if (input.edit && input.edits) throw new TypeError("input carries both edit and edits; send one ordered edits list");
+  if (input.edits !== undefined && !Array.isArray(input.edits)) throw new TypeError("edits must be an array");
+  return input.edits ?? (input.edit ? [input.edit] : []);
+}
+
+function applyEdits(aircraft, edits) {
   const editErrors = {};
-  const edit = input.edit ?? null;
-  if (edit) {
-    const number = edit.aircraft ?? 1;
+  for (const edit of edits) {
+    const number = edit?.aircraft ?? 1;
     if (!aircraft[number]) throw new TypeError(`edit targets missing aircraft #${number}`);
-    if (!aircraft[number].raw) try {
+    // An aircraft whose state cannot be read, or whose earlier event failed, takes no further event.
+    if (aircraft[number].raw || editErrors[number]) continue;
+    try {
       if (number === 1) applyLeadEdit(aircraft[1], edit);
       else applyFollowerEdit(aircraft[number], edit, number);
     } catch (error) {
       editErrors[number] = error.message;
     }
   }
+  return editErrors;
+}
+
+// What a follower reads from an aircraft before it (its element lead, and #1 for the Flight-wide
+// Target / wind / IP limit / VIP): resolved values, timing, geometry points, reference mode and the
+// BDP inputs it inherits. Followers are given only this, so it is exactly their dependency.
+const LEADER_PROFILE_KEYS = [...OFFSET_FLIGHT_INHERITED_KEYS, "targetElevationMslFt", "windSpeedKt"];
+function leaderView(result) {
+  if (!result) return null;
+  const inputs = result.profile.canonicalInputs;
+  return {
+    referenceMode: result.referenceMode,
+    resolved: result.resolved,
+    timing: result.timing,
+    geometry: { points: result.geometry.points },
+    profile: { canonicalInputs: Object.fromEntries(LEADER_PROFILE_KEYS.map((key) => [key, inputs[key]])) },
+  };
+}
+
+// ---- Per-aircraft reuse (addendum P3) ---------------------------------------------------------
+// One aircraft's heavy solve is a pure function of: its own record after this call's edit events
+// (values, LOCKs / options, formation, solve mode, driver, entry history, inherited/explicit state),
+// its state error, and what it reads from the aircraft before it: leaderView() of #1 and of its
+// element lead (#3 for #4) and #1's Wind Direction. The key below is exactly that (exact
+// serialization), plus the model versions, so a reused solve is the one a fresh solve would return.
+// Anything else changed: solved again. A failure is reused only for the identical input, never an
+// earlier success for a changed one.
+const SOLVE_MODEL_KEY = calculationKey({
+  flight: OFFSET_FLIGHT_V0_1,
+  bdp: BOMB_DELIVERY_PLANNER_MODEL_V0_3,
+});
+
+function aircraftSolveKey(number, record, stateError, leaders) {
+  return calculationKey({ model: SOLVE_MODEL_KEY, number, record, stateError: stateError ?? null, leaders });
+}
+
+// solve() returns { entry, record }: the aircraft's result entry and its record after the solve.
+function reusedSolve(session, keyOf, solve) {
+  const memo = session?.solves;
+  if (!memo) return { ...solve(), reused: false };
+  const key = keyOf();
+  const stored = memo.get(key);
+  if (stored) {
+    memo.delete(key);
+    memo.set(key, stored);
+    return { ...structuredClone(stored), reused: true };
+  }
+  const solved = solve();
+  memo.set(key, structuredClone(solved));
+  while (memo.size > session.solveLimit) memo.delete(memo.keys().next().value);
+  return { ...solved, reused: false };
+}
+
+function calculateFlight(input, session) {
+  const { flightSize, aircraft, stateErrors } = normalizeFlightInput(input);
+  const editErrors = applyEdits(aircraft, flightEdits(input));
 
   const results = {};
-  results[1] = solveLead(aircraft[1], stateErrors[1] ?? editErrors[1]);
-  const flightLead = results[1].result;
+  const views = {};
+  const solveLog = {};
+  const errorOf = (number) => stateErrors[number] ?? editErrors[number];
+  const lead = reusedSolve(session, () => aircraftSolveKey(1, aircraft[1], errorOf(1), null), () => {
+    const entry = solveLead(aircraft[1], errorOf(1));
+    return { entry, record: aircraft[1] };
+  });
+  aircraft[1] = lead.record;
+  results[1] = lead.entry;
+  views[1] = leaderView(results[1].result);
+  solveLog[1] = lead.reused ? "reused" : "solved";
+  const flightLeadValues = { windDirectionDeg: aircraft[1].values?.windDirectionDeg };
   for (const number of FOLLOWERS) {
     if (number > flightSize) continue;
-    results[number] = solveFollower({ number, follower: aircraft[number], stateError: stateErrors[number] ?? editErrors[number], results, flightLead, flightLeadValues: aircraft[1].values });
+    const leadNumber = OFFSET_FLIGHT_ELEMENT_LEAD[number];
+    const leaderResult = views[leadNumber] ?? null;
+    const keyOf = () => aircraftSolveKey(number, aircraft[number] ?? null, errorOf(number), { flightLead: views[1], flightLeadValues, elementLead: leaderResult });
+    const solved = reusedSolve(session, keyOf, () => {
+      const entry = solveFollower({ number, follower: aircraft[number], stateError: errorOf(number), leaderResult, flightLead: views[1], flightLeadValues });
+      return { entry, record: aircraft[number] ?? null };
+    });
+    if (solved.record) aircraft[number] = solved.record;
+    results[number] = solved.entry;
+    views[number] = leaderView(results[number].result);
+    solveLog[number] = solved.reused ? "reused" : "solved";
   }
-
   const aircraftResults = {};
   const constraintDiagnostics = [];
   const nextAircraft = {};
@@ -1038,7 +1125,7 @@ export function calculateOffsetFlightFull(input) {
     aircraftResults[number] = { ...rest, ded: entry.ded ?? null };
     constraintDiagnostics.push(...diagnostics);
   }
-  return {
+  const output = {
     model: { ...OFFSET_FLIGHT_V0_1, components: { ...OFFSET_FLIGHT_V0_1.components } },
     flightSize,
     aircraftResults,
@@ -1046,6 +1133,56 @@ export function calculateOffsetFlightFull(input) {
     flightTiming: flightTiming(flightSize, results),
     nextInput: { schemaVersion: OFFSET_FLIGHT_V0_1.schemaVersion, flightSize, aircraft: nextAircraft },
   };
+  return { output, solveLog };
+}
+
+// Pure reference entrypoint: every call starts from nothing (no state survives between calls).
+// Inside the call, identical BDP / SEM / trajectory sub-solves are computed once (P1/P2).
+export function calculateOffsetFlightFull(input) {
+  const cache = createCalculationCache();
+  return withCalculationCache(cache, () => calculateFlight(input, null)).output;
+}
+
+// Verification reference (addendum P04): the same calculation with no reuse of any kind.
+export function calculateOffsetFlightReferenceFull(input) {
+  return withCalculationCache(null, () => calculateFlight(input, null)).output;
+}
+
+// Editing session (addendum P3): the same contract as calculateOffsetFlightFull, for the repeated
+// calls of one editing page. The BE keeps, inside the session object only, the sub-solves and each
+// aircraft's last solves keyed by their full dependencies, so a call re-solves only the aircraft
+// whose dependencies changed. Its output equals calculateOffsetFlightFull(input) for every input
+// (offset-flight-session-v0.1.test.mjs). The FE holds the session as an opaque handle (in the Worker).
+export function createOffsetFlightSession({ solveLimit = 48, cacheLimits = { "bdp-v0.3": 2048, "ballistic-trajectory": 2048, "sem-nlt": 64 } } = {}) {
+  const session = { solves: new Map(), solveLimit, cache: createCalculationCache({ limits: cacheLimits }) };
+  let last = null;
+  return Object.freeze({
+    calculate(input) {
+      const before = snapshotCalculationCacheStats(session.cache);
+      const started = performance.now();
+      const { output, solveLog } = withCalculationCache(session.cache, () => calculateFlight(input, session));
+      last = { solveLog, subSolves: calculationCacheStats(session.cache, before), beMs: performance.now() - started };
+      return output;
+    },
+    // Idle-time preparation: the page sends each returned state back as its next input, and a
+    // record a solve just wrote its derived values into is a new input once (see P03 test). Solving
+    // that returned state ahead of time (output discarded, counters untouched) makes the page's next
+    // request reuse it. Returns which aircraft it solved.
+    prepare(nextInput) {
+      const { solveLog } = withCalculationCache(session.cache, () => calculateFlight(nextInput, session));
+      return solveLog;
+    },
+    // Counters of the last calculate(): which aircraft were solved or reused, BDP / SEM / trajectory
+    // calls, hits and misses (real executions), and the BE time. Diagnostics only, not output.
+    lastStats() {
+      return last && structuredClone(last);
+    },
+    clear() {
+      session.solves.clear();
+      session.cache = createCalculationCache({ limits: cacheLimits });
+      last = null;
+    },
+  });
 }
 
 // Public entrypoint: results truncated to 5 decimals (docs/FE-BE-RULES.md). It carries no nextInput:

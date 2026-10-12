@@ -1,4 +1,5 @@
 import { groundSpeedAlongPath } from "./flight-path-wind-v0.1.mjs";
+import { cachedCalculation } from "../../../common/calculation/calculation-cache-v0.1.mjs";
 
 const G_FTPS2 = 32.174;
 const KT_TO_FPS = 1.687809857;
@@ -134,8 +135,11 @@ export function simulateFixedHorizontalDrag({ params, weapon, releaseTasKt, conf
   throw new Error("Bomb impact was not reached within the configured integration limit");
 }
 
+// Inside an owning BE call the trajectory integration runs once per exact argument set (model
+// config, Dive Angle, Release AGL, wind relative to the attack axis and its speed, flight-path
+// reference, weapon data, Release TAS). The integration step and limits are unchanged.
 export function calculateBombTrajectory({ params, weapon, releaseTasKt, modelId = ACTIVE_BALLISTIC_MODEL_ID }) {
   const config = modelId === "freefalcon-legacy-v1" ? FREEFALCON_LEGACY_V1_CONFIG : BMS_438_ACMI_V1_CONFIG;
   if (config.modelId !== modelId) throw new RangeError(`Unsupported ballistic model: ${modelId}`);
-  return simulateFixedHorizontalDrag({ params, weapon, releaseTasKt, config });
+  return cachedCalculation("ballistic-trajectory", { config, params, weapon, releaseTasKt }, () => simulateFixedHorizontalDrag({ params, weapon, releaseTasKt, config }));
 }

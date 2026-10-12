@@ -2,11 +2,16 @@ import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSign
 import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
 import { formationPositionMarkup, installFormationSideSelects } from "./common/ui/formation-position-v0.1.mjs";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
-// One BE call per change (AG SPEC "Flight entrypoint", 2026-10-12): the Flight entrypoint owns every
+// One BE call per request (AG SPEC "Flight entrypoint", 2026-10-12): the Flight entrypoint owns every
 // solve, inheritance, position, drop-order timing and the next input state. This controller collects
-// the inputs and the edit event, stores the returned state and displays the results; Full results
+// the inputs and the edit events, stores the returned state and displays the results; Full results
 // feed the views and the next call, displays use the 5-decimal truncation (docs/FE-BE-RULES.md).
-import { OFFSET_FLIGHT_V0_1, calculateOffsetFlightFull } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=2026-10-12b";
+// The BE runs in a Worker (offset-flight-worker-v0.1.mjs); calculation-client-v0.1.mjs decides when a
+// request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
+// current (performance addendum 2026-10-12, P4).
+import { OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=2026-10-12c";
+import { createCalculationScheduler, createWorkerTransport } from "./calculation-client-v0.1.mjs?v=0.1.0";
+const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.0", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -310,12 +315,15 @@ function syncLockButtons() {
 // Writes the BE's next state. A field is rewritten only when its returned value differs from the
 // value sent (a field being typed in keeps its text until the edit is committed); a committed Run-In
 // heading shows its formatted value.
-function applyFlightState(next, sent, edit) {
-  const commit = !!edit && (edit.commit === true || edit.kind === "clear");
-  const editKey = (number) => (edit && (edit.aircraft ?? 1) === number ? edit.key : null);
-  applyLeadState(next.aircraft[1], sent.aircraft[1], editKey(1), commit);
+function applyFlightState(next, sent, edits) {
+  // Per aircraft, its latest edit event decides the active field and whether it was committed.
+  const lastEdit = (number) => edits.findLast((edit) => (edit.aircraft ?? 1) === number) ?? null;
+  const committed = (edit) => !!edit && (edit.commit === true || edit.kind === "clear");
+  const lead = lastEdit(1);
+  applyLeadState(next.aircraft[1], sent.aircraft[1], lead?.key ?? null, committed(lead));
   for (const number of [2, 3, 4]) {
-    if (next.aircraft[number] && sent.aircraft[number]) applyFollowerState(number, next.aircraft[number], sent.aircraft[number], editKey(number), commit);
+    const edit = lastEdit(number);
+    if (next.aircraft[number] && sent.aircraft[number]) applyFollowerState(number, next.aircraft[number], sent.aircraft[number], edit?.key ?? null, committed(edit));
   }
 }
 
@@ -759,18 +767,48 @@ function flightTimingOf(number) {
   return timing?.available ? truncateBeOutput(timing) : null;
 }
 
-// One BE call for the whole Flight (input + optional edit event), then the returned state is stored
-// and the results drawn. Nothing is solved, inherited or re-derived here.
+// Calculation requests (performance addendum 2026-10-12, P4). Numeric typing waits for 200 ms of
+// quiet (calculateLater), a numeric commit joins the waiting request (calculateCommit), Enter / LOCK
+// / buttons / selections go at once (calculate), and a reset or load drops what was waiting
+// (recalculateFresh). Each request is one BE call for the whole Flight with the ordered edit events.
+let calculationScheduler = null;
+let lastCalculationStats = null;
 function calculate(edit = null) {
-  const input = collectFlightInput(edit);
-  let output;
-  try {
-    output = calculateOffsetFlightFull(input);
-  } catch (error) {
+  calculationScheduler.immediate(edit);
+}
+function calculateLater(edit) {
+  calculationScheduler.input(edit);
+}
+function calculateCommit(edit) {
+  calculationScheduler.commit(edit);
+}
+function recalculateFresh(keep = undefined) {
+  calculationScheduler.reset(keep);
+}
+// LOCK / option toggles: the next value follows the clicks not yet answered.
+function toggledValue(aircraft, kind, key, current) {
+  const pending = calculationScheduler.pendingToggle(aircraft, kind, key);
+  return !(pending === undefined ? current : pending);
+}
+
+// The request input: the current inputs and state, plus the edit events not yet answered (an event
+// for an aircraft no longer in the Flight is dropped with it).
+function collectCalculationInput(edits) {
+  const input = collectFlightInput();
+  const current = edits.filter((edit) => !!input.aircraft[edit.aircraft ?? 1]);
+  return current.length ? { ...input, edits: current } : input;
+}
+
+// Answer to the current state (calculation-client adopts nothing else): the returned state is stored
+// and the results drawn. Nothing is solved, inherited or re-derived here.
+function applyCalculationAnswer(message, sent) {
+  const input = sent.input;
+  const output = message.output ?? {
     // An input the BE cannot read at all (not a per-aircraft failure): nothing is current.
-    output = { aircraftResults: { 1: { status: "FAILED", result: null, error: error.message } }, flightTiming: {}, nextInput: null };
-  }
-  if (output.nextInput) applyFlightState(output.nextInput, input, edit);
+    aircraftResults: { 1: { status: "FAILED", result: null, error: message.error ?? "no result" } }, flightTiming: {}, nextInput: null,
+  };
+  lastCalculationStats = message.stats ?? null;
+  if (output.nextInput) applyFlightState(output.nextInput, input, input.edits ?? []);
   else syncInitialLinkUi();
   lastFlightTiming = output.flightTiming ?? {};
   renderLead(output.aircraftResults[1]);
@@ -782,6 +820,19 @@ function calculate(edit = null) {
   // The Flight Top View once every aircraft has its current result.
   renderTopView();
   syncDedPngButtons();
+  initialRender = false;
+}
+
+function installCalculation() {
+  const transport = createWorkerTransport({ workerUrl: OFFSET_FLIGHT_WORKER_URL });
+  calculationScheduler = createCalculationScheduler({ collect: collectCalculationInput, apply: applyCalculationAnswer, transport });
+  // Read-only diagnostics for the browser oracle and performance checks (nothing here calculates).
+  globalThis.offsetCalculation = Object.freeze({
+    whenIdle: () => calculationScheduler.whenIdle(),
+    state: () => calculationScheduler.state(),
+    lastStats: () => lastCalculationStats,
+    mode: () => transport.mode(),
+  });
 }
 
 function renderLead(entry) {
@@ -880,43 +931,62 @@ function fillEmptyLeadField(key) {
   calculate({ aircraft: 1, kind: "clear", key, commit: true, before: leadEditBefore(key), fallbackValue: Number.isFinite(fallback) ? fallback : null });
 }
 
+// Enter in a numeric field: its commit goes at once; the browser's change that follows for the same
+// field and text adds nothing (the commit already went).
+let enterCommit = null;
+function enterCommitted(field) {
+  const same = enterCommit?.field === field && enterCommit.text === field.value;
+  enterCommit = null;
+  return same;
+}
+
 function handleFieldChange(event) {
   const field = event.target.closest?.("[data-key]");
   if (!field || field.id === "ip-bearing-input") return;
+  // A selection is computed when it changes (its input event adds nothing).
+  if (field.tagName === "SELECT" && event.type !== "change") return;
   // 7777 in Initial Altitude is the developer command (index only): not an altitude, never solved.
   if (field.dataset.key === "initialAltitudeMslFt" && isDeveloperCommand(field)) {
     if (event.type === "change") runDeveloperCommand(field);
     return;
   }
+  if (event.type === "change" && field.tagName !== "SELECT" && enterCommitted(field)) return;
+  if (event.type === "input") enterCommit = null;
   if (field.tagName !== "SELECT" && field.value.trim() === "") {
+    // While a field is empty nothing is calculated (edits already typed wait for the next request).
     if (event.type === "change") fillEmptyLeadField(field.dataset.key);
+    else calculationScheduler.hold();
     return;
   }
   syncDuplicates(field);
   const key = field.dataset.key;
   dropSolvedIfEdited(solvedInputValues, key, field.value);
   // previousValue: this field's value in the state last returned (the IP link no-op commit).
-  calculate({ aircraft: 1, kind: "set", key, commit: event.type === "change", previousValue: lastLeadState?.values?.[key] ?? null });
+  const edit = { aircraft: 1, kind: "set", key, commit: event.type !== "input", previousValue: lastLeadState?.values?.[key] ?? null };
+  if (field.tagName === "SELECT") calculate(edit);
+  else if (event.type === "input") calculateLater(edit);
+  else if (event.type === "enter") calculate(edit);
+  else calculateCommit(edit);
 }
 
 // Reference inputs: the typed value goes to the BE as entered (VIP bearing in canonical TO notation).
 function handleReferenceInput(key) {
   dropSolvedIfEdited(solvedInputValues, key, $(REFERENCE_INPUTS[key])?.value ?? "");
-  calculate({ aircraft: 1, kind: "set", key });
+  calculateLater({ aircraft: 1, kind: "set", key });
 }
 
 function handleIpBearingInput(event) {
   const entered = Number.parseFloat(event.target.value);
   if (!Number.isFinite(entered)) return;
   // The IP bearing is the Run-In axis in TO/FROM notation (canonical TO value to the BE).
-  calculate({ aircraft: 1, kind: "set", key: "ipBearingDeg", value: canonicalToTargetBearing(entered, ipBearingDirection) });
+  calculateLater({ aircraft: 1, kind: "set", key: "ipBearingDeg", value: canonicalToTargetBearing(entered, ipBearingDirection) });
 }
 
 function installLocks() {
   $$("[data-lock-key]").forEach((button) => {
     const key = button.dataset.lockKey;
     locks[key] = button.getAttribute("aria-pressed") === "true";
-    button.addEventListener("click", () => calculate({ aircraft: 1, kind: "lock", key, value: !locks[key] }));
+    button.addEventListener("click", () => calculate({ aircraft: 1, kind: "lock", key, value: toggledValue(1, "lock", key, locks[key]) }));
   });
 }
 
@@ -978,17 +1048,22 @@ function installReferenceBearingControls() {
   $("#ip-to-target-btn").addEventListener("click", () => setIpDirection("TO_TARGET"));
   $("#ip-from-target-btn").addEventListener("click", () => setIpDirection("FROM_TARGET"));
 
+  // Leaving a reference field shows the BE's value for it once the answer to the current state is
+  // in (a typed value may still be waiting for its request); not while the field is being typed in again.
+  const onBlurAnswered = (field, show) => field?.addEventListener("blur", () => {
+    calculationScheduler.whenIdle().then(() => { if (document.activeElement !== field) show(); });
+  });
   vipBearingInput.addEventListener("input", () => handleReferenceInput("vipToTargetBearingDeg"));
-  vipBearingInput.addEventListener("blur", () => showLeadValue("vipToTargetBearingDeg"));
+  onBlurAnswered(vipBearingInput, () => showLeadValue("vipToTargetBearingDeg"));
   vipRangeInput.addEventListener("input", () => handleReferenceInput("vipRangeNm"));
-  vipRangeInput.addEventListener("blur", () => showLeadValue("vipRangeNm"));
+  onBlurAnswered(vipRangeInput, () => showLeadValue("vipRangeNm"));
 
   vrpBearingInput.addEventListener("input", () => handleReferenceInput("vrpBearingDeg"));
-  vrpBearingInput.addEventListener("blur", () => showLeadValue("vrpBearingDeg"));
-  vrpRangeInput?.addEventListener("blur", () => showLeadValue("vrpRangeNm"));
+  onBlurAnswered(vrpBearingInput, () => showLeadValue("vrpBearingDeg"));
+  onBlurAnswered(vrpRangeInput, () => showLeadValue("vrpRangeNm"));
 
   ipBearingInput.addEventListener("input", handleIpBearingInput);
-  ipBearingInput.addEventListener("blur", () => syncIpBearingInput(readRunInHeading(), { includeActive: true }));
+  onBlurAnswered(ipBearingInput, () => syncIpBearingInput(readRunInHeading(), { includeActive: true }));
 }
 
 function installValueStateBindings() {
@@ -1003,6 +1078,11 @@ function installValueStateBindings() {
     const field = event.target.closest?.("[data-key]");
     if (!field?.dataset?.key || field.id === "ip-bearing-input") return;
     valueStates.confirmDependentInput(field.dataset.key);
+    // Enter commits the typed value at once (with every waiting edit).
+    if (field.tagName === "INPUT" && field.value.trim() !== "" && !(field.dataset.key === "initialAltitudeMslFt" && isDeveloperCommand(field))) {
+      handleFieldChange({ type: "enter", target: field });
+      enterCommit = { field, text: field.value };
+    }
   });
 }
 
@@ -1340,10 +1420,13 @@ function installSectionTools(root = document) {
           button.textContent = `${label}: ${on ? "On" : "Off"}`;
         });
       } else if (tool === "save") {
-        make(tool, "Save").addEventListener("click", (event) => {
+        make(tool, "Save").addEventListener("click", async (event) => {
+          const button = event.currentTarget;
           commitActiveEdit();
+          // The saved state is the answered current one (the last edit is not left waiting, D09).
+          await calculationScheduler.flush();
           saveWorkState();
-          flashSaved(event.currentTarget);
+          flashSaved(button);
         });
       } else if (tool === "default") {
         make(tool, INDEX_LAYOUT ? "Tab Default" : "Default").addEventListener("click", () => {
@@ -1398,7 +1481,8 @@ function resetLeadTab(tab, section) {
   }
   applyPersistedState(current);
   section.querySelectorAll(".value-dependent-input").forEach((node) => node.classList.remove("value-dependent-input"));
-  calculate();
+  // Edits waiting for this tab's fields are replaced by the defaults; other waiting edits stay.
+  recalculateFresh((edit) => (edit.aircraft ?? 1) !== 1 || !owns(edit.key));
 }
 
 // Follower tab Default: the draft keys of the fields this tab holds (plus the solve mode and entered
@@ -1418,7 +1502,7 @@ function resetFollowerTab(number, tab, section = null) {
   });
   const slot = document.querySelector(`.flight-slot[data-aircraft="${number}"]`);
   if (slot) initializeFlightSlotFields(slot, number);
-  calculate();
+  recalculateFresh((edit) => (edit.aircraft ?? 1) !== number || !keys.includes(edit.key));
 }
 
 // Follower BDP inputs owned per aircraft. An empty value follows the element lead's current value
@@ -1623,7 +1707,7 @@ function initializeFlightSlotFields(slot, number) {
   });
 }
 
-function renderFlightLayout() {
+function renderFlightLayout({ fresh = false } = {}) {
   const host = $("#flight-followers");
   $("#flight-size").value = String(flightLayout.size);
   // Follower outputs the index layout moved out of their slot go with the slot.
@@ -1651,7 +1735,10 @@ function renderFlightLayout() {
     const panel = slot.querySelector("[data-flight-result-panel]");
     if (panel) followerResultPanels.set(Number(slot.dataset.aircraft), installResultPanel(panel));
   });
-  if (persistenceReady) calculate();
+  if (persistenceReady) {
+    if (fresh) recalculateFresh();
+    else calculate();
+  }
 }
 
 // One follower draft record from storage (work save or developer preset): known keys only, typed,
@@ -1737,20 +1824,37 @@ function installFlightLayout() {
     const number = flightSlotNumber(field);
     if (!field || !number) return;
     const key = field.dataset.flightField;
+    const selection = field.tagName === "SELECT" || field.type === "checkbox";
+    // A selection is computed when it changes (its input event adds nothing).
+    if (selection && event.type !== "change") return;
     if (key === "initialAltitudeMslFt" && isDeveloperCommand(field)) {
       if (event.type === "change") runDeveloperCommand(field);
       return;
     }
+    if (event.type === "change" && !selection && enterCommitted(field)) return;
+    if (event.type === "input") enterCommit = null;
     const draft = flightDraft(number);
     // Empty-field commit, same rule as #1: blank inherited BDP values keep meaning "follow the lead".
-    if (field.tagName !== "SELECT" && field.type !== "checkbox" && field.value.trim() === "" && !FOLLOWER_BDP_EXTRA_KEYS.includes(key)) {
+    if (!selection && field.value.trim() === "" && !FOLLOWER_BDP_EXTRA_KEYS.includes(key)) {
       if (event.type === "change") fillEmptyFollowerField(number, key);
+      else calculationScheduler.hold();
       return;
     }
     draft[key] = field.type === "checkbox" ? field.checked : field.value;
     dropSolvedIfEdited(draft.solved, key, field.value);
-    calculate({ aircraft: number, kind: "set", key, commit: event.type === "change" });
+    const edit = { aircraft: number, kind: "set", key, commit: event.type !== "input" };
+    if (selection || event.type === "enter") calculate(edit);
+    else if (event.type === "input") calculateLater(edit);
+    else calculateCommit(edit);
   };
+  $("#flight-followers").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    const field = event.target.closest?.("input[data-flight-field]");
+    if (!field || field.type === "checkbox" || field.value.trim() === "" || !flightSlotNumber(field)) return;
+    if (field.dataset.flightField === "initialAltitudeMslFt" && isDeveloperCommand(field)) return;
+    updateFlightDraft({ type: "enter", target: field });
+    enterCommit = { field, text: field.value };
+  });
   $("#flight-followers").addEventListener("focusin", (event) => {
     const field = event.target.closest?.("input[data-flight-field]");
     const number = flightSlotNumber(field);
@@ -1767,7 +1871,7 @@ function installFlightLayout() {
     const number = flightSlotNumber(button);
     if (!button || !number) return;
     const key = button.dataset.flightField;
-    calculate({ aircraft: number, kind: "toggle", key, value: flightDraft(number)[key] !== true });
+    calculate({ aircraft: number, kind: "toggle", key, value: toggledValue(number, "toggle", key, flightDraft(number)[key] === true) });
   });
   renderFlightLayout();
 }
@@ -2306,8 +2410,8 @@ function applyFlightDefaults() {
   if (preset) flightLayout.size = preset.flight.size;
   for (const number of [2, 3, 4]) flightLayout.aircraft[number] = defaultFlightDraft(number);
   pruneVisibleAircraft();
-  // Rebuilds the follower slots and runs the one BE call.
-  renderFlightLayout();
+  // Rebuilds the follower slots; the loaded state replaces every waiting edit and answer.
+  renderFlightLayout({ fresh: true });
 }
 
 // Developer mode (temporary, §3.3): typing 7777 into the edited aircraft's Initial Altitude and
@@ -2342,7 +2446,7 @@ function restoreEditSnapshot(snapshot) {
   Object.assign(flightLayout.aircraft, JSON.parse(JSON.stringify(snapshot.flight.aircraft)));
   document.querySelectorAll("#flight-followers .flight-slot").forEach((slot) => initializeFlightSlotFields(slot, Number(slot.dataset.aircraft)));
   clearPendingInputStates();
-  calculate();
+  recalculateFresh();
 }
 function rememberDeveloperEditStart(field) {
   if (developerCommandAvailable()) developerEditStart = { field, snapshot: captureEditSnapshot() };
@@ -2376,8 +2480,10 @@ function syncDeveloperUi() {
 }
 function installSaveTab() {
   if (!$("#work-save")) return;
-  $("#work-save").addEventListener("click", () => {
+  // Save waits until the last edit has its answer, so the saved state is the current one (D09).
+  $("#work-save").addEventListener("click", async () => {
     commitActiveEdit();
+    await calculationScheduler.flush();
     const ok = saveWorkState();
     renderSaveStatus(ok ? `Saved · Flight of ${flightLayout.size} · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Save failed · browser storage unavailable; inputs stay usable", ok ? "valid" : "invalid");
   });
@@ -2387,9 +2493,10 @@ function installSaveTab() {
     applyFlightDefaults();
     renderSaveStatus(`${readDefaultPreset() ? "Developer preset" : "Built-in Default"} loaded · press Save to keep it`, "valid");
   });
-  $("#save-as-default").addEventListener("click", () => {
+  $("#save-as-default").addEventListener("click", async () => {
     if (!developerMode) return;
     commitActiveEdit();
+    await calculationScheduler.flush();
     const outcome = saveDefaultPreset();
     syncDeveloperUi();
     renderSaveStatus(outcome.ok ? outcome.message : `Save as Default failed · ${outcome.message} · previous Default kept`, outcome.ok ? "valid" : "invalid");
@@ -2431,9 +2538,10 @@ function install() {
   // Header shows the Offset BE version actually loaded.
   const rev = $(".rev");
   if (rev) rev.textContent = `V2 WORK · OFFSET BE ${OFFSET_FLIGHT_V0_1.components.offsetBe} · FLIGHT ${OFFSET_FLIGHT_V0_1.version}`;
+  installCalculation();
   populateWeapons();
   installLocks();
-  $("#initial-link-btn")?.addEventListener("click", () => calculate({ aircraft: 1, kind: "toggle", key: "rollInAltitudeLinked", value: !rollInAltitudeLinked }));
+  $("#initial-link-btn")?.addEventListener("click", () => calculate({ aircraft: 1, kind: "toggle", key: "rollInAltitudeLinked", value: toggledValue(1, "toggle", "rollInAltitudeLinked", rollInAltitudeLinked) }));
   installModeButtons();
   installReferenceBearingControls();
   installValueStateBindings();
@@ -2520,8 +2628,8 @@ function install() {
   const restored = loadPersistedState();
   if (!restored) applyPersistedState(defaultPersistedState);
   persistenceReady = true;
-  calculate();
-  initialRender = false;
+  // The first answer draws the page (initialRender ends there).
+  recalculateFresh();
 }
 
 install();

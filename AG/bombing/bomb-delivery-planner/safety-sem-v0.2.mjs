@@ -1,5 +1,6 @@
-import { calculateWingsLevelRecoveryPull } from "../../../common/maneuvers/recovery-pull/recovery-pull-v0.1.mjs";
+import { RECOVERY_PULL_MODEL, calculateWingsLevelRecoveryPull } from "../../../common/maneuvers/recovery-pull/recovery-pull-v0.1.mjs";
 import { calculateFragmentData } from "./safety-legacy-v0.1.mjs";
+import { cachedCalculation } from "../../../common/calculation/calculation-cache-v0.1.mjs";
 
 export const SEM_NLT_MODEL_V0_2 = Object.freeze({
   id: "sem-g-onset-nlt-v0.2",
@@ -10,6 +11,10 @@ function requireFinite(name, value) {
   if (typeof value !== "number" || !Number.isFinite(value)) throw new TypeError(`${name} must be finite`);
 }
 
+// Inside an owning BE call (common/calculation/calculation-cache-v0.1.mjs) the NLT solve (48-step
+// bisection over the recovery integration) runs once per exact argument set: weapon data, Target
+// elevation, Release speed, Overshoot, Fragment margin, Release FPA, Recovery G, G onset and the
+// SEM / recovery-pull model versions. Outside one it runs every time, as before.
 export function calculateSemNltSafety({
   weapon,
   targetElevationMslFt,
@@ -19,6 +24,20 @@ export function calculateSemNltSafety({
   releaseFpaDeg,
   recoveryG = 5,
   gOnsetTimeSec = 2,
+}) {
+  const args = { weapon, targetElevationMslFt, releaseSpeedKcas, speedOvershootKcas, fragmentHeightMarginPercent, releaseFpaDeg, recoveryG, gOnsetTimeSec };
+  return cachedCalculation("sem-nlt", { model: SEM_NLT_MODEL_V0_2, recoveryPull: RECOVERY_PULL_MODEL, args }, () => computeSemNltSafety(args));
+}
+
+function computeSemNltSafety({
+  weapon,
+  targetElevationMslFt,
+  releaseSpeedKcas,
+  speedOvershootKcas,
+  fragmentHeightMarginPercent,
+  releaseFpaDeg,
+  recoveryG,
+  gOnsetTimeSec,
 }) {
   [
     ["fragmentHeightMarginPercent", fragmentHeightMarginPercent],
