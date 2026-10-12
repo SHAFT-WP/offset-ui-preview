@@ -1,6 +1,6 @@
 import { casToTas, machToTas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { calculateBombDeliveryV0_3Full as calculateBombDeliveryV0_3 } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
-import { bdpWindDirectionDeg, resolveOffsetTurn } from "./offset-be-v0.2.mjs";
+import { bdpWindDirectionDeg, nonFiniteResultFields, offsetAngleScanMaxDeg, resolveOffsetTurn } from "./offset-be-v0.2.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import {
   add,
@@ -21,7 +21,9 @@ import {
 
 export const OFFSET_FORMATION_GEOMETRY_V0_1 = Object.freeze({
   id: "offset-formation-geometry-v0.1",
-  version: "0.1.4",
+  // 0.1.5 (2026-10-12): same Offset Angle scan range and shared root scan as offset-be-v0.2 0.2.8 (F4);
+  // Offset Speed / non-finite result guards come with resolveOffsetTurn (F5).
+  version: "0.1.5",
   status: "work",
   purpose:
     "Off-axis Offset geometry for a Flight follower whose IP is displaced from the shared Target-through Run-In axis by its Formation position, while Target and Run-In heading stay shared with its element lead. Reuses offset-geometry-v0.2.mjs's pure heading/vector helpers without modifying offset-be-v0.2.mjs or offset-geometry-v0.2.mjs's own single-aircraft (on-axis) contract.",
@@ -246,7 +248,7 @@ export function calculateOffAxisOffsetFull(input) {
   let exact = true;
 
   if (rangeFixed && offsetCanVary) {
-    const maxAngle = Math.max(0.1, Math.min(120, 179.4 - Math.abs(direction.deltaDeg)));
+    const maxAngle = offsetAngleScanMaxDeg({ locks, driver, direction });
     const solved = solveOffsetAngleForActionRange({
       targetRangeNm: rangeTargetNm,
       evaluate: (angle) => {
@@ -306,6 +308,8 @@ export function calculateOffAxisOffsetFull(input) {
   const approachSec = (Math.max(0, approachRangeNm) * FT_PER_NM) / speedFps;
   const rollToReleaseSec = candidate.profile.public.rollInTimeSec + candidate.profile.public.trackingTimeSec;
   const offsetIpToReleaseSec = ingressSec + turnSec + approachSec + rollToReleaseSec;
+  const nonFinite = nonFiniteResultFields({ actionRangeNm: candidate.actionRangeNm, actionRangeFromIpNm: candidate.actionRangeFromIpNm, approachRangeNm, ingressSec, turnSec, approachSec, rollToReleaseSec, offsetIpToReleaseSec, rollStartX: candidate.points.rollStart.x, rollStartY: candidate.points.rollStart.y });
+  if (nonFinite.length) errors.push(`Offset result is not finite (${nonFinite.join(", ")})`);
 
   return {
     model: { ...OFFSET_FORMATION_GEOMETRY_V0_1 },

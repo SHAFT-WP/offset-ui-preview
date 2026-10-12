@@ -3,7 +3,9 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 
 export const OFFSET_FORMATION_V0_1 = Object.freeze({
   id: "offset-formation-v0.1",
-  version: "0.1.3",
+  // 0.1.4 (2026-10-12): computeFormationOffsetVectorFull / computeDropOrderDeltaFull for composition
+  // (offset-flight-v0.1.mjs); the public functions stay the truncated wrappers.
+  version: "0.1.4",
   status: "work",
   purpose: "Flight-of-4 composition: Formation display offset, element-pair Offset Angle / Action Range options, and drop-order timing deltas, over independently solved offset-be-v0.2 results",
 });
@@ -19,7 +21,12 @@ function finite(name, value) {
 // position"). The relative bearing is measured from the reference aircraft's TAIL (user rule,
 // 2026-09-28): 0 = directly behind, 90 = abeam, 180 = directly ahead, on the Left or Right side.
 // The follower's own IP is the reference aircraft's IP displaced by this vector.
-export function computeFormationOffsetVector({ runInHeadingDeg, relativeBearingDeg, side, distanceNm }) {
+// Public entrypoint: truncated output; the Full variant is used for composition (IP sums).
+export function computeFormationOffsetVector(input) {
+  return truncateBeOutput(computeFormationOffsetVectorFull(input));
+}
+
+export function computeFormationOffsetVectorFull({ runInHeadingDeg, relativeBearingDeg, side, distanceNm }) {
   finite("runInHeadingDeg", runInHeadingDeg);
   finite("relativeBearingDeg", relativeBearingDeg);
   finite("distanceNm", distanceNm);
@@ -32,7 +39,7 @@ export function computeFormationOffsetVector({ runInHeadingDeg, relativeBearingD
   // Tail = reciprocal of the Run-In; Left of the tail line is further clockwise from the tail.
   const trueBearingDeg = norm(runInHeadingDeg + 180 + (side === "LEFT" ? relativeBearingDeg : -relativeBearingDeg));
   const heading = vecHeading(trueBearingDeg);
-  return truncateBeOutput({ trueBearingDeg, vector: { x: heading.x * distanceNm, y: heading.y * distanceNm } });
+  return { trueBearingDeg, vector: { x: heading.x * distanceNm, y: heading.y * distanceNm } };
 }
 
 // Offset Angle "Same as Element Lead": substitutes the lead's already-solved value as a
@@ -176,7 +183,11 @@ export function solveElementSameTimeActionRange({ leaderResult, followerLocks = 
 // Assumes every Flight aircraft crosses its own IP at the same synchronized absolute time, so
 // each side's own IP-relative timing can be differenced directly; see AG SPEC "Bombing-sequence
 // timing (drop-order chain)" for that working assumption.
-export function computeDropOrderDelta({ predecessorResult, ownResult }) {
+export function computeDropOrderDelta(input) {
+  return truncateBeOutput(computeDropOrderDeltaFull(input));
+}
+
+export function computeDropOrderDeltaFull({ predecessorResult, ownResult }) {
   const predIpToReleaseSec = finite("predecessorResult.timing.offsetIpToReleaseSec", predecessorResult?.timing?.offsetIpToReleaseSec);
   const predBombTofSec = finite("predecessorResult.profile.public.bombTofSec", predecessorResult?.profile?.public?.bombTofSec);
   const ownIpToReleaseSec = finite("ownResult.timing.offsetIpToReleaseSec", ownResult?.timing?.offsetIpToReleaseSec);
@@ -185,10 +196,14 @@ export function computeDropOrderDelta({ predecessorResult, ownResult }) {
   const predIpToImpactSec = predIpToReleaseSec + predBombTofSec;
   const ownIpToImpactSec = ownIpToReleaseSec + ownBombTofSec;
 
-  return truncateBeOutput({
+  return {
     ipToReleaseDeltaSec: ownIpToReleaseSec - predIpToReleaseSec,
     ipToImpactDeltaSec: ownIpToImpactSec - predIpToImpactSec,
     predecessorImpactToOwnReleaseSec: predIpToImpactSec - ownIpToReleaseSec,
     predecessorBombTofSec: predBombTofSec,
-  });
+    predecessorIpToReleaseSec: predIpToReleaseSec,
+    predecessorIpToImpactSec: predIpToImpactSec,
+    ownIpToReleaseSec,
+    ownIpToImpactSec,
+  };
 }

@@ -9,13 +9,17 @@ import {
   offsetAngleFromAngleOff,
   offsetHeadingFromOffset,
   resolveReferenceInputs,
+  scanOffsetAngleRoot,
   validateOffsetCandidate,
 } from "./offset-geometry-v0.2.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 
 // 0.2.7 (2026-10-01): true wind (profile.windDirectionTrueDeg), solver failures name their cause,
 // a VRP-held Action Point no longer reports as a user LOCK conflict.
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.7", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
+// 0.2.8 (2026-10-12): Offset Speed must give a finite TAS > 0 (F5); a non-finite timing/geometry
+// is never VALID; with Angle-Off held and Attack Heading free the Offset Angle scan is not cut by the
+// entered Attack Heading (F4) and uses the shared scanOffsetAngleRoot.
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.8", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -30,6 +34,24 @@ function finite(name, value) {
   return value;
 }
 function speedToTas(speedValue, speedMode, altitudeMslFt) { return speedMode === "MACH" ? machToTas(speedValue, altitudeMslFt) : casToTas(speedValue, altitudeMslFt); }
+
+// Offset input boundary (F5, 2026-10-12): the Offset leg flies a constant TAS, so its speed must give
+// a finite TAS > 0 whichever turn value drives. The general airspeed converters keep accepting 0.
+function offsetTasKt(input) {
+  const altitudeMslFt = finite("offsetAltitudeMslFt", input.offsetAltitudeMslFt);
+  const speedValue = finite("offsetSpeedValue", input.offsetSpeedValue);
+  const speedMode = input.offsetSpeedMode ?? "CAS";
+  if (speedMode !== "CAS" && speedMode !== "MACH") throw new RangeError("Offset Speed mode must be CAS or MACH");
+  if (!(speedValue > 0)) throw new RangeError(`Offset Speed must be > 0 ${speedMode === "MACH" ? "Mach" : "KCAS"}`);
+  const tasKt = speedToTas(speedValue, speedMode, altitudeMslFt);
+  if (!(Number.isFinite(tasKt) && tasKt > 0)) throw new RangeError("Offset Speed must give a finite TAS > 0 kt");
+  return tasKt;
+}
+
+// Values a VALID/WARNING result must carry as finite numbers (optional N/A fields stay null).
+export function nonFiniteResultFields(fields) {
+  return Object.entries(fields).filter(([, value]) => !Number.isFinite(value)).map(([name]) => name);
+}
 
 function fromG(loadFactor, tasKt) {
   if (!(loadFactor > 1)) throw new RangeError("Offset G must be > 1 G");
@@ -55,9 +77,7 @@ function fromRadius(radiusNm, tasKt) {
 export function resolveOffsetTurn(input, locks = {}, turnDriver = "offsetG") {
   const errors = [];
   const warnings = [];
-  const altitudeMslFt = finite("offsetAltitudeMslFt", input.offsetAltitudeMslFt);
-  const speedValue = finite("offsetSpeedValue", input.offsetSpeedValue);
-  const tasKt = speedToTas(speedValue, input.offsetSpeedMode ?? "CAS", altitudeMslFt);
+  const tasKt = offsetTasKt(input);
   const locked = ["offsetG", "offsetBankDeg", "offsetRadiusNm"].filter((key) => locks[key]);
   let authoritative = locked.length === 1 ? locked[0] : locked.includes(turnDriver) ? turnDriver : locked[0] ?? turnDriver;
   if (!["offsetG", "offsetBankDeg", "offsetRadiusNm"].includes(authoritative)) authoritative = "offsetG";
@@ -132,38 +152,18 @@ function resolveHeadingForOffset({ input, locks, driver, direction, runInHeading
 function solveOffsetAngleForMetric({ targetValue, evaluate, metric, minOffsetAngleDeg = 0.05, maxOffsetAngleDeg = 120, tolerance = 0.002 }) {
   finite("targetValue", targetValue);
   if (!(targetValue >= 0)) throw new RangeError("Range constraint must be >= 0 NM");
-  let previous = null;
-  let best = null;
-  let bracket = null;
-  const errors = new Map();
-  for (let angle = minOffsetAngleDeg; angle <= maxOffsetAngleDeg + 1e-9; angle += 1) {
-    try {
-      const candidate = evaluate(angle);
-      const residual = metric(candidate) - targetValue;
-      if (!best || Math.abs(residual) < Math.abs(best.residual)) best = { candidate, residual, angle };
-      if (previous && previous.residual * residual <= 0) { bracket = { lo: previous.angle, hi: angle, flo: previous.residual }; break; }
-      previous = { angle, residual };
-    } catch (error) {
-      // Rejected candidate (outside the valid geometry/profile range); keep scanning but remember why.
-      errors.set(error.message, (errors.get(error.message) ?? 0) + 1);
-    }
-  }
-  if (!bracket) return { candidate: best?.candidate ?? null, residualNm: best?.residual ?? null, exact: !!best && Math.abs(best.residual) <= tolerance, failureCause: candidateFailureCause(errors) };
+  const solved = scanOffsetAngleRoot({ targetValue, evaluate, metric, minAngleDeg: minOffsetAngleDeg, maxAngleDeg: maxOffsetAngleDeg, tolerance, refineIterations: 40 });
+  return { candidate: solved.candidate, residualNm: solved.residual, exact: solved.exact, failureCause: solved.failureCause };
+}
 
-  let lo = bracket.lo;
-  let hi = bracket.hi;
-  let flo = bracket.flo;
-  let candidate = null;
-  let residual = null;
-  for (let index = 0; index < 40; index += 1) {
-    const mid = (lo + hi) / 2;
-    candidate = evaluate(mid);
-    residual = metric(candidate) - targetValue;
-    if (Math.abs(residual) <= tolerance) break;
-    if (flo * residual <= 0) hi = mid;
-    else { lo = mid; flo = residual; }
-  }
-  return { candidate, residualNm: residual, exact: !!candidate && Math.abs(residual) <= tolerance };
+// Offset Angle scan range (F4, 2026-10-12). With the Attack Heading fixed (LOCK or entered and held)
+// the Angle-Off of a candidate grows with its Offset Angle, so the range ends where Angle-Off would
+// pass 179.4°. With the Angle-Off held and the Attack Heading free, each candidate derives its own
+// Attack Heading (and is checked for the fixed side), so the entered Attack Heading must not cut the
+// range: the full 120° scan applies.
+export function offsetAngleScanMaxDeg({ locks = {}, driver, direction }) {
+  const attackDerived = !locks.attackHeadingDeg && (!!locks.angleOffDeg || driver === "angleOffDeg");
+  return attackDerived ? 120 : Math.max(0.1, Math.min(120, 179.4 - Math.abs(direction.deltaDeg)));
 }
 
 function approachRangeInput(input) {
@@ -306,7 +306,7 @@ export function calculateOffsetV0_2Full(input) {
   let exact = true;
 
   if (range.fixed && offsetCanVary) {
-    const maxAngle = Math.max(0.1, Math.min(120, 179.4 - Math.abs(direction.deltaDeg)));
+    const maxAngle = offsetAngleScanMaxDeg({ locks, driver, direction });
     const metric = range.kind === "approach" ? (item) => item.approachRangeNm : (item) => item.actionRangeNm;
     const solved = solveOffsetAngleForMetric({ targetValue: range.targetRangeNm, evaluate, metric, maxOffsetAngleDeg: maxAngle, tolerance: 0.002 });
     candidate = solved.candidate;
@@ -353,6 +353,8 @@ export function calculateOffsetV0_2Full(input) {
   const rollToReleaseSec = candidate.profile.public.rollInTimeSec + candidate.profile.public.trackingTimeSec;
   const offsetIpToReleaseSec = ingressSec + turnSec + approachSec + rollToReleaseSec;
   const legacyDirectIpTargetSec = ipRangeNm * FT_PER_NM / speedFps;
+  const nonFinite = nonFiniteResultFields({ actionRangeNm: candidate.actionRangeNm, approachRangeNm, ingressSec, turnSec, approachSec, rollToReleaseSec, offsetIpToReleaseSec, rollStartX: candidate.points.rollStart.x, rollStartY: candidate.points.rollStart.y });
+  if (nonFinite.length) errors.push(`Offset result is not finite (${nonFinite.join(", ")})`);
 
   return {
     model: { ...OFFSET_BE_V0_2 },

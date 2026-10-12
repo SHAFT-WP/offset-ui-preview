@@ -1,6 +1,9 @@
 export const OFFSET_GEOMETRY_V0_2 = Object.freeze({
   id: "offset-geometry-v0.2",
-  version: "0.2.5",
+  // 0.2.6 (2026-10-12): scanOffsetAngleRoot — the shared Offset Angle root scan (F4): a rejected
+  // candidate ends the bracket, the end boundary is evaluated, a rejected bisection step moves on to
+  // the next bracket instead of aborting.
+  version: "0.2.6",
   purpose: "Pure Offset Bombing heading/action-point/reference geometry independent of DOM and rendering",
 });
 
@@ -248,39 +251,72 @@ export function candidateFailureCause(errors) {
   return top?.message ?? null;
 }
 
-export function solveOffsetAngleForActionRange({ targetRangeNm, evaluate, minOffsetAngleDeg = 0.05, maxOffsetAngleDeg = 120, toleranceNm = 0.002 }) {
-  requireFinite("targetRangeNm", targetRangeNm);
+// Offset Angle root scan shared by the single-aircraft (offset-be-v0.2.mjs) and off-axis
+// (offset-formation-geometry-v0.1.mjs) solves. `evaluate(angle)` returns a candidate or throws for a
+// rejected one; `metric(candidate)` is compared with `targetValue`. 1° scan from `minAngleDeg`, the
+// end boundary `maxAngleDeg` included; a sign change between two successive accepted candidates is a
+// bracket (a rejected candidate between them is a gap, never bridged); each bracket is bisected and
+// the first one whose bisection reaches `tolerance` wins. A bisection step that is rejected abandons
+// that bracket and the scan continues after it. Without a match the closest accepted candidate is
+// returned (`exact` false) with the most frequent rejection cause.
+export function scanOffsetAngleRoot({ targetValue, evaluate, metric, minAngleDeg = 0.05, maxAngleDeg = 120, tolerance, refineIterations }) {
+  requireFinite("targetValue", targetValue);
+  requireFinite("tolerance", tolerance);
   if (typeof evaluate !== "function") throw new TypeError("evaluate must be a function");
-  let previous = null;
-  let best = null;
-  let bracket = null;
+  if (typeof metric !== "function") throw new TypeError("metric must be a function");
   const errors = new Map();
-  for (let angle = minOffsetAngleDeg; angle <= maxOffsetAngleDeg + 1e-9; angle += 1) {
+  const reject = (error) => errors.set(error.message, (errors.get(error.message) ?? 0) + 1);
+  const sample = (angle) => {
     try {
       const candidate = evaluate(angle);
-      const residual = candidate.actionRangeNm - targetRangeNm;
-      if (!best || Math.abs(residual) < Math.abs(best.residual)) best = { candidate, residual, angle };
-      if (previous && previous.residual * residual <= 0) { bracket = { lo: previous.angle, hi: angle, flo: previous.residual }; break; }
-      previous = { angle, residual };
+      return { angle, candidate, residual: metric(candidate) - targetValue };
     } catch (error) {
-      // Rejected candidate; keep scanning but remember why (reported when nothing is found).
-      errors.set(error.message, (errors.get(error.message) ?? 0) + 1);
+      reject(error);
+      return null;
     }
-  }
-  if (!bracket) return { candidate: best?.candidate ?? null, residualNm: best?.residual ?? null, exact: !!best && Math.abs(best.residual) <= toleranceNm, failureCause: candidateFailureCause(errors) };
+  };
+  const angles = [];
+  for (let angle = minAngleDeg; angle <= maxAngleDeg + 1e-9; angle += 1) angles.push(angle);
+  if (!angles.length || angles[angles.length - 1] < maxAngleDeg - 1e-9) angles.push(maxAngleDeg);
 
-  let lo = bracket.lo;
-  let hi = bracket.hi;
-  let flo = bracket.flo;
-  let candidate = null;
-  let residual = null;
-  for (let index = 0; index < 36; index += 1) {
-    const mid = (lo + hi) / 2;
-    candidate = evaluate(mid);
-    residual = candidate.actionRangeNm - targetRangeNm;
-    if (Math.abs(residual) <= toleranceNm) break;
-    if (flo * residual <= 0) hi = mid;
-    else { lo = mid; flo = residual; }
+  let best = null;
+  const keep = (item) => { if (item && Number.isFinite(item.residual) && (!best || Math.abs(item.residual) < Math.abs(best.residual))) best = item; };
+  let previous = null;
+  for (const angle of angles) {
+    const current = sample(angle);
+    keep(current);
+    if (!current || !Number.isFinite(current.residual)) { previous = null; continue; }
+    if (previous && previous.residual * current.residual <= 0) {
+      let lo = previous.angle;
+      let hi = current.angle;
+      let flo = previous.residual;
+      let match = null;
+      for (let index = 0; index < refineIterations; index += 1) {
+        const mid = sample((lo + hi) / 2);
+        if (!mid || !Number.isFinite(mid.residual)) { match = null; break; }
+        keep(mid);
+        if (Math.abs(mid.residual) <= tolerance) { match = mid; break; }
+        if (flo * mid.residual <= 0) hi = mid.angle;
+        else { lo = mid.angle; flo = mid.residual; }
+        match = mid;
+      }
+      if (match) return { candidate: match.candidate, residual: match.residual, exact: Math.abs(match.residual) <= tolerance, failureCause: null };
+    }
+    previous = current;
   }
-  return { candidate, residualNm: residual, exact: !!candidate && Math.abs(residual) <= toleranceNm };
+  return { candidate: best?.candidate ?? null, residual: best?.residual ?? null, exact: !!best && Math.abs(best.residual) <= tolerance, failureCause: candidateFailureCause(errors) };
+}
+
+export function solveOffsetAngleForActionRange({ targetRangeNm, evaluate, minOffsetAngleDeg = 0.05, maxOffsetAngleDeg = 120, toleranceNm = 0.002 }) {
+  requireFinite("targetRangeNm", targetRangeNm);
+  const solved = scanOffsetAngleRoot({
+    targetValue: targetRangeNm,
+    evaluate,
+    metric: (candidate) => candidate.actionRangeNm,
+    minAngleDeg: minOffsetAngleDeg,
+    maxAngleDeg: maxOffsetAngleDeg,
+    tolerance: toleranceNm,
+    refineIterations: 36,
+  });
+  return { candidate: solved.candidate, residualNm: solved.residual, exact: solved.exact, failureCause: solved.failureCause };
 }
