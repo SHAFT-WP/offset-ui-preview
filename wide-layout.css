@@ -220,3 +220,20 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 @media(min-width:761px) and (max-width:1099px) {
   .offset-wide .wide-workspace { grid-template-columns:270px minmax(0,1fr); }
 }
+
+/* Offset tab groups fold (owner 2026-10-12): the group heading is the summary, "＋/−" at its right.
+   Offset Turn Condition and Roll-in Condition start folded (index.html). */
+.offset-wide details.input-group-panel { min-width:0; }
+.offset-wide details.input-group-panel + details.input-group-panel { margin-top:6px; }
+.offset-wide details.input-group-panel > summary.input-group-title { list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.offset-wide details.input-group-panel > summary.input-group-title::-webkit-details-marker { display:none; }
+.offset-wide details.input-group-panel > summary.input-group-title::after { content:"＋"; color:var(--blue); font-size:var(--ui-font-symbol,18px); line-height:1; }
+.offset-wide details.input-group-panel[open] > summary.input-group-title::after { content:"−"; }
+.offset-wide details.input-group-panel > summary.input-group-title:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+.offset-wide .section-disclosure-body > details.input-group-panel:first-of-type > .input-group-title { margin-top:4px; }
+.offset-wide details.input-group-panel > .constraint-note { margin-top:10px; }
+/* Speed and altitude on one row (owner 2026-10-12): the speed field keeps its half column, with a
+   narrower unit select ("kcas" / "Mach" still fit). */
+.offset-wide .wide-inputs .field.speed-field { grid-column:auto; }
+.offset-wide .wide-inputs .speed-field .compound { grid-template-columns:minmax(0,1fr) 92px; }
+.offset-wide .wide-inputs .speed-field .compound select { padding-inline:6px 2px; }

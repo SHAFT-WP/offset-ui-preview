@@ -8,7 +8,7 @@ import {
   solveElementSameTimeActionRange,
 } from "./offset-formation-v0.1.mjs";
 import { add, candidateFailureCause } from "./offset-geometry-v0.2.mjs";
-import { autoRollInBankDegFull, isLevelTurnRollIn, levelTurnRollInGFull } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
+import { autoRollInBankDegFull, calculateBombDeliveryV0_3Full, isLevelTurnRollIn, levelTurnRollInGFull } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 
 // Offset Flight entrypoint (AG SPEC "Flight entrypoint", 2026-10-12): one call takes the whole Flight
@@ -18,7 +18,7 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 // input is never mutated; the same input gives the same output.
 export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   id: "offset-flight-v0.1",
-  version: "0.1.0",
+  version: "0.1.1",
   status: "work",
   schemaVersion: 1,
   components: Object.freeze({
@@ -64,12 +64,23 @@ const FOLLOWER_FALLBACK_DRIVERS = Object.freeze({ actionRangeNm: "offsetAngleDeg
 // Follower BDP values that follow the element lead's effective value while null (Roll-in Bank: AUTO
 // from this aircraft's own Dive and applied Roll-in G while null).
 export const OFFSET_FLIGHT_INHERITED_KEYS = Object.freeze(["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG"]);
-const FOLLOWER_OPTIONS = ["offsetAngleLocked", "sameAngleAsLead", "actionRangeLocked", "sameTimeAsLead"];
+const FOLLOWER_OPTIONS = ["offsetAngleLocked", "sameAngleAsLead", "actionRangeLocked", "sameTimeAsLead", "rollInAltitudeLocked"];
 const OPTION_EXCLUSIONS = Object.freeze({
   offsetAngleLocked: ["sameAngleAsLead"],
   sameAngleAsLead: ["offsetAngleLocked"],
   actionRangeLocked: ["sameTimeAsLead"],
   sameTimeAsLead: ["actionRangeLocked"],
+  rollInAltitudeLocked: [],
+});
+
+// Roll-in Altitude LOCK (owner 2026-10-12): with it on, a Tracking Time entry keeps Roll-in Altitude
+// and moves Release Altitude ("release" solve mode). The Release Altitude is found on the BDP core
+// (the Offset geometry's own canonical profile input) and confirmed by a full Offset solve.
+export const OFFSET_FLIGHT_RELEASE_SOLVE = Object.freeze({
+  toleranceFt: 0.01,
+  acceptFt: 0.5,
+  profileIterations: 40,
+  geometryPasses: 4,
 });
 const FORMATION_KEYS = new Set(["side", "bearingDeg", "distanceNm"]);
 
@@ -104,6 +115,13 @@ function normalizeEnteredTrackingTime(value) {
   return Math.round(value);
 }
 
+// "release" (Tracking Time entered, Roll-in Altitude held, Release Altitude solved) exists only while
+// Roll-in Altitude is locked; without the LOCK it reads as "time" (same entered Tracking Time).
+function normalizeSolveMode(mode, rollInLocked) {
+  if (mode === "release") return rollInLocked ? "release" : "time";
+  return mode === "time" ? "time" : "height";
+}
+
 function enumOr(name, value, allowed, fallback) {
   if (blank(value)) return fallback;
   if (!allowed.has(value)) throw new TypeError(`${name} "${value}" is not supported`);
@@ -129,7 +147,7 @@ function normalizeLead(record = {}) {
       ipLockHeadingDeg,
       rollBankAuto: state.rollBankAuto !== false,
       rollInAltitudeLinked: state.rollInAltitudeLinked !== false,
-      solveMode: state.solveMode === "time" ? "time" : "height",
+      solveMode: normalizeSolveMode(state.solveMode, locks.rollInAltitudeMslFt === true),
       enteredTrackingTimeSec: normalizeEnteredTrackingTime(state.enteredTrackingTimeSec),
       vipBearingExplicit: state.vipBearingExplicit === true,
       vipRangeExplicit: state.vipRangeExplicit === true,
@@ -143,13 +161,14 @@ function normalizeFollower(record = {}) {
   const state = record.state ?? {};
   const formation = record.formation ?? {};
   const options = record.options ?? {};
+  const optionValues = Object.fromEntries(FOLLOWER_OPTIONS.map((key) => [key, options[key] === true]));
   return {
     values: { ...(record.values ?? {}) },
     formation: { side: formation.side === "RIGHT" ? "RIGHT" : "LEFT", bearingDeg: formation.bearingDeg ?? null, distanceNm: formation.distanceNm ?? null },
-    options: Object.fromEntries(FOLLOWER_OPTIONS.map((key) => [key, options[key] === true])),
+    options: optionValues,
     state: {
       driver: enumOr("driver", state.driver, FOLLOWER_DRIVERS, "actionRangeNm"),
-      solveMode: state.solveMode === "time" ? "time" : "height",
+      solveMode: normalizeSolveMode(state.solveMode, optionValues.rollInAltitudeLocked),
       enteredTrackingTimeSec: normalizeEnteredTrackingTime(state.enteredTrackingTimeSec),
       rollInAltitudeLinked: state.rollInAltitudeLinked !== false,
     },
@@ -183,11 +202,25 @@ function normalizeFlightInput(input) {
 // whole-second Tracking Time, IP link, AUTO Bank, option exclusivity, empty-field refill) are decided
 // here and live on only through nextInput, so an edit is never applied twice.
 
+// Roll-in Altitude LOCK on: a Tracking Time entry in force (time mode) now moves Release Altitude.
+// LOCK off: the entered Tracking Time keeps driving, Roll-in Altitude solved again (time mode).
+function lockedSolveMode(mode, on) {
+  if (on) return mode === "time" ? "release" : mode;
+  return mode === "release" ? "time" : mode;
+}
+
+// A typed Roll-in (or linked Initial) Altitude: height mode, except while Tracking Time and the
+// Roll-in LOCK move Release Altitude, which keeps doing so from the new Roll-in Altitude.
+function rollInEditMode(mode) {
+  return mode === "release" ? "release" : "height";
+}
+
 function applyLeadEdit(lead, edit) {
   const { values: v, state: s, locks } = lead;
   const key = edit.key;
   if (edit.kind === "lock") {
     locks[key] = edit.value === true;
+    if (key === "rollInAltitudeMslFt") s.solveMode = lockedSolveMode(s.solveMode, locks[key]);
     // Only an IP LOCK freezes IP (it unlinks it on the current Run-In); a VRP LOCK holds VRP.
     if (key === "ipReference" && locks[key]) {
       s.ipLinkedToVrp = false;
@@ -232,16 +265,18 @@ function applyLeadEdit(lead, edit) {
     s.driver = "runInHeadingDeg";
     return;
   }
+  const rollInLocked = locks.rollInAltitudeMslFt === true;
   if (key === "initialAltitudeMslFt" && s.rollInAltitudeLinked) {
     if (isNumber(value)) v.rollInAltitudeMslFt = Math.round(value);
-    s.solveMode = "height";
+    s.solveMode = rollInEditMode(s.solveMode);
   }
   if (key === "rollInAltitudeMslFt") {
-    s.solveMode = "height";
+    s.solveMode = rollInEditMode(s.solveMode);
     if (s.rollInAltitudeLinked && isNumber(value)) v.initialAltitudeMslFt = Math.round(value);
   }
+  if (key === "releaseAltitudeMslFt" && s.solveMode === "release") s.solveMode = "height";
   if (key === "trackingTimeSec") {
-    s.solveMode = "time";
+    s.solveMode = rollInLocked ? "release" : "time";
     if (isNumber(value)) {
       s.enteredTrackingTimeSec = Math.round(value);
       v.trackingTimeSec = s.enteredTrackingTimeSec;
@@ -287,6 +322,7 @@ function applyFollowerEdit(follower, edit, number) {
     if (!FOLLOWER_OPTIONS.includes(key)) throw new TypeError(`toggle "${key}" is not supported on #${number}`);
     options[key] = on;
     if (on) OPTION_EXCLUSIONS[key].forEach((excluded) => { options[excluded] = false; });
+    if (key === "rollInAltitudeLocked") s.solveMode = lockedSolveMode(s.solveMode, on);
     return;
   }
   const target = FORMATION_KEYS.has(key) ? formation : v;
@@ -305,12 +341,14 @@ function applyFollowerEdit(follower, edit, number) {
   const value = target[key];
   if (key === "initialAltitudeMslFt" && s.rollInAltitudeLinked) {
     v.rollInAltitudeMslFt = value;
-    s.solveMode = "height";
+    s.solveMode = rollInEditMode(s.solveMode);
   } else if (key === "rollInAltitudeMslFt") {
-    s.solveMode = "height";
+    s.solveMode = rollInEditMode(s.solveMode);
     if (s.rollInAltitudeLinked) v.initialAltitudeMslFt = value;
+  } else if (key === "releaseAltitudeMslFt") {
+    if (s.solveMode === "release") s.solveMode = "height";
   } else if (key === "trackingTimeSec") {
-    s.solveMode = "time";
+    s.solveMode = options.rollInAltitudeLocked ? "release" : "time";
     if (isNumber(value)) {
       s.enteredTrackingTimeSec = Math.round(value);
       v.trackingTimeSec = s.enteredTrackingTimeSec;
@@ -388,7 +426,8 @@ function leadOffsetInput(lead) {
       initialSpeedMode: v.initialSpeedMode ?? "CAS",
       // Roll-in Altitude is the BDP entry altitude (OA1); Initial Altitude is linked or reference only.
       initialAltitudeMslFt: n("rollInAltitudeMslFt"),
-      solveMode,
+      // "release" is a time-mode BDP solve at a searched Release Altitude (solveReleaseAltitude).
+      solveMode: solveMode === "release" ? "time" : solveMode,
       // A Roll-in Altitude too low gives a negative Tracking Time, not an error.
       allowNegativeTrackingTime: true,
       trackingTimeSec: solveMode === "time" ? n("trackingTimeSec") : s.enteredTrackingTimeSec,
@@ -405,6 +444,13 @@ function leadOffsetInput(lead) {
 function deriveProfileValues(record, result, derived) {
   const { values: v, state: s } = record;
   const p = result.profile.public;
+  if (s.solveMode === "release") {
+    // Roll-in Altitude held by its LOCK; the entered Tracking Time shows; Release Altitude was solved.
+    v.trackingTimeSec = s.enteredTrackingTimeSec;
+    derived.add("trackingTimeSec");
+    derived.add("releaseAltitudeMslFt");
+    return;
+  }
   const mode = p.resolvedSolveMode ?? s.solveMode;
   if (mode === "time") {
     if (s.solveMode !== "time") { v.trackingTimeSec = s.enteredTrackingTimeSec; derived.add("trackingTimeSec"); }
@@ -502,13 +548,73 @@ function leadDed(lead, result) {
   });
 }
 
+// Release Altitude at which the time-mode BDP (entered Tracking Time) reaches the held Roll-in
+// Altitude, on one canonical BDP profile input (fixed Angle-Off / wind of one Offset geometry).
+function solveProfileReleaseAltitude(canonicalInputs, rollInAltitudeMslFt, guessFt) {
+  const config = OFFSET_FLIGHT_RELEASE_SOLVE;
+  const f = (releaseAltitudeMslFt) => calculateBombDeliveryV0_3Full({ ...canonicalInputs, solveMode: "time", releaseAltitudeMslFt }).public.resolvedInitialAltitudeMslFt - rollInAltitudeMslFt;
+  let x0 = guessFt;
+  let f0 = f(x0);
+  if (Math.abs(f0) <= config.toleranceFt) return { value: x0, belowNlt: false };
+  let x1 = x0 - f0;
+  for (let index = 0; index < config.profileIterations; index += 1) {
+    let f1;
+    try { f1 = f(x1); } catch { break; }
+    if (!isNumber(f1)) break;
+    if (Math.abs(f1) <= config.toleranceFt) return { value: x1, belowNlt: false };
+    const slope = (f1 - f0) / (x1 - x0);
+    if (!(slope > 1e-6)) break;
+    x0 = x1;
+    f0 = f1;
+    x1 -= f1 / slope;
+  }
+  // No root: belowNlt when even the lowest Release (the NLT clamp holds it) leaves Roll-in too high.
+  let belowNlt = false;
+  try { belowNlt = f(canonicalInputs.targetElevationMslFt + 1) > 0; } catch { belowNlt = false; }
+  return { value: null, belowNlt };
+}
+
+// "release" mode: Roll-in Altitude (LOCK) and the entered Tracking Time hold, Release Altitude moves.
+// compute(releaseAltitudeMslFt) is the aircraft's own full Offset solve; the BDP-core step is
+// repeated while the geometry (Angle-Off, wind) it ran on shifts.
+function solveReleaseAltitude({ compute, rollInAltitudeMslFt, releaseAltitudeMslFt, trackingTimeSec }) {
+  const config = OFFSET_FLIGHT_RELEASE_SOLVE;
+  const conflict = (belowNlt = false) => new Error(`CONSTRAINT CONFLICT: Roll-in Altitude LOCK: no Release Altitude gives Tracking Time ${trackingTimeSec} sec from Roll-in Altitude ${Math.round(rollInAltitudeMslFt)} ft${belowNlt ? " (Release would be below NLT; shorten Tracking Time or raise Roll-in Altitude)" : ""}`);
+  let release = releaseAltitudeMslFt;
+  let result = compute(release);
+  for (let pass = 0; ; pass += 1) {
+    const reached = result.profile.public.resolvedInitialAltitudeMslFt;
+    if (isNumber(reached) && Math.abs(reached - rollInAltitudeMslFt) <= config.acceptFt) return { result, releaseAltitudeMslFt: release };
+    if (pass >= config.geometryPasses) throw conflict();
+    let next;
+    try { next = solveProfileReleaseAltitude(result.profile.canonicalInputs, rollInAltitudeMslFt, release); }
+    catch { next = { value: null, belowNlt: false }; }
+    if (!isNumber(next.value)) throw conflict(next.belowNlt);
+    release = next.value;
+    result = compute(release);
+  }
+}
+
 function solveLead(lead, stateError) {
   const derived = new Set();
   const base = { aircraft: 1, elementLead: null, predecessor: null, pairSolved: false, solvedVariable: null, inheritance: null };
   if (stateError) return { ...base, status: "FAILED", result: null, error: stateError, errors: [stateError], warnings: [], derived, diagnostics: [] };
   try {
     prepareLead(lead, derived);
-    const result = calculateOffsetWithVrpStartFull(leadOffsetInput(lead));
+    const input = leadOffsetInput(lead);
+    let result;
+    if (lead.state.solveMode === "release") {
+      const solved = solveReleaseAltitude({
+        compute: (releaseAltitudeMslFt) => calculateOffsetWithVrpStartFull({ ...input, profile: { ...input.profile, releaseAltitudeMslFt } }),
+        rollInAltitudeMslFt: input.profile.initialAltitudeMslFt,
+        releaseAltitudeMslFt: input.profile.releaseAltitudeMslFt,
+        trackingTimeSec: input.profile.trackingTimeSec,
+      });
+      result = solved.result;
+      lead.values.releaseAltitudeMslFt = solved.releaseAltitudeMslFt;
+    } else {
+      result = calculateOffsetWithVrpStartFull(input);
+    }
     deriveLeadNext(lead, result, derived);
     return { ...base, status: result.state, result, error: null, errors: result.errors, warnings: result.warnings, derived, diagnostics: leadDiagnostics(lead, result), ded: leadDed(lead, result) };
   } catch (error) {
@@ -599,7 +705,7 @@ function followerOffsetInput({ number, follower, leaderResult, leadNumber, fligh
       initialSpeedValue: n("initialSpeedValue"),
       initialSpeedMode: "CAS",
       initialAltitudeMslFt: n("rollInAltitudeMslFt"),
-      solveMode,
+      solveMode: solveMode === "release" ? "time" : solveMode,
       allowNegativeTrackingTime: true,
       trackingTimeSec: solveMode === "time" ? n("trackingTimeSec") : s.enteredTrackingTimeSec,
       releaseAltitudeMslFt: n("releaseAltitudeMslFt"),
@@ -810,6 +916,18 @@ function solveFollower({ number, follower, stateError, results, flightLead, flig
     context = { ...built, follower, leaderResult, leadNumber, branch: angleFixed && actionFixed ? "pair" : sameTimeAsLead ? "sameTime" : "plain" };
     let result;
     let pair = null;
+    const releaseSolve = follower.state.solveMode === "release";
+    // Runs one branch's solve at a given Release Altitude (the "release" mode searches it).
+    const atRelease = (input, releaseAltitudeMslFt) => (releaseSolve ? { ...input, profile: { ...input.profile, releaseAltitudeMslFt } } : input);
+    const solveWith = (compute) => {
+      if (!releaseSolve) return compute(angleInput.profile.releaseAltitudeMslFt);
+      const solved = solveReleaseAltitude({ compute, rollInAltitudeMslFt: angleInput.profile.initialAltitudeMslFt, releaseAltitudeMslFt: angleInput.profile.releaseAltitudeMslFt, trackingTimeSec: angleInput.profile.trackingTimeSec });
+      follower.values.releaseAltitudeMslFt = solved.releaseAltitudeMslFt;
+      return solved.result;
+    };
+    if (context.branch === "pair" && follower.options.rollInAltitudeLocked) {
+      return fail("CONSTRAINT CONFLICT: Roll-in Altitude LOCK cannot combine with a fixed Offset Angle and Action (that solve moves Roll-in Altitude)", { inheritance: built.inheritance });
+    }
     if (context.branch === "pair") {
       pair = solvePair({ number, leadNumber, angleInput, follower, leaderResult, sameTimeAsLead });
       if (!pair.solved) {
@@ -818,19 +936,29 @@ function solveFollower({ number, follower, stateError, results, flightLead, flig
       result = pair.result;
     } else if (context.branch === "sameTime") {
       // Time #n alone: same IP -> Action time as the element lead; the free Offset Angle re-solves.
-      const solved = solveElementSameTimeActionRange({
+      const sameTimeAt = (releaseAltitudeMslFt) => solveElementSameTimeActionRange({
         leaderResult,
         followerLocks: baseInput.locks,
-        evaluate: (actionRangeFromIpNm) => calculateOffAxisOffsetFull({ ...baseInput, driver: "actionRangeFromIpNm", locks: { offsetAngleDeg: false }, actionRangeFromIpNm }),
+        evaluate: (actionRangeFromIpNm) => calculateOffAxisOffsetFull({ ...atRelease(baseInput, releaseAltitudeMslFt), driver: "actionRangeFromIpNm", locks: { offsetAngleDeg: false }, actionRangeFromIpNm }),
       });
-      if (!solved.result || !solved.exact) {
+      // The last same-time solve is kept; an unsolved one stops the Release search and fails below.
+      let solved = null;
+      const unsolved = Symbol("unsolved");
+      const sameTimeResult = (releaseAltitudeMslFt) => {
+        solved = sameTimeAt(releaseAltitudeMslFt);
+        if (!solved.result || !solved.exact) throw unsolved;
+        return solved.result;
+      };
+      try { solveWith(sameTimeResult); }
+      catch (error) { if (error !== unsolved) throw error; }
+      if (!solved?.result || !solved.exact) {
         const message = `CONSTRAINT CONFLICT: no Offset Angle puts this aircraft's Action Point at #${leadNumber}'s Action time`;
         const diagnostics = [{ aircraft: number, field: "ingressSec", target: signedIngressSec(leaderResult), actual: solved.result ? signedIngressSec(solved.result) : null, residual: solved.residualSec ?? null, tolerance: OFFSET_FLIGHT_PAIR_SOLVE.timeToleranceSec, unit: "sec", satisfied: false, cause: message }];
         return fail(message, { inheritance: built.inheritance, diagnostics, diagnosticCandidate: solved.result ?? null });
       }
       result = solved.result;
     } else {
-      result = calculateOffAxisOffsetFull(angleInput);
+      result = solveWith((releaseAltitudeMslFt) => calculateOffAxisOffsetFull(atRelease(angleInput, releaseAltitudeMslFt)));
     }
     deriveFollowerNext(follower, result, context, pair, derived);
     return {
