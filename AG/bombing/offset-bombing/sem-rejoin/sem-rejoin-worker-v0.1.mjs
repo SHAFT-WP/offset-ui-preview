@@ -1,5 +1,5 @@
 // Same cache token as the page's S&R controller (one module instance in the in-thread fallback).
-import { SEM_REJOIN_V0_1, createSemRejoinSession } from "./sem-rejoin-be-v0.1.mjs?v=0.1.0";
+import { SEM_REJOIN_V0_1, createSemRejoinSession } from "./sem-rejoin-be-v0.1.mjs?v=0.2.0";
 
 // Offset SEM & Rejoin calculation host (SPEC "Requests"). The BE owns the calculation and its reuse;
 // this host only runs it off the page's main thread, with the Offset Flight host's message contract:
@@ -8,7 +8,7 @@ import { SEM_REJOIN_V0_1, createSemRejoinSession } from "./sem-rejoin-be-v0.1.mj
 // input could not be read at all. Requests are answered one at a time, in arrival order; the page
 // decides which answer is current. The same module is the page's in-thread fallback.
 
-export const SEM_REJOIN_WORKER_V0_1 = Object.freeze({ id: "sem-rejoin-worker-v0.1", version: "0.1.0", be: SEM_REJOIN_V0_1.version });
+export const SEM_REJOIN_WORKER_V0_1 = Object.freeze({ id: "sem-rejoin-worker-v0.1", version: "0.2.0", be: SEM_REJOIN_V0_1.version });
 
 export function createSemRejoinHost() {
   const session = createSemRejoinSession();

@@ -15,15 +15,19 @@ import {
   normalizeSemRejoinPlan,
   previewSemRejoinManeuver,
   semRejoinUpstreamView,
-} from "./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-be-v0.1.mjs?v=0.1.0";
+} from "./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-be-v0.1.mjs?v=0.2.0";
 import { renderSemRejoinTopView, semRejoinPalette, semRejoinTopViewLegend } from "./AG/bombing/offset-bombing/sem-rejoin/view/sem-rejoin-top-view-v0.1.mjs?v=0.1.0";
 import { installSvgViewControls, svgViewControlsMarkup } from "./common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSecTenths } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 
-const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-worker-v0.1.mjs?v=0.1.0", import.meta.url);
-export const SEM_REJOIN_FE_V0_1 = Object.freeze({ id: "sem-rejoin-controller-v0.1", version: "0.1.0" });
+const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-worker-v0.1.mjs?v=0.2.0", import.meta.url);
+export const SEM_REJOIN_FE_V0_1 = Object.freeze({ id: "sem-rejoin-controller-v0.1", version: "0.2.0" });
+// SEM End labels (owner 2026-10-13: the SEM ends level by default; the +30° CLIMB SEM stays selectable).
+const SEM_END_TEXT = { LEVEL: "Level (FPA 0°, then 1 G)", CLIMB: "+30° FPA (CLIMB SEM)" };
+const semEndText = (sem) => SEM_END_TEXT[sem?.end] ?? "-";
+const semKindText = (sem) => (sem?.end === "CLIMB" ? "CLIMB SEM" : "Level SEM");
 // Drawing space kept on the canvas around the draw anchor (presentation only).
 const DRAW_ROOM_NM = 5;
 
@@ -84,12 +88,17 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
     <div class="section-head"><h2 id="sr-input-title">S&amp;R #1</h2><span class="status ok" data-sr-status>-</span>
       <div class="section-tools"><button class="btn tab-tool" type="button" data-sr-tab-default title="Reset this aircraft's S&amp;R rows, settings and formation slot">Tab Default</button></div></div>
     <div class="status-message valid" data-sr-message>-</div>
+    <details class="input-group-panel" open data-sr-group="sem"><summary class="input-group-title">SEM</summary>
+      <div class="input-grid">
+        <label class="field"><span>SEM End</span><select data-sr-setting="semEnd"><option value="LEVEL">Level (pull to FPA 0°, then 1 G)</option><option value="CLIMB">+30° climb (CLIMB SEM)</option></select><span class="unit">This aircraft · Recovery G / G Onset are the BDP tab's</span></label>
+      </div>
+    </details>
     <details class="input-group-panel" open data-sr-group="draw"><summary class="input-group-title">Draw Next Maneuver</summary>
       <div class="input-grid">
         <label class="field"><span>Heading (°T)</span><input data-sr-setting="drawHeadingDeg" type="text" inputmode="decimal" placeholder="-"><span class="unit">Turn end heading · blank: Straight only</span></label>
         <label class="field"><span>Direction</span><select data-sr-setting="drawDirection"><option value="AUTO">Auto (shorter)</option><option value="LEFT">Left</option><option value="RIGHT">Right</option></select><span class="unit">A drawn Turn stores Left / Right</span></label>
         <label class="field"><span>Turn</span><span class="compound"><input data-sr-setting="turnDriverValue" type="text" inputmode="decimal"><select data-sr-setting="turnDriverKind"><option value="G">G</option><option value="BANK">Bank (°)</option></select></span><span class="unit" data-sr-note="turn">-</span></label>
-        <label class="field"><span>Vertical</span><select data-sr-setting="drawVertical"><option value="LEVEL">Level (level off)</option><option value="HOLD_FPA">Hold FPA (climb)</option></select><span class="unit">Lead-in Straight</span></label>
+        <label class="field"><span>Vertical</span><select data-sr-setting="drawVertical"><option value="LEVEL">Level (level off)</option><option value="HOLD_FPA">Hold FPA (climb)</option></select><span class="unit">Lead-in Straight (Level levels off first when climbing)</span></label>
         <label class="field"><span>Level-off G (G)</span><input data-sr-setting="levelOffG" type="text" inputmode="decimal"><span class="unit" data-sr-note="leveloff">-</span></label>
       </div>
       <p class="flight-draft-note">Draw: press Draw above the SEM &amp; Rejoin view, move over it to preview and click to add (Straight + Turn in one action). Esc cancels the preview; Ctrl+Z undoes.</p>
@@ -113,7 +122,7 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
       </div>
       <p class="flight-draft-note">Blank tolerances: errors only, no judgement. "Within tolerance" needs all four, relative speed included; it is an instant check, not a formed-formation call.</p>
     </details>
-    <p class="flight-draft-note sr-model-note">Model: CLIMB SEM core v0.2 from each aircraft's BDP Release; after it an energy-neutral point mass (no thrust / drag provider: level flight holds TAS, a climb trades speed for height) in the Flight's wind. Power, Target Speed in level flight and descents are not available.</p>`;
+    <p class="flight-draft-note sr-model-note">Model: from each aircraft's BDP Release, the SEM pulls at Recovery G to level (1 G at FPA 0°), or the +30° CLIMB SEM when chosen; after it an energy-neutral point mass (no thrust / drag provider: level flight holds TAS, a climb trades speed for height) in the Flight's wind. Power, Target Speed in level flight and descents are not available.</p>`;
   const $in = (selector) => inputSection.querySelector(selector);
 
   // ---- DOM: centre panel --------------------------------------------------------------------------
@@ -320,7 +329,7 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
     const levelOff = resolved?.levelOffG;
     const levelInput = $in('[data-sr-setting="levelOffG"]');
     levelInput.placeholder = levelOff?.source === "inherited" ? `#${levelOff.fromAircraft} ${fieldText(levelOff.value, 1)}` : "-";
-    $in('[data-sr-note="leveloff"]').textContent = levelOff?.source === "explicit" ? (number === 1 ? "Wings-level push to level from the SEM climb" : `Own value · clear to follow #${number === 4 ? 3 : 1}`) : levelOff?.source === "inherited" ? `Follows #${levelOff.fromAircraft}` : "Required to level off (no approved default)";
+    $in('[data-sr-note="leveloff"]').textContent = levelOff?.source === "explicit" ? (number === 1 ? "Wings-level push to level from a climb" : `Own value · clear to follow #${number === 4 ? 3 : 1}`) : levelOff?.source === "inherited" ? `Follows #${levelOff.fromAircraft}` : "Needed only to level off from a climb (CLIMB SEM, Hold FPA); no approved default";
     for (const field of inputSection.querySelectorAll("[data-sr-egress]")) if (document.activeElement !== field) field.value = fieldText(plan.egress[field.dataset.srEgress], field.dataset.srEgress === "headingDeg" ? 0 : 0);
     for (const field of inputSection.querySelectorAll("[data-sr-tolerance]")) if (document.activeElement !== field) field.value = fieldText(plan.tolerance[field.dataset.srTolerance], 2);
     renderFormationInputs();
@@ -408,8 +417,8 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
       const sem = picked.entry.sem;
       host.dataset.editorKey = `sem:${editAircraft}`;
       host.dataset.rowId = "";
-      host.innerHTML = `<p class="flight-draft-note"><b>Step 1 · SEM (CLIMB SEM)</b> — from the BDP Release; fixed, not deleted. SEM settings (Recovery G, G Onset) are the BDP tab's (one shared state).</p>
-        <dl class="sr-facts"><dt>Release</dt><dd>${clock(sem?.release?.timeSec)}</dd><dt>SEM End</dt><dd>${clock(sem?.endState?.timeSec)} · +30° FPA</dd><dt>Recovery G / Onset</dt><dd>${formatG(sem?.inputs?.recoveryG)} G / ${formatSecTenths(sem?.inputs?.gOnsetTimeSec)} s</dd><dt>End altitude / speed</dt><dd>${formatFt(sem?.endState?.altitudeMslFt)} ft / ${formatKt(sem?.terminationSpeedKcas)} KCAS</dd><dt>Minimum altitude</dt><dd>${formatFt(sem?.minAltitudeMslFt)} ft MSL</dd></dl>
+      host.innerHTML = `<p class="flight-draft-note"><b>Step 1 · SEM (${semKindText(sem)})</b> — from the BDP Release; fixed, not deleted. Its end is the SEM End above; Recovery G and G Onset are the BDP tab's (one shared state).</p>
+        <dl class="sr-facts"><dt>Release</dt><dd>${clock(sem?.release?.timeSec)}</dd><dt>SEM End</dt><dd>${clock(sem?.endState?.timeSec)} · ${semEndText(sem)}</dd><dt>Recovery G / Onset</dt><dd>${formatG(sem?.inputs?.recoveryG)} G / ${formatSecTenths(sem?.inputs?.gOnsetTimeSec)} s</dd><dt>End altitude / speed</dt><dd>${formatFt(sem?.endState?.altitudeMslFt)} ft / ${formatKt(sem?.terminationSpeedKcas)} KCAS</dd><dt>Minimum altitude</dt><dd>${formatFt(sem?.minAltitudeMslFt)} ft MSL</dd></dl>
         <div class="sr-row-actions"><select class="sr-add" data-sr-add-after="sem" data-sr-add-aircraft="${editAircraft}" aria-label="Add a maneuver after the SEM"><option value="">+ Add below…</option><option value="STRAIGHT">Straight</option><option value="TURN">Turn</option><option value="TARGET_ARC">Target Arc</option></select></div>`;
       return;
     }
@@ -493,7 +502,7 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
       if (entry.sem) {
         const sem = entry.sem;
         rows.push(`<tr class="sr-row${isSel("sem") ? " selected" : ""}" data-sr-row-id="sem" data-sr-aircraft="${number}" style="--aircraft-color:${color}">
-          <td>#${number}</td><td>1</td><td>SEM <span class="sr-muted">(CLIMB SEM)</span></td><td>+30° FPA</td><td>${formatG(sem.inputs?.recoveryG)} G · onset ${formatSecTenths(sem.inputs?.gOnsetTimeSec)} s</td>
+          <td>#${number}</td><td>1</td><td>SEM <span class="sr-muted">(${semKindText(sem)})</span></td><td>${semEndText(sem)}</td><td>${formatG(sem.inputs?.recoveryG)} G · onset ${formatSecTenths(sem.inputs?.gOnsetTimeSec)} s</td>
           <td>${clock(sem.release?.timeSec)} / ${clock(sem.endState?.timeSec)}</td><td>${finite(sem.durationSec) ? `${formatSec(sem.durationSec)} s` : "-"}</td>
           <td><select class="sr-add" data-sr-add-after="sem" data-sr-add-aircraft="${number}" aria-label="Add below the SEM of #${number}"><option value="">＋</option><option value="STRAIGHT">Straight</option><option value="TURN">Turn</option><option value="TARGET_ARC">Target Arc</option></select></td></tr>`);
       }
