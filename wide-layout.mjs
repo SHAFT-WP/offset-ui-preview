@@ -2,14 +2,18 @@
 // stay in the shared Offset controller; this module only places its live nodes (index UI handoff
 // 2026-10-06): left = Edit aircraft (one) + input tabs, centre = Offset Top View / BDP / SEM & Rejoin,
 // right = Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=9f334cb05e3d";
+// SEM & Rejoin (2026-10-13): its own module, mounted once into the S&R input tab and the centre
+// SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=82d2a36e4fb1";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=82d2a36e4fb1";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
 const flightSize = document.getElementById("flight-size");
 let editAircraft = 1;
-let inputTab = "offset";
-let centerTab = "topview";
+// Both start unset so the first entry applies them (Offset input + Offset Top View).
+let inputTab = null;
+let centerTab = null;
 let reviewTab = "result";
 let focusMode = false;
 
@@ -79,9 +83,9 @@ for (let n = 1; n <= 4; n += 1) {
 const inputNav = make("nav", "wide-input-nav");
 inputNav.setAttribute("aria-label", "Input tabs");
 // Tab order (owner 2026-10-07): BDP, Offset, Formation (#2-#4), Save/Load (renamed from Save 2026-10-11). Offset stays the tab shown on
-// first entry. #1 has no third tab (owner 2026-10-07): its Reference Point (VRP / VIP, IP) sits on top
-// of the Offset tab, as on the standard page.
-const INPUT_TABS = [["bdp", "BDP"], ["offset", "Offset"], ["reference", "Formation"], ["save", "Save/Load"]];
+// first entry. #1 has no Formation tab (owner 2026-10-07): its Reference Point (VRP / VIP, IP) sits on top
+// of the Offset tab, as on the standard page. S&R (2026-10-13) follows Offset, for every aircraft.
+const INPUT_TABS = [["bdp", "BDP"], ["offset", "Offset"], ["sr", "S&R"], ["reference", "Formation"], ["save", "Save/Load"]];
 for (const [key, label] of INPUT_TABS) {
   const tab = button("wide-input-button", label, { "data-wide-input": key, "aria-pressed": "false" });
   tab.addEventListener("click", () => chooseInput(key));
@@ -91,7 +95,9 @@ const inputScroll = make("div", "wide-input-scroll");
 const leadInputHost = make("div", "wide-lead-inputs");
 leadInputHost.dataset.editAircraftHost = "1";
 leadInputHost.append(...leadInputs);
-inputScroll.append(leadInputHost, followers);
+// The S&R tab: one section showing the edited aircraft (filled by the S&R module).
+const srSection = make("section");
+inputScroll.append(leadInputHost, followers, srSection);
 if (saveSection) inputScroll.append(saveSection);
 inputs.append(editNav, inputNav, inputScroll);
 
@@ -143,12 +149,10 @@ if (topViewSection) {
 const bdpBlocks = make("div", "wide-blocks");
 const bdpEmpty = emptyNote();
 centerPanels.bdp.append(make("h2", "wide-panel-title", "BDP"), showAircraftRow(), bdpEmpty, bdpBlocks);
-// SEM & Rejoin (§6.3): the tab and selection are ready; this Offset runtime draws no SEM view and has
-// no Rejoin solver yet, so both say so instead of estimating a path.
+// SEM & Rejoin (2026-10-13 handoff): the S&R module's view, table and evaluation.
 const semEmpty = emptyNote();
-const semNote = make("div", "wide-pending");
-semNote.append(make("p", "wide-pending-line", "SEM view — 개발 예정"), make("p", "wide-pending-note", "SEM settings are in the BDP input tab; SEM / NLT values are in Result (Bomb Profile) and the BDP Profile."), make("p", "wide-pending-line", "Rejoin — 개발 예정"));
-centerPanels.sem.append(make("h2", "wide-panel-title", "SEM & Rejoin"), showAircraftRow(), semEmpty, semNote);
+const semHost = make("div");
+centerPanels.sem.append(make("h2", "wide-panel-title", "SEM & Rejoin"), showAircraftRow(), semEmpty, semHost);
 center.append(centerNav, centerBody);
 
 // Right: Result / Z-Diagram / DED, the shown aircraft as consecutive blocks in number order.
@@ -231,6 +235,7 @@ function applyShown(visible) {
   }
   bdpEmpty.hidden = semEmpty.hidden = reviewEmpty.hidden = visible.length > 0;
   if (centerTab === "bdp") offsetIndexUi.showBdpViews(visible);
+  semRejoin.setShownAircraft(visible);
 }
 
 // ---- tabs ------------------------------------------------------------------------------------------
@@ -240,22 +245,48 @@ function pressed(nav, attribute, key) {
 function sectionAircraft(section) {
   return section.closest(".flight-slot") ? Number(section.closest(".flight-slot").dataset.aircraft) : 1;
 }
-// The tab a section belongs to: Formation shares the third tab; #1's Reference Point is in Offset.
+// The tab a section belongs to: Formation shares the Formation tab; #1's Reference Point is in Offset.
 function sectionTab(section) {
   if (section.dataset.tab === "formation") return "reference";
   return section.dataset.tab === "reference" && sectionAircraft(section) === 1 ? "offset" : section.dataset.tab;
 }
-function chooseInput(key) {
-  // inputTab keeps the choice, so a follower's Formation tab comes back after visiting #1.
-  inputTab = key;
-  const shownKey = key === "reference" && editAircraft === 1 ? "offset" : key;
+// Shows the sections of the current input tab for the edited aircraft (inputTab keeps the choice, so a
+// follower's Formation tab comes back after visiting #1).
+function syncInputSections() {
+  const shownKey = inputTab === "reference" && editAircraft === 1 ? "offset" : inputTab;
   pressed(inputNav, "data-wide-input", shownKey);
   const sections = [...leadInputs, ...followers.querySelectorAll(".flight-slot > .section[data-tab]")];
   for (const section of sections) {
-    section.hidden = shownKey === "save" || sectionAircraft(section) !== editAircraft || sectionTab(section) !== shownKey;
+    section.hidden = shownKey === "save" || shownKey === "sr" || sectionAircraft(section) !== editAircraft || sectionTab(section) !== shownKey;
   }
-  if (saveSection) saveSection.hidden = key !== "save";
+  srSection.hidden = shownKey !== "sr";
+  if (saveSection) saveSection.hidden = shownKey !== "save";
+}
+function applyInputTab(key) {
+  if (key === inputTab) return false;
+  inputTab = key;
+  syncInputSections();
   inputScroll.scrollTop = 0;
+  return true;
+}
+
+// One user action changes the centre view and the input tab it is edited in together (handoff
+// 2026-10-13 §3): SEM & Rejoin ↔ S&R, BDP ↔ BDP, Offset Top View ↔ Offset. Formation, Save/Load and
+// the right-hand tabs keep the other panes as they are. Nothing is clicked or re-dispatched; the tab
+// already shown is a no-op (no calculation, no redraw).
+const INPUT_OF_CENTER = Object.freeze({ topview: "offset", bdp: "bdp", sem: "sr" });
+const CENTER_OF_INPUT = Object.freeze({ offset: "topview", bdp: "bdp", sr: "sem" });
+function activateWorkspace(centerKey) {
+  const inputChanged = applyInputTab(INPUT_OF_CENTER[centerKey]);
+  const centerChanged = applyCenterTab(centerKey);
+  return inputChanged || centerChanged;
+}
+function chooseInput(key) {
+  if (CENTER_OF_INPUT[key]) return activateWorkspace(CENTER_OF_INPUT[key]);
+  return applyInputTab(key);
+}
+function chooseCenter(key) {
+  return activateWorkspace(key);
 }
 function selectEditAircraft(number) {
   const size = Number(flightSize.value);
@@ -268,17 +299,24 @@ function selectEditAircraft(number) {
   const formationTab = inputNav.querySelector('[data-wide-input="reference"]');
   formationTab.textContent = "Formation";
   formationTab.hidden = editAircraft === 1;
-  chooseInput(inputTab);
+  if (inputTab) syncInputSections();
+  semRejoin.setEditAircraft(editAircraft);
   syncStatus();
 }
-function chooseCenter(key) {
+function applyCenterTab(key) {
+  if (key === centerTab) return false;
+  const previous = centerTab;
   centerTab = key;
   pressed(centerNav, "data-center-tab", key);
   for (const [name, panel] of Object.entries(centerPanels)) panel.hidden = name !== key;
   // BDP views are drawn only while the centre BDP tab shows them (latest result on re-entry).
-  offsetIndexUi.showBdpViews(key === "bdp" ? shown : []);
+  if (key === "bdp" || previous === "bdp") offsetIndexUi.showBdpViews(key === "bdp" ? shown : []);
+  // S&R is mounted once; entering shows its latest result (one request if the Offset changed).
+  if (key === "sem") semRejoin.activate();
+  else semRejoin.deactivate();
   center.dataset.activeTab = key;
   requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+  return true;
 }
 function chooseReview(key) {
   reviewTab = key;
@@ -325,6 +363,15 @@ new ResizeObserver(measureHeader).observe(header);
 new ResizeObserver(measureHeader).observe(workspaceBar);
 window.addEventListener("resize", measureHeader);
 
+const semRejoin = mountSemRejoin({
+  offsetUi: offsetIndexUi,
+  inputSection: srSection,
+  centerHost: semHost,
+  getEditAircraft: () => editAircraft,
+  requestEditAircraft: (number) => selectEditAircraft(number),
+});
+offsetIndexUi.installSectionDisclosure();
+
 syncOutputs();
 offsetIndexUi.onVisibleAircraftChange(applyShown);
 offsetIndexUi.syncShowAircraftButtons();
@@ -332,8 +379,7 @@ offsetIndexUi.syncShowAircraftButtons();
 // save brings back its edited aircraft and shown set (2026-10-12, user).
 offsetIndexUi.registerEditAircraft(() => editAircraft);
 selectEditAircraft(offsetIndexUi.savedEditAircraft() ?? 1);
-chooseInput("offset");
-chooseCenter("topview");
+activateWorkspace("topview");
 chooseReview("result");
 syncFollowers();
 measureHeader();

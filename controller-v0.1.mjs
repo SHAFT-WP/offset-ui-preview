@@ -858,7 +858,17 @@ function applyCalculationAnswer(message, sent) {
   renderTopView();
   syncDedPngButtons();
   initialRender = false;
+  // SEM & Rejoin (2026-10-13) starts from this answer: the Full results and the input they answer.
+  lastFlightAnswer = { input, output };
+  flightAnswerListeners.forEach((listener) => listener(lastFlightAnswer));
 }
+
+// SEM & Rejoin hooks (index only, sem-rejoin-controller-v0.1.mjs through wide-layout.mjs): the last
+// adopted Flight answer, extra records kept by the one Save, and the Load Default notice.
+let lastFlightAnswer = null;
+const flightAnswerListeners = new Set();
+const saveExtensions = new Map();
+const flightDefaultsListeners = new Set();
 
 function installCalculation() {
   const transport = createWorkerTransport({ workerUrl: OFFSET_FLIGHT_WORKER_URL });
@@ -1620,7 +1630,8 @@ let loadedSave = null;
 function saveFlightLayout() {
   try {
     const view = { shownAircraft: [...topViewAircraft].sort(), editAircraft: editAircraftOf() };
-    localStorage.setItem(FLIGHT_LAYOUT_KEY, JSON.stringify({ schemaVersion: FLIGHT_LAYOUT_SCHEMA_VERSION, ...flightLayout, view, savedAt: new Date().toISOString() }));
+    const extensions = Object.fromEntries([...saveExtensions].map(([name, extension]) => [name, extension.capture()]));
+    localStorage.setItem(FLIGHT_LAYOUT_KEY, JSON.stringify({ schemaVersion: FLIGHT_LAYOUT_SCHEMA_VERSION, ...flightLayout, view, ...extensions, savedAt: new Date().toISOString() }));
     return true;
   } catch {
     // The UI remains usable when browser storage is unavailable.
@@ -1841,7 +1852,7 @@ function installFlightLayout() {
       const shown = Array.isArray(saved.view?.shownAircraft) ? saved.view.shownAircraft.filter((number) => Number.isInteger(number) && number >= 1 && number <= saved.size) : [];
       if (shown.length) { topViewAircraft.clear(); shown.forEach((number) => topViewAircraft.add(number)); }
       const edit = saved.view?.editAircraft;
-      loadedSave = { savedAt: typeof saved.savedAt === "string" ? saved.savedAt : null, editAircraft: Number.isInteger(edit) && edit >= 1 && edit <= saved.size ? edit : 1 };
+      loadedSave = { savedAt: typeof saved.savedAt === "string" ? saved.savedAt : null, editAircraft: Number.isInteger(edit) && edit >= 1 && edit <= saved.size ? edit : 1, record: saved };
       if (saved.aircraft && typeof saved.aircraft === "object" && !Array.isArray(saved.aircraft)) {
         for (const number of [2, 3, 4]) {
           const record = saved.aircraft[number];
@@ -2207,7 +2218,10 @@ function installSectionDisclosure() {
     const heading = header?.querySelector("h2");
     if (!heading || heading.querySelector(".section-disclosure-toggle")) return;
     const body = document.createElement("div");
-    body.id = `offset-section-body-${index}`;
+    // A section added after the layout moved the others (index S&R tab) must not reuse an id.
+    let bodyId = `offset-section-body-${index}`;
+    while (document.getElementById(bodyId)) bodyId += "-b";
+    body.id = bodyId;
     body.className = "section-disclosure-body";
     [...section.children].filter((child) => child !== header).forEach((child) => body.append(child));
     section.append(body);
@@ -2460,7 +2474,8 @@ function saveWorkState() {
     const lead = JSON.parse(localStorage.getItem(STORAGE_KEY))?.aircraft?.["1"];
     const flight = JSON.parse(localStorage.getItem(FLIGHT_LAYOUT_KEY));
     return leadSaved && flightSaved && JSON.stringify(lead) === JSON.stringify(capturePersistedState())
-      && flight?.size === flightLayout.size && JSON.stringify(flight.aircraft) === JSON.stringify(flightLayout.aircraft);
+      && flight?.size === flightLayout.size && JSON.stringify(flight.aircraft) === JSON.stringify(flightLayout.aircraft)
+      && [...saveExtensions].every(([name, extension]) => JSON.stringify(flight[name]) === JSON.stringify(extension.capture()));
   } catch {
     return false;
   }
@@ -2517,6 +2532,7 @@ function applyFlightDefaults() {
   pruneVisibleAircraft();
   // Rebuilds the follower slots; the loaded state replaces every waiting edit and answer.
   renderFlightLayout({ fresh: true });
+  flightDefaultsListeners.forEach((listener) => listener());
 }
 
 // Developer mode (temporary, §3.3): typing 7777 into the edited aircraft's Initial Altitude and
@@ -2592,6 +2608,7 @@ function installSaveTab() {
   $("#work-save").addEventListener("click", async () => {
     commitActiveEdit();
     await calculationScheduler.flush();
+    for (const extension of saveExtensions.values()) await extension.flush?.();
     const ok = saveWorkState();
     renderSaveStatus(ok ? `Saved · #1–#${flightLayout.size} · ${savedTimeText(new Date())}` : "Save failed · browser storage unavailable; inputs stay usable", ok ? "valid" : "invalid");
   });
@@ -2651,6 +2668,16 @@ export const offsetIndexUi = Object.freeze({
   exportDedPng,
   lastDedExport: () => lastDedExport,
   syncDedPngButtons,
+  // SEM & Rejoin (2026-10-13): the last adopted Flight answer (Full results + the input they answer)
+  // and its updates; a record kept by Save (capture, plus flush awaited before Save writes); the saved
+  // record of that name (null without a work save); Load Default. Nothing here calculates.
+  flightAnswer: () => lastFlightAnswer,
+  onFlightAnswer(listener) { flightAnswerListeners.add(listener); },
+  registerSaveExtension(name, extension) { saveExtensions.set(name, extension); },
+  savedExtension: (name) => loadedSave?.record?.[name] ?? null,
+  onFlightDefaults(listener) { flightDefaultsListeners.add(listener); },
+  // A section added by the layout gets the same collapse controls as the others (idempotent).
+  installSectionDisclosure,
 });
 
 function install() {

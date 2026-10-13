@@ -46,6 +46,36 @@ function integrateStep(state, loadFactorG, dt) {
   state.minAltitudeMslFt = Math.min(state.minAltitudeMslFt, state.altitudeMslFt);
 }
 
+// Opt-in time samples (2026-10-13, Offset SEM & Rejoin): the integrated state at the start, after
+// the integration step that reaches each multiple of `intervalSec`, and at the termination. Recording
+// never changes the integration; without `sampleIntervalSec` the result is exactly as before.
+export function createRecoveryPullSampler(intervalSec, { firstSampleSec = 0 } = {}) {
+  const samples = [];
+  let next = firstSampleSec;
+  const point = (state, loadFactorG) => ({
+    elapsedTimeSec: state.elapsedTimeSec,
+    horizontalDistanceFt: state.horizontalDistanceFt,
+    pathDistanceFt: state.pathDistanceFt,
+    altitudeMslFt: state.altitudeMslFt,
+    fpaDeg: state.fpaRad * RAD_TO_DEG,
+    speedKtas: state.velocityFps / KT_TO_FPS,
+    loadFactorG,
+  });
+  return {
+    samples,
+    record(state, loadFactorG) {
+      if (state.elapsedTimeSec < next - 1e-9) return;
+      samples.push(point(state, loadFactorG));
+      while (next <= state.elapsedTimeSec + 1e-9) next += intervalSec;
+    },
+    finish(state, loadFactorG) {
+      const last = samples[samples.length - 1];
+      if (last && Math.abs(last.elapsedTimeSec - state.elapsedTimeSec) <= 1e-12) samples.pop();
+      samples.push(point(state, loadFactorG));
+    },
+  };
+}
+
 export function calculateWingsLevelRecoveryPull(rawInput) {
   const input = {
     startAltitudeMslFt: rawInput.startAltitudeMslFt,
@@ -57,6 +87,12 @@ export function calculateWingsLevelRecoveryPull(rawInput) {
     maneuverInitiationDelaySec: rawInput.maneuverInitiationDelaySec ?? 0,
   };
   validate(input);
+  let sampler = null;
+  if (rawInput.sampleIntervalSec !== undefined) {
+    finite("sampleIntervalSec", rawInput.sampleIntervalSec);
+    if (!(rawInput.sampleIntervalSec > 0)) throw new RangeError("sampleIntervalSec must be > 0");
+    sampler = createRecoveryPullSampler(rawInput.sampleIntervalSec);
+  }
 
   const state = {
     elapsedTimeSec: 0,
@@ -72,11 +108,14 @@ export function calculateWingsLevelRecoveryPull(rawInput) {
   let delayElapsed = 0;
   let onsetElapsed = 0;
   let steadyElapsed = 0;
+  let lastLoadFactorG = baselineG;
+  sampler?.record(state, baselineG);
 
   while (delayElapsed < input.maneuverInitiationDelaySec - 1e-12) {
     const dt = Math.min(RECOVERY_PULL_MODEL.integrationStepSec, input.maneuverInitiationDelaySec - delayElapsed);
     integrateStep(state, baselineG, dt);
     delayElapsed += dt;
+    sampler?.record(state, baselineG);
   }
 
   while (state.fpaRad < targetFpaRad && onsetElapsed < input.gOnsetTimeSec - 1e-12) {
@@ -92,6 +131,7 @@ export function calculateWingsLevelRecoveryPull(rawInput) {
     const previous = { ...state };
     integrateStep(state, loadFactorG, dt);
     onsetElapsed += dt;
+    lastLoadFactorG = loadFactorG;
     if (state.fpaRad >= targetFpaRad) {
       const fraction = (targetFpaRad - previousFpa) / (state.fpaRad - previousFpa || 1);
       if (fraction >= 0 && fraction <= 1) {
@@ -106,6 +146,7 @@ export function calculateWingsLevelRecoveryPull(rawInput) {
       }
       break;
     }
+    sampler?.record(state, loadFactorG);
   }
 
   let guard = 0;
@@ -116,6 +157,7 @@ export function calculateWingsLevelRecoveryPull(rawInput) {
     integrateStep(state, input.recoveryG, dt);
     steadyElapsed += dt;
     guard += 1;
+    lastLoadFactorG = input.recoveryG;
     if (state.fpaRad >= targetFpaRad) {
       const fraction = (targetFpaRad - previousFpa) / (state.fpaRad - previousFpa || 1);
       if (fraction >= 0 && fraction <= 1) {
@@ -130,10 +172,12 @@ export function calculateWingsLevelRecoveryPull(rawInput) {
       }
       break;
     }
+    sampler?.record(state, input.recoveryG);
   }
   if (guard >= 60000) throw new Error("target FPA was not reached");
 
   const terminationTasKt = state.velocityFps / KT_TO_FPS;
+  sampler?.finish(state, lastLoadFactorG);
   return {
     model: { ...RECOVERY_PULL_MODEL },
     inputs: input,
@@ -151,5 +195,6 @@ export function calculateWingsLevelRecoveryPull(rawInput) {
       gOnset: onsetElapsed,
       steadyRecovery: steadyElapsed,
     },
+    ...(sampler ? { path: { sampleIntervalSec: rawInput.sampleIntervalSec, samples: sampler.samples } } : {}),
   };
 }

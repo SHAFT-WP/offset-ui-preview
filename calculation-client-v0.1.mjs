@@ -163,8 +163,9 @@ export function createCalculationScheduler({ collect, apply, transport, delayMs 
 }
 
 // Worker transport: a module Worker running the BE host; if it cannot start, the same host module
-// runs on the page (still answered asynchronously, so the request rules are unchanged).
-export function createWorkerTransport({ workerUrl, hostModuleUrl = workerUrl, WorkerClass = globalThis.Worker, onFallback = null }) {
+// runs on the page (still answered asynchronously, so the request rules are unchanged). `hostFactory`
+// names the host module's factory export (2026-10-13: the SEM & Rejoin host uses the same transport).
+export function createWorkerTransport({ workerUrl, hostModuleUrl = workerUrl, hostFactory = "createOffsetFlightHost", WorkerClass = globalThis.Worker, onFallback = null }) {
   let listener = () => {};
   let worker = null;
   let fallbackHost = null;
@@ -173,7 +174,7 @@ export function createWorkerTransport({ workerUrl, hostModuleUrl = workerUrl, Wo
   const runFallback = async (message) => {
     if (!fallbackHost) {
       const module = await import(hostModuleUrl);
-      fallbackHost = module.createOffsetFlightHost();
+      fallbackHost = module[hostFactory]();
     }
     setTimeout(() => {
       deliver(fallbackHost.handle(message));

@@ -210,6 +210,7 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
   .offset-wide .wide-review-head,
   .offset-wide .wide-block-head,
   .offset-wide .wide-panel-card > :is(.wide-panel-title,.wide-show-aircraft,.wide-empty,.wide-pending),
+  .offset-wide .sr-center > :is(.status-message,.sr-table-wrap,.sr-evaluation),
   .offset-wide .wide-review-scroll > .wide-empty {
     zoom:0.75;
   }
@@ -237,3 +238,37 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .offset-wide .wide-inputs .field.speed-field { grid-column:auto; }
 .offset-wide .wide-inputs .speed-field .compound { grid-template-columns:minmax(0,1fr) 92px; }
 .offset-wide .wide-inputs .speed-field .compound select { padding-inline:6px 2px; }
+
+/* SEM & Rejoin (2026-10-13): centre controls, maneuver table and evaluation, and the S&R input tab.
+   The drawing sets its own attributes; only its shell and svg box are styled here (CSS-SPEC §1). */
+.sr-center { display:flex; flex-direction:column; gap:10px; min-width:0; }
+/* The toolbar and time row are one Common .diagram-actions scroller (as the Top View): at phone width
+   their controls scroll inside it, never the page. */
+.sr-mode { display:inline-flex; gap:4px; }
+.sr-time-output { font-variant-numeric:tabular-nums; font-weight:800; min-width:150px; }
+.sr-shell { border:1px solid #dfe6ee; border-radius:12px; background:#fff; overflow:hidden; }
+.sr-shell > svg { display:block; width:100%; height:auto; background:#fff; }
+.sr-table-wrap { overflow:auto; border:1px solid var(--line); border-radius:10px; }
+.sr-table { width:100%; border-collapse:collapse; font-size:13px; }
+.sr-table th, .sr-table td { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+.sr-table th { position:sticky; top:0; background:var(--bg); color:var(--muted); font-size:11px; letter-spacing:.04em; white-space:nowrap; }
+.sr-table tr.sr-group td { background:color-mix(in srgb,var(--aircraft-color) 14%,transparent); font-weight:800; }
+.sr-table tr.sr-row { cursor:pointer; }
+.sr-table tr.sr-row td:first-child { border-left:4px solid var(--aircraft-color); font-weight:900; }
+.sr-table tr.sr-row.selected td { background:color-mix(in srgb,#ffe066 40%,transparent); }
+.sr-table tr.sr-row.auto td { color:var(--muted); }
+.sr-table .sr-add { min-height:28px; padding:2px 4px; border:1px solid var(--line); border-radius:7px; background:var(--field); color:var(--text); }
+.sr-table .sr-delete { min-height:28px; padding:2px 8px; }
+.sr-muted { color:var(--muted); font-size:11px; font-weight:700; }
+.sr-aircraft-chip { display:inline-block; font-weight:900; padding:1px 8px; border-radius:6px; background:color-mix(in srgb,var(--aircraft-color) 30%,transparent); }
+.sr-empty { color:var(--muted); text-align:center; }
+.sr-evaluation { display:grid; gap:6px; font-size:13px; }
+.sr-evaluation .input-group-title { margin:0; }
+.sr-eval-line { padding:6px 8px; border-left:4px solid var(--aircraft-color); background:var(--panel); border-radius:6px; overflow-wrap:anywhere; }
+.sr-eval-slot { color:var(--muted); }
+.sr-input-section .sr-row-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px; }
+.sr-input-section .sr-row-actions .sr-add { min-height:36px; border:1px solid var(--line); border-radius:9px; background:var(--field); color:var(--text); padding:4px 8px; }
+.sr-input-section .sr-subtitle { margin-top:12px; }
+.sr-facts { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:6px 0; font-size:13px; }
+.sr-facts dt { color:var(--muted); font-weight:800; }
+.sr-facts dd { margin:0; font-weight:800; }
