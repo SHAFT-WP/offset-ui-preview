@@ -7,8 +7,7 @@ import {
   solveElementSameTimeActionRange,
 } from "./offset-formation-v0.1.mjs";
 import { add, candidateFailureCause } from "./offset-geometry-v0.2.mjs";
-import { autoRollInBankDegFull, calculateBombDeliveryV0_3Full, isLevelTurnRollIn, levelTurnRollInGFull } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
-import { BOMB_DELIVERY_PLANNER_MODEL_V0_3 } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
+import { BOMB_DELIVERY_PLANNER_MODEL_V0_4, FRAGMENT_MARGIN_MODES, ROLL_IN_ONSET_DEFAULTS, calculateBombDeliveryV0_4Full } from "../bomb-delivery-planner/bomb-delivery-planner-v0.4.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import { calculationCacheStats, calculationKey, createCalculationCache, snapshotCalculationCacheStats, withCalculationCache } from "../../../common/calculation/calculation-cache-v0.1.mjs";
 
@@ -23,7 +22,14 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // / Dive Angle LOCKs, Approach Range field and driver, Angle-Off / Attack Heading edits held under
   // Angle #n, every unheld tactical value written back, Roll-in Altitude LOCK in the both-fixed solve
   // (Release Altitude moves), typed values that a hold replaces reported, Tracking Time in 0.1 s.
-  version: "0.1.2",
+  // 0.1.3 (2026-10-14, owner): #1 values the LOCKs fix are named in nextInput (lockSolvedKeys), shown
+  // solved and read-only; a driver among them hands over to a LOCKed value and is written back.
+  // 0.1.4 (2026-10-15, owner): BDP v0.4 Roll-in (technique B, linear rate onsets). The Roll-in Bank is
+  // solved by BDP and written back as a derived value for every aircraft; it is no longer an input (no
+  // AUTO, no level-turn Bank -> G coupling). The Roll-in / Roll-out / G Onset rates follow #1 (inherited).
+  // 0.1.5 (2026-10-15, owner R3 / Q8): #1 state.fragmentMarginAppliesTo (developer option, Flight-wide:
+  // HEIGHT_AND_RADIUS default, HEIGHT) goes to every aircraft's BDP; BDP v0.4.1 SEM / fragment outputs.
+  version: "0.1.5",
   status: "work",
   schemaVersion: 1,
   components: Object.freeze({
@@ -64,11 +70,16 @@ const TURN_DRIVERS = new Set(["offsetG", "offsetBankDeg", "offsetRadiusNm"]);
 const LEAD_TACTICAL_DRIVERS = new Set(["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm"]);
 const FOLLOWER_DRIVERS = new Set(["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "approachRangeNm"]);
 const LEAD_FALLBACK_DRIVERS = Object.freeze({ vrpRangeNm: "actionRangeNm", actionRangeNm: "vrpRangeNm" });
+// #1 coupled tactical values (Run-In given). Any two fixing LOCKs settle all of them; Action Range and
+// VRP LOCKs both fix the Action Point, and one range LOCK also settles the other range (the solve
+// root-finds one range at a time). The first LOCKed key in this order takes over a settled driver.
+const LEAD_COUPLED_KEYS = Object.freeze(["actionRangeNm", "approachRangeNm", "angleOffDeg", "attackHeadingDeg", "offsetAngleDeg"]);
 const LEAD_TURN_FALLBACK = Object.freeze({ offsetG: "offsetBankDeg", offsetBankDeg: "offsetG", offsetRadiusNm: "offsetG" });
 const FOLLOWER_FALLBACK_DRIVERS = Object.freeze({ actionRangeNm: "offsetAngleDeg" });
-// Follower BDP values that follow the element lead's effective value while null (Roll-in Bank: AUTO
-// from this aircraft's own Dive and applied Roll-in G while null).
-export const OFFSET_FLIGHT_INHERITED_KEYS = Object.freeze(["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG"]);
+// Follower BDP values that follow the element lead's effective value while null.
+export const OFFSET_FLIGHT_INHERITED_KEYS = Object.freeze(["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"]);
+// BDP v0.4 Roll-in onset rates (owner 2026-10-15): #1's value, or the BDP default while #1 has none.
+export const OFFSET_FLIGHT_ONSET_KEYS = Object.freeze(["rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"]);
 // Follower LOCKs (same fields as #1's since 0.1.2; Run-In and IP follow #1) and element-lead options.
 // Dive Angle LOCK is a hold marker as on #1 (no solve moves a Dive Angle).
 const FOLLOWER_OPTIONS = ["offsetAngleLocked", "sameAngleAsLead", "actionRangeLocked", "sameTimeAsLead", "rollInAltitudeLocked", "attackHeadingLocked", "angleOffLocked", "approachRangeLocked", "diveAngleLocked"];
@@ -136,6 +147,8 @@ function normalizeSolveMode(mode, rollInLocked) {
   return mode === "time" ? "time" : "height";
 }
 
+const FRAGMENT_MARGIN_MODE_SET = new Set(FRAGMENT_MARGIN_MODES);
+
 function enumOr(name, value, allowed, fallback) {
   if (blank(value)) return fallback;
   if (!allowed.has(value)) throw new TypeError(`${name} "${value}" is not supported`);
@@ -159,7 +172,6 @@ function normalizeLead(record = {}) {
       referenceMode: state.referenceMode === "VIP" ? "VIP" : "VRP",
       ipLinkedToVrp: state.ipLinkedToVrp !== false && !locks.ipReference,
       ipLockHeadingDeg,
-      rollBankAuto: state.rollBankAuto !== false,
       rollInAltitudeLinked: state.rollInAltitudeLinked !== false,
       solveMode: normalizeSolveMode(state.solveMode, locks.rollInAltitudeMslFt === true),
       enteredTrackingTimeSec: normalizeEnteredTrackingTime(state.enteredTrackingTimeSec),
@@ -167,6 +179,7 @@ function normalizeLead(record = {}) {
       vipRangeExplicit: state.vipRangeExplicit === true,
       vrpBearingExplicit: state.vrpBearingExplicit === true,
       vrpRangeExplicit: state.vrpRangeExplicit === true,
+      fragmentMarginAppliesTo: enumOr("fragmentMarginAppliesTo", state.fragmentMarginAppliesTo, FRAGMENT_MARGIN_MODE_SET, "HEIGHT_AND_RADIUS"),
     },
   };
 }
@@ -257,8 +270,7 @@ function applyLeadEdit(lead, edit) {
     if (s.driver === key) s.driver = LEAD_FALLBACK_DRIVERS[key] ?? "vrpRangeNm";
     if (s.turnDriver === key) s.turnDriver = LEAD_TURN_FALLBACK[key] ?? "offsetG";
     let value = !blank(before.value) ? before.value : edit.fallbackValue ?? null;
-    if (key === "rollInBankAngleDeg") s.rollBankAuto = true;
-    else if (key === "rollInAltitudeMslFt" && s.solveMode !== "time" && s.rollInAltitudeLinked && isNumber(v.initialAltitudeMslFt)) value = Math.round(v.initialAltitudeMslFt);
+    if (key === "rollInAltitudeMslFt" && s.solveMode !== "time" && s.rollInAltitudeLinked && isNumber(v.initialAltitudeMslFt)) value = Math.round(v.initialAltitudeMslFt);
     else if (key === "initialAltitudeMslFt" && s.rollInAltitudeLinked && isNumber(v.rollInAltitudeMslFt)) value = Math.round(v.rollInAltitudeMslFt);
     else if (key === "trackingTimeSec") s.solveMode = "height";
     v[key] = value;
@@ -310,10 +322,6 @@ function applyLeadEdit(lead, edit) {
     return;
   }
   if (TURN_DRIVERS.has(key)) s.turnDriver = key;
-  const diveAngleDeg = v.diveAngleDeg;
-  if (key === "rollInBankAngleDeg") s.rollBankAuto = false;
-  if (key === "diveAngleDeg") s.rollBankAuto = true;
-  if (key === "rollInG" && isNumber(diveAngleDeg) && isLevelTurnRollIn(diveAngleDeg)) s.rollBankAuto = true;
   if (key === "runInHeadingDeg") {
     if (isNumber(value)) v.runInHeadingDeg = norm(value);
     s.driver = "runInHeadingDeg";
@@ -368,10 +376,6 @@ function applyFollowerEdit(follower, edit, number) {
       v.trackingTimeSec = s.enteredTrackingTimeSec;
     }
   }
-  // Roll-in Bank AUTO, same couplings as #1: a Dive Angle edit returns a typed bank to AUTO, and so
-  // does a Roll-in G edit in a level-turn Roll-in (blank = AUTO for a follower).
-  if (key === "diveAngleDeg") v.rollInBankAngleDeg = null;
-  if (key === "rollInG" && isNumber(v.diveAngleDeg) && isLevelTurnRollIn(v.diveAngleDeg)) v.rollInBankAngleDeg = null;
   if (WINGMEN.has(number)) applyTypedOverElementLead(options, key);
   if (FOLLOWER_DRIVERS.has(key)) s.driver = key;
 }
@@ -398,9 +402,8 @@ function applyTypedOverElementLead(options, key) {
 
 // ---- #1 ------------------------------------------------------------------------------------------
 
-// Reference fallbacks (implicit VIP = Run-In / 10 NM, implicit VRP = reciprocal / 7 NM) and the
-// Roll-in Bank couplings (AUTO from Dive and G; a manual bank in a level-turn Roll-in sets G).
-function prepareLead(lead, derived) {
+// Reference fallbacks (implicit VIP = Run-In / 10 NM, implicit VRP = reciprocal / 7 NM).
+function prepareLead(lead) {
   const { values: v, state: s } = lead;
   if (isNumber(v.runInHeadingDeg)) {
     const runIn = norm(v.runInHeadingDeg);
@@ -409,13 +412,11 @@ function prepareLead(lead, derived) {
     if (!s.vrpBearingExplicit || !isNumber(v.vrpBearingDeg)) v.vrpBearingDeg = norm(runIn + 180);
   }
   if (!s.vrpRangeExplicit || !isNumber(v.vrpRangeNm)) v.vrpRangeNm = DEFAULT_VRP_RANGE_NM;
-  if (s.rollBankAuto) {
-    v.rollInBankAngleDeg = autoRollInBankDegFull({ diveAngleDeg: requireNumber("diveAngleDeg", v.diveAngleDeg), rollInG: v.rollInG });
-    derived.add("rollInBankAngleDeg");
-  } else if (isNumber(v.diveAngleDeg) && isLevelTurnRollIn(v.diveAngleDeg)) {
-    v.rollInG = levelTurnRollInGFull(requireNumber("rollInBankAngleDeg", v.rollInBankAngleDeg));
-    derived.add("rollInG");
-  }
+}
+
+// #1's onset rates (BDP v0.4): its own value, or the BDP default while it has none.
+function leadOnset(values) {
+  return Object.fromEntries(OFFSET_FLIGHT_ONSET_KEYS.map((key) => [key, isNumber(values[key]) ? values[key] : ROLL_IN_ONSET_DEFAULTS[key]]));
 }
 
 function leadOffsetInput(lead) {
@@ -473,17 +474,25 @@ function leadOffsetInput(lead) {
       trackingTimeStepSec: OFFSET_FLIGHT_TRACKING_TIME_STEP_SEC,
       releaseAltitudeMslFt: n("releaseAltitudeMslFt"),
       angleOffDeg: n("angleOffDeg"),
-      rollInBankAngleDeg: n("rollInBankAngleDeg"),
       rollInG: n("rollInG"),
+      ...leadOnset(v),
+      fragmentMarginAppliesTo: s.fragmentMarginAppliesTo,
     },
   };
 }
 
 // BDP solve-mode coupling: height mode derives Tracking Time; time mode (or a level delivery, which
 // BDP always solves from Tracking Time) derives Roll-in Altitude and shows the entered Tracking Time.
+// The Roll-in Bank BDP v0.4 solved (a result, written back for display).
+function deriveRollInBank(record, result, derived) {
+  const bank = result.profile.public.rollInBankAngleDeg;
+  if (isNumber(bank)) { record.values.rollInBankAngleDeg = bank; derived.add("rollInBankAngleDeg"); }
+}
+
 function deriveProfileValues(record, result, derived) {
   const { values: v, state: s } = record;
   const p = result.profile.public;
+  deriveRollInBank(record, result, derived);
   if (s.solveMode === "release") {
     // Roll-in Altitude held by its LOCK; the entered Tracking Time shows; Release Altitude was solved.
     v.trackingTimeSec = s.enteredTrackingTimeSec;
@@ -504,6 +513,25 @@ function deriveProfileValues(record, result, derived) {
 function syncLinkedInitial(record, derived) {
   const { values: v, state: s } = record;
   if (s.rollInAltitudeLinked && isNumber(v.rollInAltitudeMslFt)) { v.initialAltitudeMslFt = v.rollInAltitudeMslFt; derived.add("initialAltitudeMslFt"); }
+}
+
+// #1 coupled values the active LOCKs settle (owner 2026-10-14: an edit to them could not be kept, so
+// the app shows them solved and read-only instead of keeping a typed value the Top View ignores).
+export function leadLockSolvedKeys(locks = {}) {
+  const pointFixed = locks.actionRangeNm === true || locks.vrpReference === true;
+  const fixing = [pointFixed, locks.approachRangeNm, locks.angleOffDeg, locks.attackHeadingDeg, locks.offsetAngleDeg].filter((on) => on === true).length;
+  const free = LEAD_COUPLED_KEYS.filter((key) => locks[key] !== true);
+  if (fixing >= 2) return free;
+  if (pointFixed || locks.approachRangeNm === true) return free.filter((key) => key === "actionRangeNm" || key === "approachRangeNm");
+  return [];
+}
+
+// A driver the LOCKs settle would add a target they already decide (dropped silently or INVALID);
+// the first LOCKed coupled value (or the reference LOCK) drives instead, so the field is written back.
+function handOverLockSolvedDriver(lead) {
+  const { state: s, locks } = lead;
+  if (!leadLockSolvedKeys(locks).includes(s.driver)) return;
+  s.driver = LEAD_COUPLED_KEYS.find((key) => locks[key] === true) ?? "referenceLock";
 }
 
 // Next #1 state from its Full result. A LOCK target and the active driver / turn driver target are
@@ -592,7 +620,7 @@ function leadDed(lead, result) {
 // Altitude, on one canonical BDP profile input (fixed Angle-Off / wind of one Offset geometry).
 function solveProfileReleaseAltitude(canonicalInputs, rollInAltitudeMslFt, guessFt) {
   const config = OFFSET_FLIGHT_RELEASE_SOLVE;
-  const f = (releaseAltitudeMslFt) => calculateBombDeliveryV0_3Full({ ...canonicalInputs, solveMode: "time", releaseAltitudeMslFt }).public.resolvedInitialAltitudeMslFt - rollInAltitudeMslFt;
+  const f = (releaseAltitudeMslFt) => calculateBombDeliveryV0_4Full({ ...canonicalInputs, solveMode: "time", releaseAltitudeMslFt }).public.resolvedInitialAltitudeMslFt - rollInAltitudeMslFt;
   let x0 = guessFt;
   let f0 = f(x0);
   if (Math.abs(f0) <= config.toleranceFt) return { value: x0, belowNlt: false };
@@ -640,7 +668,8 @@ function solveLead(lead, stateError) {
   const base = { aircraft: 1, elementLead: null, predecessor: null, pairSolved: false, solvedVariable: null, inheritance: null };
   if (stateError) return { ...base, status: "FAILED", result: null, error: stateError, errors: [stateError], warnings: [], derived, diagnostics: [] };
   try {
-    prepareLead(lead, derived);
+    prepareLead(lead);
+    handOverLockSolvedDriver(lead);
     const input = leadOffsetInput(lead);
     let result;
     if (lead.state.solveMode === "release") {
@@ -676,19 +705,6 @@ function followerInheritance(follower, leaderResult, leadNumber) {
     } else {
       resolved[key] = requireNumber(key, v[key]);
       inheritance[key] = { source: "explicit", fromAircraft: null, value: resolved[key] };
-    }
-  }
-  const diveAngleDeg = requireNumber("diveAngleDeg", v.diveAngleDeg);
-  if (blank(v.rollInBankAngleDeg)) {
-    resolved.rollInBankAngleDeg = autoRollInBankDegFull({ diveAngleDeg, rollInG: resolved.rollInG });
-    inheritance.rollInBankAngleDeg = { source: "auto", fromAircraft: null, value: resolved.rollInBankAngleDeg };
-  } else {
-    resolved.rollInBankAngleDeg = requireNumber("rollInBankAngleDeg", v.rollInBankAngleDeg);
-    inheritance.rollInBankAngleDeg = { source: "explicit", fromAircraft: null, value: resolved.rollInBankAngleDeg };
-    // Level-turn Roll-in (as #1): a typed bank sets the Roll-in G.
-    if (isLevelTurnRollIn(diveAngleDeg)) {
-      resolved.rollInG = levelTurnRollInGFull(resolved.rollInBankAngleDeg);
-      inheritance.rollInG = { source: "derived", fromAircraft: null, value: resolved.rollInG };
     }
   }
   return { inheritance, resolved };
@@ -766,8 +782,10 @@ function followerOffsetInput({ number, follower, leaderResult, leadNumber, fligh
       trackingTimeStepSec: OFFSET_FLIGHT_TRACKING_TIME_STEP_SEC,
       releaseAltitudeMslFt: n("releaseAltitudeMslFt"),
       releaseSpeedKcas: n("releaseSpeedKcas"),
-      rollInBankAngleDeg: inherited.rollInBankAngleDeg,
       rollInG: inherited.rollInG,
+      ...Object.fromEntries(OFFSET_FLIGHT_ONSET_KEYS.map((key) => [key, inherited[key]])),
+      // The Flight's (#1's) developer option.
+      fragmentMarginAppliesTo: flightProfile.fragmentMarginAppliesTo,
     },
   };
   // Angle #n: the element lead's solved Offset Angle held as a fixed value (the heading hold above
@@ -993,11 +1011,10 @@ function deriveFollowerNext(follower, result, context, pair, derived) {
     if (pair.variable === "releaseAltitudeMslFt") { v.releaseAltitudeMslFt = pair.value; derived.add("releaseAltitudeMslFt"); }
     else if (isNumber(p.resolvedInitialAltitudeMslFt)) { v.rollInAltitudeMslFt = p.resolvedInitialAltitudeMslFt; derived.add("rollInAltitudeMslFt"); }
     if (isNumber(p.trackingTimeSec)) { v.trackingTimeSec = p.trackingTimeSec; derived.add("trackingTimeSec"); }
+    deriveRollInBank(follower, result, derived);
   } else {
     deriveProfileValues(follower, result, derived);
   }
-  // Level-turn Roll-in: the Roll-in G a typed bank set (followerInheritance).
-  if (context.inheritance?.rollInG?.source === "derived") { v.rollInG = context.inheritance.rollInG.value; derived.add("rollInG"); }
   syncLinkedInitial(follower, derived);
 }
 
@@ -1137,7 +1154,7 @@ function applyEdits(aircraft, edits) {
 // What a follower reads from an aircraft before it (its element lead, and #1 for the Flight-wide
 // Target / wind / IP limit / VIP): resolved values, timing, geometry points, reference mode and the
 // BDP inputs it inherits. Followers are given only this, so it is exactly their dependency.
-const LEADER_PROFILE_KEYS = [...OFFSET_FLIGHT_INHERITED_KEYS, "targetElevationMslFt", "windSpeedKt"];
+const LEADER_PROFILE_KEYS = [...OFFSET_FLIGHT_INHERITED_KEYS, "targetElevationMslFt", "windSpeedKt", "fragmentMarginAppliesTo"];
 function leaderView(result) {
   if (!result) return null;
   const inputs = result.profile.canonicalInputs;
@@ -1160,7 +1177,7 @@ function leaderView(result) {
 // earlier success for a changed one.
 const SOLVE_MODEL_KEY = calculationKey({
   flight: OFFSET_FLIGHT_V0_1,
-  bdp: BOMB_DELIVERY_PLANNER_MODEL_V0_3,
+  bdp: BOMB_DELIVERY_PLANNER_MODEL_V0_4,
 });
 
 function aircraftSolveKey(number, record, stateError, leaders) {
@@ -1279,6 +1296,7 @@ function calculateFlight(input, session) {
     if (!entry) continue;
     const { derived, diagnostics, ...rest } = entry;
     if (nextAircraft[number]) nextAircraft[number].derivedKeys = [...derived].sort();
+    if (number === 1 && nextAircraft[1] && !aircraft[1].raw) nextAircraft[1].lockSolvedKeys = leadLockSolvedKeys(aircraft[1].locks);
     aircraftResults[number] = { ...rest, ded: entry.ded ?? null };
     constraintDiagnostics.push(...diagnostics);
   }
@@ -1310,7 +1328,7 @@ export function calculateOffsetFlightReferenceFull(input) {
 // aircraft's last solves keyed by their full dependencies, so a call re-solves only the aircraft
 // whose dependencies changed. Its output equals calculateOffsetFlightFull(input) for every input
 // (offset-flight-session-v0.1.test.mjs). The FE holds the session as an opaque handle (in the Worker).
-export function createOffsetFlightSession({ solveLimit = 48, cacheLimits = { "bdp-v0.3": 2048, "ballistic-trajectory": 2048, "sem-nlt": 64 } } = {}) {
+export function createOffsetFlightSession({ solveLimit = 48, cacheLimits = { "bdp-v0.4": 2048, "ballistic-trajectory": 2048, "sem-nlt": 64 } } = {}) {
   const session = { solves: new Map(), solveLimit, cache: createCalculationCache({ limits: cacheLimits }) };
   let last = null;
   return Object.freeze({

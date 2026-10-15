@@ -9,14 +9,17 @@
 // Rules (SPEC.md next to this file):
 // - The key is every real argument plus the model/version of the calculation, serialized exactly
 //   (no rounding; -0, NaN and Infinity keep their identity). Equal key = same result.
-// - A thrown calculation is never stored; the next call runs it again.
+// - A thrown calculation is not stored and the next call runs it again, unless the error is marked
+//   `cacheable` (a deterministic failure of the same input, 0.1.1): that error is stored and rethrown.
 // - The cache never hands out a shared object: it stores a copy and every hit returns a fresh copy,
 //   so a later result assembly can never change what another candidate or call sees.
 // - Bounded per namespace (least recently used entry dropped first).
 // - No DOM, storage or FE import. The active cache is set only for the duration of the owning call
 //   (synchronous; restored in finally), so no result leaks into an unrelated call.
 
-export const CALCULATION_CACHE_V0_1 = Object.freeze({ id: "calculation-cache-v0.1", version: "0.1.0" });
+// 0.1.1 (2026-10-15): an error marked `cacheable === true` is stored and rethrown on a hit (BDP v0.4 Roll-in
+// "no solution" during Offset scans); every other throw is still never stored.
+export const CALCULATION_CACHE_V0_1 = Object.freeze({ id: "calculation-cache-v0.1", version: "0.1.1" });
 
 const DEFAULT_LIMIT = 512;
 
@@ -86,7 +89,8 @@ export function cachedCalculation(namespace, keyParts, compute) {
     // Refresh recency.
     entries.delete(key);
     entries.set(key, stored);
-    return structuredClone(stored);
+    if (stored.thrown) throw stored.thrown;
+    return structuredClone(stored.value);
   }
   stats.misses += 1;
   let value;
@@ -94,12 +98,17 @@ export function cachedCalculation(namespace, keyParts, compute) {
     value = compute();
   } catch (error) {
     stats.errors += 1;
+    if (error?.cacheable === true) store(cache, namespace, entries, key, { thrown: error });
     throw error;
   }
-  entries.set(key, structuredClone(value));
+  store(cache, namespace, entries, key, { value: structuredClone(value) });
+  return value;
+}
+
+function store(cache, namespace, entries, key, entry) {
+  entries.set(key, entry);
   const limit = cache.limits[namespace] ?? cache.defaultLimit;
   while (entries.size > limit) entries.delete(entries.keys().next().value);
-  return value;
 }
 
 // Counters per namespace since the cache was created (or since the given snapshot).

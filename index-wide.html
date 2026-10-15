@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=044cbbaebf0f">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=044cbbaebf0f">
-<link rel="stylesheet" href="./wide-layout.css?v=044cbbaebf0f">
+<link rel="stylesheet" href="./offset.css?v=6007ab18b53b">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=6007ab18b53b">
+<link rel="stylesheet" href="./wide-layout.css?v=6007ab18b53b">
 </head>
 <body class="offset-wide">
 <main class="app" id="offset-calculator">
@@ -35,12 +35,16 @@
       <label class="field"><span>Wind Direction FROM (deg)</span><input data-key="windDirectionDeg" type="text" inputmode="decimal" value="0"><span class="unit">TRUE · wind FROM · shared by the Flight</span></label>
       <label class="field"><span>Wind Speed (kt)</span><input data-key="windSpeedKt" type="text" inputmode="decimal" value="0"><span class="unit">Shared by the Flight</span></label>
     </div>
+    <!-- Full BDP (owner 2026-10-15, R1): the basic tab is Target, Bomb and Wind; SEM / Recovery shows with the tab's
+         own Full BDP button. -->
+    <div class="bdp-full-group">
     <h3 class="input-group-title">SEM / Recovery</h3>
     <div class="input-grid">
-      <label class="field"><span>Recovery G (G)</span><input data-key="recoveryG" type="text" inputmode="decimal" value="5"><span class="unit">V2 canonical safety input</span></label>
-      <label class="field"><span>G Onset Time (sec)</span><input data-key="gOnsetTimeSec" type="text" inputmode="decimal" value="2"><span class="unit">V2 SEM/NLT input · onset starts at Release</span></label>
-      <label class="field"><span>Speed Overshoot (kcas)</span><input data-key="speedOvershootKcas" type="text" inputmode="decimal" value="50"><span class="unit">BDP safety input</span></label>
-      <label class="field"><span>Fragment Height Margin (%)</span><input data-key="fragmentHeightMarginPercent" type="text" inputmode="decimal" value="20"></label>
+      <label class="field bdp-extra"><span>Recovery G (G)</span><input data-key="recoveryG" type="text" inputmode="decimal" value="5"><span class="unit">V2 canonical safety input</span></label>
+      <label class="field bdp-extra"><span>G Onset Time (sec)</span><input data-key="gOnsetTimeSec" type="text" inputmode="decimal" value="2"><span class="unit">V2 SEM/NLT input · onset starts at Release</span></label>
+      <label class="field bdp-extra"><span>Speed Overshoot (kcas)</span><input data-key="speedOvershootKcas" type="text" inputmode="decimal" value="50"><span class="unit">BDP safety input</span></label>
+      <label class="field bdp-extra"><span>Fragment Height Margin (%)</span><input data-key="fragmentHeightMarginPercent" type="text" inputmode="decimal" value="20"></label>
+    </div>
     </div>
   </section>
 
@@ -138,7 +142,7 @@
     <details class="input-group-panel">
       <summary class="input-group-title">Roll-in Condition</summary>
       <div class="input-grid">
-        <label class="field"><span>Roll-in Bank Angle (deg)</span><input data-key="rollInBankAngleDeg" type="text" inputmode="decimal" value="113"><span class="unit">AUTO: &lt;10° level turn · ≥10° round(90 + Dive/2) · manual edit allowed</span></label>
+        <label class="field"><span>Roll-in Bank Angle (deg)</span><input data-key="rollInBankAngleDeg" type="text" inputmode="decimal" value="" readonly data-bdp-result title="Solved by BDP (Roll-in model B)"><span class="unit">Result · solved by BDP (Roll-in model B)</span></label>
         <label class="field"><span>Roll-in G (G)</span><input data-key="rollInG" type="text" inputmode="decimal" value="4"><span class="unit">BDP roll-in input</span></label>
       </div>
     </details>
@@ -242,7 +246,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=044cbbaebf0f"></script>
+<script type="module" src="./wide-layout.mjs?v=6007ab18b53b"></script>
 
 </body>
 </html>

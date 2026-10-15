@@ -4,7 +4,9 @@ import { integrateRollIn } from "./roll-in-v0.1.mjs";
 
 const KT_TO_FPS = 1.687809857;
 
-export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitudeMslFt }) {
+// `rollIn` (optional, BDP v0.4 2026-10-15): another Roll-in integrator with the same contract, e.g. Roll-in v0.2.
+// Omitted, the v0.1 integrator runs exactly as before.
+export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitudeMslFt, rollIn = integrateRollIn }) {
   const angleRad = (input.diveAngleDeg * Math.PI) / 180;
   const levelDelivery = Math.abs(input.diveAngleDeg) < 1e-9;
   const releaseAglFt = effectiveReleaseAltitudeMslFt - input.targetElevationMslFt;
@@ -31,6 +33,7 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
     angleOffDeg: input.angleOffDeg,
     rollInBankAngleDeg: input.rollInBankAngleDeg,
     rollInG: input.rollInG,
+    ...(input.rollInOnset ?? {}),
   };
 
   if (levelDelivery) {
@@ -38,17 +41,17 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
     initialAglFt = releaseAglFt;
     for (let iteration = 0; iteration < 12; iteration += 1) {
       initialMslFt = input.targetElevationMslFt + initialAglFt;
-      roll = integrateRollIn(rollParams, initialMslFt);
+      roll = rollIn(rollParams, initialMslFt);
       initialAglFt = releaseAglFt + roll.altitudeLossFt;
     }
     initialMslFt = input.targetElevationMslFt + initialAglFt;
-    roll = integrateRollIn(rollParams, initialMslFt);
+    roll = rollIn(rollParams, initialMslFt);
     trackAglFt = initialAglFt - roll.altitudeLossFt;
     pathFt = meanTrackSpeedFps(roll.finalTasKt) * trackingTimeSec;
   } else if (input.solveMode === "height") {
     initialMslFt = input.enteredInitialAltitudeMslFt;
     initialAglFt = initialMslFt - input.targetElevationMslFt;
-    roll = integrateRollIn(rollParams, initialMslFt);
+    roll = rollIn(rollParams, initialMslFt);
     trackAglFt = initialAglFt - roll.altitudeLossFt;
     // Track Point below Release: an error, or (allowNegativeTrackingTime) a negative path and
     // Tracking Time — the shortfall the pilot adds to the Roll-in Altitude.
@@ -64,7 +67,7 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
     // 15 ft off at Dive 60°, Angle Off 90°, 30 s). Stops at 1e-9 ft; a degenerate step falls back to
     // the damped iteration.
     const nextInitial = (aglFt) => {
-      const step = integrateRollIn(rollParams, input.targetElevationMslFt + aglFt);
+      const step = rollIn(rollParams, input.targetElevationMslFt + aglFt);
       return releaseAglFt + meanTrackSpeedFps(step.finalTasKt) * trackingTimeSec * Math.sin(angleRad) + step.altitudeLossFt;
     };
     let previous = initialAglFt;
@@ -80,7 +83,7 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
     }
     initialAglFt = current;
     initialMslFt = input.targetElevationMslFt + initialAglFt;
-    roll = integrateRollIn(rollParams, initialMslFt);
+    roll = rollIn(rollParams, initialMslFt);
     pathFt = meanTrackSpeedFps(roll.finalTasKt) * trackingTimeSec;
     trackAglFt = initialAglFt - roll.altitudeLossFt;
   }

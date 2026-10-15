@@ -1,5 +1,5 @@
 // Same cache token as the page's S&R controller (one module instance in the in-thread fallback).
-import { SEM_REJOIN_V0_1, createSemRejoinSession } from "./sem-rejoin-be-v0.1.mjs?v=0.2.0";
+import { SEM_REJOIN_V0_1, createSemRejoinSession } from "./sem-rejoin-be-v0.1.mjs?v=0.2.1";
 
 // Offset SEM & Rejoin calculation host (SPEC "Requests"). The BE owns the calculation and its reuse;
 // this host only runs it off the page's main thread, with the Offset Flight host's message contract:

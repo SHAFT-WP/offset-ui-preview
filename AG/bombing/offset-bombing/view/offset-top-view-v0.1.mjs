@@ -45,7 +45,10 @@ export const OFFSET_TOP_VIEW_V0_1 = Object.freeze({
   // 0.1.8 (2026-10-07, user): Advanced draws MAP as a dashed circle around the Target, labelled
   // "MAP: 2.0 NM". It is not a fit point: the canvas keeps its size and the circle may be clipped.
   // 0.1.9 (2026-10-12): view style 0.1.5 token (Tracking Time 0.1 s in the legend).
-  version: "0.1.9",
+  // 0.1.10 (2026-10-15, BDP update R2.1): the Offset turn is drawn along geometry.offsetTurnPath (onset level
+  // turn); its radius guides join the hold arc's center to the hold start and end, and are left out with
+  // "Offset R" when the turn has no hold.
+  version: "0.1.10",
   subject: "Offset",
   view: "Top View",
   canvas: Object.freeze({ width: 900, minHeight: 560, maxHeight: 1100, margins: 40 }),
@@ -155,7 +158,7 @@ export function offsetTopViewWorldPoints(result) {
   return [
     points.target, points.ip, points.realActionPoint, points.turnEnd, points.offsetCenter,
     points.rollStart, points.trackPoint, points.rollCenter, result.reference?.point,
-    ...geometry.rollInTrajectorySamples,
+    ...geometry.rollInTrajectorySamples, ...(geometry.offsetTurnPath ?? []),
   ].filter(finitePoint);
 }
 
@@ -245,7 +248,15 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
   const referenceApart = finitePoint(referenceWorld) && len(sub(referenceWorld, geometry.points.realActionPoint)) > REFERENCE_AT_ACTION_POINT_NM;
   const referencePoint = options.advanced === true && referenceApart ? frame.project(referenceWorld) : null;
   const rollPath = geometry.rollInTrajectorySamples.filter(finitePoint).map((point) => frame.project(point));
-  const offsetArc = sampleArc(points.offsetCenter, points.realActionPoint, points.turnEnd, geometry.direction.offsetDirection).map(project);
+  // Onset turn (offset-be-v0.2 0.2.11): the flown samples; the guides join the hold arc's center to the hold
+  // start and end. Without samples, the instantaneous arc from the Action Point to the Turn End.
+  const turnPath = (geometry.offsetTurnPath ?? []).filter(finitePoint);
+  const offsetArc = turnPath.length >= 2
+    ? turnPath.map((point) => frame.project(point))
+    : sampleArc(points.offsetCenter, points.realActionPoint, points.turnEnd, geometry.direction.offsetDirection).map(project);
+  const radiusFrom = turnPath.length >= 2 ? [p.offsetHoldStart, p.offsetHoldEnd] : [p.realActionPoint, p.turnEnd];
+  const radiusGuides = p.offsetCenter && radiusFrom.every(Boolean);
+  const arcArrow = [Math.floor((offsetArc.length - 1) * 0.375), Math.floor((offsetArc.length - 1) * 0.52)];
   const approachRangeNm = result.resolved.approachRangeNm;
   const approachInvalid = approachRangeNm < 0;
 
@@ -256,7 +267,7 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
   // Target-referenced Action Range guide (a follower's Action Range is Target-referenced too).
   appendDirectedLine(group, p.realActionPoint, p.target, { color: C.guide, width: 1.4, dasharray: "7 6" });
   appendPolyline(group, offsetArc, { color: C.offset, width: 4.5 });
-  appendDirectedLine(group, offsetArc[18], offsetArc[25], { color: C.offset, width: 2.6, markerEndId: markerId("offset") });
+  if (arcArrow[1] > arcArrow[0]) appendDirectedLine(group, offsetArc[arcArrow[0]], offsetArc[arcArrow[1]], { color: C.offset, width: 2.6, markerEndId: markerId("offset") });
   appendDirectedLine(group, p.turnEnd, p.rollStart, {
     color: approachInvalid ? C.invalid : C.approach,
     width: approachInvalid ? 2.6 : 3.8,
@@ -271,9 +282,8 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
   appendDirectedLine(group, p.trackPoint, p.target, { color: C.attack, width: 4.2, markerEndId: markerId("attack"), fromGap: 6, toGap: 12 });
 
   // Turn construction guides are Advanced-only; Essential shows only the flown path.
-  if (advanced) {
-    appendDirectedLine(group, p.realActionPoint, p.offsetCenter, { color: C.offset, width: 1.2, dasharray: "4 4" });
-    appendDirectedLine(group, p.turnEnd, p.offsetCenter, { color: C.offset, width: 1.2, dasharray: "4 4" });
+  if (advanced && radiusGuides) {
+    radiusFrom.forEach((point) => appendDirectedLine(group, point, p.offsetCenter, { color: C.offset, width: 1.2, dasharray: "4 4" }));
   }
   if (advanced && p.rollCenter) {
     appendDirectedLine(group, p.rollStart, p.rollCenter, { color: C.roll, width: 1.2, dasharray: "4 4" });
@@ -339,10 +349,7 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
   reserve([p.turnEnd, p.rollStart]);
   reserve(rollPath);
   reserve([p.trackPoint, p.target], 9);
-  if (advanced) {
-    reserve([p.realActionPoint, p.offsetCenter], 4);
-    reserve([p.turnEnd, p.offsetCenter], 4);
-  }
+  if (advanced && radiusGuides) radiusFrom.forEach((point) => reserve([point, p.offsetCenter], 4));
   if (advanced && p.rollCenter) {
     reserve([p.rollStart, p.rollCenter], 4);
     reserve([p.trackPoint, p.rollCenter], 4);
@@ -444,8 +451,9 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
         key: "map", color: C.attackText, textAttributes: { "data-top-view-role": "map-label" },
       });
     }
-    if (advanced) {
-      appendLabel(frame.project(add(geometry.points.offsetCenter, mul(sub(geometry.points.realActionPoint, geometry.points.offsetCenter), 0.5))), "Offset R", {
+    if (advanced && radiusGuides) {
+      const radiusStart = turnPath.length >= 2 ? geometry.points.offsetHoldStart : geometry.points.realActionPoint;
+      appendLabel(frame.project(add(geometry.points.offsetCenter, mul(sub(radiusStart, geometry.points.offsetCenter), 0.5))), "Offset R", {
         key: "offset-radius", color: C.offset, detail: `${formatNm(result.resolved.offsetRadiusNm)} NM`,
         textAttributes: { "data-result-key": "offsetRadiusNm" },
       });

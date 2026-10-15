@@ -1,6 +1,6 @@
 import { casToTas, machToTas } from "../../../common/airspeed/airspeed-v0.1.mjs";
-import { calculateBombDeliveryV0_3Full as calculateBombDeliveryV0_3 } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
-import { bdpWindDirectionDeg, nonFiniteResultFields, offsetAngleScanMaxDeg, resolveOffsetTurn } from "./offset-be-v0.2.mjs";
+import { calculateBombDeliveryV0_4Full as calculateBombDeliveryV0_4 } from "../bomb-delivery-planner/bomb-delivery-planner-v0.4.mjs";
+import { bdpWindDirectionDeg, nonFiniteResultFields, offsetAngleScanMaxDeg, offsetOnsetTurn, resolveOffsetTurn } from "./offset-be-v0.2.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import {
   add,
@@ -12,6 +12,7 @@ import {
   mul,
   offsetAngleFromAngleOff,
   offsetHeadingFromOffset,
+  placeOffsetTurn,
   right,
   solveOffsetAngleForActionRange,
   sub,
@@ -26,7 +27,11 @@ export const OFFSET_FORMATION_GEOMETRY_V0_1 = Object.freeze({
   // 0.1.6 (2026-10-12, user: followers like #1): Approach Range as a range constraint (LOCK or driver,
   // after an Action Range LOCK), its LOCK check, `headingDriver` (which of Attack Heading / Angle-Off
   // a fixed Offset Angle or range solve holds, apart from the range driver), trackingTimeStepSec.
-  version: "0.1.6",
+  // 0.1.7 (2026-10-15, owner): delivery by BDP v0.4 (technique B Roll-in); the Roll-in Bank is solved, the
+  // onset rates pass through.
+  // 0.1.8 (2026-10-15, owner, BDP update R2.1): the Offset turn is the onset level turn of offset-be-v0.2 0.2.11.
+  // 0.1.9 (2026-10-15, owner R3): profile.fragmentMarginAppliesTo passes through to BDP v0.4.1.
+  version: "0.1.9",
   status: "work",
   purpose:
     "Off-axis Offset geometry for a Flight follower whose IP is displaced from the shared Target-through Run-In axis by its Formation position, while Target and Run-In heading stay shared with its element lead. Reuses offset-geometry-v0.2.mjs's pure heading/vector helpers without modifying offset-be-v0.2.mjs or offset-geometry-v0.2.mjs's own single-aircraft (on-axis) contract.",
@@ -34,7 +39,6 @@ export const OFFSET_FORMATION_GEOMETRY_V0_1 = Object.freeze({
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
-const rad = (deg) => (deg * Math.PI) / 180;
 const norm = (deg) => ((deg % 360) + 360) % 360;
 const near = (a, b, tolerance) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= tolerance;
 
@@ -76,8 +80,11 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg) {
     trackingTimeStepSec: profile.trackingTimeStepSec,
     releaseAltitudeMslFt: finite("releaseAltitudeMslFt", profile.releaseAltitudeMslFt),
     angleOffDeg,
-    rollInBankAngleDeg: finite("rollInBankAngleDeg", profile.rollInBankAngleDeg),
     rollInG: finite("rollInG", profile.rollInG),
+    // Developer option (BDP v0.4.1): the Fragment Height Margin on the radius too (default) or on the height only.
+    fragmentMarginAppliesTo: profile.fragmentMarginAppliesTo,
+    // BDP v0.4 Roll-in onset rates (absent: the BDP defaults).
+    ...Object.fromEntries(["rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"].filter((key) => profile[key] !== undefined && profile[key] !== null).map((key) => [key, finite(key, profile[key])])),
     ballisticModelId: profile.ballisticModelId,
   };
 }
@@ -136,9 +143,9 @@ export function buildOffAxisOffsetCandidate(input) {
   const temporaryActionPoint = lineIntersection(ipPoint, mul(runVector, -1), rollStart, offsetVector);
   if (!temporaryActionPoint) throw new Error("Run-In and Offset lines are parallel");
 
-  const turnRadiusCorrectionNm = offsetRadiusNm * Math.tan(rad(offsetAngleDeg) / 2);
-  const realActionPoint = sub(temporaryActionPoint, mul(runVector, turnRadiusCorrectionNm));
-  const turnEnd = add(temporaryActionPoint, mul(offsetVector, turnRadiusCorrectionNm));
+  const offsetTurn = input.offsetTurn ?? null;
+  const placed = placeOffsetTurn({ temporaryActionPoint, runVector, offsetVector, direction, offsetRadiusNm, offsetAngleDeg, offsetTurn });
+  const { turnRadiusCorrectionNm, turnExitDistanceNm, realActionPoint, turnEnd, offsetCenter, offsetHoldStart, offsetHoldEnd } = placed;
   // IP-referenced Action Range: distance from the follower's own IP to its Action Point along
   // the Run-In direction. Replaces the single-aircraft Target-referenced Action Range, which has
   // no meaning once the Run-In line no longer passes through Target.
@@ -147,8 +154,6 @@ export function buildOffAxisOffsetCandidate(input) {
   // follower's displayed/entered Action Range, same meaning as the lead's actionRangeNm.
   const actionRangeNm = Math.hypot(realActionPoint.x, realActionPoint.y);
   const approachRangeNm = dot(sub(rollStart, turnEnd), offsetVector);
-  const offsetNormal = direction.offsetDirection === "LEFT" ? left(runVector) : right(runVector);
-  const offsetCenter = add(realActionPoint, mul(offsetNormal, offsetRadiusNm));
 
   const rollInRadiusNm = profile.public.rollInRadiusNm;
   const rollNormal = direction.rollDirection === "RIGHT" ? right(offsetVector) : left(offsetVector);
@@ -169,14 +174,17 @@ export function buildOffAxisOffsetCandidate(input) {
     angleOffDeg,
     direction,
     turnRadiusCorrectionNm,
+    turnExitDistanceNm,
     actionRangeNm,
     actionRangeFromIpNm,
     approachRangeNm,
     rollInRangeNm: profile.public.rollInRangeNm,
     rollInRadiusNm,
     groundRangeNm: profile.public.groundRangeNm,
-    points: { target, ip: ipPoint, rollStart, trackPoint, temporaryActionPoint, realActionPoint, turnEnd, offsetCenter, rollCenter },
+    points: { target, ip: ipPoint, rollStart, trackPoint, temporaryActionPoint, realActionPoint, turnEnd, offsetCenter, offsetHoldStart, offsetHoldEnd, rollCenter },
     vectors: { runVector, offsetVector },
+    offsetTurn,
+    offsetTurnPath: placed.offsetTurnPath,
     rollInTrajectorySamples,
     profile,
   };
@@ -227,13 +235,14 @@ export function calculateOffAxisOffsetFull(input) {
     if (!(headings.angleOffDeg > 0 && headings.angleOffDeg < 179.5)) throw new Error("Angle-Off outside supported range");
     const derivedDirection = directionRule(runInHeadingDeg, headings.attackHeadingDeg);
     if (derivedDirection.ambiguous || derivedDirection.attackSide !== direction.attackSide) throw new Error("Heading solve would switch the fixed Offset/Roll-in side");
-    const profile = calculateBombDeliveryV0_3(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg));
+    const profile = calculateBombDeliveryV0_4(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg));
     return buildOffAxisOffsetCandidate({
       runInHeadingDeg,
       ipPoint,
       attackHeadingDeg: headings.attackHeadingDeg,
       offsetAngleDeg,
       offsetRadiusNm: turn.offsetRadiusNm,
+      offsetTurn: offsetOnsetTurn(input, turn, offsetAngleDeg),
       profile,
     });
   };
@@ -313,7 +322,7 @@ export function calculateOffAxisOffsetFull(input) {
   const ingressDistanceNm = candidate.actionRangeFromIpNm;
   const ingressSec = (ingressDistanceNm * FT_PER_NM) / speedFps;
   const signedIngressSec = ingressSec;
-  const turnSec = (turn.offsetRadiusNm * FT_PER_NM * rad(candidate.offsetAngleDeg)) / speedFps;
+  const turnSec = candidate.offsetTurn.timeSec;
   const approachRangeNm = candidate.approachRangeNm;
   const approachSec = (Math.max(0, approachRangeNm) * FT_PER_NM) / speedFps;
   const rollToReleaseSec = candidate.profile.public.rollInTimeSec + candidate.profile.public.trackingTimeSec;

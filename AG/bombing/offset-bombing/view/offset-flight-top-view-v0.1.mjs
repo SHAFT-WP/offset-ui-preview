@@ -4,7 +4,7 @@ import {
   finishOffsetTopViewFrame,
   offsetTopViewTitle,
   offsetTopViewWorldPoints,
-} from "./offset-top-view-v0.1.mjs?v=0.1.9";
+} from "./offset-top-view-v0.1.mjs?v=0.1.10";
 import { OFFSET_AIRCRAFT_PALETTES } from "./offset-view-style-v0.1.mjs?v=0.1.5";
 export { offsetAircraftColors, offsetFlightTopViewLegend } from "./offset-view-style-v0.1.mjs?v=0.1.5";
 
@@ -29,7 +29,8 @@ export const OFFSET_FLIGHT_TOP_VIEW_V0_1 = Object.freeze({
   // 0.1.6 (2026-10-06): Top View 0.1.7 token (same instance as the controller's).
   // 0.1.7 (2026-10-07): Top View 0.1.8 / view style 0.1.4 tokens (MAP circle, legend timing rows).
   // 0.1.8 (2026-10-12): Top View 0.1.9 / view style 0.1.5 tokens (Tracking Time 0.1 s).
-  version: "0.1.8",
+  // 0.1.9 (2026-10-15): Top View 0.1.10 token (onset Offset turn path).
+  version: "0.1.9",
   layers: Object.freeze(["offset-plot-lead-<n>", "offset-plot-companion-<k>", "offset-plot-<n>"]),
   combinedLayers: Object.freeze(["offset-plot-aircraft-<n>"]),
 });

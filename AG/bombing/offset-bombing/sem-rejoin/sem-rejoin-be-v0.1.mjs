@@ -38,7 +38,9 @@ const NM_PER_KT_SEC = 1 / 3600;
 
 export const SEM_REJOIN_V0_1 = Object.freeze({
   id: "offset-sem-rejoin-v0.1",
-  version: "0.2.0",
+  // 0.2.1 (2026-10-15): the Offset clock follows the onset Offset turn (offset-be-v0.2 0.2.11,
+  // geometry.offsetTurnPath passed through).
+  version: "0.2.1",
   model: Object.freeze({ id: "sr-energy-neutral-point-mass-v0.1", version: "0.1.0", integrationStepSec: 0.01 }),
   components: Object.freeze({
     sem: `${CLIMB_SEM_MODEL_V0_2.id} ${CLIMB_SEM_MODEL_V0_2.version}`,
@@ -230,6 +232,8 @@ function offsetResultView(result) {
       },
       direction: { offsetDirection: result?.geometry?.direction?.offsetDirection ?? null },
       rollInTrajectorySamples: (result?.geometry?.rollInTrajectorySamples ?? []).map(pickPoint).filter(Boolean),
+      // Onset Offset turn (offset-be-v0.2 0.2.11): the flown samples with their times, for the Offset clock.
+      offsetTurnPath: (result?.geometry?.offsetTurnPath ?? []).map((sample) => (pickPoint(sample) && isFiniteNumber(sample.tSec) ? { ...pickPoint(sample), tSec: sample.tSec } : null)).filter(Boolean),
     },
     profile: {
       public: {

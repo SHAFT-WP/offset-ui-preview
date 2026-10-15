@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · Standard layout</title>
-<link rel="stylesheet" href="./offset.css?v=044cbbaebf0f">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=044cbbaebf0f">
+<link rel="stylesheet" href="./offset.css?v=6007ab18b53b">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=6007ab18b53b">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -54,7 +54,7 @@
         <label class="field advanced-only bdp-extra"><span>Recovery G (G) <span class="adv-tag">ADV</span></span><input data-key="recoveryG" type="text" inputmode="decimal" value="5"><span class="unit">V2 canonical safety input</span></label>
         <label class="field advanced-only bdp-extra"><span>Speed Overshoot (kcas) <span class="adv-tag">ADV</span></span><input data-key="speedOvershootKcas" type="text" inputmode="decimal" value="50"><span class="unit">BDP safety input</span></label>
         <label class="field advanced-only bdp-extra"><span>G Onset Time (sec) <span class="adv-tag">ADV</span></span><input data-key="gOnsetTimeSec" type="text" inputmode="decimal" value="2"><span class="unit">V2 SEM/NLT input · onset starts at Release</span></label>
-        <label class="field advanced-only bdp-extra"><span>Roll-in Bank Angle (deg) <span class="adv-tag">ADV</span></span><input data-key="rollInBankAngleDeg" type="text" inputmode="decimal" value="113"><span class="unit">AUTO: &lt;10° level turn · ≥10° round(90 + Dive/2) · manual edit allowed</span></label>
+        <label class="field advanced-only bdp-extra"><span>Roll-in Bank Angle (deg) <span class="adv-tag">ADV</span></span><input data-key="rollInBankAngleDeg" type="text" inputmode="decimal" value="" readonly data-bdp-result title="Solved by BDP (Roll-in model B)"><span class="unit">Result · solved by BDP (Roll-in model B)</span></label>
         <label class="field advanced-only bdp-extra"><span>Roll-in G (G) <span class="adv-tag">ADV</span></span><input data-key="rollInG" type="text" inputmode="decimal" value="4"><span class="unit">BDP roll-in input</span></label>
       </div></div>
     </details>
@@ -214,7 +214,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=044cbbaebf0f"></script>
+<script type="module" src="./controller-v0.1.mjs?v=6007ab18b53b"></script>
 
 </body>
 </html>

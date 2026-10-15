@@ -5,7 +5,8 @@
 // (offset-formation-v0.1 computeDropOrderDelta), so every aircraft of a Flight shares one clock.
 // Legs and their durations are the BE's (result.timing, profile.public):
 //   ingress  IP → Action Point                  timing.ingressSec
-//   turn     Offset turn arc → Turn End         timing.offsetTurnSec
+//   turn     Offset turn → Turn End             timing.offsetTurnSec (the flown onset turn samples when the BE
+//            gives geometry.offsetTurnPath, offset-be-v0.2 0.2.11; else the instantaneous arc)
 //   approach Turn End → Roll-in                 timing.approachSec
 //   roll-in  Roll-in trajectory → Track Point   profile.public.rollInTimeSec (samples every 0.1 s)
 //   tracking Track Point → Release              profile.public.trackingTimeSec (a negative value flies 0 s)
@@ -14,7 +15,9 @@
 
 export const OFFSET_TIME_PATH_V0_1 = Object.freeze({
   id: "offset-time-path-v0.1",
-  version: "0.1.0",
+  // 0.1.1 (2026-10-15, BDP update R2.1): the turn leg follows geometry.offsetTurnPath (onset level turn) with
+  // its own sample times.
+  version: "0.1.1",
   phases: Object.freeze(["ingress", "turn", "approach", "roll-in", "tracking", "bomb"]),
 });
 
@@ -62,7 +65,13 @@ export function offsetTimeline(result) {
   legs.push(straightLeg("ingress", points.ip, points.realActionPoint, timing.ingressSec));
 
   const turnSec = nonNegative(timing.offsetTurnSec);
-  if (finitePoint(points.offsetCenter) && turnSec > 0) {
+  const turnPath = (geometry.offsetTurnPath ?? []).filter(finitePoint);
+  if (turnPath.length >= 2 && turnSec > 0) {
+    // Onset turn samples carry their own time; the last one is the Turn End at the BE's turn time.
+    const times = turnPath.map((sample, index) => (index === turnPath.length - 1 ? turnSec : Math.min(Math.max(0, sample.tSec), turnSec)));
+    for (let index = 1; index < times.length; index += 1) times[index] = Math.max(times[index], times[index - 1]);
+    legs.push(polylineLeg("turn", turnPath.map(({ x, y }) => ({ x, y })), times));
+  } else if (finitePoint(points.offsetCenter) && turnSec > 0) {
     const arc = arcPoints(points.offsetCenter, points.realActionPoint, points.turnEnd, geometry.direction?.offsetDirection);
     legs.push(polylineLeg("turn", arc, arc.map((_, index) => (turnSec * index) / (arc.length - 1))));
   } else {

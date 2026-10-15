@@ -272,3 +272,9 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .sr-facts { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:6px 0; font-size:13px; }
 .sr-facts dt { color:var(--muted); font-weight:800; }
 .sr-facts dd { margin:0; font-weight:800; }
+
+/* Full BDP on the index BDP tabs (owner 2026-10-15, R1): SEM / Recovery shows with the tab's own Full BDP. */
+.offset-wide .bdp-full-group,
+.offset-wide .bdp-full-group .bdp-extra { display:none; }
+.offset-wide .section.show-full-bdp .bdp-full-group { display:block; }
+.offset-wide .section.show-full-bdp .bdp-full-group .bdp-extra { display:grid; }

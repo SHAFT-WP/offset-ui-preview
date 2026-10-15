@@ -1,5 +1,6 @@
 import { casToTas, machToTas } from "../../../common/airspeed/airspeed-v0.1.mjs";
-import { calculateBombDeliveryV0_3Full as calculateBombDeliveryV0_3 } from "../bomb-delivery-planner/bomb-delivery-planner-v0.3.mjs";
+import { calculateBombDeliveryV0_4Full as calculateBombDeliveryV0_4, ROLL_IN_ONSET_DEFAULTS } from "../bomb-delivery-planner/bomb-delivery-planner-v0.4.mjs";
+import { ONSET_LEVEL_TURN_MODEL_V0_1, calculateOnsetLevelTurn } from "../../../common/maneuvers/turn-performance/onset-level-turn-v0.1.mjs";
 import {
   angleOffFromOffsetHeading,
   buildOffsetCandidate,
@@ -20,7 +21,16 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 // is never VALID; with Angle-Off held and Attack Heading free the Offset Angle scan is not cut by the
 // entered Attack Heading (F4) and uses the shared scanOffsetAngleRoot.
 // 0.2.9 (2026-10-12): profile.trackingTimeStepSec passes through to BDP (Offset enters 0.1 s).
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.9", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.3" });
+// 0.2.10 (2026-10-15, owner): delivery by BDP v0.4 (technique B Roll-in, linear rate onsets): the Roll-in
+// Bank is solved by BDP (not a profile input); the onset rates pass through.
+// 0.2.11 (2026-10-15, owner, BDP update R2.1): the Offset turn is an onset level turn (Common
+// onset-level-turn-v0.1) with the profile's three onset rates: Action Point and Turn End sit T_in / T_out from
+// the corner, Offset Turn time is the flown time.
+// 0.2.12 (2026-10-15, owner R3): BDP v0.4.1 SEM path / fragment outputs come with every profile;
+// profile.fragmentMarginAppliesTo (developer option) passes through.
+// 0.2.13 (2026-10-15, owner): small Offset Angles fly a smaller level turn, G and bank lowered together
+// (onset-level-turn 0.1.1).
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.13", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -94,6 +104,21 @@ export function resolveOffsetTurn(input, locks = {}, turnDriver = "offsetG") {
   return { ...state, offsetTasKt: tasKt, authoritative, errors, warnings };
 }
 
+// Offset turn with onsets (R2.1): the same three rates as the Roll-in (one onset set, plan Q3), BDP defaults
+// when the profile leaves them out.
+export function offsetOnsetTurn(input, turn, offsetAngleDeg) {
+  const profile = input.profile ?? {};
+  const rate = (key) => (profile[key] === undefined || profile[key] === null ? ROLL_IN_ONSET_DEFAULTS[key] : finite(key, profile[key]));
+  return calculateOnsetLevelTurn({
+    tasKt: turn.offsetTasKt,
+    loadFactorG: turn.offsetG,
+    headingChangeDeg: offsetAngleDeg,
+    rollInRollRateDegSec: rate("rollInRollRateDegSec"),
+    rollOutRollRateDegSec: rate("rollOutRollRateDegSec"),
+    gOnsetRateGSec: rate("gOnsetRateGSec"),
+  });
+}
+
 // BDP takes wind relative to the Attack Heading (0 = headwind). `profile.windDirectionTrueDeg`
 // (true FROM direction, Offset FE since 2026-10-01) is converted per candidate Attack Heading, so the
 // real wind stays fixed while the solve moves the Attack Heading; without it the legacy
@@ -127,8 +152,11 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg) {
     trackingTimeStepSec: profile.trackingTimeStepSec,
     releaseAltitudeMslFt: finite("releaseAltitudeMslFt", profile.releaseAltitudeMslFt),
     angleOffDeg,
-    rollInBankAngleDeg: finite("rollInBankAngleDeg", profile.rollInBankAngleDeg),
     rollInG: finite("rollInG", profile.rollInG),
+    // Developer option (BDP v0.4.1): the Fragment Height Margin on the radius too (default) or on the height only.
+    fragmentMarginAppliesTo: profile.fragmentMarginAppliesTo,
+    // BDP v0.4 Roll-in onset rates (absent: the BDP defaults).
+    ...Object.fromEntries(["rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"].filter((key) => profile[key] !== undefined && profile[key] !== null).map((key) => [key, finite(key, profile[key])])),
     ballisticModelId: profile.ballisticModelId,
   };
 }
@@ -282,12 +310,13 @@ export function calculateOffsetV0_2Full(input) {
     if (!(headings.angleOffDeg > 0 && headings.angleOffDeg < 179.5)) throw new Error("Angle-Off outside supported range");
     const derivedDirection = directionRule(runInHeadingDeg, headings.attackHeadingDeg);
     if (derivedDirection.ambiguous || derivedDirection.attackSide !== direction.attackSide) throw new Error("Heading solve would switch the fixed Offset/Roll-in side");
-    const profile = calculateBombDeliveryV0_3(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg));
+    const profile = calculateBombDeliveryV0_4(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg));
     return buildOffsetCandidate({
       runInHeadingDeg,
       attackHeadingDeg: headings.attackHeadingDeg,
       offsetAngleDeg,
       offsetRadiusNm: turn.offsetRadiusNm,
+      offsetTurn: offsetOnsetTurn(input, turn, offsetAngleDeg),
       ipRangeNm,
       vipToTargetBearingDeg: referenceInputs.vipToTargetBearingDeg,
       vipRangeNm: referenceInputs.vipRangeNm,
@@ -349,7 +378,7 @@ export function calculateOffsetV0_2Full(input) {
   // before IP). That geometry is INVALID, but its real timing is reported instead of a clamped 0.
   const ingressDistanceNm = ipRangeNm - candidate.actionRangeNm;
   const ingressSec = ingressDistanceNm * FT_PER_NM / speedFps;
-  const turnSec = turn.offsetRadiusNm * FT_PER_NM * rad(candidate.offsetAngleDeg) / speedFps;
+  const turnSec = candidate.offsetTurn.timeSec;
   const approachRangeNm = candidate.approachRangeNm;
   const approachSec = Math.max(0, approachRangeNm) * FT_PER_NM / speedFps;
   const rollToReleaseSec = candidate.profile.public.rollInTimeSec + candidate.profile.public.trackingTimeSec;

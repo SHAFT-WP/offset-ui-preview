@@ -3,7 +3,10 @@ export const OFFSET_GEOMETRY_V0_2 = Object.freeze({
   // 0.2.6 (2026-10-12): scanOffsetAngleRoot — the shared Offset Angle root scan (F4): a rejected
   // candidate ends the bracket, the end boundary is evaluated, a rejected bisection step moves on to
   // the next bracket instead of aborting.
-  version: "0.2.6",
+  // 0.2.7 (2026-10-15, owner, BDP update R2.1): placeOffsetTurn — with an onset level turn (Common
+  // onset-level-turn-v0.1) the Action Point and Turn End sit T_in / T_out from the corner and the flown turn
+  // path is returned; without one the instantaneous fillet R·tan(θ/2) is unchanged.
+  version: "0.2.7",
   purpose: "Pure Offset Bombing heading/action-point/reference geometry independent of DOM and rendering",
 });
 
@@ -100,6 +103,40 @@ export function transformLocal(local, startHeadingDeg, rollDirection) {
   return add(mul(forward, local.forward), mul(rightVector, turnSide));
 }
 
+// Offset turn placement on the Run-In / Offset Heading corner. With `offsetTurn` (an onset level turn for this
+// Offset Angle) the turn starts T_in before the corner and ends T_out after it; its center is the hold arc's
+// (null when the turn has no hold) and its flown path is returned with times. Without it the instantaneous
+// fillet R·tan(θ/2) applies on both sides.
+export function placeOffsetTurn({ temporaryActionPoint, runVector, offsetVector, direction, offsetRadiusNm, offsetAngleDeg, offsetTurn = null }) {
+  const offsetNormal = direction.offsetDirection === "LEFT" ? left(runVector) : right(runVector);
+  if (!offsetTurn) {
+    const turnRadiusCorrectionNm = offsetRadiusNm * Math.tan(rad(offsetAngleDeg) / 2);
+    const realActionPoint = sub(temporaryActionPoint, mul(runVector, turnRadiusCorrectionNm));
+    return {
+      turnRadiusCorrectionNm,
+      turnExitDistanceNm: turnRadiusCorrectionNm,
+      realActionPoint,
+      turnEnd: add(temporaryActionPoint, mul(offsetVector, turnRadiusCorrectionNm)),
+      offsetCenter: add(realActionPoint, mul(offsetNormal, offsetRadiusNm)),
+      offsetHoldStart: null,
+      offsetHoldEnd: null,
+      offsetTurnPath: null,
+    };
+  }
+  const realActionPoint = sub(temporaryActionPoint, mul(runVector, offsetTurn.entryDistanceNm));
+  const toWorld = (local) => add(realActionPoint, add(mul(runVector, local.forwardNm), mul(offsetNormal, local.turnSideNm)));
+  return {
+    turnRadiusCorrectionNm: offsetTurn.entryDistanceNm,
+    turnExitDistanceNm: offsetTurn.exitDistanceNm,
+    realActionPoint,
+    turnEnd: add(temporaryActionPoint, mul(offsetVector, offsetTurn.exitDistanceNm)),
+    offsetCenter: offsetTurn.hold ? toWorld(offsetTurn.hold.center) : null,
+    offsetHoldStart: offsetTurn.hold ? toWorld(offsetTurn.hold.start) : null,
+    offsetHoldEnd: offsetTurn.hold ? toWorld(offsetTurn.hold.end) : null,
+    offsetTurnPath: offsetTurn.samples.map((sample) => ({ ...toWorld(sample), tSec: sample.tSec, phase: sample.phase })),
+  };
+}
+
 export function buildOffsetCandidate(input) {
   const { attackHeadingDeg, offsetAngleDeg, offsetRadiusNm, profile } = input;
   const refs = resolveReferenceInputs(input);
@@ -137,13 +174,11 @@ export function buildOffsetCandidate(input) {
   if (!temporaryActionPoint) throw new Error("Run-In and Offset lines are parallel");
 
   const temporaryActionRangeNm = len(temporaryActionPoint);
-  const turnRadiusCorrectionNm = offsetRadiusNm * Math.tan(rad(offsetAngleDeg) / 2);
-  const realActionPoint = sub(temporaryActionPoint, mul(runVector, turnRadiusCorrectionNm));
-  const turnEnd = add(temporaryActionPoint, mul(offsetVector, turnRadiusCorrectionNm));
+  const offsetTurn = input.offsetTurn ?? null;
+  const placed = placeOffsetTurn({ temporaryActionPoint, runVector, offsetVector, direction, offsetRadiusNm, offsetAngleDeg, offsetTurn });
+  const { turnRadiusCorrectionNm, turnExitDistanceNm, realActionPoint, turnEnd, offsetCenter, offsetHoldStart, offsetHoldEnd } = placed;
   const actionRangeNm = len(realActionPoint);
   const approachRangeNm = dot(sub(rollStart, turnEnd), offsetVector);
-  const offsetNormal = direction.offsetDirection === "LEFT" ? left(runVector) : right(runVector);
-  const offsetCenter = add(realActionPoint, mul(offsetNormal, offsetRadiusNm));
 
   const rollInRadiusNm = profile.public.rollInRadiusNm;
   const rollNormal = direction.rollDirection === "RIGHT" ? right(offsetVector) : left(offsetVector);
@@ -168,14 +203,17 @@ export function buildOffsetCandidate(input) {
     direction,
     temporaryActionRangeNm,
     turnRadiusCorrectionNm,
+    turnExitDistanceNm,
     actionRangeNm,
     approachRangeNm,
     rollInRangeNm: profile.public.rollInRangeNm,
     rollInRadiusNm,
     groundRangeNm: profile.public.groundRangeNm,
     referenceInputs: refs,
-    points: { target, ip: ipPoint, vip: vipPoint, vrp: vrpPoint, rollStart, trackPoint, temporaryActionPoint, realActionPoint, turnEnd, offsetCenter, rollCenter },
+    points: { target, ip: ipPoint, vip: vipPoint, vrp: vrpPoint, rollStart, trackPoint, temporaryActionPoint, realActionPoint, turnEnd, offsetCenter, offsetHoldStart, offsetHoldEnd, rollCenter },
     vectors: { runVector, offsetVector },
+    offsetTurn,
+    offsetTurnPath: placed.offsetTurnPath,
     rollInTrajectorySamples,
     profile,
   };

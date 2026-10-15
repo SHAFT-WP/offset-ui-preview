@@ -21,6 +21,8 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
   // about 6 Roll-in integrations instead of 30 damped steps).
   // 0.2.13 (2026-10-12): opt-in trackingTimeStepSec 0.1 (Offset, user) — the entered Tracking Time is
   // rounded to 0.1 s instead of whole seconds; the default stays whole seconds.
+  // Behavior-preserving hook (2026-10-15): calculateBombDeliveryV0_2(input, { rollIn }) runs another Roll-in
+  // integrator (BDP v0.4, Roll-in v0.2). Without options the results are unchanged; version stays 0.2.13.
   version: "0.2.13",
   flightPathReference: "GROUND",
   legacyGeometrySource: "Bomb Profile REV.1.9 · R_20260830",
@@ -74,10 +76,11 @@ function normalizeInput(raw) {
     rollInBankAngleDeg: raw.rollInBankAngleDeg ?? raw.rollBank,
     rollInG: raw.rollInG ?? raw.rollG,
     ballisticModelId: raw.ballisticModelId ?? ACTIVE_BALLISTIC_MODEL_ID,
+    ...(raw.rollInOnset === undefined ? {} : { rollInOnset: raw.rollInOnset }),
   };
 }
 
-function validate(p) {
+function validate(p, { rollInBankSolved = false } = {}) {
   [
     "fragmentHeightMarginPercent",
     "targetElevationMslFt",
@@ -91,7 +94,7 @@ function validate(p) {
     "enteredTrackingTimeSec",
     "enteredReleaseAltitudeMslFt",
     "angleOffDeg",
-    "rollInBankAngleDeg",
+    ...(rollInBankSolved ? [] : ["rollInBankAngleDeg"]),
     "rollInG",
   ].forEach((name) => finite(name, p[name]));
   if (p.fragmentHeightMarginPercent < 0) throw new RangeError("fragmentHeightMarginPercent must be >= 0");
@@ -103,7 +106,7 @@ function validate(p) {
   if (!(p.initialSpeedValue > 0)) throw new RangeError("initialSpeedValue must be > 0");
   if (p.initialSpeedMode !== "CAS" && p.initialSpeedMode !== "MACH") throw new RangeError("initialSpeedMode must be CAS or MACH");
   if (!(p.angleOffDeg > 0 && p.angleOffDeg < 180)) throw new RangeError("angleOffDeg must be > 0 and < 180");
-  if (!(p.rollInBankAngleDeg > 0 && p.rollInBankAngleDeg < 180)) throw new RangeError("rollInBankAngleDeg must be > 0 and < 180");
+  if (!rollInBankSolved && !(p.rollInBankAngleDeg > 0 && p.rollInBankAngleDeg < 180)) throw new RangeError("rollInBankAngleDeg must be > 0 and < 180");
   if (!(p.rollInG > 1 && p.rollInG <= 9)) throw new RangeError("rollInG must be > 1 and <= 9");
   if (p.diveAngleDeg > 0 && p.solveMode === "height" && !p.allowNegativeTrackingTime && !(p.enteredInitialAltitudeMslFt > p.enteredReleaseAltitudeMslFt)) {
     throw new RangeError("Initial altitude must be above entered Release altitude in height mode");
@@ -144,9 +147,12 @@ function calculateMinAltOnlySafety({ weapon, targetElevationMslFt, releaseFpaDeg
   };
 }
 
-export function calculateBombDeliveryV0_2(rawInput) {
+// options.rollIn = { integrate, solvesBank } (BDP v0.4): the Roll-in integrator to use, and whether it solves
+// the Roll-in Bank itself (then rollInBankAngleDeg is not required). The result then also carries `rollIn`.
+export function calculateBombDeliveryV0_2(rawInput, options = {}) {
   const input = normalizeInput(rawInput);
-  validate(input);
+  const rollIn = options.rollIn ?? null;
+  validate(input, { rollInBankSolved: rollIn?.solvesBank === true });
   const weapon = getWeaponById(input.weaponId);
   const nltSupported = input.diveAngleDeg >= MIN_NLT_DIVE_ANGLE_DEG;
 
@@ -186,7 +192,7 @@ export function calculateBombDeliveryV0_2(rawInput) {
     releaseTasKt,
     modelId: input.ballisticModelId,
   });
-  const profile = calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitudeMslFt });
+  const profile = calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitudeMslFt, ...(rollIn ? { rollIn: rollIn.integrate } : {}) });
   const resolvedInitialSpeedKcas =
     input.initialSpeedMode === "CAS"
       ? input.initialSpeedValue
@@ -280,5 +286,6 @@ export function calculateBombDeliveryV0_2(rawInput) {
       legacyRnltReleaseMslFt: legacySafety?.legacyRnltReleaseMslFt ?? null,
       nltSupported,
     },
+    ...(rollIn ? { rollIn: profile.roll } : {}),
   };
 }

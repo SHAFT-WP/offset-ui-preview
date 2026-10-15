@@ -202,7 +202,8 @@ export function renderBdpTopView(svg, result, options = {}) {
     if (attackDeg !== null) remarkRows.push(["Attack Heading", headingText(attackDeg)]);
     remarkRows.push(
       ["Dive Angle", `${formatDeg(input.diveAngleDeg)}°`],
-      ["Roll-in Bank Angle", `${formatDeg(input.rollInBankAngleDeg)}°`],
+      // BDP v0.4 (Offset, 2026-10-15) solves the bank (public result); v0.3 takes it as an input.
+      ["Roll-in Bank Angle", `${formatDeg(pub.rollInBankAngleDeg ?? input.rollInBankAngleDeg)}°`],
       ["Roll-in G", `${formatG(input.rollInG)} G`],
       ["AOD", result.local?.aimOffDistanceFt != null && Number.isFinite(Number(result.local.aimOffDistanceFt)) ? `${formatFt(result.local.aimOffDistanceFt)} ft` : "-"],
     );
