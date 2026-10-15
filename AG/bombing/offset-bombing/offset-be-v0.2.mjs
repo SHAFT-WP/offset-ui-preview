@@ -107,6 +107,8 @@ export function resolveOffsetTurn(input, locks = {}, turnDriver = "offsetG") {
 // Offset turn with onsets (R2.1): the same three rates as the Roll-in (one onset set, plan Q3), BDP defaults
 // when the profile leaves them out.
 export function offsetOnsetTurn(input, turn, offsetAngleDeg) {
+  // An Offset Angle outside (0°, 179.5°) is the candidate builder's error to report.
+  if (!(offsetAngleDeg > 0 && offsetAngleDeg < 179.5)) return null;
   const profile = input.profile ?? {};
   const rate = (key) => (profile[key] === undefined || profile[key] === null ? ROLL_IN_ONSET_DEFAULTS[key] : finite(key, profile[key]));
   return calculateOnsetLevelTurn({

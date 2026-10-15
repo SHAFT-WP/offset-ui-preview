@@ -1,5 +1,5 @@
 import { bdpZLowerColumns, buildBdpZDiagramData, profileName } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs?v=0.1.7";
-import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.12";
+import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.13";
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { formatDeg, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { bearingDeg, formatHeadingDeg, offsetViewTitle } from "./offset-view-style-v0.1.mjs?v=0.1.5";
@@ -21,7 +21,10 @@ export const OFFSET_Z_DIAGRAM_V0_1 = Object.freeze({
   // 0.1.6 (2026-10-06, user): Roll-in Altitude (top-left value) one character left (x 42 → 34).
   // 0.1.7 (2026-10-07): view style 0.1.4 token only (no drawing change).
   // 0.1.8 (2026-10-12, user): Tracking Time in 0.1 s (BDP Z 0.1.7 trackingTimeTenths).
-  version: "0.1.8",
+  // 0.1.9 (2026-10-15, owner R7 / Q14): Roll-in Lead Angle moves under Roll-in Angle Off (Common Z 0.1.13
+  // rollInLeadInGroup; no longer in the lower block). Essential lower block: Action Range, Offset Angle,
+  // Attack Heading | Roll-in Bank Angle (BDP v0.4 result), Tracking Time, ΔTime.
+  version: "0.1.9",
   subject: "Offset",
   view: "Z-Diagram",
 });
@@ -44,7 +47,8 @@ function zRoot(svg) {
 // caller passes (computeDropOrderDelta: #(n-1) Impact − #n Release; #1 shows #2's, so #1 and #2
 // match) with `impactIpToImpactSec`, the IP → Impact time of its Impact aircraft (#n-1). Without a
 // ΔTime (single aircraft) "#k IP to Impact Time" is this aircraft's own.
-export const OFFSET_Z_ESSENTIAL_ROWS = Object.freeze(["Action Range", "Offset Angle", "Roll-in Lead Angle", "Attack Heading"]);
+export const OFFSET_Z_ESSENTIAL_ROWS = Object.freeze(["Action Range", "Offset Angle", "Attack Heading"]);
+export const OFFSET_Z_ESSENTIAL_RIGHT_ROWS = Object.freeze(["Roll-in Bank Angle", "Tracking Time"]);
 export function offsetZLowerColumns(result, { deltaTime = null, advanced = false, aircraftNumber = 1 } = {}) {
   const g = result.geometry;
   const t = result.timing;
@@ -54,14 +58,17 @@ export function offsetZLowerColumns(result, { deltaTime = null, advanced = false
   const deltaRow = hasDelta
     ? [{ label: `ΔTime #${deltaTime.impactNumber} Impact − #${deltaTime.releaseNumber} Release`, value: `${formatSec(deltaTime.seconds)} s` }]
     : [];
+  // Roll-in Lead Angle is drawn under Roll-in Angle Off (0.1.9), so it leaves the lower block.
   const left = [
     { label: "Action Range", value: `${formatNm(g.actionRangeNm)} NM` },
     { label: "Offset Angle", value: `${formatDeg(g.offsetAngleDeg)}°` },
     { label: "Approaching Range", value: `${formatNm(result.resolved.approachRangeNm)} NM` },
-    ...bdp.left,
+    ...bdp.left.filter((row) => row.label !== "Roll-in Lead Angle"),
   ];
+  const bankRow = Number.isFinite(p.rollInBankAngleDeg) ? [{ label: "Roll-in Bank Angle", value: `${formatDeg(p.rollInBankAngleDeg)}°` }] : [];
+  const trackingRow = bdp.right.filter((row) => row.label === "Tracking Time");
   if (!advanced) {
-    return { left: OFFSET_Z_ESSENTIAL_ROWS.map((label) => left.find((row) => row.label === label)).filter(Boolean), right: deltaRow };
+    return { left: OFFSET_Z_ESSENTIAL_ROWS.map((label) => left.find((row) => row.label === label)).filter(Boolean), right: [...bankRow, ...trackingRow, ...deltaRow] };
   }
   const ipImpact = hasDelta && Number.isFinite(deltaTime.impactIpToImpactSec)
     ? { number: deltaTime.impactNumber, seconds: deltaTime.impactIpToImpactSec }
@@ -69,6 +76,7 @@ export function offsetZLowerColumns(result, { deltaTime = null, advanced = false
   const right = [
     { label: "IP-Target Heading", value: formatHeadingDeg(bearingDeg(g.points.ip, g.points.target)) },
     { label: "Approaching Heading", value: formatHeadingDeg(g.offsetHeadingDeg) },
+    ...bankRow,
     ...bdp.right,
     { label: `#${ipImpact.number} IP to Impact Time`, value: `${formatSec(ipImpact.seconds)} s` },
     ...deltaRow,
@@ -96,6 +104,7 @@ export function renderOffsetZDiagram(svg, result, options = {}) {
     uniformBodyText: true,
     compactAngleLabels: true,
     rollInAltitudeX: 34,
+    rollInLeadInGroup: true,
     profileTitle: title,
     lowerColumns: offsetZLowerColumns(result, { deltaTime: options.deltaTime, advanced: options.advanced === true, aircraftNumber }),
   });

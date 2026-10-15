@@ -1,5 +1,5 @@
-import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./bdp-profile-view-v0.2.mjs?v=0.2.3";
-import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.8";
+import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./bdp-profile-view-v0.2.mjs?v=0.2.4";
+import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.9";
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 
@@ -34,7 +34,9 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.6.0 (2026-10-07, user, Offset): bdpDiagramsMarkup({ topAdvanced: true }) puts an
   // "Advanced: Off/On" button beside the Top View title; it redraws the Top View with
   // topView.advanced. Legend boxes follow a view's `legendColumns`.
-  version: "0.6.0",
+  // 0.7.0 (2026-10-15, owner R5 / R6, Offset): `profileView` options pass to the Profile (SEM, fragment
+  // cylinder and the aircraft at `timeAfterReleaseSec`); Top View 0.2.9 (upHeadingDeg), Profile 0.2.4.
+  version: "0.7.0",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id]),
 });
 
@@ -84,7 +86,7 @@ function showLegend(container, kind, items, columns) {
   if (items?.length) panelLegends.set(box, installSvgLegend(box, items, [], { columns: columns ?? 0 }));
 }
 
-export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraftNumber, topView = {}, layout } = {}) {
+export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraftNumber, topView = {}, profileView = {}, layout } = {}) {
   if (!container) return false;
   const withLegend = (kind, rendered) => { showLegend(container, kind, rendered?.legend, rendered?.legendColumns); return rendered; };
   // Advanced button (bdpDiagramsMarkup topAdvanced): its state lives on the button.
@@ -93,7 +95,7 @@ export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraf
   const top = panelView(container, "top", (svg, textScale) =>
     withLegend("top", renderBdpTopView(svg, bdpResult, { ...topView, ...(advancedButton ? { advanced: advancedOn() } : {}), layout, textScale, movableLabels: true, scope: `${scope}-top`, aircraftNumber })));
   const profile = panelView(container, "profile", (svg, textScale) =>
-    withLegend("profile", renderBdpProfileView(svg, bdpResult, { layout, textScale, movableLabels: true, scope: `${scope}-profile`, aircraftNumber })));
+    withLegend("profile", renderBdpProfileView(svg, bdpResult, { ...profileView, layout, textScale, movableLabels: true, scope: `${scope}-profile`, aircraftNumber })));
   if (!top || !profile) return false;
   if (advancedButton && !advancedButton.dataset.bdpAdvancedReady) {
     advancedButton.dataset.bdpAdvancedReady = "true";

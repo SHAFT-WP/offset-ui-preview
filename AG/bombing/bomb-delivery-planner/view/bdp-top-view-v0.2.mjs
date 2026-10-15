@@ -57,7 +57,10 @@ export const BDP_TOP_VIEW_V0_2 = Object.freeze({
   // label carries its value; the legend shows Roll-in Angle Off instead of Roll-in Bearing in two
   // columns (`legendColumns: 2`); Advanced brings back Roll-in Bearing (legend) and the Roll-in Radius
   // label. Roll-in Lat. D stays hidden for a host that passes lateralDistance: false, Advanced or not.
-  version: "0.2.8",
+  // 0.2.9 (2026-10-15, owner R6, Offset): NORTH_UP takes `upHeadingDeg` (default 0): the map turns so that
+  // true heading points up (Offset: the Run-In heading, "Run-in up"); the north arrow turns with it and
+  // every heading shown stays true.
+  version: "0.2.9",
   subject: "Roll-in",
   view: "Top View",
   orientation: "INITIAL_BOTTOM_TARGET_UP",
@@ -164,7 +167,8 @@ export function renderBdpTopView(svg, result, options = {}) {
   }
   const bearing = Math.atan2(target.y - oa1.y, target.x - oa1.x);
   const rotationRad = Math.PI / 2 - bearing;
-  const rotate = northUp ? northUpAbout(oa1, Number(options.inHeadingDeg), options.rollDirection) : rotateAbout(oa1, rotationRad);
+  const upDeg = northUp && Number.isFinite(Number(options.upHeadingDeg)) ? Number(options.upHeadingDeg) : 0;
+  const rotate = northUp ? northUpAbout(oa1, Number(options.inHeadingDeg) - upDeg, options.rollDirection) : rotateAbout(oa1, rotationRad);
   const w = {
     oa1,
     track: rotate(track),
@@ -186,7 +190,7 @@ export function renderBdpTopView(svg, result, options = {}) {
   const patternHost = options.context === "PATTERN";
   const offInitialDeg = (Math.atan2(target.y - oa1.y, target.x - oa1.x) * 180) / Math.PI;
   const rollInBearingText = northUp
-    ? headingText((Math.atan2(w.target.x - w.oa1.x, w.target.y - w.oa1.y) * 180) / Math.PI)
+    ? headingText((Math.atan2(w.target.x - w.oa1.x, w.target.y - w.oa1.y) * 180) / Math.PI + upDeg)
     : `${formatDeg(Math.abs(offInitialDeg))}° ${offInitialDeg >= 0 ? "L" : "R"} of Initial heading`;
   const remarkRows = [
     ["Roll-in Range", `${formatNm(pub.rollInRangeNm)} NM`],
@@ -198,7 +202,7 @@ export function renderBdpTopView(svg, result, options = {}) {
   if (options.remarkDetail === true) {
     const attackDeg = Number.isFinite(Number(options.attackHeadingDeg))
       ? Number(options.attackHeadingDeg)
-      : northUp ? (Math.atan2(w.target.x - w.track.x, w.target.y - w.track.y) * 180) / Math.PI : null;
+      : northUp ? (Math.atan2(w.target.x - w.track.x, w.target.y - w.track.y) * 180) / Math.PI + upDeg : null;
     if (attackDeg !== null) remarkRows.push(["Attack Heading", headingText(attackDeg)]);
     remarkRows.push(
       ["Dive Angle", `${formatDeg(input.diveAngleDeg)}°`],
@@ -366,7 +370,8 @@ export function renderBdpTopView(svg, result, options = {}) {
     const tipY = top + size + 8;
     const tailY = tipY + size * 2;
     const head = size * 0.45;
-    const northArrow = svgNode("g", { "data-top-view-role": "north-arrow" });
+    // Turned with the map (upHeadingDeg): it points to true north.
+    const northArrow = svgNode("g", { "data-top-view-role": "north-arrow", ...(upDeg ? { transform: `rotate(${-upDeg} ${left} ${(top + tailY) / 2})` } : {}) });
     northArrow.append(svgNode("text", { x: left, y: top + size * 0.85, "text-anchor": "middle", "font-size": size, "font-weight": 900, fill: "#243240" }, "N"));
     northArrow.append(svgNode("line", { x1: left, y1: tailY, x2: left, y2: tipY + head, stroke: "#243240", "stroke-width": 3, "stroke-linecap": "round" }));
     northArrow.append(svgNode("polygon", { points: `${left},${tipY} ${left - head * 0.7},${tipY + head * 1.2} ${left + head * 0.7},${tipY + head * 1.2}`, fill: "#243240" }));
@@ -510,6 +515,7 @@ export function renderBdpTopView(svg, result, options = {}) {
     remark: Object.fromEntries(remarkRows),
     rotationDeg: northUp ? null : (rotationRad * 180) / Math.PI,
     inHeadingDeg: northUp ? Number(options.inHeadingDeg) : null,
+    upHeadingDeg: northUp ? upDeg : null,
     canvas: { width: WIDTH, height: HEIGHT },
     groundRangeCircleCenter: "TARGET",
     rollInRangeNm: pub.rollInRangeNm,

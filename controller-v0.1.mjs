@@ -24,9 +24,9 @@ import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.10";
 import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.9";
 import { offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.0";
-import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.8";
+import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.6.0";
+import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.7.0";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -74,6 +74,10 @@ const DEFAULT_INPUT_VALUES = Object.freeze({
   speedOvershootKcas: "50",
   fragmentHeightMarginPercent: "20",
   gOnsetTimeSec: "2",
+  // BDP v0.4 Roll-in / Offset Turn onset rates (owner 2026-10-15; Full BDP).
+  rollInRollRateDegSec: "60",
+  rollOutRollRateDegSec: "55",
+  gOnsetRateGSec: "2",
   windDirectionDeg: "0",
   windSpeedKt: "0",
   rollInBankAngleDeg: "",
@@ -108,6 +112,8 @@ let vrpBearingExplicit = false;
 let vrpRangeExplicit = false;
 // LINK (2026-10-01): Initial Altitude and Roll-in Altitude hold the same value while on.
 let rollInAltitudeLinked = true;
+// Developer option (owner Q8, 2026-10-15): Fragment Height Margin on the radius too, or on the height only.
+let fragmentMarginAppliesTo = "HEIGHT_AND_RADIUS";
 // BDP solve mode (last edited Roll-in / Initial or Tracking Time) and the last entered Tracking Time.
 let bdpSolveMode = "height";
 const DEFAULT_TRACKING_TIME_SEC = 18;
@@ -295,6 +301,7 @@ function collectLeadRecord() {
     state: {
       driver, turnDriver, referenceMode, ipLinkedToVrp: ipLinked, ipLockHeadingDeg, rollInAltitudeLinked,
       solveMode: bdpSolveMode, enteredTrackingTimeSec, vipBearingExplicit, vipRangeExplicit, vrpBearingExplicit, vrpRangeExplicit,
+      fragmentMarginAppliesTo,
     },
   };
 }
@@ -360,6 +367,8 @@ function applyLeadState(lead, sentLead, activeKey, commit) {
   vipRangeExplicit = s.vipRangeExplicit;
   vrpBearingExplicit = s.vrpBearingExplicit;
   vrpRangeExplicit = s.vrpRangeExplicit;
+  if (s.fragmentMarginAppliesTo) fragmentMarginAppliesTo = s.fragmentMarginAppliesTo;
+  syncFragmentMarginButton();
   Object.keys(locks).forEach((key) => { locks[key] = lead.locks?.[key] === true; });
   syncLockButtons();
   syncLockSolvedFields(lead.lockSolvedKeys);
@@ -661,13 +670,17 @@ function exportOffsetTopView(svg, title) {
   return saveSvgAsPng(svg, `${title.replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" });
 }
 
-// Time dial: range 0 → the latest Impact of the drawn aircraft (whole seconds after IP). The output
-// button shows T and the phase; pressing it turns the overlay off.
+// Time dial: range 0 → the latest Impact of the drawn aircraft (whole seconds after IP), plus its fragment
+// time when it has a SEM (2026-10-15, owner R5: the Profile shows the fragment cylinder over that time; the
+// Top View holds its Impact state). The output button shows T and the phase; pressing it turns it off.
 const TIME_PHASE_LABELS = Object.freeze({ ingress: "Ingress", turn: "Offset Turn", approach: "Approach", "roll-in": "Roll-in", tracking: "Tracking", released: "Released" });
 function timeDialMaxSec(results) {
   let max = 0;
   results.filter(Boolean).forEach((result) => {
-    try { max = Math.max(max, offsetTimeline(result).impactSec); } catch (_) { /* unsolved: no time path */ }
+    try {
+      const fragmentSec = result.profile?.public?.fragmentCheck?.applicable ? result.profile.public.fragment.timeSec : 0;
+      max = Math.max(max, offsetTimeline(result).impactSec + fragmentSec);
+    } catch (_) { /* unsolved: no time path */ }
   });
   return Math.max(1, Math.ceil(max));
 }
@@ -685,13 +698,47 @@ function syncTimeDial(dial, svg, results, timeSec) {
   output.setAttribute("aria-pressed", String(on));
 }
 function timeDialMarkup(number) {
-  return `<div class="diagram-action-row time-dial" data-time-dial="${number}" role="group" aria-label="Top View #${number} time after IP"><span class="diagram-control-label">Time</span><input class="time-dial-range" type="range" min="0" max="1" step="1" value="0" data-time-range aria-label="Seconds after IP"><button class="capture-button diagram-scale-output time-dial-output" type="button" data-time-output aria-pressed="false" title="Seconds after IP; press to turn off">Off</button></div>`;
+  return `<div class="diagram-action-row time-dial" data-time-dial="${number}" role="group" aria-label="Top View #${number} time after IP"><span class="diagram-control-label">Time</span><button class="capture-button time-dial-play" type="button" data-time-play aria-pressed="false" title="Play the time dial (${TIME_PLAY_SPEED}× real time)">Play</button><input class="time-dial-range" type="range" min="0" max="1" step="1" value="0" data-time-range aria-label="Seconds after IP"><button class="capture-button diagram-scale-output time-dial-output" type="button" data-time-output aria-pressed="false" title="Seconds after IP; press to turn off">Off</button></div>`;
 }
+// Play (owner 2026-10-15, plan Q13): the dial runs from its T (0 when off) to the last Impact at
+// TIME_PLAY_SPEED × real time, redrawn at most every TIME_PLAY_FRAME_MS; pressing Play again, moving the
+// dial or turning it off stops it.
+const TIME_PLAY_SPEED = 4;
+const TIME_PLAY_FRAME_MS = 100;
 function installTimeDial(dial, onChange) {
   if (!dial || dial.dataset.installed) return;
   dial.dataset.installed = "true";
-  dial.querySelector("[data-time-range]").addEventListener("input", (event) => onChange(Number(event.currentTarget.value)));
-  dial.querySelector("[data-time-output]").addEventListener("click", () => onChange(null));
+  const range = dial.querySelector("[data-time-range]");
+  const play = dial.querySelector("[data-time-play]");
+  let playing = null;
+  const stop = () => {
+    if (playing) cancelAnimationFrame(playing.frame);
+    playing = null;
+    play?.setAttribute("aria-pressed", "false");
+    if (play) play.textContent = "Play";
+  };
+  const step = (now) => {
+    if (!playing) return;
+    const maxSec = Number(range.max) || 0;
+    if (now - playing.lastDraw >= TIME_PLAY_FRAME_MS) {
+      const timeSec = Math.min(maxSec, playing.startSec + ((now - playing.startedAt) / 1000) * TIME_PLAY_SPEED);
+      playing.lastDraw = now;
+      onChange(timeSec);
+      if (timeSec >= maxSec) { stop(); return; }
+    }
+    playing.frame = requestAnimationFrame(step);
+  };
+  play?.addEventListener("click", () => {
+    if (playing) { stop(); return; }
+    const current = dial.classList.contains("active") ? Number(range.value) : 0;
+    const startSec = current >= (Number(range.max) || 0) ? 0 : current;
+    playing = { startSec, startedAt: performance.now(), lastDraw: -Infinity, frame: 0 };
+    play.setAttribute("aria-pressed", "true");
+    play.textContent = "Pause";
+    playing.frame = requestAnimationFrame(step);
+  });
+  range.addEventListener("input", (event) => { stop(); onChange(Number(event.currentTarget.value)); });
+  dial.querySelector("[data-time-output]").addEventListener("click", () => { stop(); onChange(null); });
 }
 
 // Identity of a solved result for the viewport key (a new solve is a new object).
@@ -909,6 +956,7 @@ function renderLead(entry) {
     renderStatus(result);
     renderOffsetResult(result);
     renderProfileResult(result);
+    renderSemFragmentReadouts($("#lead-sem-readouts"), result);
     resultPanel.refresh();
     refreshBdpDiagrams(1);
     renderDed(entry.ded);
@@ -929,6 +977,7 @@ function renderLead(entry) {
   // diagrams are cleared; the BE fails every follower that depends on #1.
   lastResult = null;
   lastResultFull = null;
+  renderSemFragmentReadouts($("#lead-sem-readouts"), null);
   showCalculationFailed($("#offset-z-svg"), "Offset #1 Z-Diagram", errorMessage);
   $("#capture-z").disabled = true;
   clearDed();
@@ -1194,6 +1243,7 @@ function capturePersistedState() {
     ipLinked,
     ipLockHeadingDeg,
     rollInAltitudeLinked,
+    fragmentMarginAppliesTo,
     solveMode: bdpSolveMode,
     enteredTrackingTimeSec,
     vipBearingExplicit,
@@ -1289,6 +1339,8 @@ function applyPersistedState(saved) {
   ipLinked = saved.version >= 3 && saved.ipLinked !== false;
   ipLockHeadingDeg = Number.isFinite(saved.ipLockHeadingDeg) ? saved.ipLockHeadingDeg : null;
   rollInAltitudeLinked = saved.rollInAltitudeLinked !== false;
+  fragmentMarginAppliesTo = saved.fragmentMarginAppliesTo === "HEIGHT" ? "HEIGHT" : "HEIGHT_AND_RADIUS";
+  syncFragmentMarginButton();
   // Before 2026-10-01 the solve mode was the Solve Mode select, saved with the inputs.
   const savedMode = saved.solveMode ?? oldInputs.solveMode;
   // "release" = Roll-in Altitude LOCK + Tracking Time entry (Release Altitude solved; 2026-10-12).
@@ -1372,6 +1424,12 @@ function bdpDiagramsContainer(number) {
   return section ? { section, container: section.querySelector("[data-bdp-diagrams]") } : null;
 }
 
+// Seconds after this aircraft's Release at the Top View time dial's T (null while the dial is off).
+function dialTimeAfterRelease(result) {
+  if (!Number.isFinite(topViewTimeSec)) return null;
+  try { return topViewTimeSec - offsetTimeline(result).releaseSec; } catch (_) { return null; }
+}
+
 function refreshBdpDiagrams(number) {
   const target = bdpDiagramsContainer(number);
   if (!target?.container || !target.section.classList.contains("show-full-views")) return;
@@ -1390,10 +1448,14 @@ function refreshBdpDiagrams(number) {
       layout: "OFFSET",
       // 2026-10-06 (user): spelled-out BDP title; no Roll-in Lat. D (the dashed reference line stays;
       // its Angle-Off-90 rule and Base Distance were cancelled the same day).
-      topView: { orientation: "NORTH_UP", inHeadingDeg: result.geometry.offsetHeadingDeg, rollDirection: result.geometry.direction.rollDirection, context: "PATTERN", rollInRangeStyle: "radial",
+      // 2026-10-15 (owner R6): Run-in up — the map turns so the Run-In heading points up (true headings kept).
+      topView: { orientation: "NORTH_UP", upHeadingDeg: result.resolved.runInHeadingDeg, inHeadingDeg: result.geometry.offsetHeadingDeg, rollDirection: result.geometry.direction.rollDirection, context: "PATTERN", rollInRangeStyle: "radial",
         title: offsetBdpTopViewTitle(number), lateralDistance: false,
         // 2026-10-06 (user): Remark adds Attack Heading, Dive Angle, Roll-in Bank Angle, Roll-in G, AOD; MAP on one line.
         remarkDetail: true, attackHeadingDeg: result.geometry.attackHeadingDeg, oneLineLabels: true },
+      // 2026-10-15 (owner R5): the Profile shows the SEM, the fragment cylinder and the aircraft at the Top View
+      // time dial's T (seconds after IP → seconds after this aircraft's Release).
+      profileView: { timeAfterReleaseSec: dialTimeAfterRelease(result) },
     });
   } catch {
     clearBdpDiagrams(target.container);
@@ -1571,7 +1633,7 @@ function resetFollowerTab(number, tab, section = null) {
 // Follower BDP inputs owned per aircraft. An empty value follows the element lead's current value
 // (#2 / #3: #1, #4: #3; Roll-in Bank: automatic from this aircraft's own Dive Angle), shown as the
 // placeholder; the BE resolves it (AG SPEC "Flight entrypoint").
-const FOLLOWER_BDP_EXTRA_KEYS = ["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG"];
+const FOLLOWER_BDP_EXTRA_KEYS = ["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"];
 // Follower LOCKs and element-lead options (BE options; same LOCK fields as #1 since 2026-10-12).
 const FOLLOWER_LOCK_OPTIONS = ["offsetAngleLocked", "sameAngleAsLead", "actionRangeLocked", "sameTimeAsLead", "rollInAltitudeLocked", "attackHeadingLocked", "angleOffLocked", "approachRangeLocked", "diveAngleLocked"];
 // Per-tab keys reset by that tab's Default (follower aircraft).
@@ -1669,6 +1731,34 @@ function followerResultField(key, label, { always = false } = {}) {
   return `<label class="${className}"><span>${label}${tag}</span><input data-flight-field="${key}" type="text" inputmode="decimal" readonly data-bdp-result title="Solved by BDP (Roll-in model B)"><span class="unit">Result · solved by BDP (Roll-in model B)</span></label>`;
 }
 
+// BDP v0.4 onset rates (owner 2026-10-15; Full BDP). Blank on a follower = follows its element lead.
+const ONSET_FIELDS = [["rollInRollRateDegSec", "Roll-in Rate (deg/s)"], ["rollOutRollRateDegSec", "Roll-out Rate (deg/s)"], ["gOnsetRateGSec", "G Onset Rate (G/s)"]];
+
+// SEM / fragment readouts under Full BDP (owner 2026-10-15, R3; BDP SPEC §6.6): display and check only.
+const SEM_READOUTS = [
+  ["semMin", "SEM Minimum Altitude", "Lowest point of the SEM pull · dashed line on the Profile"],
+  ["fragment", "Fragment Cylinder", "Max at impact + 1 s · gone at impact + fragment time"],
+  ["fragmentCheck", "Fragment Check", "Closest approach along the SEM"],
+  ["heightRoom", "Height Room in Radius", "How much lower the same SEM path could go"],
+];
+function semFragmentReadoutsMarkup() {
+  const hidden = INDEX_LAYOUT ? "field bdp-extra" : "field advanced-only bdp-extra";
+  return `<h3 class="input-group-title bdp-extra-title">SEM / Fragment (result)</h3><div class="input-grid">${SEM_READOUTS.map(([key, label, note]) => `<label class="${hidden}"><span>${label}</span><output data-sem-readout="${key}">-</output><span class="unit">${note}</span></label>`).join("")}</div>`;
+}
+function renderSemFragmentReadouts(box, result) {
+  if (!box) return;
+  if (!box.children.length) box.innerHTML = semFragmentReadoutsMarkup();
+  const set = (key, text) => { const node = box.querySelector(`[data-sem-readout="${key}"]`); if (node) node.textContent = text; };
+  const p = result?.profile?.public;
+  if (!p) { SEM_READOUTS.forEach(([key]) => set(key, "-")); return; }
+  const f = p.fragment;
+  const c = p.fragmentCheck;
+  set("semMin", p.semMinimumAltitudeMslFt === null || p.semMinimumAltitudeMslFt === undefined ? "- (Dive < 10°: MINALT only)" : `${formatFt(p.semMinimumAltitudeMslFt)} ft MSL · ${formatFt(p.semMinimumAltitudeAglFt)} ft AGL`);
+  set("fragment", f ? `H ${formatFt(f.heightAglFt)} ft AGL · R ${formatNm(f.radiusNm)} NM · ${formatSecTenths(f.timeSec)} s${f.marginAppliesTo === "HEIGHT" ? " · margin on height only" : ""}` : "-");
+  set("fragmentCheck", !c?.applicable ? "- (no SEM below 10°)" : `${c.clear ? "CLEAR" : "INSIDE"} · ${c.clear ? "" : "−"}${formatFt(Math.abs(c.minClearanceFt))} ft ${c.clearanceAxis === "RADIUS" ? "on the radius" : "on the height"} · impact +${formatSecTenths(c.afterImpactSec)} s`);
+  set("heightRoom", !c?.applicable ? "-" : c.heightRoomFt === null ? "Not limited · never inside the radius" : `${formatFt(c.heightRoomFt)} ft`);
+}
+
 function followerExtraField(key, label, { always = false, fullBdp = false } = {}) {
   const className = always ? `field${fullBdp ? " bdp-extra" : ""}` : "field advanced-only bdp-extra";
   const tag = always ? "" : ` <span class="adv-tag">ADV</span>`;
@@ -1728,10 +1818,10 @@ function followerCalculatingMarkup(number) {
   // BDP tab holds the settings (Target / Wind shared with #1, Bomb, Roll-in condition, SEM). Standard
   // keeps the earlier grouping. Same draft keys either way.
   const inputSections = INDEX_LAYOUT ? [
-    flightSection(number, "BDP", `<div class="input-grid"><label class="field"><span>Target Elevation (ft MSL)</span><output data-flight-readout="targetElevationMslFt">-</output><span class="unit">Shared with #1</span></label>${field.weapon}</div>${group("Wind", `<label class="field"><span>Wind FROM / Speed</span><output data-flight-readout="wind">-</output><span class="unit">Shared with #1 · TRUE FROM</span></label>`)}<div class="bdp-full-group">${group("SEM / Recovery", `${followerExtraField("recoveryG", "Recovery G (G)", { always: true, fullBdp: true })}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)", { always: true, fullBdp: true })}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)", { always: true, fullBdp: true })}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)", { always: true, fullBdp: true })}`)}</div>`, { calculating: true, tab: "bdp" }),
+    flightSection(number, "BDP", `<div class="input-grid"><label class="field"><span>Target Elevation (ft MSL)</span><output data-flight-readout="targetElevationMslFt">-</output><span class="unit">Shared with #1</span></label>${field.weapon}</div>${group("Wind", `<label class="field"><span>Wind FROM / Speed</span><output data-flight-readout="wind">-</output><span class="unit">Shared with #1 · TRUE FROM</span></label>`)}<div class="bdp-full-group">${group("SEM / Recovery", `${followerExtraField("recoveryG", "Recovery G (G)", { always: true, fullBdp: true })}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)", { always: true, fullBdp: true })}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)", { always: true, fullBdp: true })}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)", { always: true, fullBdp: true })}`)}<div data-sem-readouts></div>${group("Roll-in / Turn Onset", ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label, { always: true, fullBdp: true })).join(""))}</div>`, { calculating: true, tab: "bdp" }),
     flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${field.initialSpeed}${field.initialAltitude}${rollInLocked}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${foldGroup("Roll-in Condition", `${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${statusLine}`, { calculating: true, tab: "offset" }),
   ] : [
-    flightSection(number, "BDP", `<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}</div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target).</p>`, { calculating: true, tab: "bdp" }),
+    flightSection(number, "BDP", `<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}${ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label)).join("")}</div><div data-sem-readouts></div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target).</p>`, { calculating: true, tab: "bdp" }),
     flightSection(number, "Offset", `${statusHead}<div class="input-grid">${field.runIn}${field.ipRange}${field.attack}${field.angleOff}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}</div>${statusLine}`, { calculating: true, tab: "offset" }),
   ];
   return [
@@ -2055,7 +2145,7 @@ function applyFollowerState(number, record, sent, activeKey, commit) {
 // follow shows the applied value in the field like any input, and its note says it follows the element
 // lead. Typing over it gives the aircraft its own value; clearing it follows again. (The Roll-in Bank is
 // no longer an extra: it is BDP v0.4's result, owner 2026-10-15.)
-const FOLLOWER_EXTRA_DIGITS = { fragmentHeightMarginPercent: 0, recoveryG: 1, speedOvershootKcas: 0, gOnsetTimeSec: 1, rollInG: 1 };
+const FOLLOWER_EXTRA_DIGITS = { fragmentHeightMarginPercent: 0, recoveryG: 1, speedOvershootKcas: 0, gOnsetTimeSec: 1, rollInG: 1, rollInRollRateDegSec: 0, rollOutRollRateDegSec: 0, gOnsetRateGSec: 1 };
 const followerExtraText = (key, value) => String(Number(value.toFixed(FOLLOWER_EXTRA_DIGITS[key])));
 function syncFollowerExtraFields(slot, entry, result, leadNumber) {
   const number = Number(slot.dataset.aircraft);
@@ -2205,6 +2295,7 @@ function renderFollower(number, entry) {
     flightResultsFull.delete(number);
     renderFollowerStatus(number, "INVALID", entry.error);
     renderFollowerResult(number, slot, { state: "INVALID", message: entry.error });
+    renderSemFragmentReadouts(slot.querySelector("[data-sem-readouts]"), null);
     renderFollowerDed(number, null);
     showCalculationFailed(zSvg, offsetZDiagramTitle({ aircraftNumber: number }), entry.error ?? "no result");
     if (zPng) zPng.disabled = true;
@@ -2227,6 +2318,7 @@ function renderFollower(number, entry) {
   const headingReadout = slot.querySelector('[data-flight-readout="offsetHeadingDeg"]');
   if (headingReadout) headingReadout.textContent = fmtHeading(result.resolved.offsetHeadingDeg);
   renderFollowerResult(number, slot, { result, delta: flightTimingOf(number) });
+  renderSemFragmentReadouts(slot.querySelector("[data-sem-readouts]"), result);
   renderFollowerDed(number, entry.ded);
   const zDrawn = renderZDiagramOf(number, zSvg, resultFull);
   if (zPng) zPng.disabled = !zDrawn;
@@ -2605,6 +2697,24 @@ function runDeveloperCommand(field) {
   renderSaveStatus("Developer mode: Save as Default is on until this page reloads", "warning");
 }
 
+// Developer option button (index Save/Load developer row, owner Q8 2026-10-15).
+function syncFragmentMarginButton() {
+  const button = $("#fragment-margin-mode");
+  if (!button) return;
+  const heightOnly = fragmentMarginAppliesTo === "HEIGHT";
+  button.textContent = `Fragment margin: ${heightOnly ? "Height only" : "Height + Radius"}`;
+  button.setAttribute("aria-pressed", String(heightOnly));
+  button.classList.toggle("active", heightOnly);
+}
+function installFragmentMarginButton() {
+  $("#fragment-margin-mode")?.addEventListener("click", () => {
+    fragmentMarginAppliesTo = fragmentMarginAppliesTo === "HEIGHT" ? "HEIGHT_AND_RADIUS" : "HEIGHT";
+    syncFragmentMarginButton();
+    calculate();
+  });
+  syncFragmentMarginButton();
+}
+
 function renderSaveStatus(message, state = "valid") {
   const status = $("#save-status");
   if (!status) return;
@@ -2710,6 +2820,7 @@ function install() {
   installLocks();
   $("#initial-link-btn")?.addEventListener("click", () => calculate({ aircraft: 1, kind: "toggle", key: "rollInAltitudeLinked", value: toggledValue(1, "toggle", "rollInAltitudeLinked", rollInAltitudeLinked) }));
   installModeButtons();
+  installFragmentMarginButton();
   installReferenceBearingControls();
   installValueStateBindings();
   installFlightLayout();
@@ -2783,6 +2894,8 @@ function install() {
   installTimeDial($("#top-view-time-dial"), (timeSec) => {
     topViewTimeSec = timeSec;
     renderTopView();
+    // The BDP Profiles follow the same clock (owner 2026-10-15, R5).
+    [1, 2, 3, 4].forEach((number) => refreshBdpDiagrams(number));
   });
   $("#top-view-advanced").addEventListener("click", (event) => {
     topViewAdvanced = !topViewAdvanced;

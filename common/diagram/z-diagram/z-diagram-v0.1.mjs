@@ -22,9 +22,11 @@ export const FT_PER_NM = 6076.11549;
 // takes the group's top row and Ground / Slant move one row down; without it the group is unchanged.
 // 0.1.12 (2026-10-06, user): a host may move the top-left Roll-in Altitude with `rollInAltitudeX`
 // (default 42, unchanged); Offset draws it one character (8 units) further left.
+// 0.1.13 (2026-10-15, owner R7): a host may put Roll-in Lead Angle under Roll-in Angle Off with
+// `rollInLeadInGroup` (Offset); Ground / Slant move one row down. Without it nothing changes.
 export const COMMON_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "common-z-diagram-v0.1",
-  version: "0.1.12",
+  version: "0.1.13",
   oracle: "Bomb Profile REV.1.9 embedded BE Common Rev0.8 display renderer",
   legacyDisplaySource: "Common Z-Diagram Rev0.6 / BE Common Rev0.8 display grammar",
 });
@@ -176,6 +178,10 @@ export function renderCommonZDiagram(svg, data) {
   let rollInGroupY = 106;
   if (Number.isFinite(Number(data.rollInAngleOff))) {
     text(360, rollInGroupY, lineText(labels.rollInAngleOff ?? "Roll-in Angle Off", formatCommonDegree(data.rollInAngleOff, 0)), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+    rollInGroupY += 26;
+  }
+  if (data.rollInLeadInGroup === true && Number.isFinite(Number(data.rollInLead))) {
+    text(360, rollInGroupY, lineText(labels.rollInLead ?? "Roll-in Lead Angle", formatCommonDegree(data.rollInLead, 0)), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
     rollInGroupY += 26;
   }
   text(360, rollInGroupY, lineText(labels.rollInRange, `${format(rollInNm, 1)} NM (Ground)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");

@@ -33,7 +33,11 @@ export const BDP_PROFILE_VIEW_V0_2 = Object.freeze({
   // at Track Point; Vertical Tracking Distance not drawn; the Remark becomes `legend` items for the
   // host's legend box under the drawing (Offset Top View legend format).
   // 0.2.3 (2026-10-07, user, Offset): the Offset-layout legend asks for two columns (legendColumns: 2).
-  version: "0.2.3",
+  // 0.2.4 (2026-10-15, owner R5, Offset layout with a BDP v0.4.1 result): the SEM path after Release, the
+  // MINALT and SEM minimum altitude dashed lines, the fragment cylinder's vertical cut on the impact point
+  // (its largest size dashed; at `timeAfterReleaseSec` its size then, filled) and the aircraft at that time.
+  // Display only; without SEM samples nothing changes.
+  version: "0.2.4",
   subject: "Dive",
   view: "Profile",
   semanticStart: "TRACK_POINT",
@@ -68,8 +72,15 @@ export function renderBdpProfileView(svg, result, options = {}) {
   const bombRangeFt = pub.bombRangeNm * FT_PER_NM;
   const aimOffRangeFt = local.aimOffPointRangeNm === null ? null : local.aimOffPointRangeNm * FT_PER_NM;
   const diving = input.diveAngleDeg > 0 && aimOffRangeFt !== null;
-  const xMaxFt = Math.max(groundRangeFt, aimOffRangeFt ?? 0, downRangeFt + bombRangeFt, 1);
-  const yMaxFt = Math.max(trackAglFt, releaseAglFt, 1);
+  // SEM (0.2.4, Offset layout): path samples from Release (time, ground distance, altitude AGL), drawn up to
+  // just past the largest fragment radius beyond the impact point (or to level-off when that is later).
+  const semSamples = offsetLayout ? (result.visualization.semPathSamples ?? []) : [];
+  const fragment = semSamples.length >= 2 ? pub.fragment : null;
+  const semXFt = (sample) => downRangeFt + sample.downRangeNm * FT_PER_NM;
+  const levelOffSample = semSamples.filter((sample) => sample.phase === "pull").at(-1) ?? null;
+  const semLimitFt = fragment ? Math.max(groundRangeFt + fragment.radiusFt * 1.15, levelOffSample ? semXFt(levelOffSample) : 0) : 0;
+  const xMaxFt = Math.max(groundRangeFt, aimOffRangeFt ?? 0, downRangeFt + bombRangeFt, semLimitFt, 1);
+  const yMaxFt = Math.max(trackAglFt, releaseAglFt, fragment ? fragment.heightAglFt : 0, 1);
 
   // One scale for both axes (true angles); the plot height follows the geometry.
   const scale = Math.min((PLOT_RIGHT - PLOT_LEFT) / (xMaxFt * 1.04), BDP_PROFILE_VIEW_V0_2.canvas.maxPlotHeight / yMaxFt);
@@ -111,7 +122,7 @@ export function renderBdpProfileView(svg, result, options = {}) {
   });
 
   // Ground line from Track Point forward.
-  const groundEnd = Math.max(target.x, aimOff?.x ?? 0) + 34;
+  const groundEnd = Math.max(target.x, aimOff?.x ?? 0, fragment ? xs(semLimitFt) : 0) + 34;
   root.append(svgNode("line", { x1: track.x - 24, y1: groundY, x2: groundEnd, y2: groundY, stroke: C.ground, "stroke-width": 2 }));
 
   // FPM line (Dive Angle line): Track Point → Release solid, Release → Aim-off Point dashed.
@@ -134,6 +145,67 @@ export function renderBdpProfileView(svg, result, options = {}) {
   root.append(svgNode("path", {
     d: bombPath, fill: "none", stroke: C.bomb, "stroke-width": 4, "stroke-linecap": "round", "stroke-linejoin": "round",
   }));
+
+  // SEM, MINALT / SEM minimum lines and the fragment cylinder (0.2.4, Offset layout, display only).
+  const semLegend = [];
+  const semPoints = [];
+  let aircraftAt = null;
+  if (fragment) {
+    const semColor = C.verticalTracking;
+    const minAltAglFt = pub.minAltMslFt - input.targetElevationMslFt;
+    const semMinAglFt = pub.semMinimumAltitudeAglFt;
+    const lineLeft = track.x - 24;
+    const lineRight = Math.max(groundEnd, xs(semLimitFt) + 20);
+    const dashed = (yFt, color, role) => root.append(svgNode("line", {
+      x1: lineLeft, y1: ys(yFt), x2: lineRight, y2: ys(yFt), stroke: color, "stroke-width": 1.8, "stroke-dasharray": "10 6", "data-profile-role": role,
+    }));
+    dashed(minAltAglFt, C.target, "minalt-line");
+    if (Number.isFinite(semMinAglFt)) dashed(semMinAglFt, semColor, "sem-min-line");
+    // Cylinder cut on the impact point: largest size dashed; the size at the dial time filled.
+    const cylinder = (radiusFt, heightFt, attrs) => root.append(svgNode("rect", {
+      x: xs(groundRangeFt - radiusFt), y: ys(heightFt), width: 2 * radiusFt * scale, height: heightFt * scale, ...attrs,
+    }));
+    cylinder(fragment.radiusFt, fragment.heightAglFt, { fill: "none", stroke: C.target, "stroke-width": 1.6, "stroke-dasharray": "6 5", "data-profile-role": "fragment-max" });
+    const tau = Number(options.timeAfterReleaseSec);
+    if (Number.isFinite(tau)) {
+      const after = tau - fragment.impactTimeSec;
+      const f = after > 0 && after < fragment.timeSec ? (after <= fragment.peakAfterImpactSec ? after / fragment.peakAfterImpactSec : (fragment.timeSec - after) / (fragment.timeSec - fragment.peakAfterImpactSec)) : 0;
+      if (f > 0) cylinder(fragment.radiusFt * f, fragment.heightAglFt * f, { fill: C.target, "fill-opacity": 0.22, stroke: C.target, "stroke-width": 1.4, "data-profile-role": "fragment-now" });
+      // Aircraft: on the FPM line before Release, on the SEM path after it.
+      const trackingSec = pub.trackingTimeSec;
+      if (tau < 0 && trackingSec > 0 && tau >= -trackingSec) {
+        const k = (tau + trackingSec) / trackingSec;
+        aircraftAt = { x: track.x + (release.x - track.x) * k, y: track.y + (release.y - track.y) * k };
+      } else if (tau >= 0) {
+        let i = 1;
+        while (i < semSamples.length - 1 && semSamples[i].timeSec < tau) i += 1;
+        const a = semSamples[i - 1];
+        const b = semSamples[i];
+        const k = b.timeSec > a.timeSec ? Math.min(1, Math.max(0, (tau - a.timeSec) / (b.timeSec - a.timeSec))) : 1;
+        const xFt = semXFt(a) + (semXFt(b) - semXFt(a)) * k;
+        if (xFt <= semLimitFt + 1e-6) aircraftAt = { x: xs(xFt), y: ys(a.altitudeAglFt + (b.altitudeAglFt - a.altitudeAglFt) * k) };
+      }
+    }
+    // SEM path, clipped where the drawing ends.
+    const points = semPoints;
+    for (let i = 0; i < semSamples.length; i += 1) {
+      const xFt = semXFt(semSamples[i]);
+      if (xFt <= semLimitFt) { points.push([xs(xFt), ys(semSamples[i].altitudeAglFt)]); continue; }
+      const a = semSamples[i - 1];
+      const k = (semLimitFt - semXFt(a)) / (xFt - semXFt(a));
+      points.push([xs(semLimitFt), ys(a.altitudeAglFt + (semSamples[i].altitudeAglFt - a.altitudeAglFt) * k)]);
+      break;
+    }
+    root.append(svgNode("path", {
+      d: points.map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join(" "),
+      fill: "none", stroke: semColor, "stroke-width": 3, "stroke-linecap": "round", "stroke-linejoin": "round", "data-profile-role": "sem-path",
+    }));
+    semLegend.push(
+      { label: `SEM Minimum · ${formatFt(pub.semMinimumAltitudeMslFt)} ft MSL`, color: semColor },
+      { label: `MINALT · ${formatFt(pub.minAltMslFt)} ft MSL`, color: C.target },
+      { label: `Fragment · H ${formatFt(fragment.heightAglFt)} ft · R ${formatNm(fragment.radiusNm)} NM`, color: C.target },
+    );
+  }
 
   // Angles at Track Point: Dive Angle from the horizontal, IAA from the FPM line to the Target LOS.
   const fpmAngle = Math.atan2(release.y - track.y, release.x - track.x);
@@ -209,6 +281,7 @@ export function renderBdpProfileView(svg, result, options = {}) {
   root.append(svgNode("circle", { cx: release.x, cy: release.y, r: 6, fill: C.release, stroke: "#ffffff", "stroke-width": 2 }));
   root.append(svgNode("circle", { cx: target.x, cy: target.y, r: 7, fill: C.impact, stroke: "#ffffff", "stroke-width": 2 }));
   if (aimOff) root.append(svgNode("circle", { cx: aimOff.x, cy: aimOff.y, r: 5, fill: "#ffffff", stroke: C.impact, "stroke-width": 2 }));
+  if (aircraftAt) root.append(svgNode("circle", { cx: aircraftAt.x, cy: aircraftAt.y, r: 7, fill: "#ffffff", stroke: C.flightPath, "stroke-width": 3, "data-profile-role": "aircraft-now" }));
 
   // Labels: on their element, or joined to it by a leader (Common smart labels).
   const labels = createSmartLabelLayout(root, { width: WIDTH, height: HEIGHT, labelPad: 8, pathPad: 5, charWidthEm: 0.64 });
@@ -220,6 +293,7 @@ export function renderBdpProfileView(svg, result, options = {}) {
   labels.reserveSegment({ x: track.x - 24, y: groundY }, { x: groundEnd, y: groundY }, 3);
   if (!offsetLayout) labels.reserveSegment({ x: track.x - 46, y: track.y }, { x: track.x - 46, y: release.y }, 4);
   if (diving && !offsetLayout) labels.reserveSegment(track, { x: track.x + 78, y: track.y }, 3);
+  for (let i = 1; i < semPoints.length; i += 1) labels.reserveSegment({ x: semPoints[i - 1][0], y: semPoints[i - 1][1] }, { x: semPoints[i][0], y: semPoints[i][1] }, 4);
   const bombPoints = (result.visualization.bombTrajectorySamples ?? []).map((sample) => ({ x: xs(downRangeFt + sample.downRangeNm * FT_PER_NM), y: ys(sample.altitudeAglFt) }));
   for (let i = 1; i < bombPoints.length; i += 3) labels.reserveSegment(bombPoints[i - 1], bombPoints[Math.min(i + 2, bombPoints.length - 1)], 4);
   const label = (point, text, labelOptions) => labels.append(point, text, {
@@ -306,6 +380,7 @@ export function renderBdpProfileView(svg, result, options = {}) {
       ...(aimOff ? [{ label: `AOD · ${formatFt(local.aimOffDistanceFt)} ft`, color: C.impact }] : []),
       { label: `Vertical Tracking Distance · ${formatFt(verticalTrackingFt)} ft`, color: C.verticalTracking },
       ...(diving ? [{ label: `IAA · ${formatDeg(local.aimOffAngleDeg)}°`, color: C.los }, { label: `Dive Angle · ${formatDeg(input.diveAngleDeg)}°`, color: C.flightPath }] : []),
+      ...semLegend,
     ] : null,
     // Two legend columns (2026-10-07, user).
     legendColumns: offsetLayout ? 2 : null,

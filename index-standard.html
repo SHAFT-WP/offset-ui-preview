@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · Standard layout</title>
-<link rel="stylesheet" href="./offset.css?v=6007ab18b53b">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=6007ab18b53b">
+<link rel="stylesheet" href="./offset.css?v=e3c495af725f">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=e3c495af725f">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -56,7 +56,10 @@
         <label class="field advanced-only bdp-extra"><span>G Onset Time (sec) <span class="adv-tag">ADV</span></span><input data-key="gOnsetTimeSec" type="text" inputmode="decimal" value="2"><span class="unit">V2 SEM/NLT input · onset starts at Release</span></label>
         <label class="field advanced-only bdp-extra"><span>Roll-in Bank Angle (deg) <span class="adv-tag">ADV</span></span><input data-key="rollInBankAngleDeg" type="text" inputmode="decimal" value="" readonly data-bdp-result title="Solved by BDP (Roll-in model B)"><span class="unit">Result · solved by BDP (Roll-in model B)</span></label>
         <label class="field advanced-only bdp-extra"><span>Roll-in G (G) <span class="adv-tag">ADV</span></span><input data-key="rollInG" type="text" inputmode="decimal" value="4"><span class="unit">BDP roll-in input</span></label>
-      </div></div>
+        <label class="field advanced-only bdp-extra"><span>Roll-in Rate (deg/s) <span class="adv-tag">ADV</span></span><input data-key="rollInRollRateDegSec" type="text" inputmode="decimal" value="60"><span class="unit">Roll-in and Offset Turn roll · linear</span></label>
+        <label class="field advanced-only bdp-extra"><span>Roll-out Rate (deg/s) <span class="adv-tag">ADV</span></span><input data-key="rollOutRollRateDegSec" type="text" inputmode="decimal" value="55"><span class="unit">Roll-out · linear</span></label>
+        <label class="field advanced-only bdp-extra"><span>G Onset Rate (G/s) <span class="adv-tag">ADV</span></span><input data-key="gOnsetRateGSec" type="text" inputmode="decimal" value="2"><span class="unit">Roll-in and Offset Turn pull · linear</span></label>
+      </div><div data-sem-readouts id="lead-sem-readouts"></div></div>
     </details>
   </section>
 
@@ -169,6 +172,7 @@
         </div>
         <div class="diagram-action-row time-dial" id="top-view-time-dial" data-time-dial="1" role="group" aria-label="Top View #1 time after IP">
           <span class="diagram-control-label">Time</span>
+          <button class="capture-button time-dial-play" type="button" data-time-play aria-pressed="false" title="Play the time dial (4× real time)">Play</button>
           <input class="time-dial-range" type="range" min="0" max="1" step="1" value="0" data-time-range aria-label="Seconds after IP">
           <button class="capture-button diagram-scale-output time-dial-output" type="button" data-time-output aria-pressed="false" title="Seconds after IP; press to turn off">Off</button>
         </div>
@@ -214,7 +218,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=6007ab18b53b"></script>
+<script type="module" src="./controller-v0.1.mjs?v=e3c495af725f"></script>
 
 </body>
 </html>

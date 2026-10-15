@@ -1,4 +1,4 @@
-@import url("./common-ui-v0.2.css?v=6007ab18b53b");
+@import url("./common-ui-v0.2.css?v=e3c495af725f");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -71,3 +71,6 @@ label.input-invalid>span:first-child,label.input-invalid>span:first-child>span,l
 input[data-lock-solved]{cursor:not-allowed;border-style:dashed;border-color:var(--muted)}
 /* BDP results shown in the input grid (Roll-in Bank, owner 2026-10-15): read-only, never typed. */
 input[data-bdp-result]{cursor:default;border-style:dashed;border-color:var(--muted)}
+/* SEM / Fragment readout title (owner 2026-10-15): shown with Full BDP, like its fields. */
+.bdp-extra-title{display:none}
+.section.show-full-bdp .bdp-extra-title{display:block}
