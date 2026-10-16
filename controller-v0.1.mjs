@@ -1,3 +1,4 @@
+import { readOffsetWorkSave, writeOffsetWorkSave } from "./work-save-v0.1.mjs?v=0.1.0";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSecTenths, formatSignedSec, truncateBeOutput } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
 import { formationPositionMarkup, installFormationSideSelects } from "./common/ui/formation-position-v0.1.mjs";
@@ -34,8 +35,6 @@ const legendItems = offsetTopViewLegend();
 const legend = installSvgLegend(document.getElementById('offset-legend'), legendItems);
 const TOP_VIEW_TEXT_SCALE_DEFAULT = SVG_DIAGRAM_TEXT_SCALE_V0_1.userDefaultScale;
 const TOP_VIEW_MOBILE_MAX_WIDTH_PX = SVG_DIAGRAM_TEXT_SCALE_V0_1.mobileMaxWidthPx;
-const STORAGE_KEY = "flight-sim-tools.offset.v2.input.v1";
-const FLIGHT_LAYOUT_KEY = "flight-sim-tools.offset.v2.flight-layout.v1";
 const flightLayout = { size: 1, aircraft: {} };
 const flightResults = new Map();
 // Flight of 4 (2026-09-27): #2 and #3 fly off #1, #4 flies off its element lead #3.
@@ -46,10 +45,9 @@ const FLIGHT_WINGMEN = new Set([2, 4]);
 // same per-aircraft rule on each aircraft's own result).
 const FLIGHT_DED_AIRCRAFT = new Set([2, 3, 4]);
 // Developer default preset (index UI handoff 2026-10-06 §3): replaces the built-in defaults in this
-// browser only. The work save keeps the two existing records (STORAGE_KEY + FLIGHT_LAYOUT_KEY).
+// browser only. The work save is one complete Flight snapshot (work-save-v0.1.mjs).
 const PRESET_KEY = "flight-sim-tools.offset.v2.default-preset.v1";
 const PRESET_SCHEMA_VERSION = 1;
-const FLIGHT_LAYOUT_SCHEMA_VERSION = 2;
 // index.html (body.offset-wide) groups the inputs as Offset (profile + geometry) / BDP (settings);
 // index-standard.html keeps the earlier BDP / Offset grouping. Same keys and state either way.
 const INDEX_LAYOUT = document.body.classList.contains("offset-wide");
@@ -1369,33 +1367,10 @@ function applyPersistedState(saved) {
   return true;
 }
 
+// Read once at startup so #1, followers, view and extensions come from one snapshot.
+let restoredWorkSave = { lead: null, flight: null, notice: null };
 function loadPersistedState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return false;
-    const record = JSON.parse(raw);
-    const previous = record.version === 4 ? record.aircraft?.["1"] : record;
-    if (!previous) return false;
-    if ((previous.version ?? 0) < 3 && !localStorage.getItem(`${STORAGE_KEY}.pre-vrp-start`)) {
-      localStorage.setItem(`${STORAGE_KEY}.pre-vrp-start`, raw);
-    }
-    return applyPersistedState(previous);
-  } catch {
-    return false;
-  }
-}
-
-function savePersistedState() {
-  try {
-    const previous = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    const aircraft = previous?.version === 4 && previous.aircraft && typeof previous.aircraft === "object"
-      ? previous.aircraft : {};
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 4, aircraft: { ...aircraft, "1": capturePersistedState() } }));
-    return true;
-  } catch {
-    // Storage may be unavailable in a restricted browser context; calculation remains usable.
-    return false;
-  }
+  return applyPersistedState(restoredWorkSave.lead);
 }
 
 function clearPendingInputStates() {
@@ -1500,10 +1475,12 @@ document.addEventListener("click", (event) => {
   applyFullViews(number);
 });
 
-function flashSaved(button) {
-  const previous = button.textContent;
-  button.textContent = "Saved";
-  window.setTimeout(() => { button.textContent = previous; }, 900);
+const saveFeedbackTimers = new WeakMap();
+function showSaveButtonResult(button, ok) {
+  const oldTimer = saveFeedbackTimers.get(button);
+  if (oldTimer) clearTimeout(oldTimer);
+  button.textContent = ok ? "Saved" : "Save failed";
+  if (ok) saveFeedbackTimers.set(button, setTimeout(() => { button.textContent = "Save"; }, 900));
 }
 
 function installSectionTools(root = document) {
@@ -1546,14 +1523,7 @@ function installSectionTools(root = document) {
           button.textContent = `${label}: ${on ? "On" : "Off"}`;
         });
       } else if (tool === "save") {
-        make(tool, "Save").addEventListener("click", async (event) => {
-          const button = event.currentTarget;
-          commitActiveEdit();
-          // The saved state is the answered current one (the last edit is not left waiting, D09).
-          await calculationScheduler.flush();
-          saveWorkState();
-          flashSaved(button);
-        });
+        make(tool, "Save").addEventListener("click", (event) => { saveCurrentWork(event.currentTarget); });
       } else if (tool === "default") {
         make(tool, INDEX_LAYOUT ? "Tab Default" : "Default").addEventListener("click", () => {
           if (aircraft === 1) resetLeadTab(section.dataset.tab, section);
@@ -1703,16 +1673,10 @@ function flightResultFullOf(number) {
 // the Top View #1–#4 set and the edited aircraft come back with the saved conditions.
 let editAircraftOf = () => 1;
 let loadedSave = null;
-function saveFlightLayout() {
-  try {
-    const view = { shownAircraft: [...topViewAircraft].sort(), editAircraft: editAircraftOf() };
-    const extensions = Object.fromEntries([...saveExtensions].map(([name, extension]) => [name, extension.capture()]));
-    localStorage.setItem(FLIGHT_LAYOUT_KEY, JSON.stringify({ schemaVersion: FLIGHT_LAYOUT_SCHEMA_VERSION, ...flightLayout, view, ...extensions, savedAt: new Date().toISOString() }));
-    return true;
-  } catch {
-    // The UI remains usable when browser storage is unavailable.
-    return false;
-  }
+function captureFlightLayout() {
+  const view = { shownAircraft: [...topViewAircraft].sort(), editAircraft: editAircraftOf() };
+  const extensions = Object.fromEntries([...saveExtensions].map(([name, extension]) => [name, extension.capture()]));
+  return { ...flightLayout, view, ...extensions, savedAt: new Date().toISOString() };
 }
 
 // `heading` overrides "<title> #n" for graph sections, whose titles read "<Subject> #n <View>".
@@ -1958,11 +1922,11 @@ function normalizeSolvedValues(record) {
 
 function installFlightLayout() {
   try {
-    const saved = JSON.parse(localStorage.getItem(FLIGHT_LAYOUT_KEY) || "null");
+    const saved = restoredWorkSave.flight;
     if (saved && Number.isInteger(saved.size) && saved.size >= 1 && saved.size <= 4) {
       flightLayout.size = saved.size;
       const shown = Array.isArray(saved.view?.shownAircraft) ? saved.view.shownAircraft.filter((number) => Number.isInteger(number) && number >= 1 && number <= saved.size) : [];
-      if (shown.length) { topViewAircraft.clear(); shown.forEach((number) => topViewAircraft.add(number)); }
+      if (Array.isArray(saved.view?.shownAircraft)) { topViewAircraft.clear(); shown.forEach((number) => topViewAircraft.add(number)); }
       const edit = saved.view?.editAircraft;
       loadedSave = { savedAt: typeof saved.savedAt === "string" ? saved.savedAt : null, editAircraft: Number.isInteger(edit) && edit >= 1 && edit <= saved.size ? edit : 1, record: saved };
       if (saved.aircraft && typeof saved.aircraft === "object" && !Array.isArray(saved.aircraft)) {
@@ -2543,8 +2507,8 @@ document.addEventListener("click", (event) => {
 });
 
 // ---- Save / Load Default / developer Save as Default (handoff 2026-10-06 §3) --------------------
-// Work save: the existing #1 record (STORAGE_KEY, version 4) and Flight record (FLIGHT_LAYOUT_KEY),
-// kept for Standard and earlier saves; Save writes both and reads both back. Since 2026-10-11 (user)
+// Work save: one schema-3 Flight record including #1 (work-save-v0.1.mjs); legacy split
+// records are read only for migration. Both layouts write and verify the same snapshot. Since 2026-10-11 (user)
 // nothing else writes them: edits, tab Defaults and Load Default stay unsaved until Save, and a
 // reload or a newly opened page loads the last Save. Developer preset:
 // PRESET_KEY, its own schemaVersion, read by every Default; built-in defaults when absent.
@@ -2581,17 +2545,46 @@ function readDefaultPreset() {
 }
 
 function saveWorkState() {
-  const leadSaved = savePersistedState();
-  const flightSaved = saveFlightLayout();
-  try {
-    const lead = JSON.parse(localStorage.getItem(STORAGE_KEY))?.aircraft?.["1"];
-    const flight = JSON.parse(localStorage.getItem(FLIGHT_LAYOUT_KEY));
-    return leadSaved && flightSaved && JSON.stringify(lead) === JSON.stringify(capturePersistedState())
-      && flight?.size === flightLayout.size && JSON.stringify(flight.aircraft) === JSON.stringify(flightLayout.aircraft)
-      && [...saveExtensions].every(([name, extension]) => JSON.stringify(flight[name]) === JSON.stringify(extension.capture()));
-  } catch {
-    return false;
-  }
+  return writeOffsetWorkSave(localStorage, { lead: capturePersistedState(), flight: captureFlightLayout() });
+}
+
+// Every work Save uses the same completion and error path, in both layouts.
+let workSavePending = null;
+function saveCurrentWork(button) {
+  if (workSavePending) return workSavePending;
+  const buttons = $$("#work-save, [data-tab-tool='save']");
+  buttons.forEach((node) => {
+    clearTimeout(saveFeedbackTimers.get(node));
+    node.disabled = true;
+    node.textContent = "Saving…";
+  });
+  renderSaveStatus("Saving…", "warning");
+  workSavePending = (async () => {
+    try {
+      // S&R may still be answering when another Offset edit arrives. Capture only
+      // after both have flushed against the same current Offset revision.
+      for (;;) {
+        commitActiveEdit();
+        await calculationScheduler.flush();
+        const revision = calculationScheduler.state().revision;
+        for (const extension of saveExtensions.values()) await extension.flush?.();
+        const state = calculationScheduler.state();
+        if (state.revision === revision && !state.timer && !state.inFlight && !state.sendWanted && !state.held) break;
+      }
+      const saved = saveWorkState();
+      renderSaveStatus(`Saved · #1–#${saved.size} · ${savedTimeText(new Date(saved.savedAt))}`);
+      buttons.forEach((node) => showSaveButtonResult(node, true));
+      return true;
+    } catch (error) {
+      renderSaveStatus(`Save failed · ${error?.message || "browser storage unavailable"} · inputs stay usable`, "invalid");
+      buttons.forEach((node) => showSaveButtonResult(node, false));
+      return false;
+    } finally {
+      buttons.forEach((node) => { node.disabled = false; });
+      workSavePending = null;
+    }
+  })();
+  return workSavePending;
 }
 
 // Ends the edit in progress through the normal commit (change / empty-field rules) first.
@@ -2716,8 +2709,13 @@ function installFragmentMarginButton() {
 }
 
 function renderSaveStatus(message, state = "valid") {
-  const status = $("#save-status");
-  if (!status) return;
+  let status = $("#save-status");
+  if (!status) {
+    status = document.createElement("output");
+    status.id = "save-status";
+    status.setAttribute("role", "status");
+    $("#offset-calculator .topbar").after(status);
+  }
   status.textContent = message;
   status.className = `status-message ${state}`;
 }
@@ -2735,14 +2733,7 @@ function syncDeveloperUi() {
 }
 function installSaveTab() {
   if (!$("#work-save")) return;
-  // Save waits until the last edit has its answer, so the saved state is the current one (D09).
-  $("#work-save").addEventListener("click", async () => {
-    commitActiveEdit();
-    await calculationScheduler.flush();
-    for (const extension of saveExtensions.values()) await extension.flush?.();
-    const ok = saveWorkState();
-    renderSaveStatus(ok ? `Saved · #1–#${flightLayout.size} · ${savedTimeText(new Date())}` : "Save failed · browser storage unavailable; inputs stay usable", ok ? "valid" : "invalid");
-  });
+  $("#work-save").addEventListener("click", (event) => { saveCurrentWork(event.currentTarget); });
   // Load Default (2026-10-11, user): loads the Default conditions; nothing is stored until Save.
   $("#work-default").addEventListener("click", () => {
     commitActiveEdit();
@@ -2764,10 +2755,13 @@ function installSaveTab() {
     renderSaveStatus("Developer preset removed · Default is built-in again", "valid");
   });
   syncDeveloperUi();
-  // Opening the page loads the saved conditions; say so, with when they were saved.
-  if (loadedSave) {
-    const when = loadedSave.savedAt ? new Date(loadedSave.savedAt) : null;
-    renderSaveStatus(`Saved conditions loaded · #1–#${flightLayout.size}${when && !Number.isNaN(when.getTime()) ? ` · saved ${savedTimeText(when)}` : ""}`, "valid");
+}
+function renderLoadedSaveStatus() {
+  if (restoredWorkSave.notice) {
+    renderSaveStatus(restoredWorkSave.notice, "warning");
+  } else if (restoredWorkSave.lead) {
+    const when = loadedSave?.savedAt ? new Date(loadedSave.savedAt) : null;
+    renderSaveStatus(`Saved conditions loaded · #1–#${flightLayout.size}${when && !Number.isNaN(when.getTime()) ? ` · saved ${savedTimeText(when)}` : ""}`);
   }
 }
 function savedTimeText(date) {
@@ -2823,6 +2817,8 @@ function install() {
   installFragmentMarginButton();
   installReferenceBearingControls();
   installValueStateBindings();
+  try { restoredWorkSave = readOffsetWorkSave(localStorage); }
+  catch { restoredWorkSave = { lead: null, flight: null, notice: "Saved conditions unavailable · browser storage could not be read" }; }
   installFlightLayout();
   const leadDiagramsHost = document.querySelector('[data-bdp-diagrams-host="1"]');
   if (leadDiagramsHost) leadDiagramsHost.outerHTML = bdpDiagramsMarkup({ aircraftNumber: 1, topTitle: offsetBdpTopViewTitle(1), topAdvanced: true });
@@ -2907,9 +2903,11 @@ function install() {
 
   const restored = loadPersistedState();
   if (!restored) applyPersistedState(defaultPersistedState);
+  renderLoadedSaveStatus();
   persistenceReady = true;
   // The first answer draws the page (initialRender ends there).
   recalculateFresh();
 }
 
 install();
+
