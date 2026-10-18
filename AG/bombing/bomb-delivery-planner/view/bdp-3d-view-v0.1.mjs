@@ -6,8 +6,9 @@ import { aircraftAxes, flightStateAt, fragmentAt } from "./bdp-flight-path-v0.1.
 // picture of a BDP flight path (bdp-flight-path-v0.1): ground grid, Target, Aim-off Point, the path coloured by
 // phase (Roll-in, Tracking, SEM) with its ground shadow, the FPM line from the Track Point to the Aim-off Point,
 // wing ticks every 1 s (bank), the aircraft at time t and the fragment envelope (0.1.1: a dome on the impact point;
-// its largest size dashed, at t its size then, filled). The orbit (azimuth / elevation of the eye) and an altitude ×2 stretch are
-// the host's options; orbitByDrag turns a pointer drag into a new orbit. Self-contained SVG; display only.
+// its largest size dashed, at t its size then, filled). The orbit (azimuth / elevation of the eye), zoom and pan are
+// the host's options; bdp3dGestureStep turns pointer events into them. Heights are true (no stretch since 0.1.2).
+// Self-contained SVG; display only.
 
 export const BDP_3D_VIEW_V0_1 = Object.freeze({
   id: "bdp-3d-view-v0.1",
@@ -15,8 +16,13 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // ((x² + y²)/R² + z²/H² = 1, its largest size dashed, its size at t filled); `zoom` / `pan` after the fit
   // (zoomAbout keeps a screen point fixed); the host's approach before the Roll-in Point (grey); the legend
   // carries the SEM conditions as notes. Display only: the fragment check stays the BE's cylinder check.
-  version: "0.1.1",
+  // 0.1.2 (2026-10-18, owner addendum "BDP view touch / layout"): no altitude stretch (always true heights; the
+  // Altitude ×2 option is gone); the fit comes from the default orbit, so a drag turns the picture about the fixed
+  // scene centre and only a new path or Reset View refits; bdp3dGestureStep — drag turns, a 0.5 s hold within
+  // 8 CSS px then drag pans (`panHint` draws "PAN"), two pointers only zoom about their starting midpoint.
+  version: "0.1.2",
   canvas: Object.freeze({ width: 900, height: 560 }),
+  gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
   // Default eye: 60° from the Attack Heading toward the Roll-in side, 15° up (the dive seen nearly side on).
   defaultOrbit: Object.freeze({ fromAttackHeadingDeg: 60, elevationDeg: 15 }),
@@ -58,6 +64,106 @@ export function zoomAbout(view, factor, px, py) {
   return { zoom: next, pan: { x: px - W / 2 - k * (px - W / 2 - pan.x), y: py - H / 2 - k * (py - H / 2 - pan.y) } };
 }
 
+// One-pointer / two-pointer gesture (0.1.2, owner addendum §4–§5) as a pure step: the host passes each pointer event
+// (and the hold timer's firing) with the current view { orbit, zoom, pan }, and gets the next gesture state, the next
+// view and whether to arm the hold timer. Positions: `x`, `y` in CSS px (client), `cx`, `cy` in canvas px.
+//   down → pending (hold timer armed; Shift or the middle button: pan at once); a second pointer → pinch.
+//   pending: moving more than 8 CSS px from the press → rotate (for the rest of the gesture); the timer firing
+//   while still within 8 px → pan from the current point (no jump).
+//   rotate: orbitByDrag; pan: the picture follows the pointer (canvas px, after the zoom).
+//   pinch: zoom = z0 · d / d0 about the starting midpoint (fixed); the midpoint's movement does not pan.
+//   One pointer left after a pinch: paused (nothing moves) until all are up or a second comes back (a new pinch).
+//   Up / cancel / reset: idle; a late timer of an earlier press does nothing (`seq`).
+export function bdp3dGestureInit() {
+  return { mode: "idle", pointers: {}, seq: 0, start: null, last: null, pinch: null };
+}
+
+export function bdp3dGestureStep(gesture, event, view) {
+  const { holdMs, slopCssPx, minPinchCssPx } = BDP_3D_VIEW_V0_1.gesture;
+  const g = { ...gesture, pointers: { ...gesture.pointers } };
+  let next = { orbit: view.orbit, zoom: view.zoom ?? 1, pan: view.pan ?? { x: 0, y: 0 } };
+  let armTimer = false;
+  const ids = () => Object.keys(g.pointers);
+  const point = (e) => ({ x: e.x, y: e.y, cx: e.cx, cy: e.cy });
+  const startPinch = () => {
+    const [a, b] = ids().slice(0, 2).map((id) => g.pointers[id]);
+    const d0 = Math.hypot(a.x - b.x, a.y - b.y);
+    g.mode = "pinch";
+    g.pinch = d0 >= minPinchCssPx ? { d0, z0: next.zoom, pan0: { ...next.pan }, anchor: { x: (a.cx + b.cx) / 2, y: (a.cy + b.cy) / 2 } } : null;
+  };
+  switch (event.type) {
+    case "down": {
+      if (ids().length >= 2) break;
+      g.pointers[event.id] = point(event);
+      if (ids().length === 2) { startPinch(); break; }
+      if (event.button === 1 || event.shiftKey) {
+        g.mode = "pan";
+        g.last = point(event);
+      } else if (!event.button) {
+        g.mode = "pending";
+        g.seq += 1;
+        g.start = { x: event.x, y: event.y, t: event.t };
+        g.last = point(event);
+        armTimer = true;
+      } else {
+        g.mode = "idle";
+      }
+      break;
+    }
+    case "move": {
+      if (!g.pointers[event.id]) break;
+      g.pointers[event.id] = point(event);
+      if (g.mode === "pinch") {
+        if (ids().length < 2) break;
+        const [a, b] = ids().slice(0, 2).map((id) => g.pointers[id]);
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (!g.pinch) {
+          if (d >= minPinchCssPx) startPinch();
+          break;
+        }
+        next = { ...next, ...zoomAbout({ zoom: g.pinch.z0, pan: g.pinch.pan0 }, d / g.pinch.d0, g.pinch.anchor.x, g.pinch.anchor.y) };
+        break;
+      }
+      if (g.mode === "pending") {
+        if (Math.hypot(event.x - g.start.x, event.y - g.start.y) <= slopCssPx) break;
+        g.mode = "rotate";
+      }
+      if (g.mode === "rotate") {
+        next.orbit = orbitByDrag(next.orbit, event.cx - g.last.cx, event.cy - g.last.cy);
+        g.last = point(event);
+      } else if (g.mode === "panReady" || g.mode === "pan") {
+        g.mode = "pan";
+        next.pan = { x: next.pan.x + event.cx - g.last.cx, y: next.pan.y + event.cy - g.last.cy };
+        g.last = point(event);
+      }
+      break;
+    }
+    case "timer": {
+      // Only this press's timer, still pending, one pointer, held long enough (re-checked here).
+      if (g.mode !== "pending" || event.seq !== g.seq || ids().length !== 1 || event.t - g.start.t < holdMs - 1) break;
+      const p = g.pointers[ids()[0]];
+      if (Math.hypot(p.x - g.start.x, p.y - g.start.y) > slopCssPx) break;
+      g.mode = "panReady";
+      g.last = { ...p };
+      break;
+    }
+    case "up":
+    case "cancel": {
+      if (!g.pointers[event.id]) break;
+      delete g.pointers[event.id];
+      const left = ids().length;
+      if (g.mode === "pinch" && left === 1) g.mode = "paused";
+      else if (left === 0) { g.mode = "idle"; g.start = null; g.last = null; g.pinch = null; }
+      break;
+    }
+    case "reset":
+      return { gesture: { ...bdp3dGestureInit(), seq: g.seq + 1 }, view: next, armTimer: false, panHint: false };
+    default:
+      break;
+  }
+  return { gesture: g, view: next, armTimer, panHint: g.mode === "panReady" || g.mode === "pan" };
+}
+
 // Convex hull of screen points (monotone chain): the outline of a convex solid's projection.
 function hull(points) {
   const p = points.filter(Boolean).slice().sort((a, b) => a.x - b.x || a.y - b.y);
@@ -75,13 +181,12 @@ export function renderBdp3dView(svg, path, options = {}) {
   if (!Array.isArray(path?.samples) || path.samples.length < 2) throw new TypeError("a BDP flight path is required");
   const { width: W, height: H } = BDP_3D_VIEW_V0_1.canvas;
   const orbit = { ...bdp3dDefaultOrbit(path), ...(options.orbit ?? {}) };
-  const zk = Number(options.altitudeScale) === 2 ? 2 : 1;
   // t: seconds from the Roll-in Point (before it the aircraft is still on the approach and is not drawn).
   const t = Number.isFinite(options.timeSec) ? Math.min(options.timeSec, path.endT) : null;
   // The aircraft shows from the earliest known state (the host's approach, else the Roll-in Point).
   const firstT = path.approach?.[0]?.t ?? path.samples[0].t;
   const flying = t !== null && t >= firstT;
-  const P = (p) => [p.x, p.y, p.z * zk];
+  const P = (p) => [p.x, p.y, p.z];
 
   // Ground square: the path, Target, Aim-off Point and the fragment radius, on a round grid step.
   const fragment = path.fragment;
@@ -100,39 +205,50 @@ export function renderBdp3dView(svg, path, options = {}) {
   maxX = Math.ceil(maxX / stepFt) * stepFt;
   minY = Math.floor(minY / stepFt) * stepFt;
   maxY = Math.ceil(maxY / stepFt) * stepFt;
-  const maxZ = Math.max(...path.samples.map((p) => p.z), fragment ? fragment.heightAglFt : 0) * zk;
+  const maxZ = Math.max(...path.samples.map((p) => p.z), fragment ? fragment.heightAglFt : 0);
 
-  // Perspective eye on the orbit around the scene centre, three scene radii away.
+  // Perspective eye on the orbit around the scene centre, three scene radii away. The centre is fixed for the path
+  // (0.1.2): it projects to the same screen point for every orbit, so a drag turns the picture about it.
   const centre = [(minX + maxX) / 2, (minY + maxY) / 2, maxZ / 3];
   const radius = Math.hypot(maxX - minX, maxY - minY, maxZ) / 2;
-  const az = orbit.azimuthDeg * DEG;
-  const el = orbit.elevationDeg * DEG;
-  const eye = [centre[0] + 3 * radius * Math.sin(az) * Math.cos(el), centre[1] + 3 * radius * Math.cos(az) * Math.cos(el), centre[2] + 3 * radius * Math.sin(el)];
-  const forward = norm(sub(centre, eye));
-  const right = norm([forward[1], -forward[0], 0]);
-  const up = [right[1] * forward[2] - right[2] * forward[1], right[2] * forward[0] - right[0] * forward[2], right[0] * forward[1] - right[1] * forward[0]];
-  const camera = (q) => {
-    const d = sub(q, eye);
-    const depth = dot(d, forward);
-    return depth > 1 ? { u: dot(d, right) / depth, v: dot(d, up) / depth } : null;
+  const makeCamera = ({ azimuthDeg, elevationDeg }) => {
+    const az = azimuthDeg * DEG;
+    const el = elevationDeg * DEG;
+    const eyeAt = [centre[0] + 3 * radius * Math.sin(az) * Math.cos(el), centre[1] + 3 * radius * Math.cos(az) * Math.cos(el), centre[2] + 3 * radius * Math.sin(el)];
+    const forward = norm(sub(centre, eyeAt));
+    const right = norm([forward[1], -forward[0], 0]);
+    const up = [right[1] * forward[2] - right[2] * forward[1], right[2] * forward[0] - right[0] * forward[2], right[0] * forward[1] - right[1] * forward[0]];
+    return {
+      eye: eyeAt,
+      project(q) {
+        const d = sub(q, eyeAt);
+        const depth = dot(d, forward);
+        return depth > 1 ? { u: dot(d, right) / depth, v: dot(d, up) / depth } : null;
+      },
+    };
   };
-  // Fit: the ground square's corners, the path and the dome's top fill the canvas below the title rows.
+  const cam = makeCamera(orbit);
+  const eye = cam.eye;
+  // Fit (0.1.2): from the default orbit, so the scale and the centre's screen point stay put while the orbit turns;
+  // a new path or Reset View is the only refit. The ground square's corners, the path and the dome's top fill the
+  // canvas below the title rows at the default orbit.
+  const fitCam = makeCamera(bdp3dDefaultOrbit(path));
   const fitPoints = [[minX, minY, 0], [maxX, minY, 0], [maxX, maxY, 0], [minX, maxY, 0], ...approach.map(P), ...path.samples.map(P)];
-  if (fragment) fitPoints.push([impact.x, impact.y, fragment.heightAglFt * zk]);
-  const fitted = fitPoints.map(camera).filter(Boolean);
+  if (fragment) fitPoints.push([impact.x, impact.y, fragment.heightAglFt]);
+  const fitted = fitPoints.map((q) => fitCam.project(q)).filter(Boolean);
   const uMin = Math.min(...fitted.map((p) => p.u));
   const uMax = Math.max(...fitted.map((p) => p.u));
   const vMin = Math.min(...fitted.map((p) => p.v));
   const vMax = Math.max(...fitted.map((p) => p.v));
   const box = { left: 40, right: W - 24, top: 76, bottom: H - 20 };
   const scale = Math.min((box.right - box.left) / Math.max(uMax - uMin, 1e-9), (box.bottom - box.top) / Math.max(vMax - vMin, 1e-9));
-  // Fit, then the host's zoom about the canvas centre and pan (px).
+  // Then the host's zoom about the canvas centre and pan (canvas px).
   const zoom = Math.min(BDP_3D_VIEW_V0_1.zoomLimits[1], Math.max(BDP_3D_VIEW_V0_1.zoomLimits[0], Number(options.zoom) || 1));
   const pan = { x: Number(options.pan?.x) || 0, y: Number(options.pan?.y) || 0 };
   const ox = (box.left + box.right) / 2 - (scale * (uMin + uMax)) / 2;
   const oy = (box.top + box.bottom) / 2 + (scale * (vMin + vMax)) / 2;
   const at = (q) => {
-    const c = camera(q);
+    const c = cam.project(q);
     return c ? { x: W / 2 + zoom * (ox + scale * c.u - W / 2) + pan.x, y: H / 2 + zoom * (oy - scale * c.v - H / 2) + pan.y } : null;
   };
   const pts = (list) => list.filter(Boolean).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
@@ -163,7 +279,7 @@ export function renderBdp3dView(svg, path, options = {}) {
   const dome = (radiusFt, heightFt, filled, role) => {
     if (!(radiusFt > 0 && heightFt > 0)) return;
     const g = add(svgNode("g", { "data-3d-role": role, "data-radius-ft": radiusFt.toFixed(1), "data-height-ft": heightFt.toFixed(1) }));
-    const surface = (phiDeg, thetaDeg) => [impact.x + radiusFt * Math.cos(phiDeg * DEG) * Math.cos(thetaDeg * DEG), impact.y + radiusFt * Math.cos(phiDeg * DEG) * Math.sin(thetaDeg * DEG), heightFt * Math.sin(phiDeg * DEG) * zk];
+    const surface = (phiDeg, thetaDeg) => [impact.x + radiusFt * Math.cos(phiDeg * DEG) * Math.cos(thetaDeg * DEG), impact.y + radiusFt * Math.cos(phiDeg * DEG) * Math.sin(thetaDeg * DEG), heightFt * Math.sin(phiDeg * DEG)];
     const cloud = [];
     for (let phi = 0; phi <= 90; phi += 7.5) for (let theta = 0; theta < 360; theta += 10) cloud.push(at(surface(phi, theta)));
     const outline = hull(cloud);
@@ -213,7 +329,7 @@ export function renderBdp3dView(svg, path, options = {}) {
     const state = flightStateAt(path, s);
     const { right: r } = aircraftAxes(state);
     const q = P(state);
-    const tick = polyline([[q[0] - r[0] * wingFt, q[1] - r[1] * wingFt, q[2] - r[2] * wingFt * zk], [q[0] + r[0] * wingFt, q[1] + r[1] * wingFt, q[2] + r[2] * wingFt * zk]], { stroke: "#4b5866", "stroke-width": 1.2 });
+    const tick = polyline([[q[0] - r[0] * wingFt, q[1] - r[1] * wingFt, q[2] - r[2] * wingFt], [q[0] + r[0] * wingFt, q[1] + r[1] * wingFt, q[2] + r[2] * wingFt]], { stroke: "#4b5866", "stroke-width": 1.2 });
     if (tick) ticks.append(tick);
   }
   for (const [p, label] of marks) {
@@ -231,7 +347,7 @@ export function renderBdp3dView(svg, path, options = {}) {
     const { v, right: r } = aircraftAxes(state);
     const size = radius * 0.04;
     const q = P(state);
-    const off = (a, b) => [q[0] + v[0] * a * size + r[0] * b * size, q[1] + v[1] * a * size + r[1] * b * size, q[2] + (v[2] * a * size + r[2] * b * size) * zk];
+    const off = (a, b) => [q[0] + v[0] * a * size + r[0] * b * size, q[1] + v[1] * a * size + r[1] * b * size, q[2] + v[2] * a * size + r[2] * b * size];
     add(polyline([[state.x, state.y, 0], q], { stroke: "#203a63", "stroke-width": 1, "stroke-dasharray": "2 3" }));
     const shadow = at([state.x, state.y, 0]);
     if (shadow) add(svgNode("circle", { cx: shadow.x.toFixed(1), cy: shadow.y.toFixed(1), r: 3, fill: "#8f9aa6", "data-3d-role": "aircraft-shadow" }));
@@ -240,7 +356,12 @@ export function renderBdp3dView(svg, path, options = {}) {
   }
 
   // Title rows: orbit, altitude stretch, grid step; at t the aircraft's state.
-  add(text({ x: 16, y: 24 }, `Orbit ${Math.round(orbit.azimuthDeg)}° / ${Math.round(orbit.elevationDeg)}° · Zoom ${Math.round(zoom * 100)}% · Altitude ×${zk} · Grid ${stepNm} NM`, { "data-3d-role": "status" }));
+  add(text({ x: 16, y: 24 }, `Orbit ${Math.round(orbit.azimuthDeg)}° / ${Math.round(orbit.elevationDeg)}° · Zoom ${Math.round(zoom * 100)}% · Grid ${stepNm} NM`, { "data-3d-role": "status" }));
+  // Pan hint (0.1.2): the host's one-pointer gesture is in its pan phase (held 0.5 s, then drag).
+  if (options.panHint) {
+    add(svgNode("rect", { x: W - 86, y: 10, width: 72, height: 24, rx: 6, fill: "#203a63", "data-3d-role": "pan-hint" }));
+    add(svgNode("text", { x: W - 50, y: 27, "text-anchor": "middle", fill: "#ffffff", "font-size": 13, "font-family": "system-ui, sans-serif", "font-weight": 700 }, "PAN"));
+  }
   if (t !== null && !flying) add(text({ x: 16, y: 46 }, `Roll-in in ${(path.samples[0].t - t).toFixed(1)} s`, { "data-3d-role": "state" }));
   if (state) add(text({ x: 16, y: 46 }, `Roll-in ${t < 0 ? "−" : "+"}${Math.abs(t).toFixed(1)} s · ${String(state.phase).toUpperCase()} · ${Math.round(state.z)} ft AGL · ${Math.round(state.kcas)} KCAS · Bank ${Math.round(Math.abs(state.bankDeg))}°`, { "data-3d-role": "state" }));
   const legend = [
@@ -252,7 +373,7 @@ export function renderBdp3dView(svg, path, options = {}) {
     ...(fragment ? [{ label: "Fragment envelope (max)", color: C.target, dashed: true }] : []),
   ];
   const legendNotes = bdpSemLegendNotes(path);
-  return { title: options.title ?? "3D Profile", orbit, zoom, pan, altitudeScale: zk, gridStepNm: stepNm, timeSec: t, state, legend, legendNotes, legendColumns: 0, canvas: { width: W, height: H } };
+  return { title: options.title ?? "3D Profile", orbit, zoom, pan, gridStepNm: stepNm, timeSec: t, state, legend, legendNotes, legendColumns: 0, canvas: { width: W, height: H } };
 }
 
 // SEM conditions and results under the 3D legend (owner handoff §4.5): the SEM flown, its Recovery G, G Onset

@@ -3,7 +3,7 @@ import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath, padlockStep } from "./bdp-flight-path-v0.1.mjs?v=0.1.1";
-import { BDP_3D_VIEW_V0_1, orbitByDrag, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.1";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.2";
 import { BDP_HUD_VIEW_V0_1, padlockTotalDeg, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.1";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
@@ -42,7 +42,7 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // cylinder and the aircraft at `timeAfterReleaseSec`); Top View 0.2.9 (upHeadingDeg), Profile 0.2.4.
   // 0.8.0 (2026-10-15, owner R6, Offset): bdpDiagramsMarkup({ flightViews: true }) adds the 3D Profile and
   // HUD View panels under the Top View (bdp-3d-view-v0.1 / bdp-hud-view-v0.1 from bdp-flight-path-v0.1 of a
-  // BDP v0.4.1 result). The 3D Profile turns by drag (Reset, Altitude ×2); the HUD inputs sit under the HUD
+  // BDP v0.4.1 result). The 3D Profile turns by drag (Reset); the HUD inputs sit under the HUD
   // (size, screen FOV, AOA, FPM path, the host's time dial markup, Padlock held at 60°/s). renderBdpDiagrams
   // takes `flightView: { rollDirection, timeSec }` (seconds from the Roll-in Point; null: no aircraft in 3D,
   // the Track Point in the HUD).
@@ -50,7 +50,10 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // Profile and HUD View title tools (Reset View, − / % / +), 3D pinch / wheel zoom and pan, HUD zoom by camera FOV,
   // the HUD starting at Roll-in −3 s with the host's approach samples (flightView.approach); the Profile Advanced
   // button (profileAdvanced: SEM, MINALT and the fragment envelope, off by default); legend notes.
-  version: "0.9.0",
+  // 0.10.0 (2026-10-18, owner addendum "BDP view touch / layout"): panel order Dive Profile → 3D Profile → Top View →
+  // HUD View (DOM order); 3D gestures through bdp3dGestureStep (drag turns, 0.5 s hold then drag pans, pinch only
+  // zooms), drawing coalesced per animation frame, cleared on cancel / Reset View / collapse; no Altitude ×2.
+  version: "0.10.0",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -75,10 +78,14 @@ export function bdpDiagramsMarkup({ aircraftNumber, topTitle, topAdvanced = fals
     + `<summary>${escapeText(title)}${orientationButtons(kind)}${advancedButton(kind)}</summary><div class="diagram-actions">${svgViewControlsMarkup({ title })}</div><div class="bdp-diagram-canvas">`
     + `<svg viewBox="0 0 900 700" role="img" aria-label="${escapeText(title)}"></svg>`
     + `<svg class="diagram-legend-box" data-bdp-legend="${kind}" role="img" aria-label="${escapeText(title)} legend" hidden></svg></div></details>`;
+  // Order (0.10.0, owner addendum 2026-10-18 §3): Dive Profile → 3D Profile → Top View → HUD View, in the DOM itself
+  // (reading and focus order follow it). Without the flight views: Dive Profile → Top View.
+  const flight = flightViews ? flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarkup }) : { threeD: "", hud: "" };
   return `<div class="bdp-diagrams" data-bdp-diagrams>`
-    + panel("top", topTitle || bdpTopViewTitle({ aircraftNumber }))
-    + (flightViews ? flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarkup }) : "")
     + panel("profile", bdpProfileTitle({ aircraftNumber }))
+    + flight.threeD
+    + panel("top", topTitle || bdpTopViewTitle({ aircraftNumber }))
+    + flight.hud
     + `</div>`;
 }
 
@@ -94,16 +101,18 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
   const fov = [30, 70, 120].map((value) => `<option value="${value}"${value === d.fovDeg ? " selected" : ""}>${value}°</option>`).join("");
   // Title tools (0.9.0, owner handoff §3.2 / §4.4): Reset View and − / % / + beside each title.
   const viewTools = (kind, extra = "") => `<span class="bdp-view-tools" style="margin-left:12px;margin-right:auto;display:inline-flex;flex-wrap:wrap;gap:4px">`
-    + `<button class="capture-button" type="button" data-bdp-${kind}="reset" title="Back to the default view (camera, zoom${kind === "3d" ? ", pan, Altitude ×1" : ", FOV, padlock"})">Reset View</button>`
+    + `<button class="capture-button" type="button" data-bdp-${kind}="reset" title="Back to the default view (camera, zoom${kind === "3d" ? ", pan" : ", FOV, padlock"})">Reset View</button>`
     + `<button class="capture-button" type="button" data-bdp-${kind}="zoom-out" aria-label="Zoom out">−</button>`
     + `<button class="capture-button diagram-scale-output" type="button" data-bdp-${kind}="zoom-reset" aria-label="Zoom 100%">100%</button>`
     + `<button class="capture-button" type="button" data-bdp-${kind}="zoom-in" aria-label="Zoom in">+</button>${extra}</span>`;
-  return `<details class="input-panel bdp-diagram" open data-bdp-diagram="3d"><summary>${t3}${viewTools("3d", `<button class="capture-button view-toggle" type="button" data-bdp-3d="altitude" aria-pressed="false">Altitude ×1</button>`)}</summary>`
+  // 3D (0.10.0, addendum §4–§7): no Altitude ×2; the gesture area alone takes the touch (no page scroll / selection
+  // / long-press menu inside it).
+  const threeD = `<details class="input-panel bdp-diagram" open data-bdp-diagram="3d"><summary>${t3}${viewTools("3d")}</summary>`
     + `<div class="diagram-actions"><div class="diagram-action-row" data-bdp-3d-controls>`
-    + `<span class="diagram-control-label">Drag: turn · Shift-drag or two fingers: pan · Wheel or pinch: zoom</span></div></div>`
-    + `<div class="bdp-diagram-canvas"><svg class="bdp-3d-svg" viewBox="0 0 ${w3} ${h3}" role="img" aria-label="${t3}" style="touch-action:none;cursor:grab"></svg>`
-    + `<svg class="diagram-legend-box" data-bdp-legend="3d" role="img" aria-label="${t3} legend" hidden></svg></div></details>`
-    + `<details class="input-panel bdp-diagram" open data-bdp-diagram="hud"><summary>${th}${viewTools("hud")}</summary>`
+    + `<span class="diagram-control-label">Drag: turn · Hold 0.5 s, then drag: pan · Pinch / wheel: zoom</span></div></div>`
+    + `<div class="bdp-diagram-canvas"><svg class="bdp-3d-svg" viewBox="0 0 ${w3} ${h3}" role="img" aria-label="${t3}" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none"></svg>`
+    + `<svg class="diagram-legend-box" data-bdp-legend="3d" role="img" aria-label="${t3} legend" hidden></svg></div></details>`;
+  const hud = `<details class="input-panel bdp-diagram" open data-bdp-diagram="hud"><summary>${th}${viewTools("hud")}</summary>`
     + `<div class="bdp-diagram-canvas"><svg class="bdp-hud-svg" viewBox="0 0 ${wh} ${hh}" role="img" aria-label="${th}"></svg></div>`
     + `<div class="diagram-actions bdp-hud-controls" data-bdp-hud-controls><div class="diagram-action-row">`
     + `<span class="diagram-control-label">HUD</span><input type="number" data-bdp-hud="size" min="4" max="40" step="1" value="${d.hudSizeDeg}" inputmode="numeric" style="${CONTROL_STYLE};width:4.2em" aria-label="HUD size (degrees, square)"><span class="diagram-control-label">°</span>`
@@ -112,6 +121,7 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
     + `<button class="capture-button view-toggle" type="button" data-bdp-hud="fpm-path" aria-pressed="${d.fpmPath}">FPM path: ${d.fpmPath ? "On" : "Off"}</button>`
     + `<button class="capture-button view-toggle" type="button" data-bdp-hud="padlock" aria-pressed="false" style="touch-action:none;user-select:none;-webkit-user-select:none" title="Hold: the view turns to the Target at 60°/s; release: it returns">Padlock</button>`
     + `</div>${hudTimeMarkup}</div></details>`;
+  return { threeD, hud };
 }
 
 // One toolbar per panel svg, installed on its first render; each redraw draws the panel's latest
@@ -214,7 +224,7 @@ const flightStates = new WeakMap();
 function flightState(container) {
   let state = flightStates.get(container);
   if (!state) {
-    state = { path: null, timeSec: null, orbit: null, altitudeScale: 1, zoom3d: 1, pan3d: { x: 0, y: 0 }, hudZoom: 1, progressDeg: 0, holding: false, frame: 0, lastFrame: null };
+    state = { path: null, timeSec: null, orbit: null, zoom3d: 1, pan3d: { x: 0, y: 0 }, panHint: false, resetGesture: null, hudZoom: 1, progressDeg: 0, holding: false, frame: 0, lastFrame: null };
     flightStates.set(container, state);
   }
   return state;
@@ -240,7 +250,8 @@ function draw3d(container, scope) {
   const svg = container.querySelector('[data-bdp-diagram="3d"] svg.bdp-3d-svg');
   const state = flightState(container);
   if (!svg || !state.path) return;
-  const rendered = renderBdp3dView(svg, state.path, { orbit: state.orbit ?? undefined, altitudeScale: state.altitudeScale, zoom: state.zoom3d, pan: state.pan3d, timeSec: state.timeSec, scope: `${scope}-3d` });
+  // Heights are true (0.10.0: no altitude stretch, whatever an older state held).
+  const rendered = renderBdp3dView(svg, state.path, { orbit: state.orbit ?? undefined, zoom: state.zoom3d, pan: state.pan3d, panHint: state.panHint, timeSec: state.timeSec, scope: `${scope}-3d` });
   svg.dataset.orbit = `${Math.round(rendered.orbit.azimuthDeg)}/${Math.round(rendered.orbit.elevationDeg)}`;
   svg.dataset.zoom = String(Math.round(rendered.zoom * 100));
   svg.dataset.pan = `${Math.round(rendered.pan.x)}/${Math.round(rendered.pan.y)}`;
@@ -287,70 +298,72 @@ function installFlightControls(container, scope) {
   container.dataset.bdpFlightReady = "true";
   const state = flightState(container);
   const svg3d = container.querySelector('[data-bdp-diagram="3d"] svg.bdp-3d-svg');
-  // 3D gestures (0.9.0, owner handoff §4.4): one pointer turns (Shift or the middle button pans); two pointers
-  // zoom by their distance and pan by their centre, both at once; the wheel zooms about the cursor. A change in
-  // the number of pointers restarts from the current pointers. View state only: no solve, no Save.
-  const pointers = new Map();
-  let gesture = null;
-  const toCanvas = (event) => {
+  // 3D gestures (0.10.0, owner addendum 2026-10-18 §4–§6; bdp3dGestureStep): drag turns about the fixed scene centre;
+  // a 0.5 s hold within 8 CSS px, then drag, pans ("PAN" shows); two pointers only zoom about their starting midpoint;
+  // Shift-drag or the middle button pans at once; the wheel zooms about the cursor. View state only: no solve, no
+  // Save; drawing is coalesced to one per animation frame.
+  let gesture = bdp3dGestureInit();
+  let holdTimer = 0;
+  let frame = 0;
+  const request3d = () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; draw3d(container, scope); });
+  };
+  const viewNow = () => ({ orbit: state.orbit ?? bdp3dDefaultOrbit(state.path), zoom: state.zoom3d, pan: state.pan3d });
+  const step = (event) => {
+    if (!state.path) return;
+    const before = viewNow();
+    const out = bdp3dGestureStep(gesture, event, before);
+    gesture = out.gesture;
+    const moved = out.view.orbit !== before.orbit || out.view.zoom !== before.zoom || out.view.pan !== before.pan;
+    if (out.view.orbit !== before.orbit) state.orbit = out.view.orbit;
+    state.zoom3d = out.view.zoom;
+    state.pan3d = out.view.pan;
+    if (out.armTimer) {
+      clearTimeout(holdTimer);
+      const seq = gesture.seq;
+      holdTimer = setTimeout(() => step({ type: "timer", seq, t: performance.now() }), BDP_3D_VIEW_V0_1.gesture.holdMs);
+    }
+    if (gesture.mode === "idle" || gesture.mode === "pinch") clearTimeout(holdTimer);
+    const hint = out.panHint;
+    if (hint !== state.panHint || moved) {
+      state.panHint = hint;
+      request3d();
+    }
+    svg3d.style.cursor = gesture.mode === "idle" ? "grab" : hint ? "move" : "grabbing";
+  };
+  const resetGesture = () => {
+    clearTimeout(holdTimer);
+    gesture = bdp3dGestureStep(gesture, { type: "reset" }, viewNow()).gesture;
+    if (state.panHint) { state.panHint = false; request3d(); }
+    if (svg3d) svg3d.style.cursor = "grab";
+  };
+  state.resetGesture = resetGesture;
+  const at = (event) => {
     const box = svg3d.getBoundingClientRect();
     const k = BDP_3D_VIEW_V0_1.canvas.width / Math.max(1, box.width);
-    return { x: (event.clientX - box.left) * k, y: (event.clientY - box.top) * k, k };
-  };
-  const currentOrbit = () => state.orbit ?? { azimuthDeg: Number(svg3d.dataset.orbit?.split("/")[0]), elevationDeg: Number(svg3d.dataset.orbit?.split("/")[1]) };
-  const startGesture = () => {
-    const list = [...pointers.values()];
-    if (list.length >= 2) {
-      const [a, b] = list;
-      gesture = { kind: "pinch", distance: Math.hypot(a.x - b.x, a.y - b.y), centre: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
-    } else if (list.length === 1) {
-      gesture = { kind: list[0].pan ? "pan" : "orbit", last: { x: list[0].x, y: list[0].y } };
-    } else gesture = null;
-    svg3d.style.cursor = gesture ? "grabbing" : "grab";
+    return { id: event.pointerId, x: event.clientX, y: event.clientY, cx: (event.clientX - box.left) * k, cy: (event.clientY - box.top) * k, t: event.timeStamp || performance.now() };
   };
   svg3d?.addEventListener("pointerdown", (event) => {
     if (!state.path) return;
     try { svg3d.setPointerCapture(event.pointerId); } catch { /* synthetic or ended pointer */ }
-    pointers.set(event.pointerId, { ...toCanvas(event), pan: event.shiftKey || event.button === 1 });
     event.preventDefault();
-    startGesture();
+    step({ type: "down", ...at(event), t: performance.now(), button: event.button, shiftKey: event.shiftKey });
   });
-  svg3d?.addEventListener("pointermove", (event) => {
-    if (!pointers.has(event.pointerId) || !gesture) return;
-    pointers.set(event.pointerId, { ...toCanvas(event), pan: pointers.get(event.pointerId).pan });
-    const list = [...pointers.values()];
-    if (gesture.kind === "pinch" && list.length >= 2) {
-      const [a, b] = list;
-      const distance = Math.hypot(a.x - b.x, a.y - b.y);
-      const centre = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      const zoomed = zoomAbout({ zoom: state.zoom3d, pan: state.pan3d }, gesture.distance > 0 ? distance / gesture.distance : 1, gesture.centre.x, gesture.centre.y);
-      state.zoom3d = zoomed.zoom;
-      state.pan3d = { x: zoomed.pan.x + centre.x - gesture.centre.x, y: zoomed.pan.y + centre.y - gesture.centre.y };
-      gesture.distance = distance;
-      gesture.centre = centre;
-    } else if (list.length === 1) {
-      const p = list[0];
-      const dx = p.x - gesture.last.x;
-      const dy = p.y - gesture.last.y;
-      if (gesture.kind === "pan") state.pan3d = { x: state.pan3d.x + dx, y: state.pan3d.y + dy };
-      else state.orbit = orbitByDrag(currentOrbit(), dx, dy);
-      gesture.last = { x: p.x, y: p.y };
-    }
-    draw3d(container, scope);
-  });
-  const endPointer = (event) => {
-    if (!pointers.delete(event.pointerId)) return;
-    startGesture();
-  };
-  ["pointerup", "pointercancel", "lostpointercapture"].forEach((name) => svg3d?.addEventListener(name, endPointer));
+  svg3d?.addEventListener("pointermove", (event) => step({ type: "move", ...at(event) }));
+  svg3d?.addEventListener("pointerup", (event) => step({ type: "up", id: event.pointerId }));
+  ["pointercancel", "lostpointercapture"].forEach((name) => svg3d?.addEventListener(name, (event) => step({ type: "cancel", id: event.pointerId })));
+  svg3d?.addEventListener("contextmenu", (event) => event.preventDefault());
+  // A collapsed panel leaves no gesture or timer behind.
+  container.querySelector('[data-bdp-diagram="3d"]')?.addEventListener("toggle", (event) => { if (!event.currentTarget.open) resetGesture(); });
   svg3d?.addEventListener("wheel", (event) => {
     if (!state.path) return;
     event.preventDefault();
-    const p = toCanvas(event);
-    const zoomed = zoomAbout({ zoom: state.zoom3d, pan: state.pan3d }, Math.exp(-event.deltaY * 0.0015), p.x, p.y);
+    const p = at(event);
+    const zoomed = zoomAbout({ zoom: state.zoom3d, pan: state.pan3d }, Math.exp(-event.deltaY * 0.0015), p.cx, p.cy);
     state.zoom3d = zoomed.zoom;
     state.pan3d = zoomed.pan;
-    draw3d(container, scope);
+    request3d();
   }, { passive: false });
   // Title tools sit in <summary>: keep the panel open on their clicks.
   const tool = (selector, action) => container.querySelector(selector)?.addEventListener("click", (event) => {
@@ -365,23 +378,16 @@ function installFlightControls(container, scope) {
     state.pan3d = zoomed.pan;
     draw3d(container, scope);
   };
-  const altitudeButton = container.querySelector('[data-bdp-3d="altitude"]');
-  const setAltitude = (scale) => {
-    state.altitudeScale = scale;
-    altitudeButton?.setAttribute("aria-pressed", String(scale === 2));
-    if (altitudeButton) altitudeButton.textContent = `Altitude ×${scale}`;
-  };
   tool('[data-bdp-3d="reset"]', () => {
+    resetGesture();
     state.orbit = null;
     state.zoom3d = 1;
     state.pan3d = { x: 0, y: 0 };
-    setAltitude(1);
     draw3d(container, scope);
   });
   tool('[data-bdp-3d="zoom-in"]', () => zoom3dBy(ZOOM_STEP));
   tool('[data-bdp-3d="zoom-out"]', () => zoom3dBy(-ZOOM_STEP));
   tool('[data-bdp-3d="zoom-reset"]', () => { state.zoom3d = 1; state.pan3d = { x: 0, y: 0 }; draw3d(container, scope); });
-  tool('[data-bdp-3d="altitude"]', () => { setAltitude(state.altitudeScale === 2 ? 1 : 2); draw3d(container, scope); });
   const hudZoomTo = (zoom) => { state.hudZoom = Math.min(HUD_ZOOM_LIMITS[1], Math.max(HUD_ZOOM_LIMITS[0], Math.round(zoom * 100) / 100)); drawHud(container, scope); };
   tool('[data-bdp-hud="zoom-in"]', () => hudZoomTo(state.hudZoom + ZOOM_STEP));
   tool('[data-bdp-hud="zoom-out"]', () => hudZoomTo(state.hudZoom - ZOOM_STEP));
