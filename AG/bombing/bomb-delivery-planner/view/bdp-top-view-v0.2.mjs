@@ -13,7 +13,7 @@ import {
 import { createSmartLabelLayout } from "../../../../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.4";
 import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.1.mjs?v=0.1.4";
 import { formatDeg, formatFt, formatG, formatKt, formatMach, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
-import { BDP_TOP_VIEW_LEGEND, BDP_VIEW_COLORS as C, bdpTopViewTitle, rollInAngleRangeText } from "./bdp-view-style-v0.1.mjs";
+import { BDP_TOP_VIEW_LEGEND, BDP_VIEW_COLORS as C, bdpOffsetTextBase, bdpTopViewTitle, rollInAngleRangeText } from "./bdp-view-style-v0.1.mjs?v=0.1.2";
 
 // Roll-in Top View — BDP-owned view in the V2 unified view grammar (common/diagram/SPEC.md;
 // BDP FE SPEC "Roll-in Top View rules — 2026-09-28").
@@ -63,7 +63,9 @@ export const BDP_TOP_VIEW_V0_2 = Object.freeze({
   // 0.2.10 (2026-10-18, owner handoff §5, Offset): the turned north arrow is placed and reserved by its
   // rotated extent (at 90° / 270° it no longer leaves the canvas or sits under labels). The host's
   // `upHeadingDeg` chooses the map's up: Offset passes the Initial heading (Initial Up) or 0 (North Up).
-  version: "0.2.10",
+  // 0.2.11 (2026-10-18, owner, Offset layout): the text base follows the host's `viewportWidth` — 2× on a phone
+  // (≤ 620 px or none given, unchanged), 1.2× on a PC (the former 60% is the new 100%; bdpOffsetTextBase).
+  version: "0.2.11",
   subject: "Roll-in",
   view: "Top View",
   orientation: "INITIAL_BOTTOM_TARGET_UP",
@@ -151,7 +153,9 @@ export function renderBdpTopView(svg, result, options = {}) {
   const input = result.canonicalInputs;
   const offsetLayout = options.layout === "OFFSET";
   const advanced = options.advanced === true;
-  const textScale = clamp(Number(options.textScale) || 1, 0.5, 2) * (offsetLayout ? 2 : 1);
+  const textBase = offsetLayout ? bdpOffsetTextBase(options.viewportWidth) : 1;
+  const textScale = clamp(Number(options.textScale) || 1, 0.5, 2) * textBase;
+  svg.dataset.textBaseScale = String(textBase);
 
   // World frame (NM): x = pre-roll-in forward, y = turn side (drawn up before rotation).
   const s = semantic.stations;

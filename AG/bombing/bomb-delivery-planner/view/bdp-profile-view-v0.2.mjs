@@ -13,7 +13,7 @@ import {
 } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.5";
 import { createSmartLabelLayout } from "../../../../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.4";
 import { formatDeg, formatFt, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
-import { BDP_PROFILE_LEGEND, BDP_VIEW_COLORS as C, bdpProfileTitle } from "./bdp-view-style-v0.1.mjs";
+import { BDP_PROFILE_LEGEND, BDP_VIEW_COLORS as C, bdpOffsetTextBase, bdpProfileTitle } from "./bdp-view-style-v0.1.mjs?v=0.1.2";
 
 // Dive Profile — BDP-owned view in the V2 unified view grammar (common/diagram/SPEC.md; BDP FE SPEC
 // "Dive Profile rules — 2026-09-28"; BDP SPEC §8 / §10.1).
@@ -42,7 +42,9 @@ export const BDP_PROFILE_VIEW_V0_2 = Object.freeze({
   // them out). true or absent, with a raw Dive Angle > 10°: as 0.2.4, the envelope drawn as a half ellipse (the
   // dome's vertical projection) and the legend giving Track to Release Height (the Vertical Tracking Distance),
   // SEM Min Height, Fragment Height (max) and Fragment Diameter (max, 2R), MINALT and the SEM flown.
-  version: "0.2.5",
+  // 0.2.6 (2026-10-18, owner, Offset layout): the text base follows the host's `viewportWidth` — 2× on a phone
+  // (≤ 620 px or none given, unchanged), 1.2× on a PC (the former 60% is the new 100%; bdpOffsetTextBase).
+  version: "0.2.6",
   subject: "Dive",
   view: "Profile",
   semanticStart: "TRACK_POINT",
@@ -66,7 +68,9 @@ export function renderBdpProfileView(svg, result, options = {}) {
   const pub = result.public;
   const local = result.local;
   const offsetLayout = options.layout === "OFFSET";
-  const textScale = clamp(Number(options.textScale) || 1, 0.5, 2) * (offsetLayout ? 2 : 1);
+  const textBase = offsetLayout ? bdpOffsetTextBase(options.viewportWidth) : 1;
+  const textScale = clamp(Number(options.textScale) || 1, 0.5, 2) * textBase;
+  svg.dataset.textBaseScale = String(textBase);
   const font = SVG_DIAGRAM_STYLE_V0_1.font;
 
   // World (ft): x = horizontal distance from Track Point along Attack Heading, y = height AGL.

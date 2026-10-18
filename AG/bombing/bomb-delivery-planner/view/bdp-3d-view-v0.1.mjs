@@ -20,7 +20,9 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // Altitude ×2 option is gone); the fit comes from the default orbit, so a drag turns the picture about the fixed
   // scene centre and only a new path or Reset View refits; bdp3dGestureStep — drag turns, a 0.5 s hold within
   // 8 CSS px then drag pans (`panHint` draws "PAN"), two pointers only zoom about their starting midpoint.
-  version: "0.1.2",
+  // 0.1.3 (2026-10-18, owner): legend notes — the CSEM shows its Min Altitude (no Level-off Altitude N/A), and the
+  // fragment envelope drawn (max) its Height and Diameter.
+  version: "0.1.3",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
@@ -378,18 +380,22 @@ export function renderBdp3dView(svg, path, options = {}) {
 
 // SEM conditions and results under the 3D legend (owner handoff §4.5): the SEM flown, its Recovery G, G Onset
 // Time and Recovery Speed; for the CLIMB SEM its Target FPA, G release start and Terminal G; the Level-off
-// Altitude only where the SEM levels off (N/A for a CLIMB SEM, which shows its End Altitude instead).
+// Altitude where the SEM levels off, the CSEM's Min Altitude and End Altitude for a CLIMB SEM (0.1.3: no Level-off
+// N/A); then the fragment envelope drawn (max, Fragment Height Margin applied): its Height and Diameter (2R).
 export function bdpSemLegendNotes(path) {
   const sem = path?.sem;
   if (!sem) return [];
   const climb = sem.end === "CLIMB";
   const f = (value, digits, unit) => (Number.isFinite(value) ? `${value.toFixed(digits)}${unit}` : "N/A");
-  const ft = (value) => (Number.isFinite(value) ? `${Math.round(value).toLocaleString("en-US")} ft MSL` : "N/A");
+  const ft = (value, ref = "MSL") => (Number.isFinite(value) ? `${Math.round(value).toLocaleString("en-US")} ft${ref ? ` ${ref}` : ""}` : "N/A");
+  const minMslFt = Number.isFinite(path.semMinAglFt) && Number.isFinite(path.targetElevationMslFt) ? path.semMinAglFt + path.targetElevationMslFt : null;
   const rows = [
     `SEM: ${climb ? "CSEM (climb)" : "Level SEM"}`,
     `Recovery G: ${f(sem.recoveryG, 1, " G")} · G Onset Time: ${f(sem.gOnsetTimeSec, 1, " s")} · Recovery Speed: ${f(sem.recoverySpeedKcas, 0, " KCAS")}`,
   ];
   if (climb) rows.push(`CSEM Target FPA: +${f(sem.targetFpaDeg, 0, "°")} · G Release Start: +${f(sem.gReleaseStartFpaDeg, 0, "°")} FPA · Terminal G: ${f(sem.terminalG, 3, " G")}`);
-  rows.push(climb ? `Level-off Altitude: N/A · CSEM End Altitude: ${ft(sem.endAltitudeMslFt)}` : `Level-off Altitude: ${ft(sem.levelOffAltitudeMslFt)}`);
+  rows.push(climb ? `CSEM Min Altitude: ${ft(minMslFt)} · CSEM End Altitude: ${ft(sem.endAltitudeMslFt)}` : `Level-off Altitude: ${ft(sem.levelOffAltitudeMslFt)}`);
+  const frag = path.fragment;
+  if (frag) rows.push(`Fragment Height: ${ft(frag.heightAglFt, "AGL")} · Fragment Diameter: ${ft(2 * frag.radiusFt, "")} (max${Number.isFinite(frag.marginPercent) ? `, ${frag.marginPercent}% margin${frag.marginAppliesTo === "HEIGHT" ? " on height" : ""}` : ""})`);
   return rows;
 }

@@ -27,7 +27,7 @@ import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLe
 import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.2";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.10.0";
+import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.10.1";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -1482,6 +1482,9 @@ function refreshBdpDiagrams(number) {
       aircraftNumber: number,
       // 2026-10-07 (user): Offset layout — 2× text, legend box under each BDP view, Profile labels.
       layout: "OFFSET",
+      // 2026-10-18 (owner): on a PC (viewport > 620 px) the Top View and Dive Profile text at 100% is the former 60%
+      // (1.2× instead of 2×); a phone keeps 2× (diagrams panel 0.10.1).
+      viewportWidth: globalThis.innerWidth,
       // 2026-10-06 (user): spelled-out BDP title; no Roll-in Lat. D (the dashed reference line stays;
       // its Angle-Off-90 rule and Base Distance were cancelled the same day).
       // 2026-10-18 (owner handoff §5): the BDP Top View is Initial Up by default — this aircraft's Initial
@@ -2971,6 +2974,8 @@ function install() {
     if (nextCompact === compactTextViewport) return;
     compactTextViewport = nextCompact;
     renderTopView();
+    // The BDP Top View and Dive Profile text base changes across the same width (PC 1.2×, phone 2×).
+    [1, 2, 3, 4].forEach((number) => refreshBdpDiagrams(number));
   };
   globalThis.addEventListener?.("resize", syncViewportTextBase);
   globalThis.visualViewport?.addEventListener?.("resize", syncViewportTextBase);

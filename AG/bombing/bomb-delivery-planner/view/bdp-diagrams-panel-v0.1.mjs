@@ -1,9 +1,9 @@
-import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./bdp-profile-view-v0.2.mjs?v=0.2.5";
-import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.10";
+import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./bdp-profile-view-v0.2.mjs?v=0.2.6";
+import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.11";
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath, padlockStep } from "./bdp-flight-path-v0.1.mjs?v=0.1.1";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.2";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.3";
 import { BDP_HUD_VIEW_V0_1, padlockTotalDeg, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.1";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
@@ -53,7 +53,9 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.10.0 (2026-10-18, owner addendum "BDP view touch / layout"): panel order Dive Profile → 3D Profile → Top View →
   // HUD View (DOM order); 3D gestures through bdp3dGestureStep (drag turns, 0.5 s hold then drag pans, pinch only
   // zooms), drawing coalesced per animation frame, cleared on cancel / Reset View / collapse; no Altitude ×2.
-  version: "0.10.0",
+  // 0.10.1 (2026-10-18, owner): renderBdpDiagrams takes the host's `viewportWidth` for the Offset-layout Top View and
+  // Dive Profile text base (PC 1.2×, phone 2×); the 3D legend notes (3D 0.1.3).
+  version: "0.10.1",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -156,7 +158,7 @@ function showLegend(container, kind, items, columns, notes = []) {
   if (items?.length) panelLegends.set(box, installSvgLegend(box, items, notes ?? [], { columns: columns ?? 0 }));
 }
 
-export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraftNumber, topView = {}, profileView = {}, flightView, layout } = {}) {
+export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraftNumber, topView = {}, profileView = {}, flightView, layout, viewportWidth } = {}) {
   if (!container) return false;
   container.dataset.bdpScope = scope;
   const withLegend = (kind, rendered) => { showLegend(container, kind, rendered?.legend, rendered?.legendColumns); return rendered; };
@@ -172,11 +174,11 @@ export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraf
     return { upHeadingDeg: mode === "INITIAL_UP" ? Number(topView.inHeadingDeg) : 0 };
   };
   const top = panelView(container, "top", (svg, textScale) =>
-    withLegend("top", renderBdpTopView(svg, bdpResult, { ...topView, ...orientationUp(), ...(advancedButton ? { advanced: advancedOn() } : {}), layout, textScale, movableLabels: true, scope: `${scope}-top`, aircraftNumber })));
+    withLegend("top", renderBdpTopView(svg, bdpResult, { ...topView, ...orientationUp(), ...(advancedButton ? { advanced: advancedOn() } : {}), layout, viewportWidth, textScale, movableLabels: true, scope: `${scope}-top`, aircraftNumber })));
   const profileAdvancedButton = container.querySelector("[data-bdp-profile-advanced]");
   const profileDetail = () => (profileAdvancedButton ? { semDetail: profileAdvancedButton.getAttribute("aria-pressed") === "true" } : {});
   const profile = panelView(container, "profile", (svg, textScale) =>
-    withLegend("profile", renderBdpProfileView(svg, bdpResult, { ...profileView, ...profileDetail(), layout, textScale, movableLabels: true, scope: `${scope}-profile`, aircraftNumber })));
+    withLegend("profile", renderBdpProfileView(svg, bdpResult, { ...profileView, ...profileDetail(), layout, viewportWidth, textScale, movableLabels: true, scope: `${scope}-profile`, aircraftNumber })));
   if (profileAdvancedButton && !profileAdvancedButton.dataset.bdpAdvancedReady) {
     profileAdvancedButton.dataset.bdpAdvancedReady = "true";
     profileAdvancedButton.addEventListener("click", (event) => {
