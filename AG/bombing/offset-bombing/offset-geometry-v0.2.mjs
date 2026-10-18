@@ -6,7 +6,9 @@ export const OFFSET_GEOMETRY_V0_2 = Object.freeze({
   // 0.2.7 (2026-10-15, owner, BDP update R2.1): placeOffsetTurn — with an onset level turn (Common
   // onset-level-turn-v0.1) the Action Point and Turn End sit T_in / T_out from the corner and the flown turn
   // path is returned; without one the instantaneous fillet R·tan(θ/2) is unchanged.
-  version: "0.2.7",
+  // 0.2.8 (2026-10-18, owner handoff §3.1): the turn path samples also carry the onset turn's bankDeg (≥ 0, toward
+  // the Offset direction) and loadFactorG, for the BDP HUD's Roll-in −3 s start. Display data only.
+  version: "0.2.8",
   purpose: "Pure Offset Bombing heading/action-point/reference geometry independent of DOM and rendering",
 });
 
@@ -133,7 +135,7 @@ export function placeOffsetTurn({ temporaryActionPoint, runVector, offsetVector,
     offsetCenter: offsetTurn.hold ? toWorld(offsetTurn.hold.center) : null,
     offsetHoldStart: offsetTurn.hold ? toWorld(offsetTurn.hold.start) : null,
     offsetHoldEnd: offsetTurn.hold ? toWorld(offsetTurn.hold.end) : null,
-    offsetTurnPath: offsetTurn.samples.map((sample) => ({ ...toWorld(sample), tSec: sample.tSec, phase: sample.phase })),
+    offsetTurnPath: offsetTurn.samples.map((sample) => ({ ...toWorld(sample), tSec: sample.tSec, phase: sample.phase, bankDeg: sample.bankDeg, loadFactorG: sample.loadFactorG })),
   };
 }
 

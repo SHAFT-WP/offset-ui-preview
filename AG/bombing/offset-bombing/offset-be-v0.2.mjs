@@ -157,6 +157,9 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg) {
     rollInG: finite("rollInG", profile.rollInG),
     // Developer option (BDP v0.4.1): the Fragment Height Margin on the radius too (default) or on the height only.
     fragmentMarginAppliesTo: profile.fragmentMarginAppliesTo,
+    // The selected SEM (BDP v0.4.2; absent: LEVEL, +30°).
+    semEnd: profile.semEnd ?? undefined,
+    csemTargetFpaDeg: profile.csemTargetFpaDeg ?? undefined,
     // BDP v0.4 Roll-in onset rates (absent: the BDP defaults).
     ...Object.fromEntries(["rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"].filter((key) => profile[key] !== undefined && profile[key] !== null).map((key) => [key, finite(key, profile[key])])),
     ballisticModelId: profile.ballisticModelId,

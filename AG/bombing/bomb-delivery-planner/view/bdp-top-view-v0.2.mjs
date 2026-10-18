@@ -60,7 +60,10 @@ export const BDP_TOP_VIEW_V0_2 = Object.freeze({
   // 0.2.9 (2026-10-15, owner R6, Offset): NORTH_UP takes `upHeadingDeg` (default 0): the map turns so that
   // true heading points up (Offset: the Run-In heading, "Run-in up"); the north arrow turns with it and
   // every heading shown stays true.
-  version: "0.2.9",
+  // 0.2.10 (2026-10-18, owner handoff §5, Offset): the turned north arrow is placed and reserved by its
+  // rotated extent (at 90° / 270° it no longer leaves the canvas or sits under labels). The host's
+  // `upHeadingDeg` chooses the map's up: Offset passes the Initial heading (Initial Up) or 0 (North Up).
+  version: "0.2.10",
   subject: "Roll-in",
   view: "Top View",
   orientation: "INITIAL_BOTTOM_TARGET_UP",
@@ -365,18 +368,21 @@ export function renderBdpTopView(svg, result, options = {}) {
   let northArrowRect = null;
   if (northUp) {
     const size = SVG_DIAGRAM_STYLE_V0_1.font.lineTitlePx * textScale * 1.4;
-    const left = 36;
-    const top = 18;
+    const head = size * 0.45;
+    // The arrow turns about its centre: keep its whole turning circle on the canvas (0.2.10).
+    const half = (size * 3 + 8) / 2 + head;
+    const left = Math.max(36, half + 6);
+    const top = Math.max(18, upDeg ? half - (size * 3 + 8) / 2 + 6 : 18);
     const tipY = top + size + 8;
     const tailY = tipY + size * 2;
-    const head = size * 0.45;
     // Turned with the map (upHeadingDeg): it points to true north.
     const northArrow = svgNode("g", { "data-top-view-role": "north-arrow", ...(upDeg ? { transform: `rotate(${-upDeg} ${left} ${(top + tailY) / 2})` } : {}) });
     northArrow.append(svgNode("text", { x: left, y: top + size * 0.85, "text-anchor": "middle", "font-size": size, "font-weight": 900, fill: "#243240" }, "N"));
     northArrow.append(svgNode("line", { x1: left, y1: tailY, x2: left, y2: tipY + head, stroke: "#243240", "stroke-width": 3, "stroke-linecap": "round" }));
     northArrow.append(svgNode("polygon", { points: `${left},${tipY} ${left - head * 0.7},${tipY + head * 1.2} ${left + head * 0.7},${tipY + head * 1.2}`, fill: "#243240" }));
     root.append(northArrow);
-    northArrowRect = { x: left - size, y: top, w: size * 2, h: tailY - top + 6 };
+    const cy = (top + tailY) / 2;
+    northArrowRect = upDeg ? { x: left - half, y: cy - half, w: half * 2, h: half * 2 } : { x: left - size, y: top, w: size * 2, h: tailY - top + 6 };
   }
 
   // Labels: on their element, or joined to it by a leader (Common smart labels).

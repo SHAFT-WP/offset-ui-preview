@@ -77,7 +77,12 @@ const LEAD_COUPLED_KEYS = Object.freeze(["actionRangeNm", "approachRangeNm", "an
 const LEAD_TURN_FALLBACK = Object.freeze({ offsetG: "offsetBankDeg", offsetBankDeg: "offsetG", offsetRadiusNm: "offsetG" });
 const FOLLOWER_FALLBACK_DRIVERS = Object.freeze({ actionRangeNm: "offsetAngleDeg" });
 // Follower BDP values that follow the element lead's effective value while null.
-export const OFFSET_FLIGHT_INHERITED_KEYS = Object.freeze(["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"]);
+// 2026-10-18 (owner handoff §6): csemTargetFpaDeg (CSEM Target FPA) joins them; semEnd (LEVEL / CLIMB) is the
+// text key below, inherited the same way.
+export const OFFSET_FLIGHT_INHERITED_KEYS = Object.freeze(["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg"]);
+export const OFFSET_FLIGHT_INHERITED_TEXT_KEYS = Object.freeze(["semEnd"]);
+const SEM_ENDS = Object.freeze(["LEVEL", "CLIMB"]);
+const semEndOf = (value) => (SEM_ENDS.includes(value) ? value : undefined);
 // BDP v0.4 Roll-in onset rates (owner 2026-10-15): #1's value, or the BDP default while #1 has none.
 export const OFFSET_FLIGHT_ONSET_KEYS = Object.freeze(["rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"]);
 // Follower LOCKs (same fields as #1's since 0.1.2; Run-In and IP follow #1) and element-lead options.
@@ -477,6 +482,9 @@ function leadOffsetInput(lead) {
       rollInG: n("rollInG"),
       ...leadOnset(v),
       fragmentMarginAppliesTo: s.fragmentMarginAppliesTo,
+      // The selected SEM (BDP v0.4.2): blank = LEVEL / +30°.
+      semEnd: semEndOf(v.semEnd),
+      csemTargetFpaDeg: blank(v.csemTargetFpaDeg) ? undefined : n("csemTargetFpaDeg"),
     },
   };
 }
@@ -707,6 +715,15 @@ function followerInheritance(follower, leaderResult, leadNumber) {
       inheritance[key] = { source: "explicit", fromAircraft: null, value: resolved[key] };
     }
   }
+  for (const key of OFFSET_FLIGHT_INHERITED_TEXT_KEYS) {
+    if (blank(v[key])) {
+      resolved[key] = shared[key];
+      inheritance[key] = { source: "inherited", fromAircraft: leadNumber, value: resolved[key] };
+    } else {
+      resolved[key] = semEndOf(v[key]) ?? v[key];
+      inheritance[key] = { source: "explicit", fromAircraft: null, value: resolved[key] };
+    }
+  }
   return { inheritance, resolved };
 }
 
@@ -784,6 +801,8 @@ function followerOffsetInput({ number, follower, leaderResult, leadNumber, fligh
       releaseSpeedKcas: n("releaseSpeedKcas"),
       rollInG: inherited.rollInG,
       ...Object.fromEntries(OFFSET_FLIGHT_ONSET_KEYS.map((key) => [key, inherited[key]])),
+      semEnd: inherited.semEnd,
+      csemTargetFpaDeg: inherited.csemTargetFpaDeg,
       // The Flight's (#1's) developer option.
       fragmentMarginAppliesTo: flightProfile.fragmentMarginAppliesTo,
     },
@@ -1154,7 +1173,7 @@ function applyEdits(aircraft, edits) {
 // What a follower reads from an aircraft before it (its element lead, and #1 for the Flight-wide
 // Target / wind / IP limit / VIP): resolved values, timing, geometry points, reference mode and the
 // BDP inputs it inherits. Followers are given only this, so it is exactly their dependency.
-const LEADER_PROFILE_KEYS = [...OFFSET_FLIGHT_INHERITED_KEYS, "targetElevationMslFt", "windSpeedKt", "fragmentMarginAppliesTo"];
+const LEADER_PROFILE_KEYS = [...OFFSET_FLIGHT_INHERITED_KEYS, ...OFFSET_FLIGHT_INHERITED_TEXT_KEYS, "targetElevationMslFt", "windSpeedKt", "fragmentMarginAppliesTo"];
 function leaderView(result) {
   if (!result) return null;
   const inputs = result.profile.canonicalInputs;

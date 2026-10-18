@@ -8,7 +8,13 @@ import { tasToCas } from "../../../../common/airspeed/airspeed-v0.1.mjs";
 
 export const BDP_FLIGHT_PATH_V0_1 = Object.freeze({
   id: "bdp-flight-path-v0.1",
-  version: "0.1.0",
+  // 0.1.1 (2026-10-18, owner handoff §3.1): `approach` — the host's flown path before the Roll-in Point (Offset:
+  // the approach leg and the onset Offset Turn), so the HUD can start at Roll-in −3 s on the real path;
+  // `hudStartSec` (−3). Before the earliest known state the straight, level extension stays (stand-alone BDP).
+// The tracking line ends at Release + Overshoot KCAS, the SEM's start (no speed jump at Release); `sem` carries the
+// BDP v0.4.2 SEM record; the fragment envelope sits on the BE's impact point (cross range included).
+  version: "0.1.1",
+  hudStartSec: -3,
   // HUD angle of attack (research viewer SPEC §5.4, BMS 4.38.1 fit, PROVISIONAL): a + b·G / CAS² (deg, CAS m/s).
   hudAoa: Object.freeze({ aDeg: -0.31, b: 135700 }),
   padlockRateDegSec: 60,
@@ -30,7 +36,9 @@ export function hudAoaDeg(loadFactor, casKt) {
 }
 
 // rollDirection: the side the Roll-in turns to (the BDP frame's turn side). LEFT mirrors x, heading and bank.
-export function buildBdpFlightPath(result, { rollDirection = "RIGHT" } = {}) {
+// approach (optional): [{ t (s, ≤ 0, from the Roll-in Point), x, y (ft, this frame), headingDeg, bankDeg,
+// loadFactor }] in time order, ending at the Roll-in Point; height and speed are the Roll-in Point's (level).
+export function buildBdpFlightPath(result, { rollDirection = "RIGHT", approach = null } = {}) {
   const pub = result?.public;
   const input = result?.canonicalInputs;
   const roll = result?.visualization?.rollInTrajectorySamples;
@@ -58,7 +66,9 @@ export function buildBdpFlightPath(result, { rollDirection = "RIGHT" } = {}) {
   const diveDeg = input.diveAngleDeg;
   const releaseAglFt = pub.effectiveReleaseAltitudeMslFt - elevation;
   const trackingSec = pub.trackingTimeSec;
-  const releaseKcas = input.releaseSpeedKcas;
+  // The SEM starts at Release + Overshoot (BDP SPEC §6.6, owner 2026-10-18): the tracking line runs up to it, so
+  // the speed shown does not jump at Release (display only; the BDP's release geometry is unchanged).
+  const releaseKcas = input.releaseSpeedKcas + (input.speedOvershootKcas ?? 0);
   // Tracking: the FPM line from the Track Point to Release (none when the Tracking Time is not positive).
   let release = { ...trackPoint };
   if (trackingSec > 0) {
@@ -98,7 +108,17 @@ export function buildBdpFlightPath(result, { rollDirection = "RIGHT" } = {}) {
   // Aim-off Point: where the Track Point's FPM line meets the Target plane.
   const aimRangeFt = trackPoint.z / Math.tan(diveDeg * DEG);
   const aim = diveDeg > 0 ? { x: trackPoint.x + along.x * aimRangeFt, y: trackPoint.y + along.y * aimRangeFt, z: 0 } : null;
-  const fragment = pub.fragmentCheck?.applicable ? { ...pub.fragment, impactT: release.t + pub.fragment.impactTimeSec } : null;
+  // Fragment envelope on the BE's impact point: Release + impact down range along the attack axis, plus the
+  // impact cross range (wind; + = right of the Attack Heading, BDP SPEC §6.6) — 0.1.1.
+  const fragment = pub.fragmentCheck?.applicable ? {
+    ...pub.fragment,
+    impactT: release.t + pub.fragment.impactTimeSec,
+    impact: {
+      x: release.x + (along.x * (pub.fragment.impactDownRangeNm ?? 0) + along.y * (pub.fragment.impactCrossNm ?? 0)) * FT_PER_NM,
+      y: release.y + (along.y * (pub.fragment.impactDownRangeNm ?? 0) - along.x * (pub.fragment.impactCrossNm ?? 0)) * FT_PER_NM,
+      z: 0,
+    },
+  } : null;
   return {
     model: { ...BDP_FLIGHT_PATH_V0_1 },
     samples,
@@ -113,36 +133,70 @@ export function buildBdpFlightPath(result, { rollDirection = "RIGHT" } = {}) {
     diveDeg,
     rollDirection: side > 0 ? "RIGHT" : "LEFT",
     fragment,
+    // The SEM flown and its conditions (BDP v0.4 public.sem when the BE gives it; else the level SEM of v0.4.1).
+    sem: pub.sem ?? (pub.fragmentCheck?.applicable ? {
+      end: "LEVEL",
+      recoveryG: input.recoveryG,
+      gOnsetTimeSec: input.gOnsetTimeSec,
+      recoverySpeedKcas: pub.semRecoverySpeedKcas ?? result.diagnostics?.semRecoverySpeedKcas ?? null,
+      targetFpaDeg: null,
+      gReleaseStartFpaDeg: null,
+      terminalG: null,
+      levelOffAltitudeMslFt: pub.semMinimumAltitudeMslFt ?? null,
+      endAltitudeMslFt: null,
+    } : null),
+    targetElevationMslFt: elevation,
     // TAS at the Roll-in Point: the straight, level approach before it (flightStateAt at t < 0).
     initialTasKt: roll[0].tasKt,
+    approach: approachSamples(approach, samples[0]),
     minAltAglFt: pub.minAltMslFt - elevation,
     semMinAglFt: pub.semMinimumAltitudeAglFt ?? null,
   };
 }
 
+function approachSamples(approach, rollIn) {
+  if (!Array.isArray(approach)) return null;
+  const list = approach
+    .filter((a) => [a?.t, a?.x, a?.y, a?.headingDeg].every(Number.isFinite) && a.t < rollIn.t)
+    .map((a) => ({ ...rollIn, t: a.t, x: a.x, y: a.y, headingDeg: a.headingDeg, bankDeg: Number.isFinite(a.bankDeg) ? a.bankDeg : 0, loadFactor: Number.isFinite(a.loadFactor) ? a.loadFactor : 1, phase: a.phase ?? "approach" }));
+  return list.length ? [...list, { ...rollIn }] : null;
+}
+
+function between(a, b, t) {
+  const k = b.t > a.t ? (t - a.t) / (b.t - a.t) : 1;
+  const mix = (key) => a[key] + (b[key] - a[key]) * k;
+  let dh = b.headingDeg - a.headingDeg;
+  dh -= 360 * Math.round(dh / 360);
+  return {
+    t,
+    x: mix("x"), y: mix("y"), z: mix("z"),
+    headingDeg: a.headingDeg + dh * k, fpaDeg: mix("fpaDeg"), bankDeg: mix("bankDeg"),
+    loadFactor: mix("loadFactor"), kcas: mix("kcas"),
+    phase: b.phase,
+  };
+}
+
 // State at time t (s from the Roll-in Point): linear between samples, clamped to the end of the path. Before
-// the Roll-in Point the aircraft flies its first state straight and level at the Roll-in TAS (the approach).
+// the Roll-in Point: the host's approach samples where given; before the earliest known state, a straight,
+// level extension along it at the Roll-in TAS (the stand-alone approach).
 export function flightStateAt(path, t) {
   const s = path.samples;
-  if (!(t > s[0].t)) {
-    const back = Number.isFinite(t) ? (s[0].t - t) * (path.initialTasKt ?? 0) * KT_TO_FPS : 0;
-    const h = s[0].headingDeg * DEG;
-    return { ...s[0], t: Number.isFinite(t) ? Math.min(t, s[0].t) : s[0].t, x: s[0].x - Math.sin(h) * back, y: s[0].y - Math.cos(h) * back, phase: back > 0 ? "approach" : s[0].phase };
+  const early = path.approach ?? [s[0]];
+  if (!(t > early[0].t)) {
+    const first = early[0];
+    const back = Number.isFinite(t) ? (first.t - t) * (path.initialTasKt ?? 0) * KT_TO_FPS : 0;
+    const h = first.headingDeg * DEG;
+    return { ...first, t: Number.isFinite(t) ? Math.min(t, first.t) : first.t, x: first.x - Math.sin(h) * back, y: first.y - Math.cos(h) * back, phase: back > 0 ? "approach" : first.phase };
+  }
+  if (path.approach && t < s[0].t) {
+    let j = 1;
+    while (early[j].t < t) j += 1;
+    return between(early[j - 1], early[j], t);
   }
   if (t >= s[s.length - 1].t) return { ...s[s.length - 1] };
   let i = 1;
   while (s[i].t < t) i += 1;
-  const a = s[i - 1];
-  const b = s[i];
-  const k = b.t > a.t ? (t - a.t) / (b.t - a.t) : 1;
-  const mix = (key) => a[key] + (b[key] - a[key]) * k;
-  return {
-    t,
-    x: mix("x"), y: mix("y"), z: mix("z"),
-    headingDeg: mix("headingDeg"), fpaDeg: mix("fpaDeg"), bankDeg: mix("bankDeg"),
-    loadFactor: mix("loadFactor"), kcas: mix("kcas"),
-    phase: b.phase,
-  };
+  return between(s[i - 1], s[i], t);
 }
 
 // Aircraft axes at a state: velocity v and the body right / up vectors (bank about v; right wing down +).

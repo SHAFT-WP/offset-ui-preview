@@ -1,23 +1,28 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { BDP_VIEW_COLORS as C } from "./bdp-view-style-v0.1.mjs";
-import { aircraftAxes, flightStateAt, fragmentAt } from "./bdp-flight-path-v0.1.mjs?v=0.1.0";
+import { aircraftAxes, flightStateAt, fragmentAt } from "./bdp-flight-path-v0.1.mjs?v=0.1.1";
 
 // BDP 3D Profile v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.2 in SVG). A perspective
 // picture of a BDP flight path (bdp-flight-path-v0.1): ground grid, Target, Aim-off Point, the path coloured by
 // phase (Roll-in, Tracking, SEM) with its ground shadow, the FPM line from the Track Point to the Aim-off Point,
-// wing ticks every 1 s (bank), the aircraft at time t and the fragment cylinder on the Target (its largest size
-// dashed; at t its size then, filled). The orbit (azimuth / elevation of the eye) and an altitude ×2 stretch are
+// wing ticks every 1 s (bank), the aircraft at time t and the fragment envelope (0.1.1: a dome on the impact point;
+// its largest size dashed, at t its size then, filled). The orbit (azimuth / elevation of the eye) and an altitude ×2 stretch are
 // the host's options; orbitByDrag turns a pointer drag into a new orbit. Self-contained SVG; display only.
 
 export const BDP_3D_VIEW_V0_1 = Object.freeze({
   id: "bdp-3d-view-v0.1",
-  version: "0.1.0",
+  // 0.1.1 (2026-10-18, owner handoff §4): the fragment envelope is an ellipsoidal dome on the BE's impact point
+  // ((x² + y²)/R² + z²/H² = 1, its largest size dashed, its size at t filled); `zoom` / `pan` after the fit
+  // (zoomAbout keeps a screen point fixed); the host's approach before the Roll-in Point (grey); the legend
+  // carries the SEM conditions as notes. Display only: the fragment check stays the BE's cylinder check.
+  version: "0.1.1",
   canvas: Object.freeze({ width: 900, height: 560 }),
+  zoomLimits: Object.freeze([0.5, 4]),
   // Default eye: 60° from the Attack Heading toward the Roll-in side, 15° up (the dive seen nearly side on).
   defaultOrbit: Object.freeze({ fromAttackHeadingDeg: 60, elevationDeg: 15 }),
   elevationLimitsDeg: Object.freeze([5, 85]),
   dragDegPerPx: Object.freeze({ azimuth: 0.4, elevation: 0.3 }),
-  phaseColors: Object.freeze({ "roll-in": C.rollIn, tracking: C.flightPath, sem: C.verticalTracking }),
+  phaseColors: Object.freeze({ approach: "#8f9aa6", "roll-in": C.rollIn, tracking: C.flightPath, sem: C.verticalTracking }),
 });
 
 const FT_PER_NM = 6076.11549;
@@ -42,6 +47,29 @@ export function orbitByDrag(orbit, dxPx, dyPx) {
   return { azimuthDeg, elevationDeg: Math.min(high, Math.max(low, orbit.elevationDeg + dyPx * elevation)) };
 }
 
+// Zoom by `factor` about screen point (px, py) of the canvas, keeping that point of the picture under it.
+export function zoomAbout(view, factor, px, py) {
+  const [low, high] = BDP_3D_VIEW_V0_1.zoomLimits;
+  const { width: W, height: H } = BDP_3D_VIEW_V0_1.canvas;
+  const zoom = view.zoom ?? 1;
+  const pan = view.pan ?? { x: 0, y: 0 };
+  const next = Math.min(high, Math.max(low, zoom * factor));
+  const k = next / zoom;
+  return { zoom: next, pan: { x: px - W / 2 - k * (px - W / 2 - pan.x), y: py - H / 2 - k * (py - H / 2 - pan.y) } };
+}
+
+// Convex hull of screen points (monotone chain): the outline of a convex solid's projection.
+function hull(points) {
+  const p = points.filter(Boolean).slice().sort((a, b) => a.x - b.x || a.y - b.y);
+  if (p.length < 3) return p;
+  const crossZ = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower = [];
+  for (const q of p) { while (lower.length >= 2 && crossZ(lower.at(-2), lower.at(-1), q) <= 0) lower.pop(); lower.push(q); }
+  const upper = [];
+  for (const q of p.slice().reverse()) { while (upper.length >= 2 && crossZ(upper.at(-2), upper.at(-1), q) <= 0) upper.pop(); upper.push(q); }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+}
+
 export function renderBdp3dView(svg, path, options = {}) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
   if (!Array.isArray(path?.samples) || path.samples.length < 2) throw new TypeError("a BDP flight path is required");
@@ -50,17 +78,21 @@ export function renderBdp3dView(svg, path, options = {}) {
   const zk = Number(options.altitudeScale) === 2 ? 2 : 1;
   // t: seconds from the Roll-in Point (before it the aircraft is still on the approach and is not drawn).
   const t = Number.isFinite(options.timeSec) ? Math.min(options.timeSec, path.endT) : null;
-  const flying = t !== null && t >= path.samples[0].t;
+  // The aircraft shows from the earliest known state (the host's approach, else the Roll-in Point).
+  const firstT = path.approach?.[0]?.t ?? path.samples[0].t;
+  const flying = t !== null && t >= firstT;
   const P = (p) => [p.x, p.y, p.z * zk];
 
   // Ground square: the path, Target, Aim-off Point and the fragment radius, on a round grid step.
   const fragment = path.fragment;
-  const ground = [...path.samples, path.target, ...(path.aim ? [path.aim] : [])];
+  const approach = path.approach ?? [];
+  const impact = fragment?.impact ?? path.target;
+  const ground = [...approach, ...path.samples, path.target, ...(path.aim ? [path.aim] : [])];
   const pad = Math.max(0.3 * FT_PER_NM, fragment ? fragment.radiusFt * 1.1 : 0);
-  let minX = Math.min(...ground.map((p) => p.x), path.target.x - pad);
-  let maxX = Math.max(...ground.map((p) => p.x), path.target.x + pad);
-  let minY = Math.min(...ground.map((p) => p.y), path.target.y - pad);
-  let maxY = Math.max(...ground.map((p) => p.y), path.target.y + pad);
+  let minX = Math.min(...ground.map((p) => p.x), impact.x - pad);
+  let maxX = Math.max(...ground.map((p) => p.x), impact.x + pad);
+  let minY = Math.min(...ground.map((p) => p.y), impact.y - pad);
+  let maxY = Math.max(...ground.map((p) => p.y), impact.y + pad);
   const spanNm = Math.max(maxX - minX, maxY - minY) / FT_PER_NM;
   const stepNm = GRID_STEPS_NM.find((step) => spanNm / step <= 10) ?? GRID_STEPS_NM.at(-1);
   const stepFt = stepNm * FT_PER_NM;
@@ -84,9 +116,9 @@ export function renderBdp3dView(svg, path, options = {}) {
     const depth = dot(d, forward);
     return depth > 1 ? { u: dot(d, right) / depth, v: dot(d, up) / depth } : null;
   };
-  // Fit: the ground square's corners, the path and the cylinder's top fill the canvas below the title rows.
-  const fitPoints = [[minX, minY, 0], [maxX, minY, 0], [maxX, maxY, 0], [minX, maxY, 0], ...path.samples.map(P)];
-  if (fragment) for (let a = 0; a < 360; a += 30) fitPoints.push([path.target.x + fragment.radiusFt * Math.cos(a * DEG), path.target.y + fragment.radiusFt * Math.sin(a * DEG), fragment.heightAglFt * zk]);
+  // Fit: the ground square's corners, the path and the dome's top fill the canvas below the title rows.
+  const fitPoints = [[minX, minY, 0], [maxX, minY, 0], [maxX, maxY, 0], [minX, maxY, 0], ...approach.map(P), ...path.samples.map(P)];
+  if (fragment) fitPoints.push([impact.x, impact.y, fragment.heightAglFt * zk]);
   const fitted = fitPoints.map(camera).filter(Boolean);
   const uMin = Math.min(...fitted.map((p) => p.u));
   const uMax = Math.max(...fitted.map((p) => p.u));
@@ -94,9 +126,15 @@ export function renderBdp3dView(svg, path, options = {}) {
   const vMax = Math.max(...fitted.map((p) => p.v));
   const box = { left: 40, right: W - 24, top: 76, bottom: H - 20 };
   const scale = Math.min((box.right - box.left) / Math.max(uMax - uMin, 1e-9), (box.bottom - box.top) / Math.max(vMax - vMin, 1e-9));
+  // Fit, then the host's zoom about the canvas centre and pan (px).
+  const zoom = Math.min(BDP_3D_VIEW_V0_1.zoomLimits[1], Math.max(BDP_3D_VIEW_V0_1.zoomLimits[0], Number(options.zoom) || 1));
+  const pan = { x: Number(options.pan?.x) || 0, y: Number(options.pan?.y) || 0 };
   const ox = (box.left + box.right) / 2 - (scale * (uMin + uMax)) / 2;
   const oy = (box.top + box.bottom) / 2 + (scale * (vMin + vMax)) / 2;
-  const at = (q) => { const c = camera(q); return c ? { x: ox + scale * c.u, y: oy - scale * c.v } : null; };
+  const at = (q) => {
+    const c = camera(q);
+    return c ? { x: W / 2 + zoom * (ox + scale * c.u - W / 2) + pan.x, y: H / 2 + zoom * (oy - scale * c.v - H / 2) + pan.y } : null;
+  };
   const pts = (list) => list.filter(Boolean).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
   const polyline = (list, attrs) => { const q = list.map(at).filter(Boolean); return q.length >= 2 ? svgNode("polyline", { points: pts(q), fill: "none", ...attrs }) : null; };
   const text = (p, value, attrs = {}) => (p ? svgNode("text", { x: p.x.toFixed(1), y: p.y.toFixed(1), fill: "#203a63", "font-size": 13, "font-family": "system-ui, sans-serif", "font-weight": 600, stroke: "#ffffff", "stroke-width": 3, "paint-order": "stroke", ...attrs }, value) : null);
@@ -116,29 +154,32 @@ export function renderBdp3dView(svg, path, options = {}) {
   for (let y = minY + stepFt; y < maxY - 1; y += stepFt) add(polyline([[minX, y, 0], [maxX, y, 0]], { stroke: "#d3dae2", "stroke-width": 1, "data-3d-role": "grid" }));
 
   // Ground shadow of the path and drop lines at the Roll-in Point, Track Point and Release.
-  add(polyline(path.samples.map((s) => [s.x, s.y, 0]), { stroke: "#8f9aa6", "stroke-width": 1.4, "stroke-opacity": 0.7, "data-3d-role": "shadow" }));
+  add(polyline([...approach, ...path.samples].map((s) => [s.x, s.y, 0]), { stroke: "#8f9aa6", "stroke-width": 1.4, "stroke-opacity": 0.7, "data-3d-role": "shadow" }));
   const marks = [[path.samples[0], "Roll-in"], [path.trackPoint, "Track Point"], ...(path.releaseT > path.trackPointT ? [[path.release, "Release"]] : [])];
   for (const [p] of marks) add(polyline([[p.x, p.y, 0], P(p)], { stroke: "#8f9aa6", "stroke-width": 1, "stroke-dasharray": "3 3", "data-3d-role": "drop-line" }));
 
-  // Fragment cylinder on the Target: the largest size dashed, its size at t filled.
-  const ring = (radiusFt, z) => Array.from({ length: 49 }, (_, i) => [path.target.x + radiusFt * Math.cos(i * 7.5 * DEG), path.target.y + radiusFt * Math.sin(i * 7.5 * DEG), z * zk]);
-  const cylinder = (radiusFt, heightFt, attrs, role) => {
-    const g = add(svgNode("g", { "data-3d-role": role }));
-    const bottom = ring(radiusFt, 0).map(at).filter(Boolean);
-    const top = ring(radiusFt, heightFt).map(at).filter(Boolean);
-    if (bottom.length < 3 || top.length < 3) return;
-    // Silhouette: the screen-leftmost and rightmost bottom points and the top points above them.
-    const iLeft = bottom.reduce((best, p, i) => (p.x < bottom[best].x ? i : best), 0);
-    const iRight = bottom.reduce((best, p, i) => (p.x > bottom[best].x ? i : best), 0);
-    if (attrs.fill && attrs.fill !== "none") g.append(svgNode("polygon", { points: pts([...bottom, ...top.slice().reverse()]), fill: attrs.fill, "fill-opacity": attrs["fill-opacity"], stroke: "none" }));
-    const line = { fill: "none", stroke: attrs.stroke, "stroke-width": attrs["stroke-width"], "stroke-dasharray": attrs["stroke-dasharray"] };
-    g.append(svgNode("polygon", { points: pts(bottom), ...line }));
-    g.append(svgNode("polygon", { points: pts(top), ...line }));
-    for (const i of [iLeft, iRight]) if (top[i]) g.append(svgNode("polyline", { points: pts([bottom[i], top[i]]), ...line }));
+  // Fragment dome on the impact point: (x² + y²)/R² + z²/H² = 1 above the ground. Its outline is the convex hull of
+  // surface points; two meridians and a mid ring give its shape. Largest size dashed, size at t filled.
+  const dome = (radiusFt, heightFt, filled, role) => {
+    if (!(radiusFt > 0 && heightFt > 0)) return;
+    const g = add(svgNode("g", { "data-3d-role": role, "data-radius-ft": radiusFt.toFixed(1), "data-height-ft": heightFt.toFixed(1) }));
+    const surface = (phiDeg, thetaDeg) => [impact.x + radiusFt * Math.cos(phiDeg * DEG) * Math.cos(thetaDeg * DEG), impact.y + radiusFt * Math.cos(phiDeg * DEG) * Math.sin(thetaDeg * DEG), heightFt * Math.sin(phiDeg * DEG) * zk];
+    const cloud = [];
+    for (let phi = 0; phi <= 90; phi += 7.5) for (let theta = 0; theta < 360; theta += 10) cloud.push(at(surface(phi, theta)));
+    const outline = hull(cloud);
+    const line = { fill: "none", stroke: C.target, "stroke-width": 1.4, ...(filled ? {} : { "stroke-dasharray": "6 5" }) };
+    if (outline.length >= 3) g.append(svgNode("polygon", { points: pts(outline), ...(filled ? { fill: C.target, "fill-opacity": 0.2 } : { fill: "none" }), stroke: C.target, "stroke-width": 1.4, ...(filled ? {} : { "stroke-dasharray": "6 5" }), "data-3d-role": `${role}-outline` }));
+    const ring = (phi) => Array.from({ length: 37 }, (_, i) => at(surface(phi, i * 10)));
+    g.append(svgNode("polyline", { points: pts(ring(0)), ...line, "data-3d-role": `${role}-base` }));
+    g.append(svgNode("polyline", { points: pts(ring(45)), ...line, "stroke-opacity": 0.5 }));
+    const view = Math.atan2(eye[1] - impact.y, eye[0] - impact.x) / DEG;
+    for (const theta of [view + 90, view]) {
+      g.append(svgNode("polyline", { points: pts(Array.from({ length: 25 }, (_, i) => at(surface(i * 7.5, theta)))), ...line, "stroke-opacity": 0.5 }));
+    }
   };
-  if (fragment) cylinder(fragment.radiusFt, fragment.heightAglFt, { fill: "none", stroke: C.target, "stroke-width": 1.4, "stroke-dasharray": "6 5" }, "fragment-max");
+  if (fragment) dome(fragment.radiusFt, fragment.heightAglFt, false, "fragment-max");
   const fragmentNow = t === null ? null : fragmentAt(path, t);
-  if (fragmentNow) cylinder(fragmentNow.radiusFt, fragmentNow.heightFt, { fill: C.target, "fill-opacity": 0.2, stroke: C.target, "stroke-width": 1.4 }, "fragment-now");
+  if (fragmentNow) dome(fragmentNow.radiusFt, fragmentNow.heightFt, true, "fragment-now");
 
   // Target and Aim-off Point.
   const tgt = at(P(path.target));
@@ -157,6 +198,7 @@ export function renderBdp3dView(svg, path, options = {}) {
   }
 
   // Path by phase, each run joined to the previous one's last point.
+  if (approach.length >= 2) add(polyline(approach.map(P), { stroke: BDP_3D_VIEW_V0_1.phaseColors.approach, "stroke-width": 2, "stroke-linejoin": "round", "data-3d-role": "path-approach" }));
   const runs = [];
   path.samples.forEach((s, i) => {
     if (!runs.length || runs.at(-1).phase !== s.phase) runs.push({ phase: s.phase, points: i > 0 ? [path.samples[i - 1]] : [] });
@@ -198,15 +240,35 @@ export function renderBdp3dView(svg, path, options = {}) {
   }
 
   // Title rows: orbit, altitude stretch, grid step; at t the aircraft's state.
-  add(text({ x: 16, y: 24 }, `Orbit ${Math.round(orbit.azimuthDeg)}° / ${Math.round(orbit.elevationDeg)}° · Altitude ×${zk} · Grid ${stepNm} NM`, { "data-3d-role": "status" }));
+  add(text({ x: 16, y: 24 }, `Orbit ${Math.round(orbit.azimuthDeg)}° / ${Math.round(orbit.elevationDeg)}° · Zoom ${Math.round(zoom * 100)}% · Altitude ×${zk} · Grid ${stepNm} NM`, { "data-3d-role": "status" }));
   if (t !== null && !flying) add(text({ x: 16, y: 46 }, `Roll-in in ${(path.samples[0].t - t).toFixed(1)} s`, { "data-3d-role": "state" }));
-  if (state) add(text({ x: 16, y: 46 }, `T ${t.toFixed(1)} s from Roll-in · ${String(state.phase).toUpperCase()} · ${Math.round(state.z)} ft AGL · ${Math.round(state.kcas)} KCAS · Bank ${Math.round(Math.abs(state.bankDeg))}°`, { "data-3d-role": "state" }));
+  if (state) add(text({ x: 16, y: 46 }, `Roll-in ${t < 0 ? "−" : "+"}${Math.abs(t).toFixed(1)} s · ${String(state.phase).toUpperCase()} · ${Math.round(state.z)} ft AGL · ${Math.round(state.kcas)} KCAS · Bank ${Math.round(Math.abs(state.bankDeg))}°`, { "data-3d-role": "state" }));
   const legend = [
+    ...(approach.length >= 2 ? [{ label: "Approach", color: BDP_3D_VIEW_V0_1.phaseColors.approach }] : []),
     { label: "Roll-in", color: BDP_3D_VIEW_V0_1.phaseColors["roll-in"] },
     { label: "Tracking", color: BDP_3D_VIEW_V0_1.phaseColors.tracking },
     ...(path.samples.some((s) => s.phase === "sem") ? [{ label: "SEM", color: BDP_3D_VIEW_V0_1.phaseColors.sem }] : []),
     ...(path.aim ? [{ label: "FPM line", color: C.flightPath, dashed: true }] : []),
-    ...(fragment ? [{ label: "Fragment cylinder", color: C.target, dashed: true }] : []),
+    ...(fragment ? [{ label: "Fragment envelope (max)", color: C.target, dashed: true }] : []),
   ];
-  return { title: options.title ?? "3D Profile", orbit, altitudeScale: zk, gridStepNm: stepNm, timeSec: t, state, legend, legendColumns: 0, canvas: { width: W, height: H } };
+  const legendNotes = bdpSemLegendNotes(path);
+  return { title: options.title ?? "3D Profile", orbit, zoom, pan, altitudeScale: zk, gridStepNm: stepNm, timeSec: t, state, legend, legendNotes, legendColumns: 0, canvas: { width: W, height: H } };
+}
+
+// SEM conditions and results under the 3D legend (owner handoff §4.5): the SEM flown, its Recovery G, G Onset
+// Time and Recovery Speed; for the CLIMB SEM its Target FPA, G release start and Terminal G; the Level-off
+// Altitude only where the SEM levels off (N/A for a CLIMB SEM, which shows its End Altitude instead).
+export function bdpSemLegendNotes(path) {
+  const sem = path?.sem;
+  if (!sem) return [];
+  const climb = sem.end === "CLIMB";
+  const f = (value, digits, unit) => (Number.isFinite(value) ? `${value.toFixed(digits)}${unit}` : "N/A");
+  const ft = (value) => (Number.isFinite(value) ? `${Math.round(value).toLocaleString("en-US")} ft MSL` : "N/A");
+  const rows = [
+    `SEM: ${climb ? "CSEM (climb)" : "Level SEM"}`,
+    `Recovery G: ${f(sem.recoveryG, 1, " G")} · G Onset Time: ${f(sem.gOnsetTimeSec, 1, " s")} · Recovery Speed: ${f(sem.recoverySpeedKcas, 0, " KCAS")}`,
+  ];
+  if (climb) rows.push(`CSEM Target FPA: +${f(sem.targetFpaDeg, 0, "°")} · G Release Start: +${f(sem.gReleaseStartFpaDeg, 0, "°")} FPA · Terminal G: ${f(sem.terminalG, 3, " G")}`);
+  rows.push(climb ? `Level-off Altitude: N/A · CSEM End Altitude: ${ft(sem.endAltitudeMslFt)}` : `Level-off Altitude: ${ft(sem.levelOffAltitudeMslFt)}`);
+  return rows;
 }

@@ -17,7 +17,10 @@ export const OFFSET_TIME_PATH_V0_1 = Object.freeze({
   id: "offset-time-path-v0.1",
   // 0.1.1 (2026-10-15, BDP update R2.1): the turn leg follows geometry.offsetTurnPath (onset level turn) with
   // its own sample times.
-  version: "0.1.1",
+  // 0.1.2 (2026-10-18, owner handoff §3.1): offsetApproachInBdpFrame — the flown path just before the Roll-in Point
+  // (the approach leg, or the onset Offset Turn when the approach is short) in the BDP flight path frame, for the
+  // BDP HUD's Roll-in −3 s start. Bank and G from the BE's turn samples (geometry 0.2.8). Display only.
+  version: "0.1.2",
   phases: Object.freeze(["ingress", "turn", "approach", "roll-in", "tracking", "bomb"]),
 });
 
@@ -141,4 +144,52 @@ export function offsetTimeline(result) {
       return { timeSec: t, phase: released ? "released" : phase, aircraft, heading, flown, bomb };
     },
   };
+}
+
+// The `seconds` before this aircraft's Roll-in Point, every 0.1 s (not before its IP), in the BDP flight path frame:
+// ft from the Roll-in Point, y along the Initial (Approaching) heading, x to its right; heading relative to it
+// (right +), bank right wing down +, G; level at the Roll-in altitude (BDP flight path v0.1.1 `approach`).
+const FT_PER_NM = 6076.11549;
+export function offsetApproachInBdpFrame(result, seconds = 3.5) {
+  const timeline = offsetTimeline(result);
+  const rollLeg = timeline.legs.find((leg) => leg.phase === "roll-in");
+  const turnLeg = timeline.legs.find((leg) => leg.phase === "turn");
+  const geometry = result.geometry;
+  const start = geometry.points.rollStart;
+  if (!rollLeg || !finitePoint(start) || !Number.isFinite(geometry.offsetHeadingDeg)) return null;
+  const h = (geometry.offsetHeadingDeg * Math.PI) / 180;
+  const fwd = { x: Math.sin(h), y: Math.cos(h) };
+  const right = { x: Math.cos(h), y: -Math.sin(h) };
+  const turnPath = geometry.offsetTurnPath ?? [];
+  const turnSign = geometry.direction?.offsetDirection === "LEFT" ? -1 : 1;
+  const turnState = (localSec) => {
+    if (turnPath.length < 2) return { bankDeg: 0, loadFactor: 1 };
+    let i = 1;
+    while (i < turnPath.length - 1 && turnPath[i].tSec < localSec) i += 1;
+    const a = turnPath[i - 1];
+    const b = turnPath[i];
+    const k = b.tSec > a.tSec ? Math.min(1, Math.max(0, (localSec - a.tSec) / (b.tSec - a.tSec))) : 1;
+    const mix = (key, fallback) => (Number.isFinite(a[key]) && Number.isFinite(b[key]) ? a[key] + (b[key] - a[key]) * k : fallback);
+    return { bankDeg: turnSign * mix("bankDeg", 0), loadFactor: mix("loadFactorG", 1) };
+  };
+  const samples = [];
+  const first = Math.max(0, rollLeg.startSec - seconds);
+  for (let k = 0; first + k * ROLL_SAMPLE_SEC < rollLeg.startSec - 1e-6; k += 1) {
+    const tSec = first + k * ROLL_SAMPLE_SEC;
+    const at = timeline.at(tSec);
+    if (!at.aircraft || !at.heading) continue;
+    const rel = { x: at.aircraft.x - start.x, y: at.aircraft.y - start.y };
+    let headingDeg = (Math.atan2(at.heading.x, at.heading.y) * 180) / Math.PI - geometry.offsetHeadingDeg;
+    headingDeg -= 360 * Math.round(headingDeg / 360);
+    const turning = at.phase === "turn" && turnLeg;
+    samples.push({
+      t: tSec - rollLeg.startSec,
+      x: (rel.x * right.x + rel.y * right.y) * FT_PER_NM,
+      y: (rel.x * fwd.x + rel.y * fwd.y) * FT_PER_NM,
+      headingDeg,
+      ...(turning ? turnState(tSec - turnLeg.startSec) : { bankDeg: 0, loadFactor: 1 }),
+      phase: turning ? "turn" : "approach",
+    });
+  }
+  return samples;
 }

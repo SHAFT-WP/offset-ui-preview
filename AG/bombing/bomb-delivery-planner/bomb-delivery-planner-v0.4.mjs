@@ -20,7 +20,11 @@ import { FRAGMENT_MARGIN_MODES, SEM_FRAGMENT_MODEL_V0_1, calculateSemPathAndFrag
 // (display and check only; MINALT and NLT unchanged); input fragmentMarginAppliesTo (developer option).
 export const BOMB_DELIVERY_PLANNER_MODEL_V0_4 = Object.freeze({
   id: "bomb-delivery-planner-v0.4-model-b-roll-in",
-  version: "0.4.1",
+  // 0.4.2 (2026-10-18, owner handoff §6): inputs `semEnd` (LEVEL default | CLIMB) and `csemTargetFpaDeg` (default
+  // +30°): the SEM path, SEM minimum and fragment check follow the selected SEM (sem-fragment 0.1.1); `public.sem`
+  // records it. A CSEM that cannot be flown clears the SEM path, minimum and check (status INVALID, its errors);
+  // MINALT, NLT and every LEVEL result are unchanged.
+  version: "0.4.2",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   rollInModel: ROLL_IN_V0_2_MODEL,
   semFragmentModel: SEM_FRAGMENT_MODEL_V0_1,
@@ -75,6 +79,12 @@ function fragmentMarginMode(value) {
   return mode;
 }
 
+function semEndInput(value) {
+  const end = value ?? "LEVEL";
+  if (!SEM_FRAGMENT_MODEL_V0_1.semEnds.includes(end)) throw new RangeError(`semEnd must be one of ${SEM_FRAGMENT_MODEL_V0_1.semEnds.join(", ")}`);
+  return end;
+}
+
 function canonicalInput(rawInput) {
   requireCanonicalInput(rawInput);
   if (rawInput.windSpeedMps !== undefined || rawInput.windSpeed !== undefined) {
@@ -84,6 +94,8 @@ function canonicalInput(rawInput) {
     weaponId: rawInput.weaponId ?? "M82",
     fragmentHeightMarginPercent: rawInput.fragmentHeightMarginPercent ?? 20,
     fragmentMarginAppliesTo: fragmentMarginMode(rawInput.fragmentMarginAppliesTo),
+    semEnd: semEndInput(rawInput.semEnd),
+    csemTargetFpaDeg: rawInput.csemTargetFpaDeg ?? 30,
     targetElevationMslFt: rawInput.targetElevationMslFt,
     releaseSpeedKcas: rawInput.releaseSpeedKcas,
     speedOvershootKcas: rawInput.speedOvershootKcas ?? 50,
@@ -138,8 +150,18 @@ function semFragment(input, calculation) {
   if (!calculation.diagnostics.nltSupported) {
     return { applicable: false, ...fragmentCylinder({ weapon: calculation.weapon, targetElevationMslFt: input.targetElevationMslFt, fragmentHeightMarginPercent: input.fragmentHeightMarginPercent, fragmentMarginAppliesTo: input.fragmentMarginAppliesTo }) };
   }
+  const cylinderOnly = () => fragmentCylinder({ weapon: calculation.weapon, targetElevationMslFt: input.targetElevationMslFt, fragmentHeightMarginPercent: input.fragmentHeightMarginPercent, fragmentMarginAppliesTo: input.fragmentMarginAppliesTo });
+  try {
+    return { applicable: true, ...semPath(input, calculation, windFps, windRad) };
+  } catch (error) {
+    if (!error?.semErrors) throw error;
+    // The selected CSEM cannot be flown: no SEM path, minimum or check (handoff §6.4); MINALT / NLT stand.
+    return { applicable: false, invalid: true, errors: error.semErrors, ...cylinderOnly() };
+  }
+}
+
+function semPath(input, calculation, windFps, windRad) {
   return {
-    applicable: true,
     ...calculateSemPathAndFragment({
       weapon: calculation.weapon,
       targetElevationMslFt: input.targetElevationMslFt,
@@ -156,6 +178,8 @@ function semFragment(input, calculation) {
       // The ballistics' wind components (attack axis, FROM direction; 0 = headwind).
       windAlongFps: -windFps * Math.cos(windRad),
       windCrossFps: -windFps * Math.sin(windRad),
+      semEnd: input.semEnd,
+      csemTargetFpaDeg: input.csemTargetFpaDeg,
     }),
   };
 }
@@ -166,7 +190,7 @@ function solveCanonical(input) {
   const state = buildBombDeliveryVisualizationState(calculation);
   const roll = calculation.rollIn;
   const sem = semFragment(input, calculation);
-  const fragment = sem.applicable ? sem.fragment : (({ applicable, ...cylinder }) => cylinder)(sem);
+  const fragment = sem.applicable ? sem.fragment : (({ applicable, invalid, errors, ...cylinder }) => cylinder)(sem);
   return {
     model: { ...BOMB_DELIVERY_PLANNER_MODEL_V0_4 },
     canonicalInputs: input,
@@ -183,6 +207,8 @@ function solveCanonical(input) {
       semLevelOffTimeSec: sem.applicable ? sem.semLevelOffTimeSec : null,
       fragment,
       fragmentCheck: sem.applicable ? { applicable: true, ...sem.fragmentCheck } : { applicable: false },
+      // The SEM flown and its conditions (sem-fragment 0.1.1); null below Dive 10° (MINALT only).
+      sem: sem.applicable ? { status: "VALID", ...sem.sem } : sem.invalid ? { status: "INVALID", end: input.semEnd, targetFpaDeg: input.semEnd === "CLIMB" ? input.csemTargetFpaDeg : null, recoveryG: input.recoveryG, gOnsetTimeSec: input.gOnsetTimeSec, recoverySpeedKcas: input.releaseSpeedKcas + input.speedOvershootKcas, errors: sem.errors } : null,
     },
     local: calculation.local,
     safety: calculation.safety,

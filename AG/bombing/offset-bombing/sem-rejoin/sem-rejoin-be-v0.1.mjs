@@ -22,9 +22,9 @@ import {
   horizontalTurnRadiusNmFromTasFpaAndBank,
   loadFactorFromBankAndFpa,
 } from "../../../../common/maneuvers/turn-performance/turn-performance-v0.2.mjs";
-import { RECOVERY_PULL_MODEL, calculateWingsLevelRecoveryPull } from "../../../../common/maneuvers/recovery-pull/recovery-pull-v0.1.mjs";
+import { RECOVERY_PULL_MODEL } from "../../../../common/maneuvers/recovery-pull/recovery-pull-v0.1.mjs";
 import { truncateBeOutput } from "../../../../common/ui/display-precision-v0.1.mjs";
-import { CLIMB_SEM_MODEL_V0_2, calculateClimbSemV0_2 } from "../../../../flight/maneuvers/safe-escape/work/v0.2/climb-sem-core-v0.2.mjs";
+import { CLIMB_SEM_MODEL_V0_2 } from "../../../../flight/maneuvers/safe-escape/work/v0.2/climb-sem-core-v0.2.mjs";
 import { computeFormationOffsetVectorFull } from "../offset-formation-v0.1.mjs";
 import { add, dot, len, mul, signedHeadingDelta, sub, vecHeading } from "../offset-geometry-v0.2.mjs";
 import { OFFSET_TIME_PATH_V0_1, offsetTimeline } from "../view/offset-time-path-v0.1.mjs";
@@ -40,7 +40,10 @@ export const SEM_REJOIN_V0_1 = Object.freeze({
   id: "offset-sem-rejoin-v0.1",
   // 0.2.1 (2026-10-15): the Offset clock follows the onset Offset turn (offset-be-v0.2 0.2.11,
   // geometry.offsetTurnPath passed through).
-  version: "0.2.1",
+  // 0.3.0 (2026-10-18, owner handoff §6.5): the SEM is the BDP's selected SEM (BDP v0.4.2: LEVEL or the CSEM to
+  // its Target FPA, from Release + Overshoot, on the attack ground track) — S&R runs no SEM of its own and the
+  // plan's per-aircraft semEnd is no longer read (the BDP tab owns the SEM End).
+  version: "0.3.0",
   model: Object.freeze({ id: "sr-energy-neutral-point-mass-v0.1", version: "0.1.0", integrationStepSec: 0.01 }),
   components: Object.freeze({
     sem: `${CLIMB_SEM_MODEL_V0_2.id} ${CLIMB_SEM_MODEL_V0_2.version}`,
@@ -242,8 +245,19 @@ function offsetResultView(result) {
         downRangeTravelNm: profile.public?.downRangeTravelNm ?? null,
         bombTofSec: profile.public?.bombTofSec ?? null,
         effectiveReleaseAltitudeMslFt: profile.public?.effectiveReleaseAltitudeMslFt ?? null,
+        // The BDP's selected SEM (BDP v0.4.2, owner handoff §6.5): the record and its flown samples to the
+        // level-off (LEVEL) or the CSEM End (CLIMB). S&R starts from this state.
+        semMinimumAltitudeMslFt: profile.public?.semMinimumAltitudeMslFt ?? null,
+        sem: profile.public?.sem ? JSON.parse(JSON.stringify(profile.public.sem)) : null,
+      },
+      visualization: {
+        semPathSamples: (profile.visualization?.semPathSamples ?? []).filter((sample) => sample.phase === "pull" || sample.phase === "relax")
+          .map(({ timeSec, downRangeNm, altitudeMslFt, fpaDeg, tasKt, loadFactorG, phase }) => ({ timeSec, downRangeNm, altitudeMslFt, fpaDeg, tasKt, loadFactorG, phase })),
       },
       canonicalInputs: {
+        semEnd: profile.canonicalInputs?.semEnd ?? "LEVEL",
+        csemTargetFpaDeg: profile.canonicalInputs?.csemTargetFpaDeg ?? null,
+        speedOvershootKcas: profile.canonicalInputs?.speedOvershootKcas ?? null,
         releaseSpeedKcas: profile.canonicalInputs?.releaseSpeedKcas ?? null,
         diveAngleDeg: profile.canonicalInputs?.diveAngleDeg ?? null,
         recoveryG: profile.canonicalInputs?.recoveryG ?? null,
@@ -330,48 +344,28 @@ function releaseOf(view) {
   return { timeline, timeSec: timeline.releaseSec, point: { ...timeline.release }, attackHeadingDeg, attackSamples: samples };
 }
 
-// Release → SEM End on the IP clock, wings level at constant air heading from the air-relative release
-// state reconstructed from BDP's ground-referenced release velocity (BDP SPEC §8); the ground path adds
-// the wind drift. LEVEL: the Common recovery pull (the same pull the CSEM core starts with) at the BDP
-// Recovery G / G Onset until FPA 0°, where 1 G level flight begins. CLIMB: the CSEM core to +30°.
-const LEVEL_SEM_ASSUMPTIONS = Object.freeze([
-  "LEVEL_RECOVERY: from Release, G onset to Recovery G, held until FPA 0°; then 1 G level flight (owner 2026-10-13)",
+// Release → SEM End on the IP clock (owner handoff 2026-10-18 §6.5): the BDP's selected SEM (BDP v0.4.2 public.sem
+// and its samples) — LEVEL: the recovery pull to FPA 0° (1 G level flight follows); CLIMB: the CSEM to its Target
+// FPA — from Release + Overshoot, on the attack ground track as the BDP flies it. S&R calculates no SEM of its own;
+// its rows start from the BDP's SEM End. The air heading (for the rows after it) is the Release state's,
+// reconstructed from BDP's ground-referenced release velocity (BDP SPEC §8).
+const BDP_SEM_ASSUMPTIONS = Object.freeze([
+  "BDP_SEM: the SEM is the BDP's selected SEM (sem-fragment 0.1.1) from Release + Overshoot on the attack ground track",
   "WINGS_LEVEL_POINT_MASS: no thrust / drag; speed changes only with height",
 ]);
 
-function runSem(semEnd, semInput) {
-  if (semEnd === "CLIMB") {
-    const sem = cachedCalculation("sr-sem", { model: CLIMB_SEM_MODEL_V0_2, input: semInput }, () => calculateClimbSemV0_2(semInput));
-    if (!sem.validation.valid) return { valid: false, errors: sem.validation.errors.map((code) => `SEM: ${code}`), warnings: sem.validation.warnings };
-    return { valid: true, sem: { model: sem.model, assumptions: sem.assumptions, warnings: sem.validation.warnings, elapsedTimeSec: sem.elapsedTimeSec, minAltitudeFtMsl: sem.minAltitudeFtMsl, terminationSpeedKcas: sem.terminationSpeedKcas, samples: sem.path.samples } };
-  }
-  const pullInput = {
-    startAltitudeMslFt: semInput.releaseAltitudeFtMsl,
-    startSpeedKcas: semInput.releaseSpeedKcas,
-    startFpaDeg: semInput.releaseFpaDeg,
-    targetFpaDeg: 0,
-    recoveryG: semInput.recoveryG,
-    gOnsetTimeSec: semInput.gOnsetTimeSec,
-    maneuverInitiationDelaySec: 0,
-    sampleIntervalSec: semInput.sampleIntervalSec,
-  };
-  try {
-    const pull = cachedCalculation("sr-sem", { model: RECOVERY_PULL_MODEL, input: pullInput }, () => calculateWingsLevelRecoveryPull(pullInput));
-    return { valid: true, sem: { model: { ...RECOVERY_PULL_MODEL, semEnd: "LEVEL" }, assumptions: [...LEVEL_SEM_ASSUMPTIONS], warnings: [], elapsedTimeSec: pull.elapsedTimeSec, minAltitudeFtMsl: pull.minAltitudeMslFt, terminationSpeedKcas: pull.terminationSpeedKcas, samples: pull.path.samples } };
-  } catch (error) {
-    return { valid: false, errors: [`SEM: ${error.message}`], warnings: [] };
-  }
-}
-
-function computeSem(view, windKt, semEnd = "LEVEL") {
+function computeSem(view, windKt) {
   const release = releaseOf(view);
   const profile = view.profile;
+  const semEnd = profile.canonicalInputs.semEnd ?? "LEVEL";
   const input = {
     releaseAltitudeMslFt: profile.public.effectiveReleaseAltitudeMslFt,
     releaseSpeedKcas: profile.canonicalInputs.releaseSpeedKcas,
+    speedOvershootKcas: profile.canonicalInputs.speedOvershootKcas,
     recoveryG: profile.canonicalInputs.recoveryG,
     gOnsetTimeSec: profile.canonicalInputs.gOnsetTimeSec,
     semEnd,
+    csemTargetFpaDeg: semEnd === "CLIMB" ? profile.canonicalInputs.csemTargetFpaDeg : null,
   };
   const base = { release: { timeSec: release.timeSec, point: release.point, attackHeadingDeg: release.attackHeadingDeg }, inputs: input };
   if (profile.diagnostics.nltSupported !== true) {
@@ -390,53 +384,38 @@ function computeSem(view, windKt, semEnd = "LEVEL") {
   const verticalKt = -groundVelocity.down / KT_TO_FPS;
   const airHeadingDeg = headingOf(airHorizontalKt);
   const releaseFpaDeg = Math.atan2(verticalKt, len(airHorizontalKt)) / DEG;
-  const warnings = [];
-  const airSpeedKt = Math.hypot(len(airHorizontalKt), verticalKt);
-  if (isFiniteNumber(profile.diagnostics.releaseTasKt) && Math.abs(airSpeedKt - profile.diagnostics.releaseTasKt) > 1e-6 * Math.max(1, profile.diagnostics.releaseTasKt)) {
-    warnings.push(`Release air speed ${airSpeedKt.toFixed(3)} kt differs from BDP release TAS ${profile.diagnostics.releaseTasKt.toFixed(3)} kt`);
+  const bdpSem = profile.public.sem;
+  if (!bdpSem || bdpSem.status !== "VALID") {
+    return { ...base, status: "INVALID", errors: (bdpSem?.errors?.length ? bdpSem.errors : ["the BDP SEM is not available"]).map((code) => `SEM: ${code}`), warnings: [], airHeadingDeg, releaseFpaDeg };
   }
-  const semInput = {
-    releaseAltitudeFtMsl: input.releaseAltitudeMslFt,
-    releaseSpeedKcas: input.releaseSpeedKcas,
-    releaseFpaDeg,
-    recoveryG: input.recoveryG,
-    gOnsetTimeSec: input.gOnsetTimeSec,
-    sampleIntervalSec: SEM_REJOIN_V0_1.semSampleSec,
-  };
-  const run = runSem(semEnd, semInput);
-  if (!run.valid) {
-    return { ...base, status: "INVALID", errors: run.errors, warnings: [...warnings, ...run.warnings], airHeadingDeg, releaseFpaDeg };
-  }
-  const sem = run.sem;
-  const heading = vecHeading(airHeadingDeg);
-  const samples = sem.samples.map((sample) => {
-    const air = mul(heading, sample.horizontalDistanceFt / FT_PER_NM);
-    const drift = mul(windKt, sample.elapsedTimeSec * NM_PER_KT_SEC);
-    return {
-      t: release.timeSec + sample.elapsedTimeSec,
-      x: release.point.x + air.x + drift.x,
-      y: release.point.y + air.y + drift.y,
-      altitudeMslFt: sample.altitudeMslFt,
-      tasKt: sample.speedKtas,
-      headingDeg: airHeadingDeg,
-      fpaDeg: sample.fpaDeg,
-      loadFactorG: sample.loadFactorG,
-    };
-  });
+  const flown = profile.visualization?.semPathSamples ?? [];
+  if (flown.length < 2) return { ...base, status: "INVALID", errors: ["SEM: the BDP SEM path is empty"], warnings: [], airHeadingDeg, releaseFpaDeg };
+  const attack = vecHeading(release.attackHeadingDeg);
+  const samples = flown.map((sample) => ({
+    t: release.timeSec + sample.timeSec,
+    x: release.point.x + attack.x * sample.downRangeNm,
+    y: release.point.y + attack.y * sample.downRangeNm,
+    altitudeMslFt: sample.altitudeMslFt,
+    tasKt: sample.tasKt,
+    headingDeg: airHeadingDeg,
+    fpaDeg: sample.fpaDeg,
+    loadFactorG: sample.loadFactorG,
+  }));
   const last = samples[samples.length - 1];
   return {
     ...base,
     status: "VALID",
     errors: [],
-    warnings: [...warnings, ...sem.warnings],
+    warnings: [...(bdpSem.warnings ?? [])],
     end: semEnd,
-    model: sem.model,
-    assumptions: sem.assumptions,
+    model: { ...bdpSem.model, semEnd },
+    assumptions: [...BDP_SEM_ASSUMPTIONS, ...(bdpSem.assumptions ?? [])],
+    bdpSem,
     airHeadingDeg,
     releaseFpaDeg,
-    durationSec: sem.elapsedTimeSec,
-    minAltitudeMslFt: sem.minAltitudeFtMsl,
-    terminationSpeedKcas: sem.terminationSpeedKcas,
+    durationSec: last.t - release.timeSec,
+    minAltitudeMslFt: profile.public.semMinimumAltitudeMslFt,
+    terminationSpeedKcas: tasToCas(last.tasKt, last.altitudeMslFt),
     samples,
     startState: makeState({ timeSec: samples[0].t, x: samples[0].x, y: samples[0].y, altitudeMslFt: samples[0].altitudeMslFt, tasKt: samples[0].tasKt, headingDeg: airHeadingDeg, fpaDeg: samples[0].fpaDeg }),
     endState: makeState({ timeSec: last.t, x: last.x, y: last.y, altitudeMslFt: last.altitudeMslFt, tasKt: last.tasKt, headingDeg: airHeadingDeg, fpaDeg: last.fpaDeg }),
@@ -1017,7 +996,9 @@ function resolveSettings(number, plan, upstream) {
   const turnDriver = isFiniteNumber(own.turnDriverValue)
     ? { kind: own.turnDriverKind, value: own.turnDriverValue, source: "explicit" }
     : { kind: own.turnDriverKind, value: isFiniteNumber(inherited) ? inherited : null, source: isFiniteNumber(inherited) ? "offsetTurn" : "none" };
-  return { semEnd: own.semEnd, levelOffG: levelOff, turnDriver };
+  // The SEM is the BDP's selection for this aircraft (owner handoff §6.5); the plan's legacy semEnd is not used.
+  const semEnd = upstream.aircraft[number]?.result?.profile?.canonicalInputs?.semEnd ?? "LEVEL";
+  return { semEnd, levelOffG: levelOff, turnDriver };
 }
 
 function rowDriver(row, settings) {
@@ -1048,7 +1029,7 @@ function computeAircraft(number, upstream, plan, windKt) {
   if (entry.status === "INVALID" || entry.result.state === "INVALID") return { ...base, status: "UPSTREAM_INVALID", message: `Offset #${number} is INVALID: no Release state` };
   let sem;
   try {
-    sem = computeSem(entry.result, windKt, settings.semEnd);
+    sem = computeSem(entry.result, windKt);
     base.attackSamples = releaseOf(entry.result).attackSamples;
   } catch (error) {
     return { ...base, status: "INVALID", message: `SEM: ${error.message}` };

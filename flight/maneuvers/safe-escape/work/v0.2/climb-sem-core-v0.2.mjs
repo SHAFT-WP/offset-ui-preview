@@ -8,7 +8,12 @@ const DEG_TO_RAD = Math.PI / 180;
 
 export const CLIMB_SEM_MODEL_V0_2 = Object.freeze({
   id: "csem-energy-neutral-point-mass-v0.2",
-  version: "0.2.0",
+  // 0.2.1 (2026-10-18, owner handoff §6): the Terminal (target) FPA is an input, 20° < it < 90° (was +30° only;
+  // +30° stays the default). From the +20° gate the G falls linearly in time to the terminal equilibrium
+  // cos(Terminal FPA); the relaxation time is solved so the integrated FPA reaches the target, and the result is
+  // INVALID unless the residual is under TERMINAL_FPA_TOLERANCE_DEG (no forced terminal value) or when the G
+  // onset has not finished at the gate.
+  version: "0.2.1",
   integrationStepSec: 0.01,
 });
 
@@ -18,6 +23,8 @@ export const CLIMB_SEM_BASELINE_V0_2 = Object.freeze({
   gRelaxationFpaDeg: 20,
   terminalFpaDeg: 30,
 });
+
+const TERMINAL_FPA_TOLERANCE_DEG = 1e-6;
 
 const ASSUMPTIONS = Object.freeze([
   "ENERGY_NEUTRAL_POINT_MASS",
@@ -62,7 +69,8 @@ function validateInput(input) {
   if (!finiteNumber(input.gRelaxationFpaDeg)) errors.push("G_RELAXATION_FPA_REQUIRED");
   if (!finiteNumber(input.terminalFpaDeg)) errors.push("TERMINAL_FPA_REQUIRED");
   if (finiteNumber(input.gRelaxationFpaDeg) && finiteNumber(input.terminalFpaDeg) && input.gRelaxationFpaDeg >= input.terminalFpaDeg) errors.push("G_RELAXATION_FPA_MUST_PRECEDE_TERMINAL_FPA");
-  if (finiteNumber(input.terminalFpaDeg) && Math.abs(input.terminalFpaDeg - 30) > 1e-9) errors.push("TERMINAL_FPA_NOT_SPECIFICATION_30_DEG");
+  if (finiteNumber(input.terminalFpaDeg) && !(input.terminalFpaDeg > 20 && input.terminalFpaDeg < 90)) errors.push("TERMINAL_FPA_OUT_OF_RANGE");
+  if (finiteNumber(input.terminalFpaDeg) && Math.abs(input.terminalFpaDeg - 30) > 1e-9) warnings.push("NON_BASELINE_TERMINAL_FPA");
   if (finiteNumber(input.recoveryG) && Math.abs(input.recoveryG - 5) > 1e-9) warnings.push("NON_BASELINE_RECOVERY_G");
   if (finiteNumber(input.gOnsetTimeSec) && Math.abs(input.gOnsetTimeSec - 2) > 1e-9) warnings.push("NON_BASELINE_G_ONSET_TIME");
   if (finiteNumber(input.gRelaxationFpaDeg) && Math.abs(input.gRelaxationFpaDeg - 20) > 1e-9) warnings.push("NON_BASELINE_G_RELAXATION_FPA");
@@ -151,6 +159,9 @@ export function calculateClimbSemV0_2(rawInput) {
     return invalidResult(input, [error.message || String(error)], warnings);
   }
 
+  // The G onset must be over at the relaxation gate (the relaxation starts from Recovery G).
+  if (pull.elapsedTimeSec < input.gOnsetTimeSec - 1e-9) return invalidResult(input, ["G_ONSET_NOT_COMPLETE_AT_RELAXATION_GATE"], warnings);
+
   const relaxationStart = {
     elapsedTimeSec: pull.elapsedTimeSec,
     horizontalDistanceFt: pull.horizontalDistanceNm * FT_PER_NM,
@@ -176,6 +187,9 @@ export function calculateClimbSemV0_2(rawInput) {
     relaxationSampler = createRecoveryPullSampler(sampleIntervalSec, { firstSampleSec });
   }
   const termination = runRelaxation(relaxationStart, input, (lowDuration + highDuration) / 2, relaxationSampler ? (state, loadFactor) => relaxationSampler.record(state, loadFactor) : null);
+  const residualDeg = Math.abs(termination.fpaRad - terminalFpaRad) / DEG_TO_RAD;
+  if (!(residualDeg < TERMINAL_FPA_TOLERANCE_DEG) || !Number.isFinite(termination.velocityFps)) return invalidResult(input, ["TERMINAL_FPA_NOT_CONVERGED"], warnings);
+  // Converged: the terminal state is reported at the target FPA (residual < TERMINAL_FPA_TOLERANCE_DEG).
   termination.fpaRad = terminalFpaRad;
   if (relaxationSampler) {
     relaxationSampler.finish(termination, Math.cos(terminalFpaRad));
@@ -194,6 +208,9 @@ export function calculateClimbSemV0_2(rawInput) {
     gOnsetTimeSec: input.gOnsetTimeSec,
     gRelaxationFpaDeg: input.gRelaxationFpaDeg,
     terminalFpaDeg: input.terminalFpaDeg,
+    terminalG: Math.cos(terminalFpaRad),
+    relaxationTimeSec: termination.elapsedTimeSec - relaxationStart.elapsedTimeSec,
+    terminalFpaResidualDeg: residualDeg,
     terminationHeadingChangeDeg: 0,
     terminationState: {
       elapsedTimeSec: termination.elapsedTimeSec,

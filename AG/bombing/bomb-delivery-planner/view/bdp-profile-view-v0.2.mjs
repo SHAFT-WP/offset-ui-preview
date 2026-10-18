@@ -37,7 +37,12 @@ export const BDP_PROFILE_VIEW_V0_2 = Object.freeze({
   // MINALT and SEM minimum altitude dashed lines, the fragment cylinder's vertical cut on the impact point
   // (its largest size dashed; at `timeAfterReleaseSec` its size then, filled) and the aircraft at that time.
   // Display only; without SEM samples nothing changes.
-  version: "0.2.4",
+  // 0.2.5 (2026-10-18, owner handoff §8): `semDetail` (the host's Profile Advanced). false: the drawing before the
+  // SEM additions (no SEM path, SEM minimum / MINALT lines, fragment envelope, their legend rows; the fit leaves
+  // them out). true or absent, with a raw Dive Angle > 10°: as 0.2.4, the envelope drawn as a half ellipse (the
+  // dome's vertical projection) and the legend giving Track to Release Height (the Vertical Tracking Distance),
+  // SEM Min Height, Fragment Height (max) and Fragment Diameter (max, 2R), MINALT and the SEM flown.
+  version: "0.2.5",
   subject: "Dive",
   view: "Profile",
   semanticStart: "TRACK_POINT",
@@ -74,7 +79,8 @@ export function renderBdpProfileView(svg, result, options = {}) {
   const diving = input.diveAngleDeg > 0 && aimOffRangeFt !== null;
   // SEM (0.2.4, Offset layout): path samples from Release (time, ground distance, altitude AGL), drawn up to
   // just past the largest fragment radius beyond the impact point (or to level-off when that is later).
-  const semSamples = offsetLayout ? (result.visualization.semPathSamples ?? []) : [];
+  const showSem = offsetLayout && options.semDetail !== false && input.diveAngleDeg > 10;
+  const semSamples = showSem ? (result.visualization.semPathSamples ?? []) : [];
   const fragment = semSamples.length >= 2 ? pub.fragment : null;
   const semXFt = (sample) => downRangeFt + sample.downRangeNm * FT_PER_NM;
   const levelOffSample = semSamples.filter((sample) => sample.phase === "pull").at(-1) ?? null;
@@ -161,10 +167,15 @@ export function renderBdpProfileView(svg, result, options = {}) {
     }));
     dashed(minAltAglFt, C.target, "minalt-line");
     if (Number.isFinite(semMinAglFt)) dashed(semMinAglFt, semColor, "sem-min-line");
-    // Cylinder cut on the impact point: largest size dashed; the size at the dial time filled.
-    const cylinder = (radiusFt, heightFt, attrs) => root.append(svgNode("rect", {
-      x: xs(groundRangeFt - radiusFt), y: ys(heightFt), width: 2 * radiusFt * scale, height: heightFt * scale, ...attrs,
-    }));
+    // Envelope on the impact point (0.2.5): the dome's vertical projection, a half ellipse of half width R and
+    // height H; largest size dashed, the size at the dial time filled.
+    const cylinder = (radiusFt, heightFt, attrs) => {
+      if (!(radiusFt > 0 && heightFt > 0)) return;
+      const rx = radiusFt * scale;
+      const ry = heightFt * scale;
+      const cx = xs(groundRangeFt);
+      root.append(svgNode("path", { d: `M${(cx - rx).toFixed(1)},${groundY.toFixed(1)} A${rx.toFixed(2)},${ry.toFixed(2)} 0 0 1 ${(cx + rx).toFixed(1)},${groundY.toFixed(1)} Z`, ...attrs }));
+    };
     cylinder(fragment.radiusFt, fragment.heightAglFt, { fill: "none", stroke: C.target, "stroke-width": 1.6, "stroke-dasharray": "6 5", "data-profile-role": "fragment-max" });
     const tau = Number(options.timeAfterReleaseSec);
     if (Number.isFinite(tau)) {
@@ -200,10 +211,13 @@ export function renderBdpProfileView(svg, result, options = {}) {
       d: points.map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join(" "),
       fill: "none", stroke: semColor, "stroke-width": 3, "stroke-linecap": "round", "stroke-linejoin": "round", "data-profile-role": "sem-path",
     }));
+    const sem = pub.sem;
     semLegend.push(
-      { label: `SEM Minimum · ${formatFt(pub.semMinimumAltitudeMslFt)} ft MSL`, color: semColor },
+      { label: `SEM · ${sem?.end === "CLIMB" ? `CSEM to +${formatDeg(sem.targetFpaDeg)}°` : "Level SEM"}`, color: semColor },
+      { label: `SEM Min Height · ${formatFt(semMinAglFt)} ft`, color: semColor },
       { label: `MINALT · ${formatFt(pub.minAltMslFt)} ft MSL`, color: C.target },
-      { label: `Fragment · H ${formatFt(fragment.heightAglFt)} ft · R ${formatNm(fragment.radiusNm)} NM`, color: C.target },
+      { label: `Fragment Height (max) · ${formatFt(fragment.heightAglFt)} ft`, color: C.target },
+      { label: `Fragment Diameter (max) · ${formatNm(2 * fragment.radiusNm)} NM`, color: C.target },
     );
   }
 
@@ -378,7 +392,8 @@ export function renderBdpProfileView(svg, result, options = {}) {
       { label: `Tracking Distance · ${formatNm(pub.downRangeTravelNm)} NM`, color: C.flightPath },
       { label: `Bomb Range · ${formatNm(pub.bombRangeNm)} NM`, color: C.bomb },
       ...(aimOff ? [{ label: `AOD · ${formatFt(local.aimOffDistanceFt)} ft`, color: C.impact }] : []),
-      { label: `Vertical Tracking Distance · ${formatFt(verticalTrackingFt)} ft`, color: C.verticalTracking },
+      // With the SEM details the same height reads as Track to Release Height (handoff §8.2, no duplicate row).
+      { label: `${fragment ? "Track to Release Height" : "Vertical Tracking Distance"} · ${formatFt(verticalTrackingFt)} ft`, color: C.verticalTracking },
       ...(diving ? [{ label: `IAA · ${formatDeg(local.aimOffAngleDeg)}°`, color: C.los }, { label: `Dive Angle · ${formatDeg(input.diveAngleDeg)}°`, color: C.flightPath }] : []),
       ...semLegend,
     ] : null,

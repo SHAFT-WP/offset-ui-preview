@@ -1,5 +1,5 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
-import { aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.0";
+import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.1";
 
 // BDP HUD view v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.3 in SVG). A first-person
 // view from the aircraft of a BDP flight path at time t: an F-16-style HUD square of `hudSizeDeg` (default 14°,
@@ -11,7 +11,10 @@ import { aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.m
 
 export const BDP_HUD_VIEW_V0_1 = Object.freeze({
   id: "bdp-hud-view-v0.1",
-  version: "0.1.0",
+  // 0.1.1 (2026-10-18, owner handoff §3): any screen FOV 5–150° (the host's zoom: FOV = 2·atan(tan(F0/2)/zoom));
+  // without a time the HUD shows Roll-in −3 s (the HUD start); the time readout is "Roll-in −3.0 s" / "Roll-in +n s".
+  version: "0.1.1",
+  fovLimitsDeg: Object.freeze([5, 150]),
   canvas: Object.freeze({ width: 720, height: 540 }),
   ladderStepDeg: 5,
   defaults: Object.freeze({ hudSizeDeg: 14, fovDeg: 70, aoa: true, fpmPath: true }),
@@ -76,8 +79,9 @@ export function renderBdpHudView(svg, path, options = {}) {
   const { width: W, height: H } = BDP_HUD_VIEW_V0_1.canvas;
   const o = { ...BDP_HUD_VIEW_V0_1.defaults, ...options };
   const hudSizeDeg = Math.min(40, Math.max(4, Number(o.hudSizeDeg) || 14));
-  const fovDeg = [30, 70, 120].includes(Number(o.fovDeg)) ? Number(o.fovDeg) : 70;
-  const t = Number.isFinite(o.timeSec) ? o.timeSec : path.trackPointT;
+  const [fovLow, fovHigh] = BDP_HUD_VIEW_V0_1.fovLimitsDeg;
+  const fovDeg = Number.isFinite(Number(o.fovDeg)) && Number(o.fovDeg) > 0 ? Math.min(fovHigh, Math.max(fovLow, Number(o.fovDeg))) : 70;
+  const t = Number.isFinite(o.timeSec) ? o.timeSec : BDP_FLIGHT_PATH_V0_1.hudStartSec;
   const state = flightStateAt(path, t);
   const axes = hudAxes(state, { aoa: o.aoa, hudSizeDeg });
   const pos = [state.x, state.y, state.z];
@@ -221,12 +225,12 @@ export function renderBdpHudView(svg, path, options = {}) {
     [`DIVE ${Math.round(-state.fpaDeg)}°`, `G ${state.loadFactor.toFixed(1)}`],
     [`AOA ${axes.alphaDeg.toFixed(1)}°`, `BANK ${Math.round(Math.abs(state.bankDeg))}°${state.bankDeg > 0.5 ? "R" : state.bankDeg < -0.5 ? "L" : ""}`],
     [`HDG ${state.headingDeg >= 0 ? "+" : ""}${Math.round(state.headingDeg)}°`, `TGT ${tgtRangeNm.toFixed(1)} NM`],
-    [`IAA ${(lookDownDeg + state.fpaDeg).toFixed(1)}°`, `${String(state.phase).toUpperCase()} · ${t.toFixed(1)} s`],
+    [`IAA ${(lookDownDeg + state.fpaDeg).toFixed(1)}°`, `${String(state.phase).toUpperCase()} · Roll-in ${t < 0 ? "−" : "+"}${Math.abs(t).toFixed(1)} s`],
   ];
   rows.forEach(([left, right], index) => {
     root.append(text(12, 22 + index * 19, left, { "data-hud-readout": index }));
     root.append(text(W - 12, 22 + index * 19, right, { "text-anchor": "end" }));
   });
   if (progress > 0) root.append(text(W / 2, H - 12, progress >= totalDeg - 1e-6 ? "PADLOCK · LOCKED" : `PADLOCK · ${Math.round(progress)}° / ${Math.round(totalDeg)}°`, { "text-anchor": "middle", fill: "#ffd166", "data-hud-role": "padlock" }));
-  return { title: options.title ?? "HUD View", timeSec: t, totalDeg, progressDeg: progress, locked: progress > 0 && progress >= totalDeg - 1e-6, state, canvas: { width: W, height: H } };
+  return { title: options.title ?? "HUD View", fovDeg, timeSec: t, totalDeg, progressDeg: progress, locked: progress > 0 && progress >= totalDeg - 1e-6, state, canvas: { width: W, height: H } };
 }

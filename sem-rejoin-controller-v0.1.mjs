@@ -25,9 +25,9 @@ import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSecT
 const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-worker-v0.1.mjs?v=0.2.1", import.meta.url);
 export const SEM_REJOIN_FE_V0_1 = Object.freeze({ id: "sem-rejoin-controller-v0.1", version: "0.2.0" });
 // SEM End labels (owner 2026-10-13: the SEM ends level by default; the +30° CLIMB SEM stays selectable).
-const SEM_END_TEXT = { LEVEL: "Level (FPA 0°, then 1 G)", CLIMB: "+30° FPA (CLIMB SEM)" };
-const semEndText = (sem) => SEM_END_TEXT[sem?.end] ?? "-";
-const semKindText = (sem) => (sem?.end === "CLIMB" ? "CLIMB SEM" : "Level SEM");
+// 2026-10-18 (owner handoff §6.5): the SEM End is the BDP tab's (Full BDP · SEM / Recovery); S&R shows it.
+const semEndText = (sem) => (sem?.end === "CLIMB" ? `+${Number(sem?.inputs?.csemTargetFpaDeg ?? 30).toFixed(0)}° FPA (CSEM)` : sem?.end === "LEVEL" ? "Level (FPA 0°, then 1 G)" : "-");
+const semKindText = (sem) => (sem?.end === "CLIMB" ? "CSEM" : "Level SEM");
 // Drawing space kept on the canvas around the draw anchor (presentation only).
 const DRAW_ROOM_NM = 5;
 
@@ -90,7 +90,7 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
     <div class="status-message valid" data-sr-message>-</div>
     <details class="input-group-panel" open data-sr-group="sem"><summary class="input-group-title">SEM</summary>
       <div class="input-grid">
-        <label class="field"><span>SEM End</span><select data-sr-setting="semEnd"><option value="LEVEL">Level (pull to FPA 0°, then 1 G)</option><option value="CLIMB">+30° climb (CLIMB SEM)</option></select><span class="unit">This aircraft · Recovery G / G Onset are the BDP tab's</span></label>
+        <label class="field"><span>SEM End</span><output data-sr-sem-end>-</output><span class="unit">Set in the BDP tab (Full BDP · SEM / Recovery), with Recovery G / G Onset</span></label>
       </div>
     </details>
     <details class="input-group-panel" open data-sr-group="draw"><summary class="input-group-title">Draw Next Maneuver</summary>
@@ -322,6 +322,8 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
       if (field.tagName === "SELECT") field.value = settings[key];
       else field.value = fieldText(settings[key], key === "drawHeadingDeg" ? 0 : 1);
     }
+    const semOut = $in("[data-sr-sem-end]");
+    if (semOut) semOut.textContent = semEndText(output?.aircraft?.[number]?.sem ?? null);
     const turn = resolved?.turnDriver;
     const turnInput = $in('[data-sr-setting="turnDriverValue"]');
     turnInput.placeholder = turn && turn.source !== "explicit" && finite(turn.value) ? fieldText(turn.value, turn.kind === "G" ? 1 : 0) : "-";
@@ -417,7 +419,7 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
       const sem = picked.entry.sem;
       host.dataset.editorKey = `sem:${editAircraft}`;
       host.dataset.rowId = "";
-      host.innerHTML = `<p class="flight-draft-note"><b>Step 1 · SEM (${semKindText(sem)})</b> — from the BDP Release; fixed, not deleted. Its end is the SEM End above; Recovery G and G Onset are the BDP tab's (one shared state).</p>
+      host.innerHTML = `<p class="flight-draft-note"><b>Step 1 · SEM (${semKindText(sem)})</b> — the BDP's SEM from its Release (Release + Overshoot); fixed, not deleted. SEM End, Target FPA, Recovery G and G Onset are the BDP tab's (one shared state).</p>
         <dl class="sr-facts"><dt>Release</dt><dd>${clock(sem?.release?.timeSec)}</dd><dt>SEM End</dt><dd>${clock(sem?.endState?.timeSec)} · ${semEndText(sem)}</dd><dt>Recovery G / Onset</dt><dd>${formatG(sem?.inputs?.recoveryG)} G / ${formatSecTenths(sem?.inputs?.gOnsetTimeSec)} s</dd><dt>End altitude / speed</dt><dd>${formatFt(sem?.endState?.altitudeMslFt)} ft / ${formatKt(sem?.terminationSpeedKcas)} KCAS</dd><dt>Minimum altitude</dt><dd>${formatFt(sem?.minAltitudeMslFt)} ft MSL</dd></dl>
         <div class="sr-row-actions"><select class="sr-add" data-sr-add-after="sem" data-sr-add-aircraft="${editAircraft}" aria-label="Add a maneuver after the SEM"><option value="">+ Add below…</option><option value="STRAIGHT">Straight</option><option value="TURN">Turn</option><option value="TARGET_ARC">Target Arc</option></select></div>`;
       return;
