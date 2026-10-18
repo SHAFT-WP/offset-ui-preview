@@ -27,7 +27,7 @@ import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLe
 import { offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.0";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.7.0";
+import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.8.0";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -695,48 +695,80 @@ function syncTimeDial(dial, svg, results, timeSec) {
   output.textContent = on ? `${Math.round(Math.min(timeSec, maxSec))} s${phase ? ` · ${TIME_PHASE_LABELS[phase] ?? phase}` : ""}` : "Off";
   output.setAttribute("aria-pressed", String(on));
 }
-function timeDialMarkup(number) {
-  return `<div class="diagram-action-row time-dial" data-time-dial="${number}" role="group" aria-label="Top View #${number} time after IP"><span class="diagram-control-label">Time</span><button class="capture-button time-dial-play" type="button" data-time-play aria-pressed="false" title="Play the time dial (${TIME_PLAY_SPEED}× real time)">Play</button><input class="time-dial-range" type="range" min="0" max="1" step="1" value="0" data-time-range aria-label="Seconds after IP"><button class="capture-button diagram-scale-output time-dial-output" type="button" data-time-output aria-pressed="false" title="Seconds after IP; press to turn off">Off</button></div>`;
+function timeDialMarkup(number, label = `Top View #${number}`) {
+  return `<div class="diagram-action-row time-dial" data-time-dial="${number}" role="group" aria-label="${label} time after IP"><span class="diagram-control-label">Time</span><button class="capture-button time-dial-play" type="button" data-time-play aria-pressed="false" title="Play the time dial (${TIME_PLAY_SPEED}× real time)">Play</button><input class="time-dial-range" type="range" min="0" max="1" step="1" value="0" data-time-range aria-label="Seconds after IP"><button class="capture-button diagram-scale-output time-dial-output" type="button" data-time-output aria-pressed="false" title="Seconds after IP; press to turn off">Off</button></div>`;
 }
 // Play (owner 2026-10-15, plan Q13): the dial runs from its T (0 when off) to the last Impact at
 // TIME_PLAY_SPEED × real time, redrawn at most every TIME_PLAY_FRAME_MS; pressing Play again, moving the
 // dial or turning it off stops it.
 const TIME_PLAY_SPEED = 4;
 const TIME_PLAY_FRAME_MS = 100;
+// The Offset clock (seconds after IP): the Top View, and the BDP Profiles, 3D Profiles and HUD Views follow it
+// (owner 2026-10-15, R5 / R6).
+function setOffsetClock(timeSec) {
+  topViewTimeSec = timeSec;
+  renderTopView();
+  [1, 2, 3, 4].forEach((number) => refreshBdpDiagrams(number));
+}
+// Every dial (the Top View's and each HUD View's copy, owner R6) shows the one clock; one Play runs it.
+function syncTimeDials(svg, results, timeSec) {
+  syncTimeDial($("#top-view-time-dial"), svg, results, timeSec);
+  document.querySelectorAll("[data-time-dial]:not(#top-view-time-dial)").forEach(mirrorTimeDial);
+}
+function mirrorTimeDial(dial) {
+  const source = $("#top-view-time-dial");
+  if (!dial || !source) return;
+  const range = dial.querySelector("[data-time-range]");
+  const output = dial.querySelector("[data-time-output]");
+  const sourceRange = source.querySelector("[data-time-range]");
+  const sourceOutput = source.querySelector("[data-time-output]");
+  range.max = sourceRange.max;
+  range.value = sourceRange.value;
+  dial.classList.toggle("active", source.classList.contains("active"));
+  output.textContent = sourceOutput.textContent;
+  output.setAttribute("aria-pressed", sourceOutput.getAttribute("aria-pressed"));
+  const play = dial.querySelector("[data-time-play]");
+  play?.setAttribute("aria-pressed", String(Boolean(timePlaying)));
+  if (play) play.textContent = timePlaying ? "Pause" : "Play";
+}
+let timePlaying = null;
+function setPlayButtons(on) {
+  document.querySelectorAll("[data-time-dial] [data-time-play]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(on));
+    button.textContent = on ? "Pause" : "Play";
+  });
+}
+function stopTimePlay() {
+  if (timePlaying) cancelAnimationFrame(timePlaying.frame);
+  timePlaying = null;
+  setPlayButtons(false);
+}
 function installTimeDial(dial, onChange) {
   if (!dial || dial.dataset.installed) return;
   dial.dataset.installed = "true";
   const range = dial.querySelector("[data-time-range]");
   const play = dial.querySelector("[data-time-play]");
-  let playing = null;
-  const stop = () => {
-    if (playing) cancelAnimationFrame(playing.frame);
-    playing = null;
-    play?.setAttribute("aria-pressed", "false");
-    if (play) play.textContent = "Play";
-  };
   const step = (now) => {
-    if (!playing) return;
+    if (!timePlaying) return;
     const maxSec = Number(range.max) || 0;
-    if (now - playing.lastDraw >= TIME_PLAY_FRAME_MS) {
-      const timeSec = Math.min(maxSec, playing.startSec + ((now - playing.startedAt) / 1000) * TIME_PLAY_SPEED);
-      playing.lastDraw = now;
-      onChange(timeSec);
-      if (timeSec >= maxSec) { stop(); return; }
+    if (now - timePlaying.lastDraw >= TIME_PLAY_FRAME_MS) {
+      const timeSec = Math.min(maxSec, timePlaying.startSec + ((now - timePlaying.startedAt) / 1000) * TIME_PLAY_SPEED);
+      timePlaying.lastDraw = now;
+      timePlaying.onChange(timeSec);
+      if (timeSec >= maxSec) { stopTimePlay(); return; }
     }
-    playing.frame = requestAnimationFrame(step);
+    timePlaying.frame = requestAnimationFrame(step);
   };
   play?.addEventListener("click", () => {
-    if (playing) { stop(); return; }
+    if (timePlaying) { stopTimePlay(); return; }
     const current = dial.classList.contains("active") ? Number(range.value) : 0;
     const startSec = current >= (Number(range.max) || 0) ? 0 : current;
-    playing = { startSec, startedAt: performance.now(), lastDraw: -Infinity, frame: 0 };
-    play.setAttribute("aria-pressed", "true");
-    play.textContent = "Pause";
-    playing.frame = requestAnimationFrame(step);
+    timePlaying = { startSec, startedAt: performance.now(), lastDraw: -Infinity, frame: 0, onChange };
+    setPlayButtons(true);
+    timePlaying.frame = requestAnimationFrame(step);
   });
-  range.addEventListener("input", (event) => { stop(); onChange(Number(event.currentTarget.value)); });
-  dial.querySelector("[data-time-output]").addEventListener("click", () => { stop(); onChange(null); });
+  range.addEventListener("input", (event) => { stopTimePlay(); onChange(Number(event.currentTarget.value)); });
+  dial.querySelector("[data-time-output]").addEventListener("click", () => { stopTimePlay(); onChange(null); });
 }
 
 // Identity of a solved result for the viewport key (a new solve is a new object).
@@ -814,7 +846,7 @@ function renderTopView() {
   if (!aircraft.length) {
     const failed = selected.length ? `#${selected.join(", #")} has no current result` : "Choose an aircraft (#1–#4)";
     showCalculationFailed(svg, title, failed);
-    syncTimeDial($("#top-view-time-dial"), svg, [], topViewTimeSec);
+    syncTimeDials(svg, [], topViewTimeSec);
     legendItems.splice(0, legendItems.length);
     legend.render();
     return;
@@ -830,7 +862,7 @@ function renderTopView() {
     timeSec: topViewTimeSec ?? undefined,
   });
   syncTopViewViewport(svg, rendered, aircraft.map((item) => `${item.number}:${topViewResultId(item.result)}`).join(","));
-  syncTimeDial($("#top-view-time-dial"), svg, aircraft.map((item) => item.result), topViewTimeSec);
+  syncTimeDials(svg, aircraft.map((item) => item.result), topViewTimeSec);
   legendItems.splice(0, legendItems.length, ...topViewLegendItems(aircraft));
   legend.render();
 }
@@ -1394,6 +1426,12 @@ const TAB_TOOLS = {
 // Top View's Full button is on. (The BDP tab's Full BDP now reveals only the BDP extra inputs.)
 // 2026-10-07 (user): "(Bomb Delivery Planner)" dropped from the title; an Advanced button sits beside it.
 const offsetBdpTopViewTitle = (number) => `BDP #${number} Top View`;
+// 2026-10-15 (owner R6): the 3D Profile and HUD View under the BDP Top View; the HUD carries its own copy of
+// the Offset time dial (one clock, one Play).
+const offsetBdpDiagramsMarkup = (number) => bdpDiagramsMarkup({
+  aircraftNumber: number, topTitle: offsetBdpTopViewTitle(number), topAdvanced: true,
+  flightViews: true, threeDTitle: `BDP #${number} 3D Profile`, hudTitle: `BDP #${number} HUD View`, hudTimeMarkup: timeDialMarkup(`hud-${number}`, `BDP #${number} HUD View`),
+});
 function bdpDiagramsContainer(number) {
   const section = document.querySelector(`[data-bdp-views="${number}"]`);
   return section ? { section, container: section.querySelector("[data-bdp-diagrams]") } : null;
@@ -1403,6 +1441,12 @@ function bdpDiagramsContainer(number) {
 function dialTimeAfterRelease(result) {
   if (!Number.isFinite(topViewTimeSec)) return null;
   try { return topViewTimeSec - offsetTimeline(result).releaseSec; } catch (_) { return null; }
+}
+
+// Seconds after this aircraft's Roll-in Point at the dial's T, for the 3D Profile and HUD View (null while off).
+function dialTimeFromRollIn(result) {
+  if (!Number.isFinite(topViewTimeSec)) return null;
+  try { return topViewTimeSec - offsetTimeline(result).legs.find((leg) => leg.phase === "roll-in").startSec; } catch (_) { return null; }
 }
 
 function refreshBdpDiagrams(number) {
@@ -1431,7 +1475,12 @@ function refreshBdpDiagrams(number) {
       // 2026-10-15 (owner R5): the Profile shows the SEM, the fragment cylinder and the aircraft at the Top View
       // time dial's T (seconds after IP → seconds after this aircraft's Release).
       profileView: { timeAfterReleaseSec: dialTimeAfterRelease(result) },
+      // 2026-10-15 (owner R6): 3D Profile and HUD View on the same clock (seconds from the Roll-in Point).
+      flightView: { rollDirection: result.geometry.direction.rollDirection, timeSec: dialTimeFromRollIn(result) },
     });
+    const hudDial = target.container.querySelector(`[data-time-dial="hud-${number}"]`);
+    installTimeDial(hudDial, setOffsetClock);
+    mirrorTimeDial(hudDial);
   } catch {
     clearBdpDiagrams(target.container);
   }
@@ -1793,7 +1842,7 @@ function followerCalculatingMarkup(number) {
     ...inputSections,
     // View order (user 2026-10-02): BDP Top View, BDP Profile, Z-Diagram; the Offset Top View is the
     // one Flight view under #1 (user 2026-10-05). The two BDP views show only while its Full is on.
-    `<div class="bdp-views" data-bdp-views="${number}" data-output-aircraft="${number}" data-aircraft-output="bdp">${bdpDiagramsMarkup({ aircraftNumber: number, topTitle: offsetBdpTopViewTitle(number), topAdvanced: true })}</div>`,
+    `<div class="bdp-views" data-bdp-views="${number}" data-output-aircraft="${number}" data-aircraft-output="bdp">${offsetBdpDiagramsMarkup(number)}</div>`,
     flightSection(number, "Z-Diagram", `<div class="diagram-actions"><div class="diagram-action-row"><button class="capture-button" type="button" data-flight-z-png>PNG</button>${zAdvancedMarkup(number)}</div></div><div class="z-diagram-shell"><svg data-flight-z viewBox="0 0 650 710" role="img" aria-label="${offsetZDiagramTitle({ aircraftNumber: number })}"><g data-z-root></g></svg></div>`, { calculating: true, heading: offsetZDiagramTitle({ aircraftNumber: number }), output: "z" }),
     // Same variables as Result #1 first (same groups and order), then what only this aircraft has.
     flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${predecessor}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true, output: "result" }),
@@ -2821,7 +2870,7 @@ function install() {
   catch { restoredWorkSave = { lead: null, flight: null, notice: "Saved conditions unavailable · browser storage could not be read" }; }
   installFlightLayout();
   const leadDiagramsHost = document.querySelector('[data-bdp-diagrams-host="1"]');
-  if (leadDiagramsHost) leadDiagramsHost.outerHTML = bdpDiagramsMarkup({ aircraftNumber: 1, topTitle: offsetBdpTopViewTitle(1), topAdvanced: true });
+  if (leadDiagramsHost) leadDiagramsHost.outerHTML = offsetBdpDiagramsMarkup(1);
   installSectionDisclosure();
   installSectionTools();
   installTempDef();
@@ -2887,12 +2936,7 @@ function install() {
     event.currentTarget.setAttribute("aria-pressed", String(topViewIpBottom));
     renderTopView();
   });
-  installTimeDial($("#top-view-time-dial"), (timeSec) => {
-    topViewTimeSec = timeSec;
-    renderTopView();
-    // The BDP Profiles follow the same clock (owner 2026-10-15, R5).
-    [1, 2, 3, 4].forEach((number) => refreshBdpDiagrams(number));
-  });
+  installTimeDial($("#top-view-time-dial"), setOffsetClock);
   $("#top-view-advanced").addEventListener("click", (event) => {
     topViewAdvanced = !topViewAdvanced;
     event.currentTarget.setAttribute("aria-pressed", String(topViewAdvanced));

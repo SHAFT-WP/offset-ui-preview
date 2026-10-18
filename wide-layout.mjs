@@ -4,8 +4,8 @@
 // right = Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft.
 // SEM & Rejoin (2026-10-13): its own module, mounted once into the S&R input tab and the centre
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=3b0d8bbdeaca";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=3b0d8bbdeaca";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=17f0ce427a88";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=17f0ce427a88";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
