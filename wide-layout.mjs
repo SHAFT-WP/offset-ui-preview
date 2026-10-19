@@ -4,8 +4,8 @@
 // right = Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft.
 // SEM & Rejoin (2026-10-13): its own module, mounted once into the S&R input tab and the centre
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=b87fa909adba";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=b87fa909adba";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=8855c3129f5e";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=8855c3129f5e";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
@@ -158,12 +158,7 @@ if (topViewSection) {
 }
 const bdpBlocks = make("div", "wide-blocks");
 const bdpEmpty = emptyNote();
-// One Play for the BDP views (owner 2026-10-19): a copy of the Offset clock's dial; its Play runs the shown aircraft's
-// BDP windows (Roll-in −3 s to 1 s after the SEM).
-const bdpTime = make("div", "diagram-actions wide-bdp-time");
-bdpTime.innerHTML = offsetIndexUi.bdpTimeDialMarkup();
-centerPanels.bdp.append(make("h2", "wide-panel-title", "BDP"), showAircraftRow(), bdpTime, bdpEmpty, bdpBlocks);
-offsetIndexUi.installBdpTimeDial(bdpTime.querySelector("[data-time-dial]"));
+centerPanels.bdp.append(make("h2", "wide-panel-title", "BDP"), showAircraftRow(), bdpEmpty, bdpBlocks);
 // SEM & Rejoin (2026-10-13 handoff): the S&R module's view, table and evaluation.
 const semEmpty = emptyNote();
 const semHost = make("div");
