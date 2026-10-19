@@ -27,7 +27,7 @@ import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLe
 import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.2";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpDiagramsMarkup, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.10.1";
+import { bdpDiagramsMarkup, bdpFlightViewWindow, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.10.3";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -79,6 +79,14 @@ const DEFAULT_INPUT_VALUES = Object.freeze({
   // The selected SEM (owner handoff 2026-10-18 §6; BDP v0.4.2): every BDP view and S&R fly it.
   semEnd: "LEVEL",
   csemTargetFpaDeg: "30",
+  // The Level SEM turn from the level-off (owner 2026-10-19; BDP v0.4.3): Level (bank AUTO) / Slice, 90° default;
+  // blank direction = the Roll-in side, blank G = Recovery G, blank speed = the level-off speed.
+  semTurnType: "LEVEL",
+  semTurnDirection: "",
+  semTurnDeg: "90",
+  semTurnG: "",
+  semTurnSpeedKcas: "",
+  semTurnBankDeg: "85",
   windDirectionDeg: "0",
   windSpeedKt: "0",
   rollInBankAngleDeg: "",
@@ -206,7 +214,7 @@ const canonicalToTargetBearing = (displayedDeg, direction) => direction === "FRO
 // Inputs for the BE (input collection only): a field's Full value when its text still shows the
 // rounded solved value, else the parsed text; blank = null; an unparsable entry goes as its text and
 // the BE reports it (never replaced here).
-const NON_NUMERIC_FIELDS = new Set(["weaponId", "initialSpeedMode", "offsetSpeedMode", "side", "semEnd"]);
+const NON_NUMERIC_FIELDS = new Set(["weaponId", "initialSpeedMode", "offsetSpeedMode", "side", "semEnd", "semTurnType", "semTurnDirection"]);
 function parsedFieldValue(text, solved) {
   const raw = String(text ?? "");
   if (raw.trim() === "") return null;
@@ -749,14 +757,16 @@ function stopTimePlay() {
   setPlayButtons(false);
 }
 // startSec (optional): where Play from off, or from the end, starts (HUD copies: Roll-in −3 s; else 0).
-function installTimeDial(dial, onChange, { startSec: freshStartSec = () => 0 } = {}) {
+// startSec: where Play from off (or from the end) starts; endSec: where it stops (the HUD: 1 s after this aircraft's
+// SEM, owner 2026-10-19), else the dial's end.
+function installTimeDial(dial, onChange, { startSec: freshStartSec = () => 0, endSec: windowEndSec = () => Infinity } = {}) {
   if (!dial || dial.dataset.installed) return;
   dial.dataset.installed = "true";
   const range = dial.querySelector("[data-time-range]");
   const play = dial.querySelector("[data-time-play]");
   const step = (now) => {
     if (!timePlaying) return;
-    const maxSec = Number(range.max) || 0;
+    const maxSec = Math.min(Number(range.max) || 0, timePlaying.endSec);
     if (now - timePlaying.lastDraw >= TIME_PLAY_FRAME_MS) {
       const timeSec = Math.min(maxSec, timePlaying.startSec + ((now - timePlaying.startedAt) / 1000) * TIME_PLAY_SPEED);
       timePlaying.lastDraw = now;
@@ -769,8 +779,10 @@ function installTimeDial(dial, onChange, { startSec: freshStartSec = () => 0 } =
     if (timePlaying) { stopTimePlay(); return; }
     const active = dial.classList.contains("active");
     const current = active ? (Number.isFinite(topViewTimeSec) ? topViewTimeSec : Number(range.value)) : null;
-    const startSec = current === null || current >= (Number(range.max) || 0) ? freshStartSec() : current;
-    timePlaying = { startSec, startedAt: performance.now(), lastDraw: -Infinity, frame: 0, onChange };
+    const endSec = windowEndSec();
+    const stopSec = Math.min(Number(range.max) || 0, Number.isFinite(endSec) ? endSec : Infinity);
+    const startSec = current === null || current >= stopSec ? freshStartSec() : current;
+    timePlaying = { startSec, endSec: Number.isFinite(endSec) ? endSec : Infinity, startedAt: performance.now(), lastDraw: -Infinity, frame: 0, onChange };
     setPlayButtons(true);
     timePlaying.frame = requestAnimationFrame(step);
   });
@@ -1456,7 +1468,8 @@ function dialTimeFromRollIn(result) {
   try { return topViewTimeSec - offsetTimeline(result).legs.find((leg) => leg.phase === "roll-in").startSec; } catch (_) { return null; }
 }
 
-// The HUD starts at Roll-in −3 s (owner handoff §3.1): the real Offset path before it, a little longer.
+// The HUD starts at Roll-in −3 s (owner handoff §3.1): the real Offset path before it, a little longer (the BDP flight
+// path cuts it at −3 s, 0.1.3).
 const HUD_APPROACH_SEC = 3.5;
 // HUD Play from off or the end starts at this aircraft's Roll-in −3 s on the Offset clock (not before the IP).
 function hudStartClockSec(number) {
@@ -1464,6 +1477,15 @@ function hudStartClockSec(number) {
     const rollLeg = offsetTimeline(flightResultOf(number)).legs.find((leg) => leg.phase === "roll-in");
     return Math.max(0, rollLeg.startSec - 3);
   } catch (_) { return 0; }
+}
+
+// HUD Play stops 1 s after this aircraft's SEM ends (owner 2026-10-19): the BDP views' window end on the Offset clock.
+function hudEndClockSec(number) {
+  try {
+    const rollLeg = offsetTimeline(flightResultOf(number)).legs.find((leg) => leg.phase === "roll-in");
+    const window = bdpFlightViewWindow(bdpDiagramsContainer(number)?.container);
+    return window ? rollLeg.startSec + window.endSec : Infinity;
+  } catch (_) { return Infinity; }
 }
 
 function refreshBdpDiagrams(number) {
@@ -1502,7 +1524,7 @@ function refreshBdpDiagrams(number) {
       flightView: { rollDirection: result.geometry.direction.rollDirection, timeSec: dialTimeFromRollIn(result), approach: offsetApproachInBdpFrame(result, HUD_APPROACH_SEC) },
     });
     const hudDial = target.container.querySelector(`[data-time-dial="hud-${number}"]`);
-    installTimeDial(hudDial, setOffsetClock, { startSec: () => hudStartClockSec(number) });
+    installTimeDial(hudDial, setOffsetClock, { startSec: () => hudStartClockSec(number), endSec: () => hudEndClockSec(number) });
     mirrorTimeDial(hudDial);
   } catch {
     clearBdpDiagrams(target.container);
@@ -1675,13 +1697,17 @@ function resetFollowerTab(number, tab, section = null) {
 // Follower BDP inputs owned per aircraft. An empty value follows the element lead's current value
 // (#2 / #3: #1, #4: #3; Roll-in Bank: automatic from this aircraft's own Dive Angle), shown as the
 // placeholder; the BE resolves it (AG SPEC "Flight entrypoint").
-const FOLLOWER_BDP_EXTRA_KEYS = ["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg"];
+const FOLLOWER_BDP_EXTRA_KEYS = ["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg"];
+// Follower selections stored as text: blank SEM End / SEM Turn follow the element lead; a blank Turn Direction is
+// this aircraft's own Roll-in side (owner 2026-10-19).
+const FOLLOWER_CHOICES = Object.freeze({ semEnd: ["LEVEL", "CLIMB"], semTurnType: ["LEVEL", "SLICE"], semTurnDirection: ["LEFT", "RIGHT"] });
+const followerChoice = (key, value) => (FOLLOWER_CHOICES[key].includes(value) ? value : "");
 // Follower LOCKs and element-lead options (BE options; same LOCK fields as #1 since 2026-10-12).
 const FOLLOWER_LOCK_OPTIONS = ["offsetAngleLocked", "sameAngleAsLead", "actionRangeLocked", "sameTimeAsLead", "rollInAltitudeLocked", "attackHeadingLocked", "angleOffLocked", "approachRangeLocked", "diveAngleLocked"];
 // Per-tab keys reset by that tab's Default (follower aircraft).
 const FOLLOWER_TAB_KEYS = {
   formation: ["side", "bearingDeg", "distanceNm"],
-  bdp: ["weaponId", "semEnd", "initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "rollInAltitudeLinked", "diveAngleDeg", "diveAngleLocked", "trackingTimeSec", "solveMode", "enteredTrackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas", ...FOLLOWER_BDP_EXTRA_KEYS],
+  bdp: ["weaponId", "semEnd", "semTurnType", "semTurnDirection", "initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "rollInAltitudeLinked", "diveAngleDeg", "diveAngleLocked", "trackingTimeSec", "solveMode", "enteredTrackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas", ...FOLLOWER_BDP_EXTRA_KEYS],
   offset: ["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "approachRangeNm", ...FOLLOWER_LOCK_OPTIONS, "driver"],
 };
 
@@ -1699,7 +1725,7 @@ function defaultFlightDraft(number = 2) {
 function factoryFlightDraft(number = 2) {
   const position = FLIGHT_DEFAULT_POSITIONS[number] ?? FLIGHT_DEFAULT_POSITIONS[2];
   return {
-    weaponId: "M82", semEnd: "", side: position.side, bearingDeg: "90", distanceNm: position.distanceNm,
+    weaponId: "M82", semEnd: "", semTurnType: "", semTurnDirection: "", side: position.side, bearingDeg: "90", distanceNm: position.distanceNm,
     initialSpeedValue: "350", initialAltitudeMslFt: "16000", diveAngleDeg: "45",
     rollInAltitudeMslFt: "16000", rollInAltitudeLinked: true,
     trackingTimeSec: "18.0", solveMode: "height", enteredTrackingTimeSec: "18", releaseAltitudeMslFt: "6800", releaseSpeedKcas: "450",
@@ -1782,23 +1808,39 @@ const FRAGMENT_DEV_ROWS = [
 function semFragmentReadoutsMarkup() {
   return `<h3 class="input-group-title">Fragment Data (developer)</h3><div class="input-grid">${FRAGMENT_DEV_ROWS.map(([key, label, note]) => `<label class="field"><span>${label}</span><output data-sem-readout="${key}">-</output><span class="unit">${note}</span></label>`).join("")}</div>`;
 }
-// CSEM Target FPA shows only where the SEM End is (or follows) the CSEM (owner handoff 2026-10-18 §6.1).
-function syncCsemFields() {
+// Fields of one SEM only (owner handoff 2026-10-18 §6.1; owner 2026-10-19): CSEM Target FPA with the CSEM; the SEM
+// Turn with the Level SEM — its AUTO bank with a level turn, the bank entry with a slice. A follower's blank
+// ("Follow") shows what its element lead flies.
+function followedChoice(slot, key, leadValue) {
+  if (!slot) return leadValue;
+  const own = slot.querySelector(`[data-flight-field="${key}"]`)?.value;
+  if (own) return own;
+  return Number(slot.dataset.aircraft) === 4 ? (followerSlot(3)?.querySelector(`[data-flight-field="${key}"]`)?.value || leadValue) : leadValue;
+}
+function syncSemFields() {
   const leadSem = firstField("semEnd")?.value ?? "LEVEL";
-  document.querySelectorAll("[data-csem-only]").forEach((label) => {
-    const slot = label.closest(".flight-slot[data-aircraft]");
-    const own = slot ? slot.querySelector('[data-flight-field="semEnd"]')?.value : leadSem;
-    const number = slot ? Number(slot.dataset.aircraft) : 1;
-    const followed = own || (number === 4 ? (followerSlot(3)?.querySelector('[data-flight-field="semEnd"]')?.value || leadSem) : leadSem);
-    label.hidden = followed !== "CLIMB";
+  const leadTurn = firstField("semTurnType")?.value ?? "LEVEL";
+  document.querySelectorAll("[data-csem-only], [data-level-sem-only], [data-sem-turn-level-only], [data-sem-turn-slice-only]").forEach((node) => {
+    const slot = node.closest(".flight-slot[data-aircraft]");
+    const climb = followedChoice(slot, "semEnd", leadSem) === "CLIMB";
+    const slice = followedChoice(slot, "semTurnType", leadTurn) === "SLICE";
+    node.hidden = (node.hasAttribute("data-csem-only") && !climb)
+      || (node.hasAttribute("data-level-sem-only") && climb)
+      || (node.hasAttribute("data-sem-turn-level-only") && slice)
+      || (node.hasAttribute("data-sem-turn-slice-only") && !slice);
   });
 }
 document.addEventListener("change", (event) => {
-  if (event.target?.matches?.('[data-key="semEnd"], [data-flight-field="semEnd"]')) syncCsemFields();
+  if (event.target?.matches?.('[data-key="semEnd"], [data-flight-field="semEnd"], [data-key="semTurnType"], [data-flight-field="semTurnType"]')) syncSemFields();
 });
 
 function renderSemFragmentReadouts(box, result) {
-  syncCsemFields();
+  syncSemFields();
+  // The level turn's AUTO bank as flown (BDP v0.4.3 public.sem.turn).
+  const turn = result?.profile?.public?.sem?.turn;
+  box?.closest(".section")?.querySelectorAll("[data-sem-turn-auto-bank]").forEach((node) => {
+    node.textContent = turn?.bankAuto ? `AUTO · ${formatDeg(turn.bankDeg)}°` : "AUTO";
+  });
   if (!box) return;
   box.hidden = !developerMode;
   if (!box.children.length) box.innerHTML = semFragmentReadoutsMarkup();
@@ -1823,6 +1865,22 @@ function followerSemFields(number, { always = false } = {}) {
   const tag = always ? "" : ` <span class="adv-tag">ADV</span>`;
   return `<label class="${className}"><span>SEM End${tag}</span><select data-flight-field="semEnd"><option value="">Follow #${elementLeadNumber(number)}</option><option value="LEVEL">Level (FPA 0°, then 1 G)</option><option value="CLIMB">CSEM (climb to Target FPA)</option></select><span class="unit">Every BDP view and S&amp;R fly this SEM</span></label>`
     + followerExtraField("csemTargetFpaDeg", "CSEM Target FPA (deg)", { always, fullBdp: always, attrs: " data-csem-only" });
+}
+// Level SEM turn (owner 2026-10-19): its type and numbers follow the element lead while blank / "Follow"; the
+// direction is this aircraft's own (blank: its Roll-in side). index wraps these in a group of its own (data-level-sem-only);
+// Standard marks each field.
+function followerSemTurnFields(number, { always = false } = {}) {
+  const className = always ? "field bdp-extra" : "field advanced-only bdp-extra";
+  const tag = always ? "" : ` <span class="adv-tag">ADV</span>`;
+  const level = always ? "" : " data-level-sem-only";
+  const extra = (key, label, attrs = "") => followerExtraField(key, label, { always, fullBdp: always, attrs: `${level}${attrs}` });
+  return `<label class="${className}"${level}><span>SEM Turn${tag}</span><select data-flight-field="semTurnType"><option value="">Follow #${elementLeadNumber(number)}</option><option value="LEVEL">Level turn (bank AUTO)</option><option value="SLICE">Slice (entered bank, descends)</option></select><span class="unit">Right at the level-off · speed and G held</span></label>`
+    + `<label class="${className}"${level}><span>Turn Direction${tag}</span><select data-flight-field="semTurnDirection"><option value="">Roll-in direction</option><option value="LEFT">Left</option><option value="RIGHT">Right</option></select><span class="unit">This aircraft's own · blank: its Roll-in side</span></label>`
+    + extra("semTurnDeg", "Turn Amount (deg)")
+    + extra("semTurnG", "Turn G (G)")
+    + extra("semTurnSpeedKcas", "Turn Speed (KCAS)")
+    + `<label class="${className}"${level} data-sem-turn-level-only><span>Turn Bank${tag}</span><output data-sem-turn-auto-bank>AUTO</output><span class="unit">Level turn: acos(1/G)</span></label>`
+    + extra("semTurnBankDeg", "Turn Bank (deg)", " data-sem-turn-slice-only");
 }
 
 // Same Text / Size / Reset / PNG / Advanced toolbar as Top View #1, scoped to one follower.
@@ -1878,10 +1936,10 @@ function followerCalculatingMarkup(number) {
   // BDP tab holds the settings (Target / Wind shared with #1, Bomb, Roll-in condition, SEM). Standard
   // keeps the earlier grouping. Same draft keys either way.
   const inputSections = INDEX_LAYOUT ? [
-    flightSection(number, "BDP", `<div class="input-grid"><label class="field"><span>Target Elevation (ft MSL)</span><output data-flight-readout="targetElevationMslFt">-</output><span class="unit">Shared with #1</span></label>${field.weapon}</div>${group("Wind", `<label class="field"><span>Wind FROM / Speed</span><output data-flight-readout="wind">-</output><span class="unit">Shared with #1 · TRUE FROM</span></label>`)}<div class="bdp-full-group">${group("SEM / Recovery", `${followerSemFields(number, { always: true })}${followerExtraField("recoveryG", "Recovery G (G)", { always: true, fullBdp: true })}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)", { always: true, fullBdp: true })}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)", { always: true, fullBdp: true })}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)", { always: true, fullBdp: true })}`)}<div data-sem-readouts></div>${group("Roll-in / Turn Onset", ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label, { always: true, fullBdp: true })).join(""))}</div>`, { calculating: true, tab: "bdp" }),
+    flightSection(number, "BDP", `<div class="input-grid"><label class="field"><span>Target Elevation (ft MSL)</span><output data-flight-readout="targetElevationMslFt">-</output><span class="unit">Shared with #1</span></label>${field.weapon}</div>${group("Wind", `<label class="field"><span>Wind FROM / Speed</span><output data-flight-readout="wind">-</output><span class="unit">Shared with #1 · TRUE FROM</span></label>`)}<div class="bdp-full-group">${group("Roll-in / Turn Onset", ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label, { always: true, fullBdp: true })).join(""))}${group("SEM / Recovery", `${followerSemFields(number, { always: true })}${followerExtraField("recoveryG", "Recovery G (G)", { always: true, fullBdp: true })}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)", { always: true, fullBdp: true })}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)", { always: true, fullBdp: true })}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)", { always: true, fullBdp: true })}`)}<h3 class="input-group-title" data-level-sem-only>SEM Turn</h3><div class="input-grid" data-level-sem-only>${followerSemTurnFields(number, { always: true })}</div><div data-sem-readouts></div></div>`, { calculating: true, tab: "bdp" }),
     flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${field.initialSpeed}${field.initialAltitude}${rollInLocked}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${foldGroup("Roll-in Condition", `${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${statusLine}`, { calculating: true, tab: "offset" }),
   ] : [
-    flightSection(number, "BDP", `<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerSemFields(number)}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}${ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label)).join("")}</div><div data-sem-readouts></div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target).</p>`, { calculating: true, tab: "bdp" }),
+    flightSection(number, "BDP", `<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}${ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label)).join("")}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerSemFields(number)}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerSemTurnFields(number)}</div><div data-sem-readouts></div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target).</p>`, { calculating: true, tab: "bdp" }),
     flightSection(number, "Offset", `${statusHead}<div class="input-grid">${field.runIn}${field.ipRange}${field.attack}${field.angleOff}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}</div>${statusLine}`, { calculating: true, tab: "offset" }),
   ];
   return [
@@ -1978,7 +2036,7 @@ function normalizeFlightDraft(number, record, fallback) {
   const str = (key) => typeof record[key] === "string" ? record[key] : fallback[key];
   return {
     weaponId: typeof record.weaponId === "string" ? record.weaponId : fallback.weaponId,
-    semEnd: record.semEnd === "LEVEL" || record.semEnd === "CLIMB" ? record.semEnd : "",
+    ...Object.fromEntries(Object.keys(FOLLOWER_CHOICES).map((key) => [key, followerChoice(key, record[key])])),
     side: record.side === "RIGHT" ? "RIGHT" : "LEFT",
     bearingDeg: str("bearingDeg"),
     distanceNm: str("distanceNm"),
@@ -2158,8 +2216,8 @@ function collectFollowerRecord(number) {
   // in the draft; the draft is what counts for these (a typed value reaches it on input).
   FOLLOWER_BDP_EXTRA_KEYS.forEach((key) => { values[key] = parsedFieldValue(draft[key], draft.solved?.[key]); });
   values.weaponId = text("weaponId") || draft.weaponId;
-  // Blank SEM End = follow the element lead (the BE resolves it).
-  values.semEnd = draft.semEnd === "LEVEL" || draft.semEnd === "CLIMB" ? draft.semEnd : null;
+  // Blank SEM End / SEM Turn = follow the element lead; blank Turn Direction = own Roll-in side (the BE resolves them).
+  Object.keys(FOLLOWER_CHOICES).forEach((key) => { values[key] = followerChoice(key, draft[key]) || null; });
   const entered = Number.parseFloat(draft.enteredTrackingTimeSec);
   return {
     values,
@@ -2208,7 +2266,9 @@ function applyFollowerState(number, record, sent, activeKey, commit) {
 // follow shows the applied value in the field like any input, and its note says it follows the element
 // lead. Typing over it gives the aircraft its own value; clearing it follows again. (The Roll-in Bank is
 // no longer an extra: it is BDP v0.4's result, owner 2026-10-15.)
-const FOLLOWER_EXTRA_DIGITS = { fragmentHeightMarginPercent: 0, recoveryG: 1, speedOvershootKcas: 0, gOnsetTimeSec: 1, rollInG: 1, rollInRollRateDegSec: 0, rollOutRollRateDegSec: 0, gOnsetRateGSec: 1, csemTargetFpaDeg: 0 };
+const FOLLOWER_EXTRA_DIGITS = { fragmentHeightMarginPercent: 0, recoveryG: 1, speedOvershootKcas: 0, gOnsetTimeSec: 1, rollInG: 1, rollInRollRateDegSec: 0, rollOutRollRateDegSec: 0, gOnsetRateGSec: 1, csemTargetFpaDeg: 0, semTurnDeg: 0, semTurnG: 1, semTurnSpeedKcas: 0, semTurnBankDeg: 0 };
+// What a blank (followed) entry means when the lead's is blank too.
+const FOLLOWER_EXTRA_PLACEHOLDERS = { semTurnG: "Recovery G", semTurnSpeedKcas: "Level-off" };
 const followerExtraText = (key, value) => String(Number(value.toFixed(FOLLOWER_EXTRA_DIGITS[key])));
 function syncFollowerExtraFields(slot, entry, result, leadNumber) {
   const number = Number(slot.dataset.aircraft);
@@ -2222,7 +2282,7 @@ function syncFollowerExtraFields(slot, entry, result, leadNumber) {
     const following = String(draft[key] ?? "").trim() === "";
     const note = field.closest(".field")?.querySelector("[data-follow-note]");
     if (note) note.textContent = following ? `Follows #${leadNumber}` : `Own value · clear to follow #${leadNumber}`;
-    field.placeholder = "";
+    field.placeholder = FOLLOWER_EXTRA_PLACEHOLDERS[key] ?? "";
     if (!following || !Number.isFinite(value)) {
       delete field.dataset.refill;
       delete field.dataset.following;
@@ -2612,9 +2672,11 @@ document.addEventListener("click", (event) => {
 // reload or a newly opened page loads the last Save. Developer preset:
 // PRESET_KEY, its own schemaVersion, read by every Default; built-in defaults when absent.
 let presetCache = { raw: undefined, value: null };
-const NON_NUMERIC_INPUTS = new Set(["weaponId", "initialSpeedMode", "offsetSpeedMode", "semEnd"]);
-// Keys added after presets existed (2026-10-18): a preset without them is still valid (built-in default).
-const PRESET_OPTIONAL_KEYS = new Set(["semEnd", "csemTargetFpaDeg"]);
+const NON_NUMERIC_INPUTS = new Set(["weaponId", "initialSpeedMode", "offsetSpeedMode", "semEnd", "semTurnType", "semTurnDirection"]);
+// Keys added after presets existed (2026-10-18 / 2026-10-19): a preset without them is still valid (built-in default).
+const PRESET_OPTIONAL_KEYS = new Set(["semEnd", "csemTargetFpaDeg", "semTurnType", "semTurnDirection", "semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg"]);
+// Numbers whose blank is a value (Turn G: Recovery G, Turn Speed: the level-off speed).
+const PRESET_BLANK_KEYS = new Set(["semTurnG", "semTurnSpeedKcas"]);
 function validDefaultPreset(record) {
   if (!record || typeof record !== "object" || record.schemaVersion !== PRESET_SCHEMA_VERSION) return null;
   const { lead, flight } = record;
@@ -2623,6 +2685,7 @@ function validDefaultPreset(record) {
     const text = lead.inputs[key];
     if (text === undefined && PRESET_OPTIONAL_KEYS.has(key)) continue;
     if (typeof text !== "string") return null;
+    if (text.trim() === "" && PRESET_BLANK_KEYS.has(key)) continue;
     if (!NON_NUMERIC_INPUTS.has(key) && !Number.isFinite(Number.parseFloat(text))) return null;
   }
   if (lead.locks && typeof lead.locks !== "object") return null;

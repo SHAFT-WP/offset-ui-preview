@@ -31,7 +31,9 @@ export const OFFSET_FORMATION_GEOMETRY_V0_1 = Object.freeze({
   // onset rates pass through.
   // 0.1.8 (2026-10-15, owner, BDP update R2.1): the Offset turn is the onset level turn of offset-be-v0.2 0.2.11.
   // 0.1.9 (2026-10-15, owner R3): profile.fragmentMarginAppliesTo passes through to BDP v0.4.1.
-  version: "0.1.9",
+  // 0.1.10 (2026-10-19, owner): the Level SEM turn inputs pass through to BDP v0.4.3 (direction absent: the
+  // aircraft's Roll-in direction).
+  version: "0.1.10",
   status: "work",
   purpose:
     "Off-axis Offset geometry for a Flight follower whose IP is displaced from the shared Target-through Run-In axis by its Formation position, while Target and Run-In heading stay shared with its element lead. Reuses offset-geometry-v0.2.mjs's pure heading/vector helpers without modifying offset-be-v0.2.mjs or offset-geometry-v0.2.mjs's own single-aircraft (on-axis) contract.",
@@ -56,7 +58,7 @@ function speedToTas(speedValue, speedMode, altitudeMslFt) {
   return speedMode === "MACH" ? machToTas(speedValue, altitudeMslFt) : casToTas(speedValue, altitudeMslFt);
 }
 
-function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg) {
+function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirection) {
   const profile = input.profile ?? {};
   const diveAngleDeg = finite("diveAngleDeg", profile.diveAngleDeg ?? input.diveAngleDeg);
   return {
@@ -86,6 +88,14 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg) {
     // The selected SEM (BDP v0.4.2; absent: LEVEL, +30°).
     semEnd: profile.semEnd ?? undefined,
     csemTargetFpaDeg: profile.csemTargetFpaDeg ?? undefined,
+    // The Level SEM turn (BDP v0.4.3; absent: no turn, Recovery G, the level-off speed). Direction absent: this
+    // aircraft's Roll-in direction (owner 2026-10-19).
+    semTurnType: profile.semTurnType ?? undefined,
+    semTurnDeg: profile.semTurnDeg ?? undefined,
+    semTurnDirection: profile.semTurnDirection ?? rollDirection ?? undefined,
+    semTurnG: profile.semTurnG ?? undefined,
+    semTurnSpeedKcas: profile.semTurnSpeedKcas ?? undefined,
+    semTurnBankDeg: profile.semTurnBankDeg ?? undefined,
     // BDP v0.4 Roll-in onset rates (absent: the BDP defaults).
     ...Object.fromEntries(["rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"].filter((key) => profile[key] !== undefined && profile[key] !== null).map((key) => [key, finite(key, profile[key])])),
     ballisticModelId: profile.ballisticModelId,
@@ -238,7 +248,7 @@ export function calculateOffAxisOffsetFull(input) {
     if (!(headings.angleOffDeg > 0 && headings.angleOffDeg < 179.5)) throw new Error("Angle-Off outside supported range");
     const derivedDirection = directionRule(runInHeadingDeg, headings.attackHeadingDeg);
     if (derivedDirection.ambiguous || derivedDirection.attackSide !== direction.attackSide) throw new Error("Heading solve would switch the fixed Offset/Roll-in side");
-    const profile = calculateBombDeliveryV0_4(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg));
+    const profile = calculateBombDeliveryV0_4(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg, direction.rollDirection));
     return buildOffAxisOffsetCandidate({
       runInHeadingDeg,
       ipPoint,

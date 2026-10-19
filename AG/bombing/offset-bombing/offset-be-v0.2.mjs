@@ -30,7 +30,9 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 // profile.fragmentMarginAppliesTo (developer option) passes through.
 // 0.2.13 (2026-10-15, owner): small Offset Angles fly a smaller level turn, G and bank lowered together
 // (onset-level-turn 0.1.1).
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.13", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
+// 0.2.14 (2026-10-19, owner): the Level SEM turn inputs pass through to BDP v0.4.3; a blank direction is the
+// aircraft's Roll-in direction.
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.14", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -130,7 +132,7 @@ export function bdpWindDirectionDeg(profile, attackHeadingDeg) {
   return norm(finite("windDirectionTrueDeg", profile.windDirectionTrueDeg) - finite("attackHeadingDeg", attackHeadingDeg));
 }
 
-function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg) {
+function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirection) {
   const profile = input.profile ?? {};
   const diveAngleDeg = finite("diveAngleDeg", profile.diveAngleDeg ?? input.diveAngleDeg);
   return {
@@ -160,6 +162,14 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg) {
     // The selected SEM (BDP v0.4.2; absent: LEVEL, +30°).
     semEnd: profile.semEnd ?? undefined,
     csemTargetFpaDeg: profile.csemTargetFpaDeg ?? undefined,
+    // The Level SEM turn (BDP v0.4.3; absent: no turn, Recovery G, the level-off speed). Direction absent: this
+    // aircraft's Roll-in direction (owner 2026-10-19).
+    semTurnType: profile.semTurnType ?? undefined,
+    semTurnDeg: profile.semTurnDeg ?? undefined,
+    semTurnDirection: profile.semTurnDirection ?? rollDirection ?? undefined,
+    semTurnG: profile.semTurnG ?? undefined,
+    semTurnSpeedKcas: profile.semTurnSpeedKcas ?? undefined,
+    semTurnBankDeg: profile.semTurnBankDeg ?? undefined,
     // BDP v0.4 Roll-in onset rates (absent: the BDP defaults).
     ...Object.fromEntries(["rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"].filter((key) => profile[key] !== undefined && profile[key] !== null).map((key) => [key, finite(key, profile[key])])),
     ballisticModelId: profile.ballisticModelId,
@@ -315,7 +325,7 @@ export function calculateOffsetV0_2Full(input) {
     if (!(headings.angleOffDeg > 0 && headings.angleOffDeg < 179.5)) throw new Error("Angle-Off outside supported range");
     const derivedDirection = directionRule(runInHeadingDeg, headings.attackHeadingDeg);
     if (derivedDirection.ambiguous || derivedDirection.attackSide !== direction.attackSide) throw new Error("Heading solve would switch the fixed Offset/Roll-in side");
-    const profile = calculateBombDeliveryV0_4(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg));
+    const profile = calculateBombDeliveryV0_4(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg, direction.rollDirection));
     return buildOffsetCandidate({
       runInHeadingDeg,
       attackHeadingDeg: headings.attackHeadingDeg,

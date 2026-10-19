@@ -43,7 +43,9 @@ export const SEM_REJOIN_V0_1 = Object.freeze({
   // 0.3.0 (2026-10-18, owner handoff §6.5): the SEM is the BDP's selected SEM (BDP v0.4.2: LEVEL or the CSEM to
   // its Target FPA, from Release + Overshoot, on the attack ground track) — S&R runs no SEM of its own and the
   // plan's per-aircraft semEnd is no longer read (the BDP tab owns the SEM End).
-  version: "0.3.0",
+  // 0.3.1 (2026-10-19, owner): the BDP Level SEM turn (BDP v0.4.3) is part of the SEM step — its samples carry the
+  // cross range, heading change and bank; S&R starts at the turn's end (no straight level carry after it).
+  version: "0.3.1",
   model: Object.freeze({ id: "sr-energy-neutral-point-mass-v0.1", version: "0.1.0", integrationStepSec: 0.01 }),
   components: Object.freeze({
     sem: `${CLIMB_SEM_MODEL_V0_2.id} ${CLIMB_SEM_MODEL_V0_2.version}`,
@@ -251,8 +253,9 @@ function offsetResultView(result) {
         sem: profile.public?.sem ? JSON.parse(JSON.stringify(profile.public.sem)) : null,
       },
       visualization: {
-        semPathSamples: (profile.visualization?.semPathSamples ?? []).filter((sample) => sample.phase === "pull" || sample.phase === "relax")
-          .map(({ timeSec, downRangeNm, altitudeMslFt, fpaDeg, tasKt, loadFactorG, phase }) => ({ timeSec, downRangeNm, altitudeMslFt, fpaDeg, tasKt, loadFactorG, phase })),
+        // The flown SEM to the level-off / CSEM End, and the Level SEM turn after it (BDP v0.4.3); not the level carry.
+        semPathSamples: (profile.visualization?.semPathSamples ?? []).filter((sample) => sample.phase === "pull" || sample.phase === "relax" || sample.phase.startsWith("turn-"))
+          .map(({ timeSec, downRangeNm, crossRangeNm = 0, headingChangeDeg = 0, bankDeg = 0, altitudeMslFt, fpaDeg, tasKt, loadFactorG, phase }) => ({ timeSec, downRangeNm, crossRangeNm, headingChangeDeg, bankDeg, altitudeMslFt, fpaDeg, tasKt, loadFactorG, phase })),
       },
       canonicalInputs: {
         semEnd: profile.canonicalInputs?.semEnd ?? "LEVEL",
@@ -391,13 +394,15 @@ function computeSem(view, windKt) {
   const flown = profile.visualization?.semPathSamples ?? [];
   if (flown.length < 2) return { ...base, status: "INVALID", errors: ["SEM: the BDP SEM path is empty"], warnings: [], airHeadingDeg, releaseFpaDeg };
   const attack = vecHeading(release.attackHeadingDeg);
+  // Cross range: + = right of the Attack Heading (BDP SPEC §6.6 / §6.8).
+  const right = vecHeading(release.attackHeadingDeg + 90);
   const samples = flown.map((sample) => ({
     t: release.timeSec + sample.timeSec,
-    x: release.point.x + attack.x * sample.downRangeNm,
-    y: release.point.y + attack.y * sample.downRangeNm,
+    x: release.point.x + attack.x * sample.downRangeNm + right.x * (sample.crossRangeNm ?? 0),
+    y: release.point.y + attack.y * sample.downRangeNm + right.y * (sample.crossRangeNm ?? 0),
     altitudeMslFt: sample.altitudeMslFt,
     tasKt: sample.tasKt,
-    headingDeg: airHeadingDeg,
+    headingDeg: norm360(airHeadingDeg + (sample.headingChangeDeg ?? 0)),
     fpaDeg: sample.fpaDeg,
     loadFactorG: sample.loadFactorG,
   }));
@@ -418,7 +423,7 @@ function computeSem(view, windKt) {
     terminationSpeedKcas: tasToCas(last.tasKt, last.altitudeMslFt),
     samples,
     startState: makeState({ timeSec: samples[0].t, x: samples[0].x, y: samples[0].y, altitudeMslFt: samples[0].altitudeMslFt, tasKt: samples[0].tasKt, headingDeg: airHeadingDeg, fpaDeg: samples[0].fpaDeg }),
-    endState: makeState({ timeSec: last.t, x: last.x, y: last.y, altitudeMslFt: last.altitudeMslFt, tasKt: last.tasKt, headingDeg: airHeadingDeg, fpaDeg: last.fpaDeg }),
+    endState: makeState({ timeSec: last.t, x: last.x, y: last.y, altitudeMslFt: last.altitudeMslFt, tasKt: last.tasKt, headingDeg: last.headingDeg, fpaDeg: last.fpaDeg }),
   };
 }
 

@@ -1,10 +1,10 @@
-import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./bdp-profile-view-v0.2.mjs?v=0.2.6";
+import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./bdp-profile-view-v0.2.mjs?v=0.2.7";
 import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.11";
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
-import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath, padlockStep } from "./bdp-flight-path-v0.1.mjs?v=0.1.1";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.3";
-import { BDP_HUD_VIEW_V0_1, padlockTotalDeg, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.1";
+import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath, padlockStep } from "./bdp-flight-path-v0.1.mjs?v=0.1.3";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.5";
+import { BDP_HUD_VIEW_V0_1, padlockTotalDeg, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.3";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
 // Full BDP diagrams panel — BDP-owned presentation reused by every BE that embeds a BDP input tab
@@ -55,7 +55,10 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // zooms), drawing coalesced per animation frame, cleared on cancel / Reset View / collapse; no Altitude ×2.
   // 0.10.1 (2026-10-18, owner): renderBdpDiagrams takes the host's `viewportWidth` for the Offset-layout Top View and
   // Dive Profile text base (PC 1.2×, phone 2×); the 3D legend notes (3D 0.1.3).
-  version: "0.10.1",
+  // 0.10.2 (2026-10-19, owner): views of the Level SEM turn (flight path 0.1.2, 3D 0.1.4, HUD 0.1.2, Profile 0.2.7).
+  // 0.10.3 (2026-10-19, owner): the 3D Profile / HUD window, Roll-in −3 s to 1 s after the SEM's end (flight path
+  // 0.1.3); bdpFlightViewWindow(container) gives it to the host (its HUD Play stops there).
+  version: "0.10.3",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -446,6 +449,12 @@ function renderFlightViews(container, bdpResult, flightView) {
   installFlightControls(container, scope);
   draw3d(container, scope);
   drawHud(container, scope);
+}
+
+// The 3D Profile / HUD window of the path last drawn in this container (seconds from the Roll-in Point), or null.
+export function bdpFlightViewWindow(container) {
+  const path = container ? flightStates.get(container)?.path : null;
+  return path ? { startSec: path.startT, endSec: path.endT } : null;
 }
 
 function clearFlightViews(container) {

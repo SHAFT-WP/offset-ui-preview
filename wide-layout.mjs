@@ -4,8 +4,8 @@
 // right = Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft.
 // SEM & Rejoin (2026-10-13): its own module, mounted once into the S&R input tab and the centre
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=bdd007b0d510";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=bdd007b0d510";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=6e9a6d695f60";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=6e9a6d695f60";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
@@ -75,6 +75,16 @@ app.insertBefore(workspace, followers);
 const editNav = make("nav", "wide-edit-nav");
 editNav.setAttribute("aria-label", "Edit aircraft");
 editNav.append(make("span", "wide-control-label", "Edit aircraft"));
+// Full BDP (owner 2026-10-19): the BDP tab's Full BDP toggle sits on this line beside the title, while the BDP tab
+// is shown. It acts on the edited aircraft's BDP tab (each aircraft keeps its own state); the tab head's own
+// toggle stays in the DOM, hidden here.
+const fullBdpButton = button("wide-full-bdp-button", "Full BDP: Off", { "data-wide-full-bdp": "", "aria-pressed": "false" });
+fullBdpButton.hidden = true;
+fullBdpButton.addEventListener("click", () => {
+  editedFullBdpToggle()?.click();
+  syncFullBdpButton();
+});
+editNav.append(fullBdpButton);
 for (let n = 1; n <= 4; n += 1) {
   const edit = button("wide-aircraft-button", "#" + n, { "data-edit-aircraft": String(n), "aria-pressed": "false", "aria-label": "Edit aircraft #" + n });
   edit.addEventListener("click", () => selectEditAircraft(n));
@@ -252,7 +262,23 @@ function sectionTab(section) {
 }
 // Shows the sections of the current input tab for the edited aircraft (inputTab keeps the choice, so a
 // follower's Formation tab comes back after visiting #1).
+function editedFullBdpToggle() {
+  const sections = [...leadInputs, ...followers.querySelectorAll(".flight-slot > .section[data-tab]")];
+  return sections.find((section) => section.dataset.tab === "bdp" && sectionAircraft(section) === editAircraft)?.querySelector('[data-tab-tool="fullBdp"]') ?? null;
+}
+function syncFullBdpButton() {
+  const toggle = editedFullBdpToggle();
+  const on = toggle?.getAttribute("aria-pressed") === "true";
+  fullBdpButton.hidden = !toggle || inputTab !== "bdp";
+  fullBdpButton.setAttribute("aria-pressed", String(on));
+  fullBdpButton.textContent = `Full BDP: ${on ? "On" : "Off"}`;
+}
+// The tab head's toggle may still be pressed (an older handler, a test): follow it.
+document.addEventListener("click", (event) => {
+  if (event.target?.closest?.('[data-tab-tool="fullBdp"]')) syncFullBdpButton();
+});
 function syncInputSections() {
+  syncFullBdpButton();
   const shownKey = inputTab === "reference" && editAircraft === 1 ? "offset" : inputTab;
   pressed(inputNav, "data-wide-input", shownKey);
   const sections = [...leadInputs, ...followers.querySelectorAll(".flight-slot > .section[data-tab]")];

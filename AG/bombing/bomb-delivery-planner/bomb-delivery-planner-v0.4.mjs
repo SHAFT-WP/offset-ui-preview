@@ -12,6 +12,7 @@ import {
   isLevelTurnRollIn,
 } from "./roll-in-v0.2.mjs";
 import { FRAGMENT_MARGIN_MODES, SEM_FRAGMENT_MODEL_V0_1, calculateSemPathAndFragment, fragmentCylinder } from "./sem-fragment-v0.1.mjs";
+import { SEM_TURN_MODEL_V0_1 } from "./sem-turn-v0.1.mjs";
 
 // BDP v0.4 (owner 2026-10-15, SPEC §5.1): the v0.3 facade with the Roll-in v0.2 model — technique B with linear
 // roll / G / roll-out rate onsets and a solved Roll-in Bank. Consumed by Offset only for now; the BDP page, BOX
@@ -24,10 +25,16 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_4 = Object.freeze({
   // +30°): the SEM path, SEM minimum and fragment check follow the selected SEM (sem-fragment 0.1.1); `public.sem`
   // records it. A CSEM that cannot be flown clears the SEM path, minimum and check (status INVALID, its errors);
   // MINALT, NLT and every LEVEL result are unchanged.
-  version: "0.4.2",
+  // 0.4.3 (2026-10-19, owner, SPEC §6.8): the Level SEM turn from its level-off — `semTurnType` (LEVEL default |
+  // SLICE), `semTurnDeg` (heading change, 0–360; absent 0 = no turn), `semTurnDirection` (LEFT | RIGHT of the
+  // Attack Heading; absent RIGHT — a host resolves its own default), `semTurnG` (absent: Recovery G),
+  // `semTurnSpeedKcas` (absent: the level-off speed), `semTurnBankDeg` (SLICE only; LEVEL is AUTO acos(1/G)); the
+  // Roll-in onset rates. A turn that cannot be flown makes the SEM INVALID like a CSEM; MINALT / NLT unchanged.
+  version: "0.4.3",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   rollInModel: ROLL_IN_V0_2_MODEL,
   semFragmentModel: SEM_FRAGMENT_MODEL_V0_1,
+  semTurnModel: SEM_TURN_MODEL_V0_1,
   officialOracle: "Bomb Profile REV.1.9 · R_20260830 (legacy path only; the v0.4 Roll-in is a new model)",
 });
 
@@ -85,6 +92,19 @@ function semEndInput(value) {
   return end;
 }
 
+function choice(name, value, options, fallback) {
+  const chosen = value ?? fallback;
+  if (!options.includes(chosen)) throw new RangeError(`${name} must be one of ${options.join(", ")}`);
+  return chosen;
+}
+
+// Optional number: absent (undefined / null) stays null; anything else must be finite.
+function optionalNumber(name, value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new TypeError(`${name} must be finite`);
+  return value;
+}
+
 function canonicalInput(rawInput) {
   requireCanonicalInput(rawInput);
   if (rawInput.windSpeedMps !== undefined || rawInput.windSpeed !== undefined) {
@@ -96,6 +116,12 @@ function canonicalInput(rawInput) {
     fragmentMarginAppliesTo: fragmentMarginMode(rawInput.fragmentMarginAppliesTo),
     semEnd: semEndInput(rawInput.semEnd),
     csemTargetFpaDeg: rawInput.csemTargetFpaDeg ?? 30,
+    semTurnType: choice("semTurnType", rawInput.semTurnType, SEM_TURN_MODEL_V0_1.types, "LEVEL"),
+    semTurnDeg: optionalNumber("semTurnDeg", rawInput.semTurnDeg) ?? 0,
+    semTurnDirection: choice("semTurnDirection", rawInput.semTurnDirection, SEM_TURN_MODEL_V0_1.directions, "RIGHT"),
+    semTurnG: optionalNumber("semTurnG", rawInput.semTurnG),
+    semTurnSpeedKcas: optionalNumber("semTurnSpeedKcas", rawInput.semTurnSpeedKcas),
+    semTurnBankDeg: optionalNumber("semTurnBankDeg", rawInput.semTurnBankDeg),
     targetElevationMslFt: rawInput.targetElevationMslFt,
     releaseSpeedKcas: rawInput.releaseSpeedKcas,
     speedOvershootKcas: rawInput.speedOvershootKcas ?? 50,
@@ -155,7 +181,7 @@ function semFragment(input, calculation) {
     return { applicable: true, ...semPath(input, calculation, windFps, windRad) };
   } catch (error) {
     if (!error?.semErrors) throw error;
-    // The selected CSEM cannot be flown: no SEM path, minimum or check (handoff §6.4); MINALT / NLT stand.
+    // The selected CSEM, or the Level SEM turn, cannot be flown: no SEM path, minimum or check (handoff §6.4); MINALT / NLT stand.
     return { applicable: false, invalid: true, errors: error.semErrors, ...cylinderOnly() };
   }
 }
@@ -180,7 +206,21 @@ function semPath(input, calculation, windFps, windRad) {
       windCrossFps: -windFps * Math.sin(windRad),
       semEnd: input.semEnd,
       csemTargetFpaDeg: input.csemTargetFpaDeg,
+      // §6.8: the Level SEM turn (none at 0°), with the Roll-in onset rates.
+      semTurn: input.semEnd === "LEVEL" ? semTurnInput(input) : null,
     }),
+  };
+}
+
+function semTurnInput(input) {
+  return {
+    type: input.semTurnType,
+    headingChangeDeg: input.semTurnDeg,
+    direction: input.semTurnDirection,
+    loadFactorG: input.semTurnG,
+    speedKcas: input.semTurnSpeedKcas,
+    bankDeg: input.semTurnType === "SLICE" ? input.semTurnBankDeg : null,
+    ...Object.fromEntries(ONSET_KEYS.map((key) => [key, input[key]])),
   };
 }
 
@@ -208,7 +248,7 @@ function solveCanonical(input) {
       fragment,
       fragmentCheck: sem.applicable ? { applicable: true, ...sem.fragmentCheck } : { applicable: false },
       // The SEM flown and its conditions (sem-fragment 0.1.1); null below Dive 10° (MINALT only).
-      sem: sem.applicable ? { status: "VALID", ...sem.sem } : sem.invalid ? { status: "INVALID", end: input.semEnd, targetFpaDeg: input.semEnd === "CLIMB" ? input.csemTargetFpaDeg : null, recoveryG: input.recoveryG, gOnsetTimeSec: input.gOnsetTimeSec, recoverySpeedKcas: input.releaseSpeedKcas + input.speedOvershootKcas, errors: sem.errors } : null,
+      sem: sem.applicable ? { status: "VALID", ...sem.sem } : sem.invalid ? { status: "INVALID", end: input.semEnd, targetFpaDeg: input.semEnd === "CLIMB" ? input.csemTargetFpaDeg : null, recoveryG: input.recoveryG, gOnsetTimeSec: input.gOnsetTimeSec, recoverySpeedKcas: input.releaseSpeedKcas + input.speedOvershootKcas, turn: input.semEnd === "LEVEL" && input.semTurnDeg !== 0 ? { type: input.semTurnType, headingChangeDeg: input.semTurnDeg, direction: input.semTurnDirection, loadFactorG: input.semTurnG ?? input.recoveryG, speedKcas: input.semTurnSpeedKcas, bankDeg: input.semTurnType === "SLICE" ? input.semTurnBankDeg : null } : null, errors: sem.errors } : null,
     },
     local: calculation.local,
     safety: calculation.safety,
@@ -236,6 +276,7 @@ function solveCanonical(input) {
       rollInMode: roll.mode,
       rollInOnset: { ...roll.onset },
       semFragmentModel: { ...SEM_FRAGMENT_MODEL_V0_1 },
+      semTurnModel: { ...SEM_TURN_MODEL_V0_1 },
       semLevelOffDownRangeNm: sem.applicable ? sem.semLevelOffDownRangeNm : null,
       semRecoverySpeedKcas: sem.applicable ? sem.semRecoverySpeedKcas : null,
     },

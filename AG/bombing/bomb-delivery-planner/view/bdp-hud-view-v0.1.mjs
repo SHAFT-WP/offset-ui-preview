@@ -1,5 +1,5 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
-import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.1";
+import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.3";
 
 // BDP HUD view v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.3 in SVG). A first-person
 // view from the aircraft of a BDP flight path at time t: an F-16-style HUD square of `hudSizeDeg` (default 14°,
@@ -13,7 +13,9 @@ export const BDP_HUD_VIEW_V0_1 = Object.freeze({
   id: "bdp-hud-view-v0.1",
   // 0.1.1 (2026-10-18, owner handoff §3): any screen FOV 5–150° (the host's zoom: FOV = 2·atan(tan(F0/2)/zoom));
   // without a time the HUD shows Roll-in −3 s (the HUD start); the time readout is "Roll-in −3.0 s" / "Roll-in +n s".
-  version: "0.1.1",
+  // 0.1.2 (2026-10-19): flight path 0.1.2 (the Level SEM turn: heading and bank after the level-off).
+  // 0.1.3 (2026-10-19, owner): flight path 0.1.3 — the HUD flies Roll-in −3 s to 1 s after the SEM's end, held there.
+  version: "0.1.3",
   fovLimitsDeg: Object.freeze([5, 150]),
   canvas: Object.freeze({ width: 720, height: 540 }),
   ladderStepDeg: 5,
@@ -83,6 +85,8 @@ export function renderBdpHudView(svg, path, options = {}) {
   const fovDeg = Number.isFinite(Number(o.fovDeg)) && Number(o.fovDeg) > 0 ? Math.min(fovHigh, Math.max(fovLow, Number(o.fovDeg))) : 70;
   const t = Number.isFinite(o.timeSec) ? o.timeSec : BDP_FLIGHT_PATH_V0_1.hudStartSec;
   const state = flightStateAt(path, t);
+  // The time shown is the state's, inside the window (0.1.3).
+  const shownT = Number.isFinite(state.t) ? state.t : t;
   const axes = hudAxes(state, { aoa: o.aoa, hudSizeDeg });
   const pos = [state.x, state.y, state.z];
   const toTarget = norm(sub([path.target.x, path.target.y, path.target.z], pos));
@@ -225,7 +229,7 @@ export function renderBdpHudView(svg, path, options = {}) {
     [`DIVE ${Math.round(-state.fpaDeg)}°`, `G ${state.loadFactor.toFixed(1)}`],
     [`AOA ${axes.alphaDeg.toFixed(1)}°`, `BANK ${Math.round(Math.abs(state.bankDeg))}°${state.bankDeg > 0.5 ? "R" : state.bankDeg < -0.5 ? "L" : ""}`],
     [`HDG ${state.headingDeg >= 0 ? "+" : ""}${Math.round(state.headingDeg)}°`, `TGT ${tgtRangeNm.toFixed(1)} NM`],
-    [`IAA ${(lookDownDeg + state.fpaDeg).toFixed(1)}°`, `${String(state.phase).toUpperCase()} · Roll-in ${t < 0 ? "−" : "+"}${Math.abs(t).toFixed(1)} s`],
+    [`IAA ${(lookDownDeg + state.fpaDeg).toFixed(1)}°`, `${String(state.phase).toUpperCase()} · Roll-in ${shownT < 0 ? "−" : "+"}${Math.abs(shownT).toFixed(1)} s`],
   ];
   rows.forEach(([left, right], index) => {
     root.append(text(12, 22 + index * 19, left, { "data-hud-readout": index }));

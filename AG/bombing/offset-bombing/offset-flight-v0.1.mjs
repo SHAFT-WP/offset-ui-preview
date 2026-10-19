@@ -29,7 +29,10 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // AUTO, no level-turn Bank -> G coupling). The Roll-in / Roll-out / G Onset rates follow #1 (inherited).
   // 0.1.5 (2026-10-15, owner R3 / Q8): #1 state.fragmentMarginAppliesTo (developer option, Flight-wide:
   // HEIGHT_AND_RADIUS default, HEIGHT) goes to every aircraft's BDP; BDP v0.4.1 SEM / fragment outputs.
-  version: "0.1.5",
+  // 0.1.6 (2026-10-19, owner): the Level SEM turn (BDP v0.4.3) — semTurnType / semTurnDeg / semTurnG /
+  // semTurnSpeedKcas / semTurnBankDeg follow the element lead while blank; semTurnDirection is the aircraft's own
+  // (blank: its Roll-in direction).
+  version: "0.1.6",
   status: "work",
   schemaVersion: 1,
   components: Object.freeze({
@@ -79,10 +82,19 @@ const FOLLOWER_FALLBACK_DRIVERS = Object.freeze({ actionRangeNm: "offsetAngleDeg
 // Follower BDP values that follow the element lead's effective value while null.
 // 2026-10-18 (owner handoff §6): csemTargetFpaDeg (CSEM Target FPA) joins them; semEnd (LEVEL / CLIMB) is the
 // text key below, inherited the same way.
-export const OFFSET_FLIGHT_INHERITED_KEYS = Object.freeze(["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg"]);
-export const OFFSET_FLIGHT_INHERITED_TEXT_KEYS = Object.freeze(["semEnd"]);
+// 2026-10-19 (owner): the Level SEM turn — semTurnDeg and semTurnType (LEVEL / SLICE) follow the same way; the
+// optional semTurnG / semTurnSpeedKcas / semTurnBankDeg follow the lead's entry, whose blank means Recovery G / the
+// level-off speed / none. semTurnDirection is each aircraft's own (blank: its own Roll-in direction).
+export const OFFSET_FLIGHT_INHERITED_KEYS = Object.freeze(["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "semTurnDeg"]);
+export const OFFSET_FLIGHT_INHERITED_TEXT_KEYS = Object.freeze(["semEnd", "semTurnType"]);
+export const OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS = Object.freeze(["semTurnG", "semTurnSpeedKcas", "semTurnBankDeg"]);
 const SEM_ENDS = Object.freeze(["LEVEL", "CLIMB"]);
 const semEndOf = (value) => (SEM_ENDS.includes(value) ? value : undefined);
+const SEM_TURN_TYPES = Object.freeze(["LEVEL", "SLICE"]);
+const SEM_TURN_DIRECTIONS = Object.freeze(["LEFT", "RIGHT"]);
+const choiceOf = (options) => (value) => (options.includes(value) ? value : undefined);
+const semTurnTypeOf = choiceOf(SEM_TURN_TYPES);
+const semTurnDirectionOf = choiceOf(SEM_TURN_DIRECTIONS);
 // BDP v0.4 Roll-in onset rates (owner 2026-10-15): #1's value, or the BDP default while #1 has none.
 export const OFFSET_FLIGHT_ONSET_KEYS = Object.freeze(["rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"]);
 // Follower LOCKs (same fields as #1's since 0.1.2; Run-In and IP follow #1) and element-lead options.
@@ -485,6 +497,11 @@ function leadOffsetInput(lead) {
       // The selected SEM (BDP v0.4.2): blank = LEVEL / +30°.
       semEnd: semEndOf(v.semEnd),
       csemTargetFpaDeg: blank(v.csemTargetFpaDeg) ? undefined : n("csemTargetFpaDeg"),
+      // The Level SEM turn (BDP v0.4.3): blank = LEVEL, no turn, Recovery G, the level-off speed, the Roll-in direction.
+      semTurnType: semTurnTypeOf(v.semTurnType),
+      semTurnDeg: blank(v.semTurnDeg) ? undefined : n("semTurnDeg"),
+      semTurnDirection: semTurnDirectionOf(v.semTurnDirection),
+      ...Object.fromEntries(OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS.map((key) => [key, blank(v[key]) ? undefined : n(key)])),
     },
   };
 }
@@ -724,6 +741,16 @@ function followerInheritance(follower, leaderResult, leadNumber) {
       inheritance[key] = { source: "explicit", fromAircraft: null, value: resolved[key] };
     }
   }
+  // Optional numbers: the lead's entry, absent (its default) included.
+  for (const key of OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS) {
+    if (blank(v[key])) {
+      resolved[key] = shared[key] ?? undefined;
+      inheritance[key] = { source: "inherited", fromAircraft: leadNumber, value: resolved[key] ?? null };
+    } else {
+      resolved[key] = requireNumber(key, v[key]);
+      inheritance[key] = { source: "explicit", fromAircraft: null, value: resolved[key] };
+    }
+  }
   return { inheritance, resolved };
 }
 
@@ -803,6 +830,11 @@ function followerOffsetInput({ number, follower, leaderResult, leadNumber, fligh
       ...Object.fromEntries(OFFSET_FLIGHT_ONSET_KEYS.map((key) => [key, inherited[key]])),
       semEnd: inherited.semEnd,
       csemTargetFpaDeg: inherited.csemTargetFpaDeg,
+      semTurnType: semTurnTypeOf(inherited.semTurnType),
+      semTurnDeg: inherited.semTurnDeg,
+      ...Object.fromEntries(OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS.map((key) => [key, inherited[key]])),
+      // Each aircraft's own (blank: its Roll-in direction).
+      semTurnDirection: semTurnDirectionOf(v.semTurnDirection),
       // The Flight's (#1's) developer option.
       fragmentMarginAppliesTo: flightProfile.fragmentMarginAppliesTo,
     },
@@ -1173,7 +1205,7 @@ function applyEdits(aircraft, edits) {
 // What a follower reads from an aircraft before it (its element lead, and #1 for the Flight-wide
 // Target / wind / IP limit / VIP): resolved values, timing, geometry points, reference mode and the
 // BDP inputs it inherits. Followers are given only this, so it is exactly their dependency.
-const LEADER_PROFILE_KEYS = [...OFFSET_FLIGHT_INHERITED_KEYS, ...OFFSET_FLIGHT_INHERITED_TEXT_KEYS, "targetElevationMslFt", "windSpeedKt", "fragmentMarginAppliesTo"];
+const LEADER_PROFILE_KEYS = [...OFFSET_FLIGHT_INHERITED_KEYS, ...OFFSET_FLIGHT_INHERITED_TEXT_KEYS, ...OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS, "targetElevationMslFt", "windSpeedKt", "fragmentMarginAppliesTo"];
 function leaderView(result) {
   if (!result) return null;
   const inputs = result.profile.canonicalInputs;

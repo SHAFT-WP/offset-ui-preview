@@ -1,6 +1,6 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { BDP_VIEW_COLORS as C } from "./bdp-view-style-v0.1.mjs";
-import { aircraftAxes, flightStateAt, fragmentAt } from "./bdp-flight-path-v0.1.mjs?v=0.1.1";
+import { aircraftAxes, flightStateAt, fragmentAt } from "./bdp-flight-path-v0.1.mjs?v=0.1.3";
 
 // BDP 3D Profile v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.2 in SVG). A perspective
 // picture of a BDP flight path (bdp-flight-path-v0.1): ground grid, Target, Aim-off Point, the path coloured by
@@ -22,7 +22,11 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // 8 CSS px then drag pans (`panHint` draws "PAN"), two pointers only zoom about their starting midpoint.
   // 0.1.3 (2026-10-18, owner): legend notes — the CSEM shows its Min Altitude (no Level-off Altitude N/A), and the
   // fragment envelope drawn (max) its Height and Diameter.
-  version: "0.1.3",
+  // 0.1.4 (2026-10-19, owner): the Level SEM turn (flight path 0.1.2) is drawn with its bank ticks; the legend notes
+  // give the turn flown (type, heading change and side, G, bank, speed; a slice's minimum altitude).
+  // 0.1.5 (2026-10-19, owner): flight path 0.1.3 — the path and the aircraft from Roll-in −3 s to 1 s after the SEM's
+  // end (the aircraft stays at the end after it).
+  version: "0.1.5",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
@@ -395,6 +399,14 @@ export function bdpSemLegendNotes(path) {
   ];
   if (climb) rows.push(`CSEM Target FPA: +${f(sem.targetFpaDeg, 0, "°")} · G Release Start: +${f(sem.gReleaseStartFpaDeg, 0, "°")} FPA · Terminal G: ${f(sem.terminalG, 3, " G")}`);
   rows.push(climb ? `CSEM Min Altitude: ${ft(minMslFt)} · CSEM End Altitude: ${ft(sem.endAltitudeMslFt)}` : `Level-off Altitude: ${ft(sem.levelOffAltitudeMslFt)}`);
+  // 0.1.4: the Level SEM turn from the level-off (BDP v0.4.3).
+  const turn = climb ? null : sem.turn;
+  if (turn) {
+    const slice = turn.flownType === "SLICE";
+    const g = turn.mode === "FULL" ? f(turn.loadFactorG, 1, " G") : `${f(turn.peakLoadFactorG, 1, " G")} (reduced)`;
+    const bank = turn.bankAuto ? `Bank AUTO ${f(turn.bankDeg, 0, "°")}` : `Bank ${f(turn.bankDeg, 0, "°")}`;
+    rows.push(`SEM Turn: ${slice ? "Slice" : "Level"} ${f(turn.headingChangeDeg, 0, "°")} ${turn.direction === "LEFT" ? "Left" : "Right"} · ${g} · ${bank} · ${f(turn.speedKcas, 0, " KCAS")}${slice ? ` · Min Altitude: ${ft(minMslFt)}` : ""}`);
+  }
   const frag = path.fragment;
   if (frag) rows.push(`Fragment Height: ${ft(frag.heightAglFt, "AGL")} · Fragment Diameter: ${ft(2 * frag.radiusFt, "")} (max${Number.isFinite(frag.marginPercent) ? `, ${frag.marginPercent}% margin${frag.marginAppliesTo === "HEIGHT" ? " on height" : ""}` : ""})`);
   return rows;

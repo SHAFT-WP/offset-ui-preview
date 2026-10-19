@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · Standard layout</title>
-<link rel="stylesheet" href="./offset.css?v=bdd007b0d510">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=bdd007b0d510">
+<link rel="stylesheet" href="./offset.css?v=6e9a6d695f60">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=6e9a6d695f60">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -50,17 +50,24 @@
         <label class="field"><span>Tracking Time (sec)</span><input data-key="trackingTimeSec" type="text" inputmode="decimal" value="18.0"><span class="unit">Track Point → Release · 0.1 s</span></label>
         <label class="field"><span>Release Altitude (ft MSL)</span><input data-key="releaseAltitudeMslFt" type="text" inputmode="decimal" value="6800"><span class="unit">NLT clamp is BDP-owned</span></label>
         <label class="field"><span>Release Speed (kcas)</span><input data-key="releaseSpeedKcas" type="text" inputmode="decimal" value="450"><span class="unit">Release speed</span></label>
-        <label class="field advanced-only bdp-extra"><span>Fragment Height Margin (%) <span class="adv-tag">ADV</span></span><input data-key="fragmentHeightMarginPercent" type="text" inputmode="decimal" value="20"></label>
-        <label class="field advanced-only bdp-extra"><span>SEM End <span class="adv-tag">ADV</span></span><select data-key="semEnd"><option value="LEVEL">Level (pull to FPA 0°, then 1 G)</option><option value="CLIMB">CSEM (climb to Target FPA)</option></select><span class="unit">Every BDP view and S&amp;R fly this SEM</span></label>
-        <label class="field advanced-only bdp-extra" data-csem-only><span>CSEM Target FPA (deg) <span class="adv-tag">ADV</span></span><input data-key="csemTargetFpaDeg" type="text" inputmode="decimal" value="30"><span class="unit">Flight path angle, &gt; 20° and &lt; 90° · G falls linearly from +20°</span></label>
-        <label class="field advanced-only bdp-extra"><span>Recovery G (G) <span class="adv-tag">ADV</span></span><input data-key="recoveryG" type="text" inputmode="decimal" value="5"><span class="unit">V2 canonical safety input</span></label>
-        <label class="field advanced-only bdp-extra"><span>Speed Overshoot (kcas) <span class="adv-tag">ADV</span></span><input data-key="speedOvershootKcas" type="text" inputmode="decimal" value="50"><span class="unit">BDP safety input</span></label>
-        <label class="field advanced-only bdp-extra"><span>G Onset Time (sec) <span class="adv-tag">ADV</span></span><input data-key="gOnsetTimeSec" type="text" inputmode="decimal" value="2"><span class="unit">V2 SEM/NLT input · onset starts at Release</span></label>
         <label class="field advanced-only bdp-extra"><span>Roll-in Bank Angle (deg) <span class="adv-tag">ADV</span></span><input data-key="rollInBankAngleDeg" type="text" inputmode="decimal" value="" readonly data-bdp-result title="Solved by BDP (Roll-in model B)"><span class="unit">Result · solved by BDP (Roll-in model B)</span></label>
         <label class="field advanced-only bdp-extra"><span>Roll-in G (G) <span class="adv-tag">ADV</span></span><input data-key="rollInG" type="text" inputmode="decimal" value="4"><span class="unit">BDP roll-in input</span></label>
         <label class="field advanced-only bdp-extra"><span>Roll-in Rate (deg/s) <span class="adv-tag">ADV</span></span><input data-key="rollInRollRateDegSec" type="text" inputmode="decimal" value="60"><span class="unit">Roll-in and Offset Turn roll · linear</span></label>
         <label class="field advanced-only bdp-extra"><span>Roll-out Rate (deg/s) <span class="adv-tag">ADV</span></span><input data-key="rollOutRollRateDegSec" type="text" inputmode="decimal" value="55"><span class="unit">Roll-out · linear</span></label>
         <label class="field advanced-only bdp-extra"><span>G Onset Rate (G/s) <span class="adv-tag">ADV</span></span><input data-key="gOnsetRateGSec" type="text" inputmode="decimal" value="2"><span class="unit">Roll-in and Offset Turn pull · linear</span></label>
+        <label class="field advanced-only bdp-extra"><span>SEM End <span class="adv-tag">ADV</span></span><select data-key="semEnd"><option value="LEVEL">Level (pull to FPA 0°, then 1 G)</option><option value="CLIMB">CSEM (climb to Target FPA)</option></select><span class="unit">Every BDP view and S&amp;R fly this SEM</span></label>
+        <label class="field advanced-only bdp-extra" data-csem-only><span>CSEM Target FPA (deg) <span class="adv-tag">ADV</span></span><input data-key="csemTargetFpaDeg" type="text" inputmode="decimal" value="30"><span class="unit">Flight path angle, &gt; 20° and &lt; 90° · G falls linearly from +20°</span></label>
+        <label class="field advanced-only bdp-extra"><span>Recovery G (G) <span class="adv-tag">ADV</span></span><input data-key="recoveryG" type="text" inputmode="decimal" value="5"><span class="unit">V2 canonical safety input</span></label>
+        <label class="field advanced-only bdp-extra"><span>Speed Overshoot (kcas) <span class="adv-tag">ADV</span></span><input data-key="speedOvershootKcas" type="text" inputmode="decimal" value="50"><span class="unit">BDP safety input</span></label>
+        <label class="field advanced-only bdp-extra"><span>G Onset Time (sec) <span class="adv-tag">ADV</span></span><input data-key="gOnsetTimeSec" type="text" inputmode="decimal" value="2"><span class="unit">V2 SEM/NLT input · onset starts at Release</span></label>
+        <label class="field advanced-only bdp-extra"><span>Fragment Height Margin (%) <span class="adv-tag">ADV</span></span><input data-key="fragmentHeightMarginPercent" type="text" inputmode="decimal" value="20"></label>
+        <label class="field advanced-only bdp-extra" data-level-sem-only><span>SEM Turn <span class="adv-tag">ADV</span></span><select data-key="semTurnType"><option value="LEVEL">Level turn (bank AUTO)</option><option value="SLICE">Slice (entered bank, descends)</option></select><span class="unit">Right at the level-off · speed and G held · Roll-in onsets</span></label>
+        <label class="field advanced-only bdp-extra" data-level-sem-only><span>Turn Direction <span class="adv-tag">ADV</span></span><select data-key="semTurnDirection"><option value="">Roll-in direction</option><option value="LEFT">Left</option><option value="RIGHT">Right</option></select><span class="unit">Blank: this aircraft's Roll-in side</span></label>
+        <label class="field advanced-only bdp-extra" data-level-sem-only><span>Turn Amount (deg) <span class="adv-tag">ADV</span></span><input data-key="semTurnDeg" type="text" inputmode="decimal" value="90"><span class="unit">Heading change · 0 = no turn · up to 360</span></label>
+        <label class="field advanced-only bdp-extra" data-level-sem-only><span>Turn G (G) <span class="adv-tag">ADV</span></span><input data-key="semTurnG" type="text" inputmode="decimal" value="" placeholder="Recovery G"><span class="unit">Sustained · blank: Recovery G</span></label>
+        <label class="field advanced-only bdp-extra" data-level-sem-only><span>Turn Speed (kcas) <span class="adv-tag">ADV</span></span><input data-key="semTurnSpeedKcas" type="text" inputmode="decimal" value="" placeholder="Level-off"><span class="unit">Held · blank: the level-off speed</span></label>
+        <label class="field advanced-only bdp-extra" data-level-sem-only data-sem-turn-level-only><span>Turn Bank <span class="adv-tag">ADV</span></span><output data-sem-turn-auto-bank>AUTO</output><span class="unit">Level turn: acos(1/G)</span></label>
+        <label class="field advanced-only bdp-extra" data-level-sem-only data-sem-turn-slice-only><span>Turn Bank (deg) <span class="adv-tag">ADV</span></span><input data-key="semTurnBankDeg" type="text" inputmode="decimal" value="85"><span class="unit">Slice: above acos(1/G), up to 150° · G held, the nose falls · then a pull to level at G</span></label>
       </div><div data-sem-readouts id="lead-sem-readouts"></div></div>
     </details>
   </section>
@@ -220,7 +227,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=bdd007b0d510"></script>
+<script type="module" src="./controller-v0.1.mjs?v=6e9a6d695f60"></script>
 
 </body>
 </html>

@@ -15,6 +15,11 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .wide-workspace-bar { display:flex; align-items:center; flex-wrap:wrap; gap:14px; border-block:1px solid var(--line); padding:9px 0; margin-bottom:12px; }
 .wide-edit-nav { display:flex; align-items:center; gap:5px; padding:8px 8px 0; flex-shrink:0; background:var(--bg); }
 .wide-control-label { color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.06em; margin-right:auto; }
+/* Full BDP beside "Edit aircraft" (owner 2026-10-19); the BDP tab head's own toggle is hidden in this layout. */
+.wide-edit-nav .wide-control-label:has(+ .wide-full-bdp-button:not([hidden])) { margin-right:6px; }
+.wide-full-bdp-button { margin-right:auto; border:1px solid var(--line); background:transparent; color:var(--text); font-size:12px; font-weight:800; min-height:28px; padding:4px 10px; border-radius:9px; cursor:pointer; }
+.wide-full-bdp-button[aria-pressed="true"] { border-color:var(--blue); color:var(--blue); }
+.offset-wide .wide-inputs .section[data-tab="bdp"] .section-tools [data-tab-tool="fullBdp"] { display:none; }
 .wide-aircraft-button { border:1px solid transparent; background:transparent; color:var(--muted); font-size:13px; font-weight:800; min-width:42px; min-height:32px; border-radius:7px; cursor:pointer; }
 .wide-aircraft-button[aria-pressed="true"] { color:var(--green); border-color:color-mix(in srgb,var(--green) 35%,var(--line)); background:var(--green-soft); }
 .wide-selected-label { font-size:11px; font-weight:800; letter-spacing:.09em; color:var(--muted); }

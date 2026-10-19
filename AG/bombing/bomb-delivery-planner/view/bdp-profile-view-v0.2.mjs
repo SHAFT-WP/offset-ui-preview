@@ -44,7 +44,9 @@ export const BDP_PROFILE_VIEW_V0_2 = Object.freeze({
   // SEM Min Height, Fragment Height (max) and Fragment Diameter (max, 2R), MINALT and the SEM flown.
   // 0.2.6 (2026-10-18, owner, Offset layout): the text base follows the host's `viewportWidth` — 2× on a phone
   // (≤ 620 px or none given, unchanged), 1.2× on a PC (the former 60% is the new 100%; bdpOffsetTextBase).
-  version: "0.2.6",
+  // 0.2.7 (2026-10-19, owner): the SEM legend row names the Level SEM turn (BDP v0.4.3); the path is drawn on the
+  // attack axis (its down range), so a turn shows as the path's projection.
+  version: "0.2.7",
   subject: "Dive",
   view: "Profile",
   semanticStart: "TRACK_POINT",
@@ -217,7 +219,7 @@ export function renderBdpProfileView(svg, result, options = {}) {
     }));
     const sem = pub.sem;
     semLegend.push(
-      { label: `SEM · ${sem?.end === "CLIMB" ? `CSEM to +${formatDeg(sem.targetFpaDeg)}°` : "Level SEM"}`, color: semColor },
+      { label: `SEM · ${sem?.end === "CLIMB" ? `CSEM to +${formatDeg(sem.targetFpaDeg)}°` : "Level SEM"}${sem?.end !== "CLIMB" && sem?.turn ? ` · ${sem.turn.flownType === "SLICE" ? "Slice" : "Level"} turn ${formatDeg(sem.turn.headingChangeDeg)}° ${sem.turn.direction === "LEFT" ? "L" : "R"}` : ""}`, color: semColor },
       { label: `SEM Min Height · ${formatFt(semMinAglFt)} ft`, color: semColor },
       { label: `MINALT · ${formatFt(pub.minAltMslFt)} ft MSL`, color: C.target },
       { label: `Fragment Height (max) · ${formatFt(fragment.heightAglFt)} ft`, color: C.target },

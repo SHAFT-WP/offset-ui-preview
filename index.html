@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=bdd007b0d510">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=bdd007b0d510">
-<link rel="stylesheet" href="./wide-layout.css?v=bdd007b0d510">
+<link rel="stylesheet" href="./offset.css?v=6e9a6d695f60">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=6e9a6d695f60">
+<link rel="stylesheet" href="./wide-layout.css?v=6e9a6d695f60">
 </head>
 <body class="offset-wide">
 <main class="app" id="offset-calculator">
@@ -35,9 +35,16 @@
       <label class="field"><span>Wind Direction FROM (deg)</span><input data-key="windDirectionDeg" type="text" inputmode="decimal" value="0"><span class="unit">TRUE · wind FROM · shared by the Flight</span></label>
       <label class="field"><span>Wind Speed (kt)</span><input data-key="windSpeedKt" type="text" inputmode="decimal" value="0"><span class="unit">Shared by the Flight</span></label>
     </div>
-    <!-- Full BDP (owner 2026-10-15, R1): the basic tab is Target, Bomb and Wind; SEM / Recovery shows with the tab's
-         own Full BDP button. -->
+    <!-- Full BDP (owner 2026-10-15, R1): the basic tab is Target, Bomb and Wind; Roll-in / Turn Onset, SEM / Recovery
+         and the Level SEM turn show with Full BDP (the toggle on the Edit aircraft line, owner 2026-10-19). Roll-in
+         comes before the SEM (owner 2026-10-19). -->
     <div class="bdp-full-group">
+    <h3 class="input-group-title">Roll-in / Turn Onset</h3>
+    <div class="input-grid">
+      <label class="field bdp-extra"><span>Roll-in Rate (deg/s)</span><input data-key="rollInRollRateDegSec" type="text" inputmode="decimal" value="60"><span class="unit">Roll-in, Offset Turn and SEM Turn roll · linear</span></label>
+      <label class="field bdp-extra"><span>Roll-out Rate (deg/s)</span><input data-key="rollOutRollRateDegSec" type="text" inputmode="decimal" value="55"><span class="unit">Roll-out · linear</span></label>
+      <label class="field bdp-extra"><span>G Onset Rate (G/s)</span><input data-key="gOnsetRateGSec" type="text" inputmode="decimal" value="2"><span class="unit">Roll-in, Offset Turn and SEM Turn pull · linear</span></label>
+    </div>
     <h3 class="input-group-title">SEM / Recovery</h3>
     <div class="input-grid">
       <label class="field bdp-extra"><span>SEM End</span><select data-key="semEnd"><option value="LEVEL">Level (pull to FPA 0°, then 1 G)</option><option value="CLIMB">CSEM (climb to Target FPA)</option></select><span class="unit">Every BDP view and S&amp;R fly this SEM</span></label>
@@ -47,13 +54,17 @@
       <label class="field bdp-extra"><span>Speed Overshoot (kcas)</span><input data-key="speedOvershootKcas" type="text" inputmode="decimal" value="50"><span class="unit">BDP safety input</span></label>
       <label class="field bdp-extra"><span>Fragment Height Margin (%)</span><input data-key="fragmentHeightMarginPercent" type="text" inputmode="decimal" value="20"></label>
     </div>
-    <div data-sem-readouts id="lead-sem-readouts"></div>
-    <h3 class="input-group-title">Roll-in / Turn Onset</h3>
-    <div class="input-grid">
-      <label class="field bdp-extra"><span>Roll-in Rate (deg/s)</span><input data-key="rollInRollRateDegSec" type="text" inputmode="decimal" value="60"><span class="unit">Roll-in and Offset Turn roll · linear</span></label>
-      <label class="field bdp-extra"><span>Roll-out Rate (deg/s)</span><input data-key="rollOutRollRateDegSec" type="text" inputmode="decimal" value="55"><span class="unit">Roll-out · linear</span></label>
-      <label class="field bdp-extra"><span>G Onset Rate (G/s)</span><input data-key="gOnsetRateGSec" type="text" inputmode="decimal" value="2"><span class="unit">Roll-in and Offset Turn pull · linear</span></label>
+    <h3 class="input-group-title" data-level-sem-only>SEM Turn</h3>
+    <div class="input-grid" data-level-sem-only>
+      <label class="field bdp-extra"><span>SEM Turn</span><select data-key="semTurnType"><option value="LEVEL">Level turn (bank AUTO)</option><option value="SLICE">Slice (entered bank, descends)</option></select><span class="unit">Right at the level-off · speed and G held · Roll-in onsets</span></label>
+      <label class="field bdp-extra"><span>Turn Direction</span><select data-key="semTurnDirection"><option value="">Roll-in direction</option><option value="LEFT">Left</option><option value="RIGHT">Right</option></select><span class="unit">Blank: this aircraft's Roll-in side</span></label>
+      <label class="field bdp-extra"><span>Turn Amount (deg)</span><input data-key="semTurnDeg" type="text" inputmode="decimal" value="90"><span class="unit">Heading change · 0 = no turn · up to 360</span></label>
+      <label class="field bdp-extra"><span>Turn G (G)</span><input data-key="semTurnG" type="text" inputmode="decimal" value="" placeholder="Recovery G"><span class="unit">Sustained · blank: Recovery G</span></label>
+      <label class="field bdp-extra"><span>Turn Speed (kcas)</span><input data-key="semTurnSpeedKcas" type="text" inputmode="decimal" value="" placeholder="Level-off"><span class="unit">Held · blank: the level-off speed</span></label>
+      <label class="field bdp-extra" data-sem-turn-level-only><span>Turn Bank</span><output data-sem-turn-auto-bank>AUTO</output><span class="unit">Level turn: acos(1/G)</span></label>
+      <label class="field bdp-extra" data-sem-turn-slice-only><span>Turn Bank (deg)</span><input data-key="semTurnBankDeg" type="text" inputmode="decimal" value="85"><span class="unit">Slice: above acos(1/G), up to 150° · G held, the nose falls · then a pull to level at G</span></label>
     </div>
+    <div data-sem-readouts id="lead-sem-readouts"></div>
     </div>
   </section>
 
@@ -257,7 +268,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=bdd007b0d510"></script>
+<script type="module" src="./wide-layout.mjs?v=6e9a6d695f60"></script>
 
 </body>
 </html>
