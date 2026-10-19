@@ -1488,6 +1488,17 @@ function hudEndClockSec(number) {
   } catch (_) { return Infinity; }
 }
 
+// The BDP centre tab's Play (index, owner 2026-10-19): the shown aircraft's BDP windows together — the earliest
+// Roll-in −3 s to the latest end (1 s after a SEM) on the Offset clock.
+function bdpViewsClockWindow() {
+  const shown = topViewAvailableAircraft().filter((number) => topViewAircraft.has(number) && flightResultOf(number));
+  const ends = shown.map(hudEndClockSec).filter(Number.isFinite);
+  return {
+    startSec: shown.length ? Math.min(...shown.map(hudStartClockSec)) : 0,
+    endSec: ends.length === shown.length && ends.length ? Math.max(...ends) : Infinity,
+  };
+}
+
 function refreshBdpDiagrams(number) {
   const target = bdpDiagramsContainer(number);
   if (!target?.container || !target.section.classList.contains("show-full-views")) return;
@@ -2943,6 +2954,13 @@ export const offsetIndexUi = Object.freeze({
   onVisibleAircraftChange(listener) {
     visibleAircraftListeners.add(listener);
     listener(this.visibleAircraft());
+  },
+  // Centre BDP tab: one copy of the Offset clock's dial (one Play, owner 2026-10-19); its Play runs the shown
+  // aircraft's BDP windows.
+  bdpTimeDialMarkup: () => timeDialMarkup("bdp", "BDP views"),
+  installBdpTimeDial(dial) {
+    installTimeDial(dial, setOffsetClock, { startSec: () => bdpViewsClockWindow().startSec, endSec: () => bdpViewsClockWindow().endSec });
+    mirrorTimeDial(dial);
   },
   // Centre BDP tab: BDP Top View + Profile of exactly these aircraft (empty: none drawn).
   showBdpViews(numbers) {

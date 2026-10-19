@@ -90,6 +90,8 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .offset-wide .wide-map-section .top-view-shell > svg { display:block; width:100%; height:100%; min-height:0; aspect-ratio:auto; }
 .offset-wide .wide-map-section .diagram-legend-box { flex:none; border-radius:7px; background:#000; }
 .offset-wide .wide-map-section > .section-disclosure-body > .diagram-actions { flex:none; }
+/* The BDP centre tab's one Play row (owner 2026-10-19): a scroller like the Top View's, never shrunk by the panel. */
+.offset-wide .wide-bdp-time { flex:none; }
 .offset-wide .wide-map-section .flight-draft-note { flex:none; font-size:11px; }
 .offset-wide .wide-center .bdp-views { flex:none; }
 .offset-wide .wide-center .bdp-diagrams { margin:0; gap:14px; }
