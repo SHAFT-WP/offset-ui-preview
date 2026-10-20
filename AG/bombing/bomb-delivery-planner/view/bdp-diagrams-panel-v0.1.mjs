@@ -60,7 +60,9 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.1.3); bdpFlightViewWindow(container) gives it to the host (its HUD Play stops there).
   // 0.10.4 (2026-10-19, owner): the host's time dial copy under the 3D Profile title too (`threeDTimeMarkup`, a Play
   // for the 3D); a refresh with the same result and Top View options (a clock step) keeps the Top View as drawn.
-  version: "0.10.4",
+  // 0.11.0 (2026-10-20, Offset): progressive draws the Profile first; other charts yield to paint.
+  // Unchanged Profile/3D/HUD drawings and the flight path are reused. Other hosts remain synchronous.
+  version: "0.11.0",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -166,7 +168,68 @@ function showLegend(container, kind, items, columns, notes = []) {
 // The Top View does not depend on the clock: a refresh with the same result and options keeps it as drawn (0.10.4).
 const drawnTopViews = new WeakMap();
 
-export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraftNumber, topView = {}, profileView = {}, flightView, layout, viewportWidth } = {}) {
+// Run one queued chart after a paint, not inside the animation-frame callback that precedes it.
+function afterPaint(draw) {
+  let timer = null;
+  const frame = requestAnimationFrame(() => { timer = setTimeout(draw, 0); });
+  return () => { cancelAnimationFrame(frame); if (timer !== null) clearTimeout(timer); };
+}
+
+// One shared queue across aircraft. Replacing a pending chart keeps its place, so rapid clock/input
+// changes cannot starve the HUD. Each callback uses the newest request; hidden/removed hosts cancel.
+export function createBdpRenderQueue(schedule = afterPaint) {
+  const owners = new Map();
+  let cancelFrame = null;
+  function arm() {
+    if (cancelFrame || !owners.size) return;
+    cancelFrame = schedule(() => {
+      cancelFrame = null;
+      const [owner, charts] = owners.entries().next().value;
+      const [name, draw] = charts.entries().next().value;
+      charts.delete(name);
+      owners.delete(owner);
+      if (charts.size) owners.set(owner, charts);
+      try { draw(); } finally { arm(); }
+    });
+  }
+  return {
+    enqueue(owner, name, draw) {
+      if (!owners.has(owner)) owners.set(owner, new Map());
+      owners.get(owner).set(name, draw);
+      arm();
+    },
+    has: (owner) => owners.has(owner),
+    cancel(owner) {
+      owners.delete(owner);
+      if (!owners.size && cancelFrame) { cancelFrame(); cancelFrame = null; }
+    },
+  };
+}
+
+// A cached render also keeps the DOM nodes (and the user's moved labels/zoom) intact. An emptied
+// SVG is always rebuilt, including after an invalid result. Keys contain every presentation input.
+export function createBdpViewCache() {
+  const drawn = new WeakMap();
+  return {
+    draw(svg, result, key, render) {
+      const previous = drawn.get(svg);
+      if (previous?.result === result && previous.key === key && svg.childElementCount > 0) return previous.rendered;
+      const rendered = render();
+      drawn.set(svg, { result, key, rendered });
+      return rendered;
+    },
+  };
+}
+const renderQueue = createBdpRenderQueue();
+const viewCache = createBdpViewCache();
+
+export function cancelBdpDiagramRender(container) {
+  if (!container) return;
+  renderQueue.cancel(container);
+  container.dataset.bdpDiagramsState = "paused";
+}
+
+export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraftNumber, topView = {}, profileView = {}, flightView, layout, viewportWidth, progressive = false } = {}) {
   if (!container) return false;
   container.dataset.bdpScope = scope;
   const withLegend = (kind, rendered) => { showLegend(container, kind, rendered?.legend, rendered?.legendColumns); return rendered; };
@@ -185,8 +248,13 @@ export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraf
     withLegend("top", renderBdpTopView(svg, bdpResult, { ...topView, ...orientationUp(), ...(advancedButton ? { advanced: advancedOn() } : {}), layout, viewportWidth, textScale, movableLabels: true, scope: `${scope}-top`, aircraftNumber })));
   const profileAdvancedButton = container.querySelector("[data-bdp-profile-advanced]");
   const profileDetail = () => (profileAdvancedButton ? { semDetail: profileAdvancedButton.getAttribute("aria-pressed") === "true" } : {});
-  const profile = panelView(container, "profile", (svg, textScale) =>
-    withLegend("profile", renderBdpProfileView(svg, bdpResult, { ...profileView, ...profileDetail(), layout, viewportWidth, textScale, movableLabels: true, scope: `${scope}-profile`, aircraftNumber })));
+  const profile = panelView(container, "profile", (svg, textScale) => {
+    const options = { ...profileView, ...profileDetail(), layout, viewportWidth, textScale, movableLabels: true, scope: `${scope}-profile`, aircraftNumber };
+    const draw = () => withLegend("profile", renderBdpProfileView(svg, bdpResult, options));
+    // With Advanced off the Profile has no time overlay; clock ticks leave its static picture alone.
+    const key = JSON.stringify({ ...options, timeAfterReleaseSec: options.semDetail === false ? null : options.timeAfterReleaseSec });
+    return progressive ? viewCache.draw(svg, bdpResult, key, draw) : draw();
+  });
   if (profileAdvancedButton && !profileAdvancedButton.dataset.bdpAdvancedReady) {
     profileAdvancedButton.dataset.bdpAdvancedReady = "true";
     profileAdvancedButton.addEventListener("click", (event) => {
@@ -223,12 +291,34 @@ export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraf
     });
   });
   const topKey = JSON.stringify({ scope, aircraftNumber, topView, layout, viewportWidth });
-  const drawn = drawnTopViews.get(container);
-  const topSvg = container.querySelector('[data-bdp-diagram="top"] svg:not([data-bdp-legend])');
-  if (!(drawn?.result === bdpResult && drawn.key === topKey && topSvg?.childElementCount > 0)) {
-    top.redraw();
-    drawnTopViews.set(container, { result: bdpResult, key: topKey });
+  const drawTop = () => {
+    const drawn = drawnTopViews.get(container);
+    const topSvg = container.querySelector('[data-bdp-diagram="top"] svg:not([data-bdp-legend])');
+    if (!(drawn?.result === bdpResult && drawn.key === topKey && topSvg?.childElementCount > 0)) {
+      top.redraw();
+      drawnTopViews.set(container, { result: bdpResult, key: topKey });
+    }
+  };
+  if (progressive) {
+    profile.redraw();
+    // Prepare the small path/state now so Play knows the current start/end even before 3D is drawn.
+    const hasFlight = prepareFlightViews(container, bdpResult, flightView, true);
+    container.dataset.bdpDiagramsState = "profile-ready";
+    const later = (name, draw) => renderQueue.enqueue(container, name, () => {
+      if (!container.isConnected) { cancelBdpDiagramRender(container); return; }
+      try {
+        draw();
+        if (!renderQueue.has(container)) container.dataset.bdpDiagramsState = "rendered";
+      } catch { clearBdpDiagrams(container); }
+    });
+    // Match the visible order. All profiles are already ready before any deferred chart runs.
+    if (hasFlight) later("3d", () => draw3d(container, scope));
+    later("top", drawTop);
+    if (hasFlight) later("hud", () => drawHud(container, scope));
+    return true;
   }
+  renderQueue.cancel(container);
+  drawTop();
   profile.redraw();
   renderFlightViews(container, bdpResult, flightView);
   container.dataset.bdpDiagramsState = "rendered";
@@ -267,7 +357,9 @@ function draw3d(container, scope) {
   const state = flightState(container);
   if (!svg || !state.path) return;
   // Heights are true (0.10.0: no altitude stretch, whatever an older state held).
-  const rendered = renderBdp3dView(svg, state.path, { orbit: state.orbit ?? undefined, zoom: state.zoom3d, pan: state.pan3d, panHint: state.panHint, timeSec: state.timeSec, scope: `${scope}-3d` });
+  const options = { orbit: state.orbit ?? undefined, zoom: state.zoom3d, pan: state.pan3d, panHint: state.panHint, timeSec: state.timeSec, scope: `${scope}-3d` };
+  const draw = () => renderBdp3dView(svg, state.path, options);
+  const rendered = state.progressive ? viewCache.draw(svg, state.path, JSON.stringify(options), draw) : draw();
   svg.dataset.orbit = `${Math.round(rendered.orbit.azimuthDeg)}/${Math.round(rendered.orbit.elevationDeg)}`;
   svg.dataset.zoom = String(Math.round(rendered.zoom * 100));
   svg.dataset.pan = `${Math.round(rendered.pan.x)}/${Math.round(rendered.pan.y)}`;
@@ -280,7 +372,9 @@ function drawHud(container, scope) {
   const svg = container.querySelector('[data-bdp-diagram="hud"] svg.bdp-hud-svg');
   const state = flightState(container);
   if (!svg || !state.path) return;
-  const rendered = renderBdpHudView(svg, state.path, { ...hudOptions(container), timeSec: hudTime(state), gazeProgressDeg: state.progressDeg, scope: `${scope}-hud` });
+  const options = { ...hudOptions(container), timeSec: hudTime(state), gazeProgressDeg: state.progressDeg, scope: `${scope}-hud` };
+  const draw = () => renderBdpHudView(svg, state.path, options);
+  const rendered = state.progressive ? viewCache.draw(svg, state.path, JSON.stringify(options), draw) : draw();
   state.progressDeg = rendered.progressDeg;
   svg.dataset.fovDeg = rendered.fovDeg.toFixed(2);
   svg.dataset.zoom = String(Math.round((state.hudZoom || 1) * 100));
@@ -445,19 +539,32 @@ function installFlightControls(container, scope) {
   padlock?.addEventListener("contextmenu", (event) => event.preventDefault());
 }
 
-function renderFlightViews(container, bdpResult, flightView) {
+function prepareFlightViews(container, bdpResult, flightView, progressive = false) {
   const panels = container.querySelector('[data-bdp-diagram="3d"], [data-bdp-diagram="hud"]');
-  if (!panels) return;
+  if (!panels) return false;
   const scope = container.dataset.bdpScope || "bdp";
   const state = flightState(container);
+  const pathOptions = { rollDirection: flightView?.rollDirection, approach: flightView?.approach ?? null };
+  const pathKey = JSON.stringify(pathOptions);
   try {
-    state.path = buildBdpFlightPath(bdpResult, { rollDirection: flightView?.rollDirection, approach: flightView?.approach ?? null });
+    if (!progressive || !state.path || state.result !== bdpResult || state.pathKey !== pathKey) {
+      state.path = buildBdpFlightPath(bdpResult, pathOptions);
+      state.result = bdpResult;
+      state.pathKey = pathKey;
+    }
   } catch {
     clearFlightViews(container);
-    return;
+    return false;
   }
+  state.progressive = progressive;
   state.timeSec = Number.isFinite(flightView?.timeSec) ? flightView.timeSec : null;
   installFlightControls(container, scope);
+  return true;
+}
+
+function renderFlightViews(container, bdpResult, flightView) {
+  if (!prepareFlightViews(container, bdpResult, flightView)) return;
+  const scope = container.dataset.bdpScope || "bdp";
   draw3d(container, scope);
   drawHud(container, scope);
 }
@@ -479,6 +586,7 @@ function clearFlightViews(container) {
 }
 
 export function clearBdpDiagrams(container) {
+  if (container) renderQueue.cancel(container);
   if (container) clearFlightViews(container);
   container?.querySelectorAll("[data-bdp-legend]").forEach((box) => {
     panelLegends.get(box)?.destroy();
