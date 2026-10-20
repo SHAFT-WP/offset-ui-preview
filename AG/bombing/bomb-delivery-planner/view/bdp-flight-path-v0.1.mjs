@@ -1,4 +1,5 @@
 import { tasToCas } from "../../../../common/airspeed/airspeed-v0.1.mjs";
+import { BMS_438_ACMI_V1_CONFIG, FREEFALCON_LEGACY_V1_CONFIG } from "../ballistics-v0.1.mjs";
 
 // BDP flight path v0.1 (owner 2026-10-15, BDP update R6; plan §4.6): the aircraft's 3D path and attitude from a
 // BDP v0.4.1 result — Roll-in (0.1 s samples with bank, FPA, G), tracking along the FPM line to Release, then the
@@ -19,7 +20,10 @@ export const BDP_FLIGHT_PATH_V0_1 = Object.freeze({
   // (`endT`; the SEM's end is the level-off, the end of the Level SEM turn or the CSEM End; Release without a SEM).
   // The path is cut to it (the approach starts at `startT`; the last sample is at `endT`, on the level carry or
   // straight on from the SEM's end) and every state is clamped to it.
-  version: "0.1.3",
+  // 0.1.4 (2026-10-20, owner): `bomb` — the BE's bomb trajectory from Release to Impact in this frame (bombAt gives
+  // the bomb at t). Its samples keep the ballistic model's sample interval (the last at Impact); the wind's cross
+  // drift grows with time as in the BE (impact cross range / impact time; none without that impact point).
+  version: "0.1.4",
   window: Object.freeze({ startSec: -3, afterSemEndSec: 1 }),
   hudStartSec: -3,
   // HUD angle of attack (research viewer SPEC §5.4, BMS 4.38.1 fit, PROVISIONAL): a + b·G / CAS² (deg, CAS m/s).
@@ -135,6 +139,7 @@ export function buildBdpFlightPath(result, { rollDirection = "RIGHT", approach =
   return {
     model: { ...BDP_FLIGHT_PATH_V0_1 },
     samples,
+    bomb: bombPath(result, release, along, right),
     target,
     aim,
     trackPoint: { ...trackPoint },
@@ -166,6 +171,35 @@ export function buildBdpFlightPath(result, { rollDirection = "RIGHT", approach =
     minAltAglFt: pub.minAltMslFt - elevation,
     semMinAglFt: pub.semMinimumAltitudeAglFt ?? null,
   };
+}
+
+// The bomb from Release to Impact (0.1.4): the BE's ballistic samples — down range along the attack axis and height,
+// one per sample interval of its model, the last at Impact — placed from Release with the wind's cross drift.
+const BALLISTIC_SAMPLE_SEC = new Map([FREEFALCON_LEGACY_V1_CONFIG, BMS_438_ACMI_V1_CONFIG].map((config) => [config.modelId, config.sampleInterval]));
+function bombPath(result, release, along, right) {
+  const bomb = result.visualization?.bombTrajectorySamples ?? [];
+  const pub = result.public;
+  const tofSec = pub.bombTofSec;
+  if (bomb.length < 2 || !(tofSec > 0)) return [];
+  const stepSec = BALLISTIC_SAMPLE_SEC.get(result.diagnostics?.ballisticModelId) ?? BMS_438_ACMI_V1_CONFIG.sampleInterval;
+  const impact = pub.fragmentCheck?.applicable ? pub.fragment : null;
+  const crossFtPerSec = Number.isFinite(impact?.impactCrossNm) && impact.impactTimeSec > 0 ? (impact.impactCrossNm * FT_PER_NM) / impact.impactTimeSec : 0;
+  return bomb.map((sample, index) => {
+    const sec = index === bomb.length - 1 ? tofSec : Math.min(index * stepSec, tofSec);
+    const alongFt = sample.downRangeNm * FT_PER_NM;
+    const crossFt = crossFtPerSec * sec;
+    return { t: release.t + sec, x: release.x + along.x * alongFt + right.x * crossFt, y: release.y + along.y * alongFt + right.y * crossFt, z: sample.altitudeAglFt };
+  });
+}
+
+// The bomb at time t (s from the Roll-in Point), linear between samples; null before Release and after Impact.
+export function bombAt(path, t) {
+  const b = path.bomb ?? [];
+  if (b.length < 2 || !(t >= b[0].t && t <= b[b.length - 1].t)) return null;
+  let i = 1;
+  while (i < b.length - 1 && b[i].t < t) i += 1;
+  const k = b[i].t > b[i - 1].t ? (t - b[i - 1].t) / (b[i].t - b[i - 1].t) : 1;
+  return { t, x: b[i - 1].x + (b[i].x - b[i - 1].x) * k, y: b[i - 1].y + (b[i].y - b[i - 1].y) * k, z: b[i - 1].z + (b[i].z - b[i - 1].z) * k };
 }
 
 // The approach from the window start to the Roll-in Point: the host's samples where they reach back that far

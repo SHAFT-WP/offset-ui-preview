@@ -27,7 +27,7 @@ import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLe
 import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.2";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.11.0";
+import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.11.1";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -728,6 +728,15 @@ function syncTimeDials(svg, results, timeSec) {
   syncTimeDial($("#top-view-time-dial"), svg, results, timeSec);
   document.querySelectorAll("[data-time-dial]:not(#top-view-time-dial)").forEach(mirrorTimeDial);
 }
+// The 3D Profile / HUD View copies (`3d-n`, `hud-n`) cover only that aircraft's window on the one clock, Roll-in −3 s
+// to 1 s after its SEM (owner 2026-10-20): the slider starts at Roll-in −3 s, also while the clock is off.
+function flightDialWindow(dial) {
+  const number = Number(/^(?:3d|hud)-(\d)$/.exec(dial?.dataset.timeDial ?? "")?.[1]);
+  if (!number) return null;
+  const startSec = hudStartClockSec(number);
+  const endSec = hudEndClockSec(number);
+  return Number.isFinite(endSec) && endSec > startSec ? { startSec, endSec } : null;
+}
 function mirrorTimeDial(dial) {
   const source = $("#top-view-time-dial");
   if (!dial || !source) return;
@@ -735,8 +744,18 @@ function mirrorTimeDial(dial) {
   const output = dial.querySelector("[data-time-output]");
   const sourceRange = source.querySelector("[data-time-range]");
   const sourceOutput = source.querySelector("[data-time-output]");
-  range.max = sourceRange.max;
-  range.value = sourceRange.value;
+  const span = flightDialWindow(dial);
+  if (span) {
+    const endSec = Math.min(span.endSec, Number(sourceRange.max) || span.endSec);
+    range.min = String(span.startSec);
+    range.max = String(Math.max(span.startSec, endSec));
+    range.step = "any";
+    const clockSec = Number.isFinite(topViewTimeSec) ? topViewTimeSec : span.startSec;
+    range.value = String(Math.min(Math.max(clockSec, span.startSec), endSec));
+  } else {
+    range.max = sourceRange.max;
+    range.value = sourceRange.value;
+  }
   dial.classList.toggle("active", source.classList.contains("active"));
   output.textContent = sourceOutput.textContent;
   output.setAttribute("aria-pressed", sourceOutput.getAttribute("aria-pressed"));
@@ -756,9 +775,8 @@ function stopTimePlay() {
   timePlaying = null;
   setPlayButtons(false);
 }
-// startSec (optional): where Play from off, or from the end, starts (HUD copies: Roll-in −3 s; else 0).
-// startSec: where Play from off (or from the end) starts; endSec: where it stops (the HUD: 1 s after this aircraft's
-// SEM, owner 2026-10-19), else the dial's end.
+// startSec: where Play from off, from the end or from before it starts (3D / HUD copies: Roll-in −3 s; else 0);
+// endSec: where it stops (3D / HUD: 1 s after this aircraft's SEM, owner 2026-10-19), else the dial's end.
 function installTimeDial(dial, onChange, { startSec: freshStartSec = () => 0, endSec: windowEndSec = () => Infinity } = {}) {
   if (!dial || dial.dataset.installed) return;
   dial.dataset.installed = "true";
@@ -781,7 +799,9 @@ function installTimeDial(dial, onChange, { startSec: freshStartSec = () => 0, en
     const current = active ? (Number.isFinite(topViewTimeSec) ? topViewTimeSec : Number(range.value)) : null;
     const endSec = windowEndSec();
     const stopSec = Math.min(Number(range.max) || 0, Number.isFinite(endSec) ? endSec : Infinity);
-    const startSec = current === null || current >= stopSec ? freshStartSec() : current;
+    // 3D / HUD Play (owner 2026-10-20): a clock before this aircraft's Roll-in −3 s starts there too, not after a wait.
+    const freshSec = freshStartSec();
+    const startSec = current === null || current >= stopSec || current < freshSec ? freshSec : current;
     timePlaying = { startSec, endSec: Number.isFinite(endSec) ? endSec : Infinity, startedAt: performance.now(), lastDraw: -Infinity, frame: 0, onChange };
     setPlayButtons(true);
     timePlaying.frame = requestAnimationFrame(step);

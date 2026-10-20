@@ -1,5 +1,5 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
-import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.3";
+import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
 
 // BDP HUD view v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.3 in SVG). A first-person
 // view from the aircraft of a BDP flight path at time t: an F-16-style HUD square of `hudSizeDeg` (default 14°,
@@ -15,7 +15,8 @@ export const BDP_HUD_VIEW_V0_1 = Object.freeze({
   // without a time the HUD shows Roll-in −3 s (the HUD start); the time readout is "Roll-in −3.0 s" / "Roll-in +n s".
   // 0.1.2 (2026-10-19): flight path 0.1.2 (the Level SEM turn: heading and bank after the level-off).
   // 0.1.3 (2026-10-19, owner): flight path 0.1.3 — the HUD flies Roll-in −3 s to 1 s after the SEM's end, held there.
-  version: "0.1.3",
+  // 0.1.4 (2026-10-20): flight path 0.1.4 (its bomb trajectory is the 3D Profile's); the HUD draws as before.
+  version: "0.1.4",
   fovLimitsDeg: Object.freeze([5, 150]),
   canvas: Object.freeze({ width: 720, height: 540 }),
   ladderStepDeg: 5,

@@ -1,11 +1,11 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { BDP_VIEW_COLORS as C } from "./bdp-view-style-v0.1.mjs";
-import { aircraftAxes, flightStateAt, fragmentAt } from "./bdp-flight-path-v0.1.mjs?v=0.1.3";
+import { aircraftAxes, bombAt, flightStateAt, fragmentAt } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
 
 // BDP 3D Profile v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.2 in SVG). A perspective
 // picture of a BDP flight path (bdp-flight-path-v0.1): ground grid, Target, Aim-off Point, the path coloured by
 // phase (Roll-in, Tracking, SEM) with its ground shadow, the FPM line from the Track Point to the Aim-off Point,
-// wing ticks every 1 s (bank), the aircraft at time t and the fragment envelope (0.1.1: a dome on the impact point;
+// wing ticks every 1 s (bank), the aircraft at time t, the bomb trajectory and the fragment envelope (0.1.1: a dome on the impact point;
 // its largest size dashed, at t its size then, filled). The orbit (azimuth / elevation of the eye), zoom and pan are
 // the host's options; bdp3dGestureStep turns pointer events into them. Heights are true (no stretch since 0.1.2).
 // Self-contained SVG; display only.
@@ -27,7 +27,9 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // 0.1.5 (2026-10-19, owner): flight path 0.1.3 — the path and the aircraft from Roll-in −3 s to 1 s after the SEM's
   // end (the aircraft stays at the end after it).
   // 0.1.6 (2026-10-19): the legend's thousands separators without Intl (its first use cost ~50 ms on a page).
-  version: "0.1.6",
+  // 0.1.7 (2026-10-20, owner): the bomb trajectory from Release to Impact (flight path 0.1.4) and, at t, the bomb on
+  // it; legend `Bomb trajectory`.
+  version: "0.1.7",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
@@ -347,6 +349,13 @@ export function renderBdp3dView(svg, path, options = {}) {
     }
   }
 
+  // Bomb trajectory (0.1.7): Release to Impact, the Dive Profile's colour; at t between them the bomb on it.
+  const bomb = path.bomb ?? [];
+  if (bomb.length >= 2) add(polyline(bomb.map(P), { stroke: C.bomb, "stroke-width": 2.4, "stroke-linejoin": "round", "stroke-linecap": "round", "data-3d-role": "path-bomb" }));
+  const bombNow = t === null ? null : bombAt(path, t);
+  const bombPoint = bombNow ? at(P(bombNow)) : null;
+  if (bombPoint) add(svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 4.5, fill: C.bomb, stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb" }));
+
   // The aircraft at t: a delta of its wings and nose, with its drop line and shadow.
   let state = null;
   if (flying) {
@@ -376,6 +385,7 @@ export function renderBdp3dView(svg, path, options = {}) {
     { label: "Roll-in", color: BDP_3D_VIEW_V0_1.phaseColors["roll-in"] },
     { label: "Tracking", color: BDP_3D_VIEW_V0_1.phaseColors.tracking },
     ...(path.samples.some((s) => s.phase === "sem") ? [{ label: "SEM", color: BDP_3D_VIEW_V0_1.phaseColors.sem }] : []),
+    ...(bomb.length >= 2 ? [{ label: "Bomb trajectory", color: C.bomb }] : []),
     ...(path.aim ? [{ label: "FPM line", color: C.flightPath, dashed: true }] : []),
     ...(fragment ? [{ label: "Fragment envelope (max)", color: C.target, dashed: true }] : []),
   ];
