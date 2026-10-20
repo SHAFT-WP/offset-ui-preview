@@ -27,7 +27,7 @@ import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLe
 import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.2";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpDiagramsMarkup, bdpFlightViewWindow, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.10.3";
+import { bdpDiagramsMarkup, bdpFlightViewWindow, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.10.4";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -802,10 +802,17 @@ function topViewResultId(result) {
 function topViewAvailableAircraft() {
   return [1, 2, 3, 4].filter((number) => number === 1 || (number <= flightLayout.size && FLIGHT_CALCULATING_AIRCRAFT.has(number)));
 }
+// Listeners hear a change of the shown set only (2026-10-19): every Top View render syncs the buttons, and the index
+// BDP tab redrew all its views on each of them (twice per clock step).
+let notifiedVisibleKey = null;
 function syncTopViewAircraftButtons() {
   const available = topViewAvailableAircraft();
   const visible = available.filter((number) => topViewAircraft.has(number));
-  visibleAircraftListeners.forEach((listener) => listener(visible));
+  const visibleKey = visible.join(",");
+  if (visibleKey !== notifiedVisibleKey) {
+    notifiedVisibleKey = visibleKey;
+    visibleAircraftListeners.forEach((listener) => listener(visible));
+  }
   document.querySelectorAll("[data-top-view-aircraft-button]").forEach((button) => {
     const number = Number(button.dataset.topViewAircraftButton);
     const shown = available.includes(number);
@@ -1450,6 +1457,8 @@ const offsetBdpTopViewTitle = (number) => `BDP #${number} Top View`;
 const offsetBdpDiagramsMarkup = (number) => bdpDiagramsMarkup({
   aircraftNumber: number, topTitle: offsetBdpTopViewTitle(number), topAdvanced: true, topOrientation: true, profileAdvanced: true,
   flightViews: true, threeDTitle: `BDP #${number} 3D Profile`, hudTitle: `BDP #${number} HUD View`, hudTimeMarkup: timeDialMarkup(`hud-${number}`, `BDP #${number} HUD View`),
+  // 2026-10-19 (owner): the 3D Profile gets the same dial copy (its Play runs the same window as the HUD's).
+  threeDTimeMarkup: timeDialMarkup(`3d-${number}`, `BDP #${number} 3D Profile`),
 });
 function bdpDiagramsContainer(number) {
   const section = document.querySelector(`[data-bdp-views="${number}"]`);
@@ -1526,6 +1535,9 @@ function refreshBdpDiagrams(number) {
     const hudDial = target.container.querySelector(`[data-time-dial="hud-${number}"]`);
     installTimeDial(hudDial, setOffsetClock, { startSec: () => hudStartClockSec(number), endSec: () => hudEndClockSec(number) });
     mirrorTimeDial(hudDial);
+    const threeDDial = target.container.querySelector(`[data-time-dial="3d-${number}"]`);
+    installTimeDial(threeDDial, setOffsetClock, { startSec: () => hudStartClockSec(number), endSec: () => hudEndClockSec(number) });
+    mirrorTimeDial(threeDDial);
   } catch {
     clearBdpDiagrams(target.container);
   }

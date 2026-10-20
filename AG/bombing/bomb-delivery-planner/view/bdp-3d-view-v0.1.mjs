@@ -26,7 +26,8 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // give the turn flown (type, heading change and side, G, bank, speed; a slice's minimum altitude).
   // 0.1.5 (2026-10-19, owner): flight path 0.1.3 — the path and the aircraft from Roll-in −3 s to 1 s after the SEM's
   // end (the aircraft stays at the end after it).
-  version: "0.1.5",
+  // 0.1.6 (2026-10-19): the legend's thousands separators without Intl (its first use cost ~50 ms on a page).
+  version: "0.1.6",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
@@ -391,7 +392,8 @@ export function bdpSemLegendNotes(path) {
   if (!sem) return [];
   const climb = sem.end === "CLIMB";
   const f = (value, digits, unit) => (Number.isFinite(value) ? `${value.toFixed(digits)}${unit}` : "N/A");
-  const ft = (value, ref = "MSL") => (Number.isFinite(value) ? `${Math.round(value).toLocaleString("en-US")} ft${ref ? ` ${ref}` : ""}` : "N/A");
+  const grouped = (value) => String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const ft = (value, ref = "MSL") => (Number.isFinite(value) ? `${grouped(value)} ft${ref ? ` ${ref}` : ""}` : "N/A");
   const minMslFt = Number.isFinite(path.semMinAglFt) && Number.isFinite(path.targetElevationMslFt) ? path.semMinAglFt + path.targetElevationMslFt : null;
   const rows = [
     `SEM: ${climb ? "CSEM (climb)" : "Level SEM"}`,

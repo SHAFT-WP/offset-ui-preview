@@ -3,7 +3,7 @@ import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath, padlockStep } from "./bdp-flight-path-v0.1.mjs?v=0.1.3";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.5";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.6";
 import { BDP_HUD_VIEW_V0_1, padlockTotalDeg, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.3";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
@@ -58,7 +58,9 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.10.2 (2026-10-19, owner): views of the Level SEM turn (flight path 0.1.2, 3D 0.1.4, HUD 0.1.2, Profile 0.2.7).
   // 0.10.3 (2026-10-19, owner): the 3D Profile / HUD window, Roll-in −3 s to 1 s after the SEM's end (flight path
   // 0.1.3); bdpFlightViewWindow(container) gives it to the host (its HUD Play stops there).
-  version: "0.10.3",
+  // 0.10.4 (2026-10-19, owner): the host's time dial copy under the 3D Profile title too (`threeDTimeMarkup`, a Play
+  // for the 3D); a refresh with the same result and Top View options (a clock step) keeps the Top View as drawn.
+  version: "0.10.4",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -66,7 +68,7 @@ function escapeText(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 }
 
-export function bdpDiagramsMarkup({ aircraftNumber, topTitle, topAdvanced = false, topOrientation = false, profileAdvanced = false, flightViews = false, threeDTitle, hudTitle, hudTimeMarkup = "" } = {}) {
+export function bdpDiagramsMarkup({ aircraftNumber, topTitle, topAdvanced = false, topOrientation = false, profileAdvanced = false, flightViews = false, threeDTitle, hudTitle, hudTimeMarkup = "", threeDTimeMarkup = "" } = {}) {
   // Initial Up / North Up (0.9.0, Offset): the Top View's map up, Initial Up by default.
   const orientationButtons = (kind) => kind === "top" && topOrientation
     ? `<span class="bdp-orientation" role="group" aria-label="Top View up" style="margin-left:12px;display:inline-flex;gap:4px">`
@@ -85,7 +87,7 @@ export function bdpDiagramsMarkup({ aircraftNumber, topTitle, topAdvanced = fals
     + `<svg class="diagram-legend-box" data-bdp-legend="${kind}" role="img" aria-label="${escapeText(title)} legend" hidden></svg></div></details>`;
   // Order (0.10.0, owner addendum 2026-10-18 §3): Dive Profile → 3D Profile → Top View → HUD View, in the DOM itself
   // (reading and focus order follow it). Without the flight views: Dive Profile → Top View.
-  const flight = flightViews ? flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarkup }) : { threeD: "", hud: "" };
+  const flight = flightViews ? flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarkup, threeDTimeMarkup }) : { threeD: "", hud: "" };
   return `<div class="bdp-diagrams" data-bdp-diagrams>`
     + panel("profile", bdpProfileTitle({ aircraftNumber }))
     + flight.threeD
@@ -97,7 +99,7 @@ export function bdpDiagramsMarkup({ aircraftNumber, topTitle, topAdvanced = fals
 const CONTROL_STYLE = "min-height:32px;padding:4px 6px;font-size:12px;border-radius:9px";
 
 // 3D Profile and HUD View panels (0.8.0). The HUD inputs are only the HUD's own (BDP values are not repeated).
-function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarkup }) {
+function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarkup, threeDTimeMarkup }) {
   const t3 = escapeText(threeDTitle || bdpViewTitle("BDP", "3D Profile", { aircraftNumber }));
   const th = escapeText(hudTitle || bdpViewTitle("BDP", "HUD View", { aircraftNumber }));
   const { width: w3, height: h3 } = BDP_3D_VIEW_V0_1.canvas;
@@ -114,7 +116,7 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
   // / long-press menu inside it).
   const threeD = `<details class="input-panel bdp-diagram" open data-bdp-diagram="3d"><summary>${t3}${viewTools("3d")}</summary>`
     + `<div class="diagram-actions"><div class="diagram-action-row" data-bdp-3d-controls>`
-    + `<span class="diagram-control-label">Drag: turn · Hold 0.5 s, then drag: pan · Pinch / wheel: zoom</span></div></div>`
+    + `<span class="diagram-control-label">Drag: turn · Hold 0.5 s, then drag: pan · Pinch / wheel: zoom</span></div>${threeDTimeMarkup}</div>`
     + `<div class="bdp-diagram-canvas"><svg class="bdp-3d-svg" viewBox="0 0 ${w3} ${h3}" role="img" aria-label="${t3}" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none"></svg>`
     + `<svg class="diagram-legend-box" data-bdp-legend="3d" role="img" aria-label="${t3} legend" hidden></svg></div></details>`;
   const hud = `<details class="input-panel bdp-diagram" open data-bdp-diagram="hud"><summary>${th}${viewTools("hud")}</summary>`
@@ -160,6 +162,9 @@ function showLegend(container, kind, items, columns, notes = []) {
   box.toggleAttribute("hidden", !items?.length);
   if (items?.length) panelLegends.set(box, installSvgLegend(box, items, notes ?? [], { columns: columns ?? 0 }));
 }
+
+// The Top View does not depend on the clock: a refresh with the same result and options keeps it as drawn (0.10.4).
+const drawnTopViews = new WeakMap();
 
 export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraftNumber, topView = {}, profileView = {}, flightView, layout, viewportWidth } = {}) {
   if (!container) return false;
@@ -217,7 +222,13 @@ export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraf
       panelControls.get(container.querySelector('[data-bdp-diagram="top"] svg'))?.controls.redraw();
     });
   });
-  top.redraw();
+  const topKey = JSON.stringify({ scope, aircraftNumber, topView, layout, viewportWidth });
+  const drawn = drawnTopViews.get(container);
+  const topSvg = container.querySelector('[data-bdp-diagram="top"] svg:not([data-bdp-legend])');
+  if (!(drawn?.result === bdpResult && drawn.key === topKey && topSvg?.childElementCount > 0)) {
+    top.redraw();
+    drawnTopViews.set(container, { result: bdpResult, key: topKey });
+  }
   profile.redraw();
   renderFlightViews(container, bdpResult, flightView);
   container.dataset.bdpDiagramsState = "rendered";
