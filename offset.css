@@ -1,4 +1,4 @@
-@import url("./common-ui-v0.2.css?v=98ae2cdf2333");
+@import url("./common-ui-v0.2.css?v=5754e2ad82a6");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -122,5 +122,6 @@ input[data-bdp-result]{cursor:default;border-style:dashed;border-color:var(--mut
 }
 @media(pointer:coarse){
   [data-offset-toolbar-ui] :is(.diagram-action-row,.section-tools) :is(button,.offset-options>summary),
+  [data-offset-toolbar-ui] :is([data-result-controls] button,.ded-png-button),
   [data-offset-toolbar-ui] .section-collapse-icon{min-height:44px}
 }
