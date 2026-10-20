@@ -1,3 +1,4 @@
+import { installOffsetToolbarUi } from "./toolbar-ui-v0.1.mjs?v=0.1.0";
 import { readOffsetWorkSave, writeOffsetWorkSave } from "./work-save-v0.1.mjs?v=0.1.0";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSecTenths, formatSignedSec, truncateBeOutput } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
@@ -3107,4 +3108,5 @@ function install() {
 }
 
 install();
+installOffsetToolbarUi();
 

@@ -1,4 +1,4 @@
-@import url("./common-ui-v0.2.css?v=e6648cd9c62b");
+@import url("./common-ui-v0.2.css?v=98ae2cdf2333");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -76,3 +76,51 @@ input[data-bdp-result]{cursor:default;border-style:dashed;border-color:var(--mut
 /* SEM / Fragment readout title (owner 2026-10-15): shown with Full BDP, like its fields. */
 .bdp-extra-title{display:none}
 .section.show-full-bdp .bdp-extra-title{display:block}
+
+/* Offset UI completion, 2026-10-20: groups wrap as units; secondary options fold by panel width. */
+[data-offset-toolbar-ui] .diagram-actions{overflow:visible;min-width:0;max-width:100%;container-type:inline-size}
+[data-offset-toolbar-ui] .diagram-action-row{width:auto;max-width:100%;min-width:0;flex-wrap:wrap;gap:6px}
+[data-offset-toolbar-ui] :is(.font-scale-control,.view-scale-control){flex-wrap:nowrap;max-width:100%;gap:3px;border-radius:10px}
+[data-offset-toolbar-ui] :is(.diagram-action-row,.section-tools) :is(button,.offset-options>summary){min-height:36px;padding:6px 9px;border-radius:8px;font-size:12px;line-height:1.2;white-space:nowrap}
+[data-offset-toolbar-ui] :is(button,summary):focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+[data-offset-toolbar-ui] .offset-options{border:0;min-width:0;max-width:100%;background:transparent}
+[data-offset-toolbar-ui] .offset-options>summary{display:flex;list-style:none;align-items:center;justify-content:center;cursor:pointer;margin:0;border:1px solid var(--line);background:var(--field);color:var(--blue)}
+[data-offset-toolbar-ui] .offset-options>summary::-webkit-details-marker{display:none}
+[data-offset-toolbar-ui] .offset-options>summary::after{content:none}
+[data-offset-toolbar-ui] .offset-options-body{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+[data-offset-toolbar-ui] .offset-options:not([open])>.offset-options-body{display:none}
+[data-offset-toolbar-ui] .offset-options[data-inline="true"]>summary{display:none}
+[data-offset-toolbar-ui] .diagram-action-row>.offset-options[data-inline="false"][open]{flex:1 0 100%;padding:6px 0}
+[data-offset-toolbar-ui] .offset-options[data-inline="false"][open]>summary{width:max-content;margin-bottom:8px}
+[data-offset-toolbar-ui] .offset-options[open]>summary{border-color:var(--blue);background:var(--blue-soft)}
+[data-offset-toolbar-ui] .bdp-orientation{margin:0!important;flex-wrap:wrap}
+[data-offset-toolbar-ui] :is([data-bdp-advanced],[data-bdp-profile-advanced]){margin:0!important}
+[data-offset-toolbar-ui] .bdp-diagram>summary{justify-content:flex-start;gap:8px}
+[data-offset-toolbar-ui] .bdp-diagram>summary::after{margin-left:auto;flex:none}
+[data-offset-toolbar-ui] .time-dial{display:grid;grid-template-columns:auto auto minmax(36px,1fr) minmax(84px,112px);align-items:center;width:100%;gap:6px;margin-top:8px}
+[data-offset-toolbar-ui] .time-dial-range{width:100%;min-width:0;max-width:100%;margin:0}
+[data-offset-toolbar-ui] .time-dial-output{width:100%;min-width:0!important;max-width:100%;white-space:normal!important;font-variant-numeric:tabular-nums}
+[data-offset-toolbar-ui] .sr-time-row{grid-template-columns:auto minmax(36px,1fr) minmax(80px,112px) auto}
+[data-offset-toolbar-ui] .sr-time-output{min-width:0;overflow-wrap:anywhere;font-size:12px}
+[data-offset-toolbar-ui] .offset-section-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+[data-offset-toolbar-ui] .offset-section-head>h2{flex:1 1 auto;min-width:0;margin:0}
+[data-offset-toolbar-ui] .section-disclosure-toggle{min-height:36px}
+[data-offset-toolbar-ui] .section-collapse-icon{width:36px;height:36px;margin-left:0}
+[data-offset-toolbar-ui] .section-tools{flex:0 1 auto;order:0;gap:6px;margin-left:auto}
+[data-offset-toolbar-ui] .offset-section-head>.diagram-actions{flex:1 1 500px}
+[data-offset-toolbar-ui] .section-tools .offset-options>summary{display:flex}
+[data-offset-toolbar-ui] .section-tools .offset-options:not([open])>.offset-options-body{display:none}
+[data-offset-toolbar-ui] .section-tools .offset-options[open]>.offset-options-body{padding-top:6px}
+[data-offset-toolbar-ui] [data-result-controls]{gap:6px;min-width:0}
+[data-offset-toolbar-ui] [data-result-controls] .font-scale-control{display:inline-flex;flex-wrap:nowrap;gap:3px}
+[data-offset-toolbar-ui] :is([data-result-controls] button,.ded-png-button){min-height:36px;border-radius:8px;padding:6px 9px}
+@container (max-width:440px){
+  [data-offset-toolbar-ui] :is(.font-scale-control,.view-scale-control){gap:2px;padding:2px}
+  [data-offset-toolbar-ui] .diagram-action-row :is(button,.offset-options>summary){padding:6px;min-width:26px}
+  [data-offset-toolbar-ui] .diagram-action-row .diagram-scale-output{min-width:43px}
+  [data-offset-toolbar-ui] .diagram-control-label{font-size:10px;padding:0 2px}
+}
+@media(pointer:coarse){
+  [data-offset-toolbar-ui] :is(.diagram-action-row,.section-tools) :is(button,.offset-options>summary),
+  [data-offset-toolbar-ui] .section-collapse-icon{min-height:44px}
+}

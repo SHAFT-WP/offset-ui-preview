@@ -44,7 +44,7 @@ body.offset-wide { --wide-input-width:400px; --wide-review-width:420px; }
 .offset-wide .section-head { gap:8px; }
 .offset-wide .wide-pane .section-head h2,
 .offset-wide .wide-pane .result-panel-head h2 { font-size:var(--ui-font-section-title); }
-.offset-wide .wide-inputs .section-tools { flex-basis:100%; margin-left:0; order:3; }
+.offset-wide .wide-inputs .section-tools { flex-basis:auto; margin-left:auto; order:0; }
 .offset-wide .section-tools .tab-tool { font-size:12px; min-height:32px; padding:6px 10px; }
 .offset-wide .section-collapse-icon { width:30px; height:30px; border-radius:7px; }
 .offset-wide .wide-inputs .input-grid,
