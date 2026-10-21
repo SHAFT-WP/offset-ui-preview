@@ -16,7 +16,9 @@ export const BDP_HUD_VIEW_V0_1 = Object.freeze({
   // 0.1.2 (2026-10-19): flight path 0.1.2 (the Level SEM turn: heading and bank after the level-off).
   // 0.1.3 (2026-10-19, owner): flight path 0.1.3 — the HUD flies Roll-in −3 s to 1 s after the SEM's end, held there.
   // 0.1.4 (2026-10-20): flight path 0.1.4 (its bomb trajectory is the 3D Profile's); the HUD draws as before.
-  version: "0.1.4",
+  // 0.1.5 (2026-10-21, owner: a smoother Play): only the ladder rungs, tips and numbers that reach the HUD square are
+  // created — the clip hid the others (about 200 elements a frame); a hidden HUD creates none. The picture is unchanged.
+  version: "0.1.5",
   fovLimitsDeg: Object.freeze([5, 150]),
   canvas: Object.freeze({ width: 720, height: 540 }),
   ladderStepDeg: 5,
@@ -141,6 +143,15 @@ export function renderBdpHudView(svg, path, options = {}) {
   };
   const text = (x, y, value, attrs = {}) => svgNode("text", { x, y, fill: HUD_GREEN, "font-size": 14, "font-family": "ui-monospace, monospace", "font-weight": 700, ...attrs }, value);
 
+  // Ladder culling (0.1.5): an element is created only when one of its points lies within 30 px of the HUD square
+  // (the clip). Consecutive points are a few px apart, so no line crosses the square between two outside points.
+  const margin = 30;
+  const box = hudVisible ? {
+    x0: Math.min(...corners.map((q) => q.x)) - margin, x1: Math.max(...corners.map((q) => q.x)) + margin,
+    y0: Math.min(...corners.map((q) => q.y)) - margin, y1: Math.max(...corners.map((q) => q.y)) + margin,
+  } : null;
+  const reaches = (points) => !!box && points.some((q) => q && q.x >= box.x0 && q.x <= box.x1 && q.y >= box.y0 && q.y <= box.y1);
+
   // Pitch ladder (every 5°) on the FPM heading: each rung is built about its own pitch direction c, with the
   // horizontal right of the heading (lat) and the pitch-up direction (elUp), so it stays defined near ±90°.
   const step = BDP_HUD_VIEW_V0_1.ladderStepDeg;
@@ -159,13 +170,14 @@ export function renderBdpHudView(svg, path, options = {}) {
     const bend = Math.tan((Math.abs(p) / 2) * DEG) * Math.sign(p);
     for (const s of [-1, 1]) {
       // Each half runs 1.2°–3.8° from the FPM heading; its number sits just outside it, inside a 14° HUD.
-      const rung = line([1.2, 2.1, 3, 3.8].map((d) => project(rungDir(p, s * d, bend * (d - 1.2)))), { "stroke-dasharray": p < 0 ? "5 4" : undefined, "data-hud-role": "ladder" });
-      if (!rung) continue;
-      hud.append(rung);
-      const tip = line([project(rungDir(p, s * 3.8, bend * 2.6)), project(rungDir(p, s * 3.8, bend * 2.6 + Math.sign(p) * 0.6))]);
+      const rungPoints = [1.2, 2.1, 3, 3.8].map((d) => project(rungDir(p, s * d, bend * (d - 1.2))));
+      if (rungPoints.filter(Boolean).length < 2) continue;
+      if (reaches(rungPoints)) hud.append(line(rungPoints, { "stroke-dasharray": p < 0 ? "5 4" : undefined, "data-hud-role": "ladder" }));
+      const tipPoints = [project(rungDir(p, s * 3.8, bend * 2.6)), project(rungDir(p, s * 3.8, bend * 2.6 + Math.sign(p) * 0.6))];
+      const tip = reaches(tipPoints) ? line(tipPoints) : null;
       if (tip) hud.append(tip);
       const label = project(rungDir(p, s * 4.3, bend * 3.1));
-      if (label) hud.append(text(label.x, label.y + 4, String(Math.abs(p)), { "font-size": 11, "text-anchor": s > 0 ? "start" : "end", "data-hud-role": "ladder-label" }));
+      if (label && reaches([label])) hud.append(text(label.x, label.y + 4, String(Math.abs(p)), { "font-size": 11, "text-anchor": s > 0 ? "start" : "end", "data-hud-role": "ladder-label" }));
     }
   }
   // FPM, gun cross, planned IAA circle, Aim-off Point.

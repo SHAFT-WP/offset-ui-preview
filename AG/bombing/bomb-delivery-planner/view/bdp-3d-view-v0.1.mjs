@@ -29,7 +29,11 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // 0.1.6 (2026-10-19): the legend's thousands separators without Intl (its first use cost ~50 ms on a page).
   // 0.1.7 (2026-10-20, owner): the bomb trajectory from Release to Impact (flight path 0.1.4) and, at t, the bomb on
   // it; legend `Bomb trajectory`.
-  version: "0.1.7",
+  // 0.1.8 (2026-10-21, owner: a smoother Play): what changes with t sits in three layers, in the former drawing order —
+  // the fragment dome at t under the paths (`time-under`), the bomb and the aircraft over them (`time`), the state row
+  // last (`time-text`). A call for the same path and view options with another t redraws only those layers; the rest
+  // of the scene stays as drawn.
+  version: "0.1.8",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
@@ -185,16 +189,21 @@ function hull(points) {
   return [...lower.slice(0, -1), ...upper.slice(0, -1)];
 }
 
+// The drawn scene of an SVG (0.1.8): its path, view key and the time-layer redraw.
+const drawnScenes = new WeakMap();
+
 export function renderBdp3dView(svg, path, options = {}) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
   if (!Array.isArray(path?.samples) || path.samples.length < 2) throw new TypeError("a BDP flight path is required");
-  const { width: W, height: H } = BDP_3D_VIEW_V0_1.canvas;
-  const orbit = { ...bdp3dDefaultOrbit(path), ...(options.orbit ?? {}) };
   // t: seconds from the Roll-in Point (before it the aircraft is still on the approach and is not drawn).
   const t = Number.isFinite(options.timeSec) ? Math.min(options.timeSec, path.endT) : null;
+  const viewKey = JSON.stringify({ ...options, timeSec: null });
+  const scene = drawnScenes.get(svg);
+  if (scene && scene.path === path && scene.viewKey === viewKey && svg.contains(scene.layers.time)) return scene.drawTime(t);
+  const { width: W, height: H } = BDP_3D_VIEW_V0_1.canvas;
+  const orbit = { ...bdp3dDefaultOrbit(path), ...(options.orbit ?? {}) };
   // The aircraft shows from the earliest known state (the host's approach, else the Roll-in Point).
   const firstT = path.approach?.[0]?.t ?? path.samples[0].t;
-  const flying = t !== null && t >= firstT;
   const P = (p) => [p.x, p.y, p.z];
 
   // Ground square: the path, Target, Aim-off Point and the fragment radius, on a round grid step.
@@ -285,9 +294,9 @@ export function renderBdp3dView(svg, path, options = {}) {
 
   // Fragment dome on the impact point: (x² + y²)/R² + z²/H² = 1 above the ground. Its outline is the convex hull of
   // surface points; two meridians and a mid ring give its shape. Largest size dashed, size at t filled.
-  const dome = (radiusFt, heightFt, filled, role) => {
+  const dome = (radiusFt, heightFt, filled, role, parent = root) => {
     if (!(radiusFt > 0 && heightFt > 0)) return;
-    const g = add(svgNode("g", { "data-3d-role": role, "data-radius-ft": radiusFt.toFixed(1), "data-height-ft": heightFt.toFixed(1) }));
+    const g = parent.appendChild(svgNode("g", { "data-3d-role": role, "data-radius-ft": radiusFt.toFixed(1), "data-height-ft": heightFt.toFixed(1) }));
     const surface = (phiDeg, thetaDeg) => [impact.x + radiusFt * Math.cos(phiDeg * DEG) * Math.cos(thetaDeg * DEG), impact.y + radiusFt * Math.cos(phiDeg * DEG) * Math.sin(thetaDeg * DEG), heightFt * Math.sin(phiDeg * DEG)];
     const cloud = [];
     for (let phi = 0; phi <= 90; phi += 7.5) for (let theta = 0; theta < 360; theta += 10) cloud.push(at(surface(phi, theta)));
@@ -303,8 +312,8 @@ export function renderBdp3dView(svg, path, options = {}) {
     }
   };
   if (fragment) dome(fragment.radiusFt, fragment.heightAglFt, false, "fragment-max");
-  const fragmentNow = t === null ? null : fragmentAt(path, t);
-  if (fragmentNow) dome(fragmentNow.radiusFt, fragmentNow.heightFt, true, "fragment-now");
+  // Under the paths: the fragment dome at t (0.1.8 time layer).
+  const timeUnder = add(svgNode("g", { "data-3d-layer": "time-under" }));
 
   // Target and Aim-off Point.
   const tgt = at(P(path.target));
@@ -349,37 +358,21 @@ export function renderBdp3dView(svg, path, options = {}) {
     }
   }
 
-  // Bomb trajectory (0.1.7): Release to Impact, the Dive Profile's colour; at t between them the bomb on it.
+  // Bomb trajectory (0.1.7): Release to Impact, the Dive Profile's colour; at t between them the bomb on it (time layer).
   const bomb = path.bomb ?? [];
   if (bomb.length >= 2) add(polyline(bomb.map(P), { stroke: C.bomb, "stroke-width": 2.4, "stroke-linejoin": "round", "stroke-linecap": "round", "data-3d-role": "path-bomb" }));
-  const bombNow = t === null ? null : bombAt(path, t);
-  const bombPoint = bombNow ? at(P(bombNow)) : null;
-  if (bombPoint) add(svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 4.5, fill: C.bomb, stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb" }));
+  // Over the paths: the bomb and the aircraft at t (0.1.8 time layer).
+  const timeTop = add(svgNode("g", { "data-3d-layer": "time" }));
 
-  // The aircraft at t: a delta of its wings and nose, with its drop line and shadow.
-  let state = null;
-  if (flying) {
-    state = flightStateAt(path, t);
-    const { v, right: r } = aircraftAxes(state);
-    const size = radius * 0.04;
-    const q = P(state);
-    const off = (a, b) => [q[0] + v[0] * a * size + r[0] * b * size, q[1] + v[1] * a * size + r[1] * b * size, q[2] + v[2] * a * size + r[2] * b * size];
-    add(polyline([[state.x, state.y, 0], q], { stroke: "#203a63", "stroke-width": 1, "stroke-dasharray": "2 3" }));
-    const shadow = at([state.x, state.y, 0]);
-    if (shadow) add(svgNode("circle", { cx: shadow.x.toFixed(1), cy: shadow.y.toFixed(1), r: 3, fill: "#8f9aa6", "data-3d-role": "aircraft-shadow" }));
-    const delta = [off(1, 0), off(-0.6, 0.75), off(-0.35, 0), off(-0.6, -0.75)].map(at);
-    if (delta.every(Boolean)) add(svgNode("polygon", { points: pts(delta), fill: "#203a63", stroke: "#ffffff", "stroke-width": 1, "data-3d-role": "aircraft" }));
-  }
-
-  // Title rows: orbit, altitude stretch, grid step; at t the aircraft's state.
+  // Title rows: orbit, altitude stretch, grid step; at t the aircraft's state (time layer).
   add(text({ x: 16, y: 24 }, `Orbit ${Math.round(orbit.azimuthDeg)}° / ${Math.round(orbit.elevationDeg)}° · Zoom ${Math.round(zoom * 100)}% · Grid ${stepNm} NM`, { "data-3d-role": "status" }));
   // Pan hint (0.1.2): the host's one-pointer gesture is in its pan phase (held 0.5 s, then drag).
   if (options.panHint) {
     add(svgNode("rect", { x: W - 86, y: 10, width: 72, height: 24, rx: 6, fill: "#203a63", "data-3d-role": "pan-hint" }));
     add(svgNode("text", { x: W - 50, y: 27, "text-anchor": "middle", fill: "#ffffff", "font-size": 13, "font-family": "system-ui, sans-serif", "font-weight": 700 }, "PAN"));
   }
-  if (t !== null && !flying) add(text({ x: 16, y: 46 }, `Roll-in in ${(path.samples[0].t - t).toFixed(1)} s`, { "data-3d-role": "state" }));
-  if (state) add(text({ x: 16, y: 46 }, `Roll-in ${t < 0 ? "−" : "+"}${Math.abs(t).toFixed(1)} s · ${String(state.phase).toUpperCase()} · ${Math.round(state.z)} ft AGL · ${Math.round(state.kcas)} KCAS · Bank ${Math.round(Math.abs(state.bankDeg))}°`, { "data-3d-role": "state" }));
+  // Last: the state row at t (0.1.8 time layer).
+  const timeText = add(svgNode("g", { "data-3d-layer": "time-text" }));
   const legend = [
     ...(approach.length >= 2 ? [{ label: "Approach", color: BDP_3D_VIEW_V0_1.phaseColors.approach }] : []),
     { label: "Roll-in", color: BDP_3D_VIEW_V0_1.phaseColors["roll-in"] },
@@ -390,7 +383,41 @@ export function renderBdp3dView(svg, path, options = {}) {
     ...(fragment ? [{ label: "Fragment envelope (max)", color: C.target, dashed: true }] : []),
   ];
   const legendNotes = bdpSemLegendNotes(path);
-  return { title: options.title ?? "3D Profile", orbit, zoom, pan, gridStepNm: stepNm, timeSec: t, state, legend, legendNotes, legendColumns: 0, canvas: { width: W, height: H } };
+  const base = { title: options.title ?? "3D Profile", orbit, zoom, pan, gridStepNm: stepNm, legend, legendNotes, legendColumns: 0, canvas: { width: W, height: H } };
+
+  // The time layers at t: the fragment dome under the paths; the bomb, the aircraft (a delta of its wings and nose,
+  // with its drop line and shadow) and the state row on top.
+  const drawTime = (tNow) => {
+    timeUnder.replaceChildren();
+    timeTop.replaceChildren();
+    timeText.replaceChildren();
+    const put = (node) => { if (node) timeTop.append(node); return node; };
+    const fragmentNow = tNow === null ? null : fragmentAt(path, tNow);
+    if (fragmentNow) dome(fragmentNow.radiusFt, fragmentNow.heightFt, true, "fragment-now", timeUnder);
+    const bombNow = tNow === null ? null : bombAt(path, tNow);
+    const bombPoint = bombNow ? at(P(bombNow)) : null;
+    if (bombPoint) put(svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 4.5, fill: C.bomb, stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb" }));
+    const flying = tNow !== null && tNow >= firstT;
+    let state = null;
+    if (flying) {
+      state = flightStateAt(path, tNow);
+      const { v, right: r } = aircraftAxes(state);
+      const size = radius * 0.04;
+      const q = P(state);
+      const off = (a, b) => [q[0] + v[0] * a * size + r[0] * b * size, q[1] + v[1] * a * size + r[1] * b * size, q[2] + v[2] * a * size + r[2] * b * size];
+      put(polyline([[state.x, state.y, 0], q], { stroke: "#203a63", "stroke-width": 1, "stroke-dasharray": "2 3" }));
+      const shadow = at([state.x, state.y, 0]);
+      if (shadow) put(svgNode("circle", { cx: shadow.x.toFixed(1), cy: shadow.y.toFixed(1), r: 3, fill: "#8f9aa6", "data-3d-role": "aircraft-shadow" }));
+      const delta = [off(1, 0), off(-0.6, 0.75), off(-0.35, 0), off(-0.6, -0.75)].map(at);
+      if (delta.every(Boolean)) put(svgNode("polygon", { points: pts(delta), fill: "#203a63", stroke: "#ffffff", "stroke-width": 1, "data-3d-role": "aircraft" }));
+    }
+    const putText = (node) => { if (node) timeText.append(node); };
+    if (tNow !== null && !flying) putText(text({ x: 16, y: 46 }, `Roll-in in ${(path.samples[0].t - tNow).toFixed(1)} s`, { "data-3d-role": "state" }));
+    if (state) putText(text({ x: 16, y: 46 }, `Roll-in ${tNow < 0 ? "−" : "+"}${Math.abs(tNow).toFixed(1)} s · ${String(state.phase).toUpperCase()} · ${Math.round(state.z)} ft AGL · ${Math.round(state.kcas)} KCAS · Bank ${Math.round(Math.abs(state.bankDeg))}°`, { "data-3d-role": "state" }));
+    return { ...base, timeSec: tNow, state };
+  };
+  drawnScenes.set(svg, { path, viewKey, layers: { under: timeUnder, time: timeTop, text: timeText }, drawTime });
+  return drawTime(t);
 }
 
 // SEM conditions and results under the 3D legend (owner handoff §4.5): the SEM flown, its Recovery G, G Onset

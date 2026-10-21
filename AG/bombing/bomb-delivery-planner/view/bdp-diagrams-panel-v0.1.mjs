@@ -3,8 +3,8 @@ import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath, padlockStep } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.7";
-import { BDP_HUD_VIEW_V0_1, padlockTotalDeg, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.4";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.8";
+import { BDP_HUD_VIEW_V0_1, padlockTotalDeg, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.5";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
 // Full BDP diagrams panel — BDP-owned presentation reused by every BE that embeds a BDP input tab
@@ -63,7 +63,10 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.11.0 (2026-10-20, Offset): progressive draws the Profile first; other charts yield to paint.
   // Unchanged Profile/3D/HUD drawings and the flight path are reused. Other hosts remain synchronous.
   // 0.11.1 (2026-10-20, owner): 3D Profile 0.1.7 draws the bomb trajectory (flight path 0.1.4).
-  version: "0.11.1",
+  // 0.11.2 (2026-10-21, owner: a smoother Play): a progressive clock step (only the time moved, nothing queued) redraws
+  // the 3D Profile and HUD at once; 3D Profile 0.1.8 then redraws only its time layers, HUD 0.1.5 creates only the
+  // ladder inside its square.
+  version: "0.11.2",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -303,7 +306,18 @@ export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraf
   if (progressive) {
     profile.redraw();
     // Prepare the small path/state now so Play knows the current start/end even before 3D is drawn.
+    const previousPath = flightStates.get(container)?.path ?? null;
     const hasFlight = prepareFlightViews(container, bdpResult, flightView, true);
+    // A clock step (0.11.2): everything drawn, nothing queued, and the same result, Top View and flight path — only the
+    // time moved. The 3D Profile (its time layers) and the HUD redraw at once, in step with the Profile, rather than
+    // one per paint; the Top View stays as drawn.
+    const drawnTop = drawnTopViews.get(container);
+    if (hasFlight && container.dataset.bdpDiagramsState === "rendered" && !renderQueue.has(container)
+      && flightStates.get(container).path === previousPath && drawnTop?.result === bdpResult && drawnTop.key === topKey) {
+      draw3d(container, scope);
+      drawHud(container, scope);
+      return true;
+    }
     container.dataset.bdpDiagramsState = "profile-ready";
     const later = (name, draw) => renderQueue.enqueue(container, name, () => {
       if (!container.isConnected) { cancelBdpDiagramRender(container); return; }
