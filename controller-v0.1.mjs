@@ -115,6 +115,10 @@ let ipBearingDirection = "TO_TARGET";
 // Stored input state (written from the BE's nextInput, restored from a save; never derived here).
 let ipLinked = true;
 let ipLockHeadingDeg = null;
+// The last solved Run-In: a Run-In edit turns the Attack Headings by the change from it (BE, 2026-10-22).
+let runInBaseDeg = null;
+// The Run-In turns added up (BE); the S&R plan turns by its change. Saved, like the S&R plan it aligns.
+let runInTurnDeg = 0;
 let vipBearingExplicit = false;
 let vipRangeExplicit = false;
 let vrpBearingExplicit = false;
@@ -296,6 +300,8 @@ const LEAD_VALUE_KEYS = Object.keys(DEFAULT_INPUT_VALUES);
 const FIELD_DISPLAY_DIGITS = Object.freeze({ attackHeadingDeg: 0, angleOffDeg: 0, offsetAngleDeg: 0, actionRangeNm: 1, approachRangeNm: 1, ipRangeNm: 1, vrpRangeNm: 1, offsetG: 1, offsetBankDeg: 0, offsetRadiusNm: 1, trackingTimeSec: 1, rollInAltitudeMslFt: 0, initialAltitudeMslFt: 0, releaseAltitudeMslFt: 0, rollInBankAngleDeg: 0, rollInG: 1 });
 function fieldDisplayText(key, value) {
   if (key === "runInHeadingDeg") return formatBearingInput(value);
+  // A written-back Attack Heading reads like the entered one: integer, three digits ("030"; a Run-In turn rewrites it).
+  if (key === "attackHeadingDeg") return String(((Math.round(value) % 360) + 360) % 360).padStart(3, "0");
   return Object.hasOwn(FIELD_DISPLAY_DIGITS, key) ? value.toFixed(FIELD_DISPLAY_DIGITS[key]) : String(value);
 }
 const sameStateValue = (a, b) => Object.is(a, b);
@@ -308,7 +314,7 @@ function collectLeadRecord() {
     values,
     locks: { ...locks },
     state: {
-      driver, turnDriver, referenceMode, ipLinkedToVrp: ipLinked, ipLockHeadingDeg, rollInAltitudeLinked,
+      driver, turnDriver, referenceMode, ipLinkedToVrp: ipLinked, ipLockHeadingDeg, runInBaseDeg, runInTurnDeg, rollInAltitudeLinked,
       solveMode: bdpSolveMode, enteredTrackingTimeSec, vipBearingExplicit, vipRangeExplicit, vrpBearingExplicit, vrpRangeExplicit,
       fragmentMarginAppliesTo,
     },
@@ -369,6 +375,8 @@ function applyLeadState(lead, sentLead, activeKey, commit) {
   referenceMode = s.referenceMode;
   ipLinked = s.ipLinkedToVrp;
   ipLockHeadingDeg = s.ipLockHeadingDeg;
+  runInBaseDeg = s.runInBaseDeg ?? null;
+  runInTurnDeg = Number.isFinite(s.runInTurnDeg) ? s.runInTurnDeg : 0;
   rollInAltitudeLinked = s.rollInAltitudeLinked;
   bdpSolveMode = s.solveMode;
   enteredTrackingTimeSec = s.enteredTrackingTimeSec;
@@ -720,14 +728,14 @@ function syncTimeDial(dial, svg, results, timeSec, phase = svg?.querySelector('[
   output.setAttribute("aria-pressed", String(on));
 }
 function timeDialMarkup(number, label = `Top View #${number}`) {
-  return `<div class="diagram-action-row time-dial" data-time-dial="${number}" role="group" aria-label="${label} time after IP"><span class="diagram-control-label">Time</span><button class="capture-button time-dial-play" type="button" data-time-play aria-pressed="false" title="Play the time dial">Play</button><button class="capture-button time-dial-speed" type="button" data-time-speed title="Play speed: press for the next (1×, 2×, 4× real time)">${timePlaySpeed}×</button><input class="time-dial-range" type="range" min="0" max="1" step="1" value="0" data-time-range aria-label="Seconds after IP"><button class="capture-button diagram-scale-output time-dial-output" type="button" data-time-output aria-pressed="false" title="Seconds after IP; press to turn off">Off</button></div>`;
+  return `<div class="diagram-action-row time-dial" data-time-dial="${number}" role="group" aria-label="${label} time after IP"><span class="diagram-control-label">Time</span><button class="capture-button time-dial-play" type="button" data-time-play aria-pressed="false" title="Play the time dial">Play</button><button class="capture-button time-dial-speed" type="button" data-time-speed title="Play speed: press for the next (1×, 2× real time)">${timePlaySpeed}×</button><input class="time-dial-range" type="range" min="0" max="1" step="1" value="0" data-time-range aria-label="Seconds after IP"><button class="capture-button diagram-scale-output time-dial-output" type="button" data-time-output aria-pressed="false" title="Seconds after IP; press to turn off">Off</button></div>`;
 }
 // Play (owner 2026-10-15, plan Q13): the dial runs from its T (0 when off) to the last Impact; pressing Play again,
 // moving the dial or turning it off stops it. 2026-10-21 (owner): up to 30 frames a second (was 10; a slower device
 // draws what it can, the clock follows real time), at 1× real time by default; the speed button beside every Play
-// steps 1× → 2× → 4× → 1× (owner: 1×, 2× and 4× are enough), also while playing. The Offset Top View redraws at most 10 times a second during
+// steps 1× → 2× → 1× (owner 2026-10-22: 2× at most), also while playing. The Offset Top View redraws at most 10 times a second during
 // Play and not while off screen (it catches up when Play stops or it comes into view).
-const TIME_PLAY_SPEEDS = [1, 2, 4];
+const TIME_PLAY_SPEEDS = [1, 2];
 let timePlaySpeed = TIME_PLAY_SPEEDS[0];
 const TIME_PLAY_FRAME_MS = 1000 / 30;
 const TIME_PLAY_TOP_VIEW_MS = 100;
@@ -759,7 +767,9 @@ function syncClockDials() {
   } catch (_) { phase = null; }
   syncTimeDials(null, results, topViewTimeSec, phase);
 }
-function setTimePlaySpeed(speed) {
+function setTimePlaySpeed(requested) {
+  // Any other value plays at the nearest step at or below it: never above the last step.
+  const speed = TIME_PLAY_SPEEDS.findLast((step) => step <= requested) ?? TIME_PLAY_SPEEDS[0];
   if (timePlaying) {
     // Keep the clock where it is and go on at the new speed.
     const now = performance.now();
@@ -1368,6 +1378,7 @@ function capturePersistedState() {
     ipBearingDirection,
     ipLinked,
     ipLockHeadingDeg,
+    runInTurnDeg,
     rollInAltitudeLinked,
     fragmentMarginAppliesTo,
     solveMode: bdpSolveMode,
@@ -1397,6 +1408,7 @@ function factoryPersistedState() {
     ipBearingDirection: "TO_TARGET",
     ipLinked: true,
     ipLockHeadingDeg: 0,
+    runInTurnDeg: 0,
     rollInAltitudeLinked: true,
     solveMode: "height",
     enteredTrackingTimeSec: DEFAULT_TRACKING_TIME_SEC,
@@ -1464,6 +1476,9 @@ function applyPersistedState(saved) {
   ipBearingDirection = saved.ipBearingDirection === "FROM_TARGET" ? "FROM_TARGET" : "TO_TARGET";
   ipLinked = saved.version >= 3 && saved.ipLinked !== false;
   ipLockHeadingDeg = Number.isFinite(saved.ipLockHeadingDeg) ? saved.ipLockHeadingDeg : null;
+  // Not saved: the restored Run-In becomes the base when it is solved (a restore turns nothing).
+  runInBaseDeg = null;
+  runInTurnDeg = Number.isFinite(saved.runInTurnDeg) ? saved.runInTurnDeg : 0;
   rollInAltitudeLinked = saved.rollInAltitudeLinked !== false;
   fragmentMarginAppliesTo = saved.fragmentMarginAppliesTo === "HEIGHT" ? "HEIGHT" : "HEIGHT_AND_RADIUS";
   syncFragmentMarginButton();

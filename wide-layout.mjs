@@ -4,8 +4,8 @@
 // right = Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft.
 // SEM & Rejoin (2026-10-13): its own module, mounted once into the S&R input tab and the centre
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=7eb822bbfede";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=7eb822bbfede";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=b3aef1fc0f11";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=b3aef1fc0f11";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
@@ -296,10 +296,11 @@ function applyInputTab(key) {
   return true;
 }
 
-// One user action changes the centre view and the input tab it is edited in together (handoff
-// 2026-10-13 §3): SEM & Rejoin ↔ S&R, BDP ↔ BDP, Offset Top View ↔ Offset. Formation, Save/Load and
-// the right-hand tabs keep the other panes as they are. Nothing is clicked or re-dispatched; the tab
-// already shown is a no-op (no calculation, no redraw).
+// An input tab brings its centre view with it (handoff 2026-10-13 §3): S&R → SEM & Rejoin, BDP → BDP,
+// Offset → Offset Top View. A centre tab changes the centre only (owner 2026-10-22): the input tab,
+// the edited aircraft and the inputs stay as they are. Formation, Save/Load and the right-hand tabs
+// keep the other panes. Nothing is clicked or re-dispatched; the tab already shown is a no-op (no
+// calculation, no redraw).
 const INPUT_OF_CENTER = Object.freeze({ topview: "offset", bdp: "bdp", sem: "sr" });
 const CENTER_OF_INPUT = Object.freeze({ offset: "topview", bdp: "bdp", sr: "sem" });
 function activateWorkspace(centerKey) {
@@ -312,7 +313,7 @@ function chooseInput(key) {
   return applyInputTab(key);
 }
 function chooseCenter(key) {
-  return activateWorkspace(key);
+  return applyCenterTab(key);
 }
 function selectEditAircraft(number) {
   const size = Number(flightSize.value);

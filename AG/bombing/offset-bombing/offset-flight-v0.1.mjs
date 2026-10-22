@@ -32,7 +32,11 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // 0.1.6 (2026-10-19, owner): the Level SEM turn (BDP v0.4.3) — semTurnType / semTurnDeg / semTurnG /
   // semTurnSpeedKcas / semTurnBankDeg follow the element lead while blank; semTurnDirection is the aircraft's own
   // (blank: its Roll-in direction).
-  version: "0.1.6",
+  // 0.1.7 (2026-10-22, owner): a Run-In / IP Bearing edit turns the whole attack geometry about the Target —
+  // every absolute Attack Heading (#1 and each follower, LOCKed or not), the VRP and VIP bearings and a locked
+  // IP's bearing move by the Run-In change from #1 state.runInBaseDeg (the last solved Run-In); LOCKs stay on
+  // and the driver is kept. state.runInTurnDeg adds up these turns (S&R turns its plan by it); the wind stays.
+  version: "0.1.7",
   status: "work",
   schemaVersion: 1,
   components: Object.freeze({
@@ -197,6 +201,8 @@ function normalizeLead(record = {}) {
       vrpBearingExplicit: state.vrpBearingExplicit === true,
       vrpRangeExplicit: state.vrpRangeExplicit === true,
       fragmentMarginAppliesTo: enumOr("fragmentMarginAppliesTo", state.fragmentMarginAppliesTo, FRAGMENT_MARGIN_MODE_SET, "HEIGHT_AND_RADIUS"),
+      runInBaseDeg: isNumber(state.runInBaseDeg) ? norm(state.runInBaseDeg) : null,
+      runInTurnDeg: isNumber(state.runInTurnDeg) ? norm(state.runInTurnDeg) : 0,
     },
   };
 }
@@ -301,11 +307,11 @@ function applyLeadEdit(lead, edit) {
   if (key === "vrpBearingDeg") { s.vrpBearingExplicit = isNumber(value); s.driver = "vrpBearingDeg"; return; }
   if (key === "ipBearingDeg") {
     // The IP bearing is the Run-In axis in TO/FROM notation (canonical TO value here); it keeps the
-    // IP <- VRP link like a Run-In edit and moves a locked IP's bearing with it.
+    // IP <- VRP link like a Run-In edit and moves a locked IP's bearing with it. Like a Run-In edit it
+    // turns the geometry and keeps the driver (0.1.7, turnWithRunIn).
     if (!isNumber(value)) return;
     if (locks.ipReference) s.ipLockHeadingDeg = norm(value);
     v.runInHeadingDeg = norm(value);
-    s.driver = "runInHeadingDeg";
     return;
   }
   const rollInLocked = locks.rollInAltitudeMslFt === true;
@@ -340,8 +346,8 @@ function applyLeadEdit(lead, edit) {
   }
   if (TURN_DRIVERS.has(key)) s.turnDriver = key;
   if (key === "runInHeadingDeg") {
+    // A turn of the whole geometry, not a new tactical constraint: the driver stays (0.1.7).
     if (isNumber(value)) v.runInHeadingDeg = norm(value);
-    s.driver = "runInHeadingDeg";
   } else if (key === "approachRangeNm" || LEAD_TACTICAL_DRIVERS.has(key)) {
     s.driver = key;
   }
@@ -571,6 +577,7 @@ function deriveLeadNext(lead, result, derived) {
     derived.add(key);
   };
   if (!locks.runInHeadingDeg && isNumber(r.runInHeadingDeg)) { v.runInHeadingDeg = r.runInHeadingDeg; derived.add("runInHeadingDeg"); }
+  if (isNumber(v.runInHeadingDeg)) s.runInBaseDeg = norm(v.runInHeadingDeg);
   // VRP must stay at or inside IP: an unlocked independent IP that VRP passed is re-linked.
   if (result.ipRelinked) s.ipLinkedToVrp = true;
   if (s.ipLinkedToVrp && !locks.ipReference && isNumber(r.ipRangeNm)) { v.ipRangeNm = r.ipRangeNm; derived.add("ipRangeNm"); }
@@ -1185,6 +1192,44 @@ function flightEdits(input) {
   return input.edits ?? (input.edit ? [input.edit] : []);
 }
 
+// A Run-In edit (2026-10-22, owner) turns the whole attack geometry about the Target, and only the
+// Run-In edit does so. Every absolute direction moves by the Run-In change: each Attack Heading (#1
+// and every follower record), the VRP and VIP bearings (so the references and the DED pages keep
+// their place along the attack) and a locked IP's bearing. LOCKed ones move too and stay LOCKed
+// (owner: the Run-In edit is the one exception; the LOCKs hold the turned values), and the driver
+// is kept, so the same relative problem is solved on the new axis: Offset Angle, Angle-Off, the
+// formation (relative to the Run-In) and, without wind, every range and time are unchanged. The
+// change is taken from #1 state.runInBaseDeg (the last solved Run-In, carried in nextInput) and the
+// base moves with it, so the events of one coalesced request, which all see the final Run-In, turn
+// it once. Without a base (a record from before 0.1.7): the Run-In before the edit
+// (`previousValue`; an IP Bearing edit's own record). state.runInTurnDeg adds up the turns (only
+// these), for the S&R plan. Not turned: the true wind (owner) and a VRP Bearing edit (it is not a
+// Run-In edit).
+const RUN_IN_EDIT_KEYS = new Set(["runInHeadingDeg", "ipBearingDeg"]);
+function turnWithRunIn(aircraft, edit, runInBefore) {
+  const lead = aircraft[1];
+  const { values: v, state: s, locks } = lead;
+  if (!isNumber(v.runInHeadingDeg)) return;
+  const fallback = edit.key === "ipBearingDeg" ? runInBefore : edit.previousValue;
+  const base = isNumber(s.runInBaseDeg) ? s.runInBaseDeg : isNumber(fallback) ? norm(fallback) : null;
+  const runIn = norm(v.runInHeadingDeg);
+  s.runInBaseDeg = runIn;
+  if (base === null || runIn === base) return;
+  const turn = (values, key) => {
+    if (isNumber(values[key])) values[key] = norm(values[key] + runIn - base);
+  };
+  s.runInTurnDeg = norm((isNumber(s.runInTurnDeg) ? s.runInTurnDeg : 0) + runIn - base);
+  turn(v, "attackHeadingDeg");
+  turn(v, "vrpBearingDeg");
+  turn(v, "vipToTargetBearingDeg");
+  // An IP Bearing edit already set the locked IP's bearing to its value.
+  if (locks.ipReference && edit.key === "runInHeadingDeg") turn(s, "ipLockHeadingDeg");
+  for (const number of FOLLOWERS) {
+    const follower = aircraft[number];
+    if (follower && !follower.raw) turn(follower.values, "attackHeadingDeg");
+  }
+}
+
 function applyEdits(aircraft, edits) {
   const editErrors = {};
   for (const edit of edits) {
@@ -1193,8 +1238,11 @@ function applyEdits(aircraft, edits) {
     // An aircraft whose state cannot be read, or whose earlier event failed, takes no further event.
     if (aircraft[number].raw || editErrors[number]) continue;
     try {
-      if (number === 1) applyLeadEdit(aircraft[1], edit);
-      else applyFollowerEdit(aircraft[number], edit, number);
+      if (number === 1) {
+        const runInBefore = aircraft[1].values.runInHeadingDeg;
+        applyLeadEdit(aircraft[1], edit);
+        if (RUN_IN_EDIT_KEYS.has(edit.key) && (edit.kind === "set" || edit.kind === "clear")) turnWithRunIn(aircraft, edit, runInBefore);
+      } else applyFollowerEdit(aircraft[number], edit, number);
     } catch (error) {
       editErrors[number] = error.message;
     }

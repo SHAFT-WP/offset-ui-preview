@@ -45,7 +45,9 @@ export const SEM_REJOIN_V0_1 = Object.freeze({
   // plan's per-aircraft semEnd is no longer read (the BDP tab owns the SEM End).
   // 0.3.1 (2026-10-19, owner): the BDP Level SEM turn (BDP v0.4.3) is part of the SEM step — its samples carry the
   // cross range, heading change and bank; S&R starts at the turn's end (no straight level carry after it).
-  version: "0.3.1",
+  // 0.3.2 (2026-10-22, owner): the plan follows the Offset Run-In turn — its absolute headings (Turn / Arc HEADING,
+  // Arc END_RADIAL, the draw heading, the Egress heading) turn by the Flight's runInTurnDeg change; the wind stays.
+  version: "0.3.2",
   model: Object.freeze({ id: "sr-energy-neutral-point-mass-v0.1", version: "0.1.0", integrationStepSec: 0.01 }),
   components: Object.freeze({
     sem: `${CLIMB_SEM_MODEL_V0_2.id} ${CLIMB_SEM_MODEL_V0_2.version}`,
@@ -111,6 +113,8 @@ export function createDefaultSemRejoinPlan() {
     egress: { headingDeg: null, speedKcas: null, altitudeMslFt: null },
     formation: { 2: defaultFormation(), 3: defaultFormation(), 4: defaultFormation() },
     tolerance: { positionNm: null, headingDeg: null, altitudeFt: null, relativeSpeedKt: null },
+    // The Offset Run-In turn (Flight state.runInTurnDeg) the absolute headings are drawn for; null = not yet known.
+    runInTurnDeg: null,
   };
 }
 
@@ -201,7 +205,31 @@ export function normalizeSemRejoinPlan(raw) {
     altitudeFt: numberOrNull(raw.tolerance?.altitudeFt ?? null),
     relativeSpeedKt: numberOrNull(raw.tolerance?.relativeSpeedKt ?? null),
   };
+  plan.runInTurnDeg = isFiniteNumber(raw.runInTurnDeg) ? raw.runInTurnDeg : null;
   return plan;
+}
+
+// The Offset Run-In turn (owner 2026-10-22, AG Offset SPEC "Run-In turn"): a Run-In edit turns the whole
+// attack about the Target, so the plan's absolute directions turn with it by the change of the Flight's
+// state.runInTurnDeg since the plan was last aligned: a Turn's HEADING end, a Target Arc's END_RADIAL and
+// HEADING ends, every aircraft's draw heading and the Egress Heading. Relative values (Heading Change,
+// Arc Angle, the egress formation bearings) and the true wind do not turn. A plan without an alignment
+// (new or older) takes the current one as it is.
+const TURNED_ENDS = Object.freeze({ TURN: ["HEADING"], TARGET_ARC: ["END_RADIAL", "HEADING"] });
+function alignPlanToRunInTurn(plan, runInTurnDeg) {
+  if (!isFiniteNumber(runInTurnDeg)) return 0;
+  const deltaDeg = isFiniteNumber(plan.runInTurnDeg) ? runInTurnDeg - plan.runInTurnDeg : 0;
+  plan.runInTurnDeg = runInTurnDeg;
+  if (deltaDeg === 0) return 0;
+  const turn = (value) => (isFiniteNumber(value) ? ((value + deltaDeg) % 360 + 360) % 360 : value);
+  for (const number of AIRCRAFT) {
+    for (const row of plan.aircraft[number].rows) {
+      if (TURNED_ENDS[row.kind]?.includes(row.end?.kind)) row.end.value = turn(row.end.value);
+    }
+    plan.aircraft[number].settings.drawHeadingDeg = turn(plan.aircraft[number].settings.drawHeadingDeg);
+  }
+  plan.egress.headingDeg = turn(plan.egress.headingDeg);
+  return deltaDeg;
 }
 
 // ---- upstream (Offset Flight result) ------------------------------------------------------------
@@ -293,10 +321,13 @@ export function semRejoinUpstreamView({ flightInput, flightOutput }) {
       result: entry?.result ? offsetResultView(entry.result) : null,
     };
   }
+  // The Flight's added-up Run-In turn (Offset Flight 0.1.7) after the answered edits.
+  const runInTurnDeg = flightOutput?.nextInput?.aircraft?.[1]?.state?.runInTurnDeg ?? flightInput?.aircraft?.[1]?.state?.runInTurnDeg;
   return {
     schemaVersion: 1,
     flightSize,
     wind: { fromTrueDeg: isFiniteNumber(lead.windDirectionDeg) ? lead.windDirectionDeg : 0, speedKt: isFiniteNumber(lead.windSpeedKt) ? lead.windSpeedKt : 0 },
+    runInTurnDeg: isFiniteNumber(runInTurnDeg) ? runInTurnDeg : null,
     aircraft,
   };
 }
@@ -1531,6 +1562,8 @@ export function calculateSemRejoinFull(rawInput) {
   const upstream = input.upstream;
   const windKt = windVector(upstream.wind);
   const plan = normalizeSemRejoinPlan(input.plan);
+  // The plan turns with the Offset Run-In first: the edits below are made on the current picture.
+  const runInTurnDeltaDeg = alignPlanToRunInTurn(plan, upstream.runInTurnDeg);
   const edits = input.edits ?? (input.edit ? [input.edit] : []);
   // A draw commit or an Arc entry detach reads the computed state of the plan as it stands when that
   // edit is applied (earlier edits of the same request included).
@@ -1546,6 +1579,7 @@ export function calculateSemRejoinFull(rawInput) {
     evaluation,
     timeline: { minSec: 0, maxSec: times.length ? Math.max(...times) : 0, releaseSec: Object.fromEntries(Object.entries(aircraft).map(([number, entry]) => [number, entry.release?.timeSec ?? null])) },
     nextPlan: plan,
+    runInTurnDeltaDeg,
     editResults,
     solveLog: stats,
   };
