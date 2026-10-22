@@ -1,0 +1,13 @@
+/* Flight UI (bombing app shared FE since 2026-10-22, from the Offset page CSS): Size of Flight, the follower slots and the
+   Show aircraft buttons (on = filled; the underline is the aircraft's drawing colour, 2026-10-05). */
+.flight-size-control{display:grid;gap:3px;color:var(--muted);font-size:11px;font-weight:800}.flight-size-control select{min-width:88px;min-height:36px;padding:5px 8px;border:1px solid var(--line);border-radius:9px;background:var(--field);color:var(--text);font:inherit;font-size:14px}
+#flight-followers{display:grid;gap:12px}.flight-slot{display:grid;gap:12px;padding-top:12px;border-top:2px solid var(--line)}
+.top-view-aircraft [data-top-view-aircraft-button]{min-width:42px;opacity:.7;border-bottom-width:3px}
+/* A shown aircraft is filled, over the Common view-toggle pressed state (both buttons are .capture-button.view-toggle; this
+   file loads before the page CSS, so the order alone would not decide it). */
+.top-view-aircraft .view-toggle[data-top-view-aircraft-button][aria-pressed="true"]{opacity:1;background:var(--blue);border-color:var(--blue);color:#fff}
+.top-view-aircraft [data-top-view-aircraft-button="1"]{border-bottom-color:#4c5966}
+.top-view-aircraft [data-top-view-aircraft-button="2"]{border-bottom-color:#8a3ab9}
+.top-view-aircraft [data-top-view-aircraft-button="3"]{border-bottom-color:#2f9e6e}
+.top-view-aircraft [data-top-view-aircraft-button="4"]{border-bottom-color:#b5651d}
+.top-view-aircraft [data-top-view-aircraft-button][hidden]{display:none}

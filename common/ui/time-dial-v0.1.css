@@ -1,0 +1,5 @@
+/* Time dial of common/ui/time-dial-v0.1.mjs (Common since 2026-10-22, from the Offset page CSS): range, output, the active clock. */
+.time-dial{margin-top:6px}
+.time-dial-range{width:min(360px,62vw);accent-color:#e8590c}
+.time-dial-output{min-width:118px!important;text-align:left}
+.time-dial.active .time-dial-output{color:#e8590c}

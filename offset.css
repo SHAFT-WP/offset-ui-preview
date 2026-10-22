@@ -1,23 +1,20 @@
-@import url("./common-ui-v0.2.css?v=b3aef1fc0f11");
+@import url("./common-ui-v0.2.css?v=5d08479e6b83");
+/* Parts made common (2026-10-22) bring their CSS: input fields, DED, Flight UI (bombing app shared FE), time dial (Common UI). */
+@import url("./shared/input-fields-v0.1.css?v=5d08479e6b83");
+@import url("./shared/ded-v0.1.css?v=5d08479e6b83");
+@import url("./shared/flight-ui-v0.1.css?v=5d08479e6b83");
+@import url("./common/ui/time-dial-v0.1.css?v=5d08479e6b83");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
-.flight-size-control{display:grid;gap:3px;color:var(--muted);font-size:11px;font-weight:800}.flight-size-control select{min-width:88px;min-height:36px;padding:5px 8px;border:1px solid var(--line);border-radius:9px;background:var(--field);color:var(--text);font:inherit;font-size:14px}
-#flight-followers{display:grid;gap:12px}.flight-slot{display:grid;gap:12px;padding-top:12px;border-top:2px solid var(--line)}.flight-draft-section .section-head{display:flex;align-items:center;justify-content:space-between}.flight-draft-badge{font-size:10px;font-weight:800;color:var(--muted)}.flight-draft-note{margin:0;color:var(--muted);font-size:12px;line-height:1.5}.flight-draft-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.flight-weapon-field{max-width:320px}@media(max-width:620px){.flight-draft-grid{grid-template-columns:1fr}}
-.section-disclosure-toggle{display:flex;align-items:center;gap:10px;width:100%;border:0;padding:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;min-height:40px}
-.section-collapse-icon{flex:none;margin-left:auto;width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--blue);font-size:var(--ui-font-symbol);font-weight:850;line-height:1;cursor:pointer}
-.section-collapse-icon:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.flight-draft-section .section-head{display:flex;align-items:center;justify-content:space-between}.flight-draft-badge{font-size:10px;font-weight:800;color:var(--muted)}.flight-draft-note{margin:0;color:var(--muted);font-size:12px;line-height:1.5}.flight-draft-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.flight-weapon-field{max-width:320px}@media(max-width:620px){.flight-draft-grid{grid-template-columns:1fr}}
 .section-head,.result-panel-head{flex-wrap:wrap}
 .top-view-section .section-head h2{display:flex;align-items:center;gap:10px}
-.section-disclosure-toggle:focus-visible{outline:2px solid var(--blue);outline-offset:4px;border-radius:4px}
-.section-disclosure-body{display:grid;gap:10px;min-width:0}
-.section-disclosure-body[hidden]{display:none}
 .input-panel+.input-panel{margin-top:12px}
 .z-diagram-shell{width:100%;max-width:1140px;margin:auto;box-sizing:border-box;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
 .z-diagram-shell svg{width:100%;height:auto;display:block}
-:root{--offset:light-dark(#a35d00,#ffbd62);--offset-soft:light-dark(#fff4df,#3b2a14);--lock:light-dark(#5c2d91,#c9a9ee);--lock-soft:light-dark(#f3ebfb,#30233d)}
+:root{--offset:light-dark(#a35d00,#ffbd62);--offset-soft:light-dark(#fff4df,#3b2a14)}
 .driver{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:11px}.driver output{color:var(--value-result);font-weight:850}
-.lock-title{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:24px}.lock-button{border:1px solid var(--line);border-radius:999px;background:var(--field);color:var(--muted);font-size:9px;font-weight:900;padding:3px 7px;cursor:pointer}.lock-button[aria-pressed="true"]{border-color:var(--lock);background:var(--lock-soft);color:var(--lock)}
 .offset-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.offset-card{display:grid;align-content:start;gap:7px;padding:10px;border:1px solid var(--line);border-radius:12px;background:color-mix(in srgb,var(--field) 82%,transparent);min-width:0}.offset-card.span2{grid-column:span 2}.step{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;border-radius:999px;background:var(--blue);color:#fff;font-size:12px;margin-right:6px}.offset-title{display:flex;align-items:center;font-size:13px;font-weight:900}.mode-switch{display:grid;grid-template-columns:1fr 1fr;gap:8px}.mode-button{min-height:42px;border:1px solid var(--line);border-radius:10px;background:var(--field);font-weight:900;color:var(--text);cursor:pointer}.mode-button.active{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}.mode-pane.hidden,.mode-pane[hidden]{display:none}
 .reference-point-section{display:grid;gap:10px}.reference-mode-switch{margin-bottom:2px}.reference-input-pane{display:grid;gap:10px}.reference-advanced{grid-column:1/-1}.reference-advanced-body{display:grid;gap:10px}.reference-advanced .mode-pane{max-width:760px}
 .vip-input-card{border-color:color-mix(in srgb,var(--blue) 45%,var(--line))}.vip-to-target-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.to-target-chip{display:inline-flex;align-items:center;margin-left:8px;padding:3px 8px;border:1px solid var(--line);border-radius:999px;font-size:9px;font-weight:950;letter-spacing:.03em;color:var(--muted);background:var(--field)}.to-target-chip.active{border-color:var(--blue);background:var(--blue-soft);color:var(--blue);box-shadow:0 0 0 1px color-mix(in srgb,var(--blue) 15%,transparent) inset}
@@ -26,25 +23,16 @@ body.show-full-bdp .bdp-extra{display:grid}
 .capture-button:disabled{opacity:.42;cursor:default}
 /* Diagram CSS boundary (CSS-SPEC §1): the shell and svg box only; the Offset views set their own aspect ratio, strokes, text and label cursors. */
 .top-view-shell{border:1px solid #dfe6ee;border-radius:12px;background:#fff;overflow:hidden}#offset-top-view,svg[data-flight-topview]{display:block;width:100%;height:auto;background:#fff}
-.ded-section{display:grid;gap:10px}.ded-boxes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ded-tabs{display:flex;gap:7px;flex-wrap:wrap}.ded-tab{min-width:72px;border:1px solid var(--line);border-radius:9px;background:var(--field);color:var(--muted);padding:8px 12px;font-size:11px;font-weight:950;cursor:pointer}.ded-tab.active{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}.ded-tab[hidden]{display:none}.ded-screen{display:grid;gap:7px;padding:14px 16px;border:1px solid color-mix(in srgb,var(--green) 35%,var(--line));border-radius:12px;background:light-dark(#07120c,#050a07);color:#9ef0af;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;box-shadow:inset 0 0 18px rgba(0,0,0,.32);min-width:0}.ded-page-title{font-size:13px;font-weight:900;letter-spacing:.05em;padding-bottom:5px;border-bottom:1px solid rgba(158,240,175,.22)}.ded-row{display:grid;grid-template-columns:72px 1fr;gap:10px;align-items:baseline;font-size:12px}.ded-row span{opacity:.74}.ded-row output{font-weight:850;font-variant-numeric:tabular-nums;min-width:0;overflow-wrap:anywhere}.ded-foot{margin-top:3px;padding-top:7px;border-top:1px solid rgba(158,240,175,.18);font-size:10px;opacity:.72;letter-spacing:.04em}
 .constraint-note{font-size:10px;color:var(--muted);line-height:1.4}.alias-note{font-size:10px;color:var(--amber);margin-top:6px}
-@media(max-width:980px){.offset-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:620px){.driver{align-items:flex-start;flex-direction:column}.offset-grid{grid-template-columns:1fr 1fr;gap:7px}.offset-card{padding:8px}.offset-card.span2{grid-column:span 2}.reference-advanced{grid-column:1/-1}.vip-to-target-grid{grid-template-columns:1fr 1fr}.ded-boxes{grid-template-columns:1fr}.ded-tab{min-width:60px;padding:7px 9px}.ded-row{grid-template-columns:58px 1fr}}
+@media(max-width:980px){.offset-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:620px){.driver{align-items:flex-start;flex-direction:column}.offset-grid{grid-template-columns:1fr 1fr;gap:7px}.offset-card{padding:8px}.offset-card.span2{grid-column:span 2}.reference-advanced{grid-column:1/-1}.vip-to-target-grid{grid-template-columns:1fr 1fr}}
 
-/* Per-tab controls (2026-09-26): visibility is scoped to the tab whose button was pressed. */
-.section.show-advanced .advanced-only{display:grid}
-.section.show-advanced section.advanced-only,.section.show-advanced details.advanced-only{display:block}
-.section.show-full-bdp .bdp-extra{display:grid}
 /* Fields of one SEM only (owner 2026-10-18 / 2026-10-19): CSEM Target FPA, the Level SEM Turn and its bank rows. */
 [data-csem-only][hidden],[data-level-sem-only][hidden],[data-sem-turn-level-only][hidden],[data-sem-turn-slice-only][hidden]{display:none!important}
-.section-tools{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-left:auto}
-.section-tools .tab-tool{min-height:36px;padding:6px 12px;font-size:13px;border-radius:10px}
-.section-tools .tab-tool.active{border-color:var(--blue);color:var(--blue)}
 /* Temp Def (temporary default staging, 2026-09-26): remove with the controller block. */
 .temp-def{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px 8px;border:1px dashed var(--line);border-radius:12px}
 .temp-def-label{font-size:12px;font-weight:900;color:var(--muted)}
 .temp-def .tab-tool{min-height:32px;padding:5px 10px;font-size:12px;border-radius:9px}
 .temp-def-status{font-size:12px;color:var(--muted);white-space:nowrap}
-.section-tools+.section-collapse-icon{margin-left:0}
 .flight-slot .top-view-section-like,.flight-slot .diagram-actions{margin-bottom:10px}
 /* Top View view toggles (IP Bottom): highlighted while on. */
 .capture-button.view-toggle[aria-pressed="true"]{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}
@@ -55,22 +43,8 @@ body.show-full-bdp .bdp-extra{display:grid}
 .bdp-views{display:none}
 .bdp-views.show-full-views{display:block}
 .bdp-views.show-full-views .bdp-diagrams{display:grid;grid-template-columns:minmax(0,1fr);margin-top:0}
-.time-dial{margin-top:6px}
-.time-dial-range{width:min(360px,62vw);accent-color:#e8590c}
-.time-dial-output{min-width:118px!important;text-align:left}
-.time-dial.active .time-dial-output{color:#e8590c}
-/* Offset Top View aircraft buttons (2026-10-05): on = filled; the underline is the aircraft's drawing colour. */
-.top-view-aircraft [data-top-view-aircraft-button]{min-width:42px;opacity:.7;border-bottom-width:3px}
-.top-view-aircraft [data-top-view-aircraft-button][aria-pressed="true"]{opacity:1;background:var(--blue);border-color:var(--blue);color:#fff}
-.top-view-aircraft [data-top-view-aircraft-button="1"]{border-bottom-color:#4c5966}
-.top-view-aircraft [data-top-view-aircraft-button="2"]{border-bottom-color:#8a3ab9}
-.top-view-aircraft [data-top-view-aircraft-button="3"]{border-bottom-color:#2f9e6e}
-.top-view-aircraft [data-top-view-aircraft-button="4"]{border-bottom-color:#b5651d}
-.top-view-aircraft [data-top-view-aircraft-button][hidden]{display:none}
 /* INVALID input title (2026-10-12): the title of an input named by an INVALID message reads red. */
 label.input-invalid>span:first-child,label.input-invalid>span:first-child>span,label.input-invalid .offset-title,label.input-invalid .offset-title .step{color:var(--red)!important}
-/* #1 values the LOCKs settle: solved, read-only (Offset FE SPEC "LOCK-solved fields", 2026-10-14). */
-input[data-lock-solved]{cursor:not-allowed;border-style:dashed;border-color:var(--muted)}
 /* BDP results shown in the input grid (Roll-in Bank, owner 2026-10-15): read-only, never typed. */
 input[data-bdp-result]{cursor:default;border-style:dashed;border-color:var(--muted)}
 /* SEM / Fragment readout title (owner 2026-10-15): shown with Full BDP, like its fields. */

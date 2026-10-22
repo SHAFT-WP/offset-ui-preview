@@ -1,0 +1,21 @@
+/* Input field controls of shared/input-fields-v0.1.mjs (bombing app shared FE since 2026-10-22, from the Offset page CSS). */
+:root{--lock:light-dark(#5c2d91,#c9a9ee);--lock-soft:light-dark(#f3ebfb,#30233d)}
+/* Section collapse (installSectionDisclosure): the head title is the toggle, "−" / "＋" at the right of the head. */
+.section-disclosure-toggle{display:flex;align-items:center;gap:10px;width:100%;border:0;padding:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;min-height:40px}
+.section-collapse-icon{flex:none;margin-left:auto;width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--blue);font-size:var(--ui-font-symbol);font-weight:850;line-height:1;cursor:pointer}
+.section-collapse-icon:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.section-disclosure-toggle:focus-visible{outline:2px solid var(--blue);outline-offset:4px;border-radius:4px}
+.section-disclosure-body{display:grid;gap:10px;min-width:0}
+.section-disclosure-body[hidden]{display:none}
+/* LOCK / LINK buttons at the right of a field title. */
+.lock-title{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:24px}.lock-button{border:1px solid var(--line);border-radius:999px;background:var(--field);color:var(--muted);font-size:9px;font-weight:900;padding:3px 7px;cursor:pointer}.lock-button[aria-pressed="true"]{border-color:var(--lock);background:var(--lock-soft);color:var(--lock)}
+/* Section tools (installSectionTools). Per-tab controls (2026-09-26): visibility is scoped to the tab whose button was pressed. */
+.section.show-advanced .advanced-only{display:grid}
+.section.show-advanced section.advanced-only,.section.show-advanced details.advanced-only{display:block}
+.section.show-full-bdp .bdp-extra{display:grid}
+.section-tools{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-left:auto}
+.section-tools .tab-tool{min-height:36px;padding:6px 12px;font-size:13px;border-radius:10px}
+.section-tools .tab-tool.active{border-color:var(--blue);color:var(--blue)}
+.section-tools+.section-collapse-icon{margin-left:0}
+/* A value the LOCKs settle: solved, read-only (markLockSolved; Offset FE SPEC "LOCK-solved fields", 2026-10-14). */
+input[data-lock-solved]{cursor:not-allowed;border-style:dashed;border-color:var(--muted)}

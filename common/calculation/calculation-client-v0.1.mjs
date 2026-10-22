@@ -1,8 +1,9 @@
-// Offset FE calculation requests (Offset BE performance addendum 2026-10-12, P4 / D01-D09).
+// FE calculation requests (Common since 2026-10-22; written for the Offset FE, performance addendum
+// 2026-10-12, P4 / D01-D09). Consumers: the Offset Flight and SEM & Rejoin pages.
 //
-// The FE never calculates. It records the raw edit events, decides WHEN one Flight request is sent,
-// and adopts only the answer to the current state. The BE (offset-flight-worker-v0.1.mjs, in a
-// Worker) applies the events in order and solves once.
+// The FE never calculates. It records the raw edit events, decides WHEN one request is sent, and
+// adopts only the answer to the current state. The consumer's BE host (in a Worker, e.g.
+// offset-flight-worker-v0.1.mjs) applies the events in order and solves once.
 //
 // Policy (user decision 2026-10-12, addendum §0):
 // - Numeric typing: trailing debounce only. Each input restarts one shared 200 ms timer; the request
