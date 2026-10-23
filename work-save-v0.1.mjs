@@ -2,7 +2,7 @@
 // record is migration input only. No calculations or display rounding live here.
 // The record mechanics (one verified write, newer-format refusal) are the bombing app
 // shared FE's (shared/save-store-v0.1.mjs, 2026-10-22).
-import { isRecordObject as object, parseStoredJson as parse, readWorkRecord, writeWorkRecord } from "./shared/save-store-v0.1.mjs?v=0.1.0";
+import { isRecordObject as object, parseStoredJson as parse, readWorkRecord, writeWorkRecord } from "./shared/save-store-v0.1.mjs?v=0.1.1";
 
 export const OFFSET_INPUT_STORAGE_KEY = "flight-sim-tools.offset.v2.input.v1";
 export const OFFSET_FLIGHT_STORAGE_KEY = "flight-sim-tools.offset.v2.flight-layout.v1";

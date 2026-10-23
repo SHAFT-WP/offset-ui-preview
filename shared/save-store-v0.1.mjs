@@ -100,9 +100,17 @@ export function createSaveRun({ buttons, settle, save, status, savedText, failed
       node.textContent = "Saving…";
     });
     status("Saving…", "warning");
+    // settle starts now. A synchronous throw becomes this run's failure, taken after `pending` holds
+    // the run, so the run that ends is never kept as the running one (C02, 2026-10-23).
+    let settled;
+    try {
+      settled = settle();
+    } catch (error) {
+      settled = Promise.reject(error);
+    }
     pending = (async () => {
       try {
-        await settle();
+        await settled;
         const saved = save();
         status(savedText(saved));
         nodes.forEach((node) => showResult(node, true));

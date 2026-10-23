@@ -169,18 +169,44 @@ export function createCalculationScheduler({ collect, apply, transport, delayMs 
 export function createWorkerTransport({ workerUrl, hostModuleUrl = workerUrl, hostFactory = "createOffsetFlightHost", WorkerClass = globalThis.Worker, onFallback = null }) {
   let listener = () => {};
   let worker = null;
-  let fallbackHost = null;
+  let hostLoad = null;
   let queue = [];
   const deliver = (message) => listener(message);
-  const runFallback = async (message) => {
-    if (!fallbackHost) {
-      const module = await import(hostModuleUrl);
-      fallbackHost = module[hostFactory]();
+  // The page host is loaded once and shared by the requests waiting for it. A load that fails is not
+  // kept: the next request loads again (no automatic retry).
+  const loadHost = () => {
+    if (!hostLoad) {
+      const loading = import(hostModuleUrl).then((module) => {
+        if (typeof module[hostFactory] !== "function") throw new Error(`the host module has no ${hostFactory}`);
+        return module[hostFactory]();
+      });
+      hostLoad = loading;
+      loading.catch(() => {
+        if (hostLoad === loading) hostLoad = null;
+      });
     }
-    setTimeout(() => {
-      deliver(fallbackHost.handle(message));
-      setTimeout(() => fallbackHost.prepareIdle(), 0);
-    }, 0);
+    return hostLoad;
+  };
+  // Every request sent on the page ends with one answer carrying its requestId (2026-10-23): a host that
+  // cannot load, or throws while answering, answers it as failed, with no output standing in for it.
+  const failed = (message, error) => deliver({ type: "result", requestId: message.requestId, output: null, error: `On-page calculation failed: ${error?.message ?? String(error)}` });
+  const runFallback = (message) => {
+    loadHost().then((host) => {
+      setTimeout(() => {
+        let answer;
+        try {
+          answer = host.handle(message);
+        } catch (error) {
+          failed(message, error);
+          return;
+        }
+        deliver(answer);
+        // The idle step comes after the answer; its failure changes no answer.
+        setTimeout(() => {
+          try { host.prepareIdle(); } catch { /* the answer stands */ }
+        }, 0);
+      }, 0);
+    }, (error) => setTimeout(() => failed(message, error), 0));
   };
   const fallBack = (reason) => {
     if (worker) {

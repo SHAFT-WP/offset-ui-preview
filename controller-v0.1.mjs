@@ -11,7 +11,7 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
 import { OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=2026-10-14a";
-import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.0";
+import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
 const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.2", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
@@ -32,7 +32,7 @@ import {
   setDirectionButtons, syncLockButtons as syncLockButtonStates, syncToggleButton, valuesEquivalent,
 } from "./shared/input-fields-v0.1.mjs?v=0.1.0";
 // Preset store, Save run and saved-time text: bombing app shared FE (2026-10-22); the work record is work-save-v0.1.mjs.
-import { createPresetStore, createSaveRun, savedTimeText } from "./shared/save-store-v0.1.mjs?v=0.1.0";
+import { createPresetStore, createSaveRun, savedTimeText } from "./shared/save-store-v0.1.mjs?v=0.1.1";
 // The shown-aircraft set and its #1–#4 buttons: bombing app shared FE (2026-10-22).
 import { createShownAircraft, installShownAircraftClicks } from "./shared/flight-ui-v0.1.mjs?v=0.1.0";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this

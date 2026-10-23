@@ -8,7 +8,7 @@
 // The Offset controller is reached only through the `offsetUi` hooks it exports (never imported here,
 // so one controller instance exists whatever cache token the page loads it with).
 
-import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.0";
+import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
 import {
   createDefaultSemRejoinPlan,
   evaluateSemRejoin,
