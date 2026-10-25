@@ -30,6 +30,8 @@ export const BOX_VIEW_COLORS = Object.freeze({
   attack: BDP_VIEW_COLORS.map,
   attackText: BDP_VIEW_COLORS.mapText,
   target: BDP_VIEW_COLORS.target,
+  // The Roll-in Point → Target line (box-top-view-v0.5.2, the BDP radial Roll-in Range colour).
+  rollInTarget: BDP_VIEW_COLORS.rollInTarget,
   reference: "#5b6f82",
   invalid: "#bd3333",
   guide: "#b1bbc4",

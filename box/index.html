@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BOX Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./box.css?v=7a79a4b15fb6">
-<link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=7a79a4b15fb6">
-<link rel="stylesheet" href="./wide-layout.css?v=7a79a4b15fb6">
+<link rel="stylesheet" href="./box.css?v=d3f48cf799ac">
+<link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=d3f48cf799ac">
+<link rel="stylesheet" href="./wide-layout.css?v=d3f48cf799ac">
 </head>
 <body class="box-wide bombing-wide">
 <!-- BOX page (owner 2026-10-23 / 25): a separate page on the Offset FE layout (PC Wide and phone), BOX v0.3 BE through
@@ -20,7 +20,7 @@
     </div>
     <div class="toolbar">
       <label class="flight-size-control" for="flight-size" title="#1–#4 fly #1's BDP and BOX data; #2–#4 set their Formation position"><span>Size of Flight</span><select id="flight-size"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
-      <span class="rev" id="box-rev">V2 WORK · BOX BE 0.3</span>
+      <span class="rev" id="box-rev">V2 WORK · BOX BE 0.4</span>
     </div>
   </header>
 
@@ -42,9 +42,9 @@
         <label class="field"><span>Angle-Off (deg)</span><output class="readout" data-bdp-fixed="angleOffDeg">90</output><span class="unit">BOX fixed</span></label>
         <label class="field"><span>Base Turn G (G)</span><input data-key="baseTurnG" type="text" inputmode="decimal"><span class="unit">Level Turn · 90° · onset rates of this aircraft</span></label>
         <label class="field"><span>Crosswind Turn G (G)</span><input data-key="crossTurnG" type="text" inputmode="decimal"><span class="unit">Level Turn · 90° · onset rates of this aircraft</span></label>
-        <label class="field"><span>Crosswind Leg Extension (NM)</span><input data-key="crossLegExtensionNm" type="text" inputmode="decimal"><span class="unit" data-cross-leg-note>Default: raised to the minimum when short</span></label>
+        <label class="field"><span>Crosswind Leg Extension (NM)</span><input data-key="crossLegExtensionNm" type="text" inputmode="decimal"><span class="unit" data-cross-leg-note>Auto: to the Roll-in Altitude and speed</span></label>
       </div>
-      <p class="constraint-note">Crosswind Leg Extension: the default (or a cleared field) is raised to the shortest leg that closes the pattern. A typed value is kept; below the minimum it shows the required length and an error.</p>
+      <p class="constraint-note">Crosswind Leg Extension is filled in automatically: the leg flown at MIL from the OUT Turn end until the Roll-in Altitude and Roll-in speed are reached (never shorter than the leg that closes the pattern). A typed value replaces it; shorter than the automatic leg it shows a warning, below the minimum an error. Clear the field to go back to automatic.</p>
     </details>
 
     <details class="input-group-panel">
@@ -60,13 +60,16 @@
     <details class="input-group-panel advanced-only">
       <summary class="input-group-title">OUT Maneuver <span class="adv-tag">ADV</span></summary>
       <div class="input-grid">
-        <label class="field"><span>OUT Mode</span><select data-key="outMode"><option value="CLIMB">CLIMB</option><option value="LEVEL">LEVEL</option></select><span class="unit">Rev1.5 OUT</span></label>
-        <label class="field"><span>OUT Speed (kcas)</span><input data-key="outSpeedKcas" type="text" inputmode="decimal"><span class="unit">Blank: Release Speed</span></label>
+        <label class="field"><span>OUT Speed (kcas)</span><input data-key="outSpeedKcas" type="text" inputmode="decimal"><span class="unit">Recovery · Blank: Release Speed</span></label>
         <label class="field"><span>Recovery G (G)</span><input data-key="outRecoveryG" type="text" inputmode="decimal"><span class="unit">Blank: 5.0</span></label>
-        <label class="field"><span>Climb Pitch (deg)</span><input data-key="outClimbPitchDeg" type="text" inputmode="decimal"><span class="unit">Blank: Dive Angle − 10</span></label>
-        <label class="field"><span>Climb G (G)</span><input data-key="outClimbG" type="text" inputmode="decimal"><span class="unit">Blank: Recovery G / 2</span></label>
-        <label class="field"><span>Level-off Speed (kcas)</span><input data-key="outLevelOffSpeedKcas" type="text" inputmode="decimal"><span class="unit">Blank: Initial KCAS</span></label>
+        <label class="field"><span>Climb Pitch (deg)</span><input data-key="outClimbPitchDeg" type="text" inputmode="decimal"><span class="unit">MIL climb · Blank: 25</span></label>
+        <label class="field"><span>Climb G (G)</span><input data-key="outClimbG" type="text" inputmode="decimal"><span class="unit">Pull-up · Blank: Recovery G / 2</span></label>
+        <label class="field"><span>OUT Turn Speed (kcas)</span><input data-key="outTurnSpeedKcas" type="text" inputmode="decimal"><span class="unit">Turn starts · Blank: 350</span></label>
+        <label class="field"><span>OUT Turn Bank (deg)</span><input data-key="outTurnBankDeg" type="text" inputmode="decimal"><span class="unit">Until level · Blank: 90</span></label>
+        <label class="field"><span>OUT Turn G (G)</span><input data-key="outTurnG" type="text" inputmode="decimal"><span class="unit">Blank: 1.5</span></label>
+        <label class="field"><span>Minimum Speed (kcas)</span><input data-key="outMinimumSpeedKcas" type="text" inputmode="decimal"><span class="unit">Not below · Blank: 300</span></label>
       </div>
+      <p class="constraint-note">OUT at MIL: climb at the Climb Pitch until the OUT Turn Speed, then the OUT Turn at the Turn Bank and Turn G; when the flight path reaches level the turn goes on level at the Turn G. Speeds come from the PW-229 MIL research model (unofficial adoption, not BMS-validated).</p>
     </details>
     <div id="constraint-message" class="status-message valid">-</div>
   </section>
@@ -107,6 +110,7 @@
             <button class="capture-button" id="top-view-font-up" type="button" aria-label="Top View font larger">+</button>
           </div>
           <button class="capture-button" id="capture-top-view" type="button">PNG</button>
+          <button class="capture-button view-toggle" id="top-view-advanced" type="button" aria-pressed="false" title="MAP and the Roll-in Distance">Advanced: Off</button>
         </div>
       </div>
     </div>
@@ -130,6 +134,6 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=7a79a4b15fb6"></script>
+<script type="module" src="./wide-layout.mjs?v=d3f48cf799ac"></script>
 </body>
 </html>

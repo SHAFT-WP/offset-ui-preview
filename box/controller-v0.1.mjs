@@ -4,7 +4,7 @@
 // 2026-10-25): nothing here reads or writes the Offset page's state.
 import {
   BOX_FLIGHT_DEFAULT_STATE, BOX_FLIGHT_DEFAULT_VALUES, BOX_FLIGHT_FORMATION_REFERENCE, BOX_FLIGHT_V0_1, boxFlightDefaultFollower, boxFlightDefaultLead,
-} from "../AG/bombing/box-pattern/box-flight-v0.1.mjs?v=0.2.0";
+} from "../AG/bombing/box-pattern/box-flight-v0.1.mjs?v=0.3.0";
 import { createCalculationScheduler, createWorkerTransport } from "../common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
 import { WEAPON_DATABASE_V0_1 } from "../AG/bombing/bomb-delivery-planner/weapon-data-v0.1.mjs";
 import {
@@ -22,7 +22,7 @@ import { saveSvgAsPng } from "../common/diagram/svg-png-export-v0.1.mjs";
 import { svgNode } from "../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { createTimePlayer, timeDialMarkup } from "../common/ui/time-dial-v0.1.mjs?v=0.1.0";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec } from "../common/ui/display-precision-v0.1.mjs?v=0.1.1";
-import { BOX_TOP_VIEW_V0_5, boxTopViewTitle, renderBoxTopView } from "../AG/bombing/box-pattern/view/box-top-view-v0.5.mjs?v=0.5.1";
+import { BOX_TOP_VIEW_V0_5, boxTopViewTitle, renderBoxTopView } from "../AG/bombing/box-pattern/view/box-top-view-v0.5.mjs?v=0.5.3";
 import { boxAbeamText, boxZDiagramTitle, renderBoxZDiagramV0_3 } from "../AG/bombing/box-pattern/view/box-z-diagram-v0.3.mjs?v=0.3.0";
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.11.2";
 
@@ -30,13 +30,16 @@ import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBd
 // the BOX Top View shows each aircraft at its place. The spacing between them is the Spacer Turn's (a later step).
 export const BOX_PAGE_CONTROLLER_V0_1 = Object.freeze({ id: "box-page-controller-v0.1", version: "0.2.0", flight: BOX_FLIGHT_V0_1.version });
 
-const WORKER_URL = new URL("../AG/bombing/box-pattern/box-flight-worker-v0.1.mjs?v=0.1.1", import.meta.url);
+const WORKER_URL = new URL("../AG/bombing/box-pattern/box-flight-worker-v0.1.mjs?v=0.1.2", import.meta.url);
 const SAVE_KEY = "bombing-v2-box-work";
 const SAVE_SCHEMA = 1;
 // The BOX tab's fields besides its BDP Profile / Roll-in / Turn Onset copies (its Tab Default restores all of them).
-const BOX_KEYS = Object.freeze(["attackHeadingDeg", "baseTurnG", "crossTurnG", "crossLegExtensionNm", "outMode", "outSpeedKcas", "outRecoveryG", "outClimbPitchDeg", "outClimbG", "outLevelOffSpeedKcas"]);
+const BOX_KEYS = Object.freeze(["attackHeadingDeg", "baseTurnG", "crossTurnG", "crossLegExtensionNm", "outSpeedKcas", "outRecoveryG", "outClimbPitchDeg", "outClimbG", "outTurnSpeedKcas", "outTurnBankDeg", "outTurnG", "outMinimumSpeedKcas"]);
 const BOX_TAB_COPY_KEYS = Object.freeze(["initialSpeedValue", "initialSpeedMode", "initialAltitudeMslFt", "rollInAltitudeMslFt", "diveAngleDeg", "trackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"]);
-const OUT_DEFAULT_OF = Object.freeze({ outSpeedKcas: "outSpeedKcas", outRecoveryG: "recoveryG", outClimbPitchDeg: "climbPitchDeg", outClimbG: "climbG", outLevelOffSpeedKcas: "levelOffSpeedKcas" });
+const OUT_DEFAULT_OF = Object.freeze({
+  outSpeedKcas: "outSpeedKcas", outRecoveryG: "recoveryG", outClimbPitchDeg: "climbPitchDeg", outClimbG: "climbG",
+  outTurnSpeedKcas: "turnSpeedKcas", outTurnBankDeg: "turnBankDeg", outTurnG: "turnG", outMinimumSpeedKcas: "minimumSpeedKcas",
+});
 // Display digits of values a solve writes back (the BDP tab's, plus the BOX Crosswind Leg).
 const FIELD_DIGITS = Object.freeze({ ...BDP_FIELD_DIGITS, crossLegExtensionNm: 1 });
 const TOP_VIEW_TEXT_SCALES = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2];
@@ -56,6 +59,8 @@ let lastPositions = {};
 let scheduler = null;
 let transport = null;
 let topViewTextScale = 1;
+// Top View Advanced (owner 2026-10-25): MAP and the Roll-in Distance.
+let topViewAdvanced = false;
 let bdpViewsShown = false;
 let bdpClockSec = null;
 let editAircraftOf = () => 1;
@@ -335,6 +340,23 @@ function turnText(turn) {
   return `${formatG(turn.loadFactorG)} G · ${formatDeg(turn.bankAngleDeg)}° · R ${formatNm(turn.instantaneous.radiusNm)} NM · ${formatSec(turn.timeSec)} sec`;
 }
 
+// MIL OUT rows (BOX v0.4): the climb to the OUT Turn Speed, the OUT Turn and the performance model in use.
+function outRows(result, row) {
+  const out = result.out;
+  const climb = out.climb;
+  const turn = out.turn;
+  const perf = out.performance;
+  const turnPhases = turn.reachedLevel
+    ? `${formatDeg(out.inputs.turnBankDeg)}° ${formatSec(turn.bankTimeSec)} sec, level ${formatDeg(turn.levelTurnBankDeg)}° ${formatSec(turn.levelTurnTimeSec)} sec`
+    : `${formatDeg(out.inputs.turnBankDeg)}° ${formatSec(turn.bankTimeSec)} sec`;
+  return [
+    row("OUT Turn Start", `${formatNm(result.outClosure.effectiveOutNm)} NM past Target${result.outClosure.outAutoExtensionNm > 1e-9 ? " (extended)" : ""} · ${formatFt(climb.endAltitudeMslFt)} ft / ${formatKt(climb.endCasKt)} kcas`, "out"),
+    row("OUT Climb", `${formatDeg(out.inputs.climbPitchDeg)}° MIL · ${formatSec(climb.timeSec)} sec · ${formatNm(climb.horizontalNm)} NM from level-off ${formatFt(out.levelOffAltitudeMslFt)} ft`, "outClimb"),
+    row("OUT Turn", `${formatG(out.inputs.turnG)} G · ${turnPhases} · end ${formatFt(turn.endAltitudeMslFt)} ft / ${formatKt(turn.endCasKt)} kcas${out.minimumSpeedHeldSec > 0 ? ` · held ${formatKt(out.inputs.minimumSpeedKcas)} kcas` : ""}`, "outTurn"),
+    row("OUT Performance", `${perf.engineModel} ${perf.powerSetting} research model · unofficial${perf.outsideDomainStates ? ` · ${perf.outsideDomainStates}/${perf.states} states outside its data` : ""}`, "outPerformance"),
+  ];
+}
+
 function boxResultRows(result) {
   const p = result.pattern;
   const v = result.geometry.values;
@@ -343,8 +365,8 @@ function boxResultRows(result) {
   return [
     row("Abeam", `${abeam.replace("Abeam ", "")} · ${formatNm(p.abeamExtensionDistanceNm)} NM`, "abeam", true),
     row("Pattern Width", `${formatNm(p.patternWidthNm)} NM`, "patternWidthNm", true),
-    row("Crosswind Leg", `${formatNm(p.crossLegExtensionNm)} NM · ${legTime(p.crossLegTimeSec)}${result.crossLeg.autoExtended ? " · raised to minimum" : ""}`, "crossLegExtensionNm", true),
-    row("Crosswind Leg Minimum", `${formatNm(result.crossLeg.minimumNm)} NM`, "crossLegMinimumNm"),
+    row("Crosswind Leg", `${formatNm(p.crossLegExtensionNm)} NM · ${legTime(p.crossLegTimeSec)} · ${result.crossLeg.source === "DEFAULT" ? "auto" : "typed"}`, "crossLegExtensionNm", true),
+    row("Crosswind Leg Auto / Minimum", `${formatNm(result.crossLeg.autoNm)} NM to ${formatFt(result.out.energyLeg.targetAltitudeMslFt)} ft / ${formatKt(result.out.energyLeg.targetCasKt)} kcas · min ${formatNm(result.crossLeg.minimumNm)} NM`, "crossLegMinimumNm"),
     row("Downwind", `${formatNm(v.downwindNm)} NM · ${legTime(v.downwindTimeSec)}`, "downwindNm"),
     row("Base Leg", `${formatNm(p.baseLegNm)} NM · ${legTime(v.baseLegTimeSec)}`, "baseLegNm", true),
     row("Base Distance", `${formatNm(p.baseDistanceNm)} NM`, "baseDistanceNm"),
@@ -352,7 +374,7 @@ function boxResultRows(result) {
     row("Pattern Speed", `${formatKt(p.patternSpeedKcas)} kcas · ${formatKt(p.patternTasKt)} kt TAS`, "patternSpeed", true),
     row("Crosswind Turn", turnText(result.turns.cross), "crossTurn"),
     row("Base Turn", turnText(result.turns.base), "baseTurn"),
-    row("OUT", `${result.out.inputs.mode} · ${formatNm(result.outClosure.effectiveOutNm)} NM${result.outClosure.outAutoExtensionNm > 1e-9 ? " (extended)" : ""}`, "out"),
+    ...outRows(result, row),
     row("Attack Heading", headingText(result.attackHeadingDeg), "attackHeadingDeg"),
   ];
 }
@@ -372,9 +394,10 @@ function renderPlaceholders(result) {
   }
   const note = app.querySelector("[data-cross-leg-note]");
   if (note) {
+    const auto = result?.crossLeg?.autoNm;
     const minimum = result?.crossLeg?.minimumNm;
-    const source = lead.state.crossLegSource === "USER" ? "Typed" : "Default · raised to the minimum when short";
-    note.textContent = isNumber(minimum) ? `${source} · minimum ${formatNm(minimum)} NM` : source;
+    const source = lead.state.crossLegSource === "USER" ? "Typed · clear for auto" : "Auto: to the Roll-in Altitude and speed";
+    note.textContent = isNumber(auto) ? `${source} · auto ${formatNm(auto)} NM · min ${formatNm(minimum)} NM` : source;
   }
   app.querySelectorAll("[data-sem-turn-auto-bank]").forEach((node) => { node.textContent = semTurnAutoBankText(result?.bombDelivery?.public?.sem?.turn); });
 }
@@ -400,7 +423,7 @@ function renderTopView() {
   const formation = flightSize > 1
     ? shownAircraft.visible().filter((number) => lastPositions[number]).map((number) => ({ number, ...lastPositions[number], color: AIRCRAFT_COLORS[number] }))
     : [];
-  renderBoxTopView(svg, result, { aircraftNumber: 1, textScale: topViewTextScale, formation });
+  renderBoxTopView(svg, result, { aircraftNumber: 1, textScale: topViewTextScale, formation, advanced: topViewAdvanced });
   $("#capture-top-view").disabled = false;
   legend?.render?.();
 }
@@ -582,6 +605,14 @@ function installViewControls() {
   $("#top-view-font-down").addEventListener("click", () => step(-1));
   $("#top-view-font-up").addEventListener("click", () => step(1));
   output.addEventListener("click", () => { topViewTextScale = 1; output.textContent = "100%"; renderTopView(); });
+  const advancedButton = $("#top-view-advanced");
+  advancedButton.addEventListener("click", () => {
+    topViewAdvanced = !topViewAdvanced;
+    advancedButton.setAttribute("aria-pressed", String(topViewAdvanced));
+    advancedButton.classList.toggle("active", topViewAdvanced);
+    advancedButton.textContent = `Advanced: ${topViewAdvanced ? "On" : "Off"}`;
+    renderTopView();
+  });
   const png = (svg, title) => saveSvgAsPng(svg, `${title.replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" });
   $("#capture-top-view").addEventListener("click", () => png($("#box-top-view"), boxTopViewTitle({ aircraftNumber: 1 })));
   $("#capture-z").addEventListener("click", () => png($("#box-z-svg"), boxZDiagramTitle({ aircraftNumber: 1 })));

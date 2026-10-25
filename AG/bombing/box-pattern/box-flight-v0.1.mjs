@@ -1,4 +1,4 @@
-import { BOX_V2_COMPOSITION_MODEL_V0_3, calculateBoxPatternV0_3Full } from "./box-v2-composition-v0.3.mjs";
+import { BOX_V2_COMPOSITION_MODEL_V0_4, calculateBoxPatternV0_4Full } from "./box-v2-composition-v0.4.mjs";
 import { FRAGMENT_MARGIN_MODES, ROLL_IN_ONSET_DEFAULTS, calculateBombDeliveryV0_4Full } from "../bomb-delivery-planner/bomb-delivery-planner-v0.4.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import { createCalculationCache, withCalculationCache } from "../../../common/calculation/calculation-cache-v0.1.mjs";
@@ -9,7 +9,7 @@ import {
 } from "../../../flight/flight-bombing-tactics/flight-composition-v0.1.mjs";
 
 // BOX Flight entrypoint (BOX SPEC "BOX Flight entrypoint", 2026-10-25). One call takes the whole Flight input state
-// and returns every aircraft's Full BOX v0.3 result, its DED pages (OA1, OA2) and the next input state. It has the
+// and returns every aircraft's Full BOX v0.4 result, its DED pages (OA1, OA2) and the next input state. It has the
 // Offset Flight entrypoint's shape, so the BOX page uses the same Flight host, Worker and session:
 //   { schemaVersion?, flightSize, aircraft: { 1: { values, locks, state }, 2–4: { formation } }, edit? | edits? }
 // The BDP Profile edit rules are the Offset page's (one BDP list, owner 2026-10-25): a Tracking Time entry solves the
@@ -21,19 +21,24 @@ import {
 // #3). The BE places each aircraft in the pattern for the Top View: #1 at its Abeam on the Downwind, the others
 // displaced by their Formation vectors on the Downwind heading. The spacing between aircraft is the Spacer Turn's
 // (a later step, which reads this Formation).
+// MIL OUT (0.3.0, owner 2026-10-25): BOX v0.4 — OUT at MIL on the PW-229 research model (Climb Pitch 25° until the
+// OUT Turn Speed 350 KCAS, OUT Turn at 90° bank / 1.5 G going level when the path reaches level, Minimum Speed
+// 300 KCAS), and the Crosswind Leg filled in automatically (DEFAULT) to reach the Roll-in Altitude and speed; a typed
+// leg (USER) replaces it. OUT Mode and Level-off Speed are retired with the Rev1.5 OUT; a record that still holds them
+// drops them.
 // Pure: no DOM, window, storage or FE import; the input is never mutated; the same input gives the same output.
 export const BOX_FLIGHT_V0_1 = Object.freeze({
   id: "box-flight-v0.1",
-  version: "0.2.0",
+  version: "0.3.0",
   status: "work",
   schemaVersion: 1,
-  components: Object.freeze({ boxComposition: BOX_V2_COMPOSITION_MODEL_V0_3.version }),
+  components: Object.freeze({ boxComposition: BOX_V2_COMPOSITION_MODEL_V0_4.version }),
 });
 
 // Defaults of a new BOX aircraft (the page's Default and each Tab Default return to these). The BDP values are the
-// Offset page's defaults (same BDP list); the BOX values are the V2 BOX shell's (Base / Crosswind Turn G 2, Crosswind
-// Leg 2 NM, raised to its minimum while DEFAULT). A blank optional value (OUT options, SEM Turn G / Speed / Direction)
-// is the BE's default.
+// Offset page's defaults (same BDP list); the BOX values are the V2 BOX shell's (Base / Crosswind Turn G 2). The
+// Crosswind Leg is filled in by the BE while DEFAULT (the 2 NM here is only the record's starting value). A blank
+// optional value (OUT options, SEM Turn G / Speed / Direction) is the BE's default.
 export const BOX_FLIGHT_DEFAULT_VALUES = Object.freeze({
   weaponId: "M82",
   targetElevationMslFt: 31,
@@ -67,13 +72,18 @@ export const BOX_FLIGHT_DEFAULT_VALUES = Object.freeze({
   baseTurnG: 2,
   crossTurnG: 2,
   crossLegExtensionNm: 2,
-  outMode: "CLIMB",
   outSpeedKcas: null,
   outRecoveryG: null,
   outClimbPitchDeg: null,
   outClimbG: null,
-  outLevelOffSpeedKcas: null,
+  outTurnSpeedKcas: null,
+  outTurnBankDeg: null,
+  outTurnG: null,
+  outMinimumSpeedKcas: null,
 });
+// The MIL OUT options (blank = the BE default) and the Rev1.5 OUT keys a 0.2.0 record may still hold.
+const OUT_OPTION_KEYS = Object.freeze(["outSpeedKcas", "outRecoveryG", "outClimbPitchDeg", "outClimbG", "outTurnSpeedKcas", "outTurnBankDeg", "outTurnG", "outMinimumSpeedKcas"]);
+const RETIRED_OUT_KEYS = Object.freeze(["outMode", "outLevelOffSpeedKcas"]);
 export const BOX_FLIGHT_DEFAULT_STATE = Object.freeze({
   solveMode: "height",
   rollInAltitudeLinked: true,
@@ -100,14 +110,13 @@ export function boxFlightDefaultFollower(number) {
 const FORMATION_KEYS = new Set(["side", "bearingDeg", "distanceNm"]);
 
 // Keys a blank leaves to the BE (each one's default applies); every other numeric key is required.
-const OPTIONAL_KEYS = new Set(["semTurnDirection", "semTurnG", "semTurnSpeedKcas", "outSpeedKcas", "outRecoveryG", "outClimbPitchDeg", "outClimbG", "outLevelOffSpeedKcas"]);
+const OPTIONAL_KEYS = new Set(["semTurnDirection", "semTurnG", "semTurnSpeedKcas", ...OUT_OPTION_KEYS]);
 const TEXT_CHOICES = Object.freeze({
   weaponId: null,
   initialSpeedMode: ["CAS", "MACH"],
   semEnd: ["LEVEL", "CLIMB"],
   semTurnType: ["LEVEL", "SLICE"],
   semTurnDirection: ["LEFT", "RIGHT"],
-  outMode: ["CLIMB", "LEVEL"],
 });
 const LOCK_KEYS = new Set(["rollInAltitudeMslFt", "diveAngleDeg"]);
 const CROSS_LEG_SOURCES = new Set(["DEFAULT", "USER"]);
@@ -152,6 +161,7 @@ function normalizeLead(record = {}) {
   if (!record || typeof record !== "object") throw new TypeError("aircraft[1] must be an object");
   const state = record.state ?? {};
   const values = { ...(record.values ?? {}) };
+  for (const key of RETIRED_OUT_KEYS) delete values[key];
   const locks = Object.fromEntries(Object.entries(record.locks ?? {}).filter(([key]) => LOCK_KEYS.has(key)).map(([key, on]) => [key, on === true]));
   const entered = blank(state.enteredTrackingTimeSec) ? BOX_FLIGHT_DEFAULT_STATE.enteredTrackingTimeSec : requireNumber("enteredTrackingTimeSec", state.enteredTrackingTimeSec);
   return {
@@ -316,8 +326,8 @@ function leadBdpInput(lead) {
 function leadBoxInput(lead, bombDeliveryInput) {
   const { values: v, state: s } = lead;
   const n = (key) => requireNumber(key, v[key]);
-  const out = { outMode: textChoice("outMode", v.outMode) };
-  for (const key of ["outSpeedKcas", "outRecoveryG", "outClimbPitchDeg", "outClimbG", "outLevelOffSpeedKcas"]) {
+  const out = {};
+  for (const key of OUT_OPTION_KEYS) {
     const value = optionalNumber(key, v[key]);
     if (value !== undefined) out[key] = value;
   }
@@ -337,7 +347,7 @@ function leadBoxInput(lead, bombDeliveryInput) {
 function solveReleaseAltitude(bombDeliveryInput) {
   const config = BOX_FLIGHT_RELEASE_SOLVE;
   const rollInAltitudeMslFt = bombDeliveryInput.initialAltitudeMslFt;
-  const angleOffDeg = BOX_V2_COMPOSITION_MODEL_V0_3.fixedAngleOffDeg;
+  const angleOffDeg = BOX_V2_COMPOSITION_MODEL_V0_4.fixedAngleOffDeg;
   const f = (releaseAltitudeMslFt) => calculateBombDeliveryV0_4Full({ ...bombDeliveryInput, angleOffDeg, solveMode: "time", releaseAltitudeMslFt }).public.resolvedInitialAltitudeMslFt - rollInAltitudeMslFt;
   const conflict = (belowNlt) => new Error(`CONSTRAINT CONFLICT: Roll-in Altitude LOCK: no Release Altitude gives Tracking Time ${bombDeliveryInput.trackingTimeSec} sec from Roll-in Altitude ${Math.round(rollInAltitudeMslFt)} ft${belowNlt ? " (Release would be below NLT; shorten Tracking Time or raise Roll-in Altitude)" : ""}`);
   let x0 = bombDeliveryInput.releaseAltitudeMslFt;
@@ -382,7 +392,7 @@ function deriveLeadNext(lead, result, derived) {
     write("trackingTimeSec", p.trackingTimeSec);
   }
   if (s.rollInAltitudeLinked) write("initialAltitudeMslFt", v.rollInAltitudeMslFt);
-  // A DEFAULT Crosswind Leg shows the length flown (raised to its minimum when short); a USER one stays as typed.
+  // A DEFAULT Crosswind Leg shows the length the BE filled in; a USER one stays as typed.
   if (s.crossLegSource === "DEFAULT") write("crossLegExtensionNm", result.crossLeg.effectiveNm);
 }
 
@@ -408,10 +418,10 @@ function solveLead(lead, stateError) {
       bombDeliveryInput.releaseAltitudeMslFt = release;
       lead.values.releaseAltitudeMslFt = release;
     }
-    const result = calculateBoxPatternV0_3Full(leadBoxInput(lead, bombDeliveryInput));
+    const result = calculateBoxPatternV0_4Full(leadBoxInput(lead, bombDeliveryInput));
     deriveLeadNext(lead, result, derived);
     const errors = [...result.geometry.validation.errors];
-    const warnings = [];
+    const warnings = [...result.geometry.validation.warnings];
     const status = errors.length ? "INVALID" : warnings.length ? "WARNING" : "VALID";
     return { ...base, status, result, error: null, errors, warnings, derived, ded: leadDed(result) };
   } catch (error) {

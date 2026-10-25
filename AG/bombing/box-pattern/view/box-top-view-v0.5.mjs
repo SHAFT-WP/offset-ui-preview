@@ -18,7 +18,7 @@ import { BOX_TOP_VIEW_LEGEND, BOX_VIEW_COLORS as C, boxTopViewTitle } from "./bo
 // "BOX #n Top View / Z-Diagram — V2 views"). Content and layout follow BOX Rev1.5 (user decision
 // 2026-09-29): the whole racetrack — Tracking → Bombs Away → OUT Maneuver → OUT Turn → Crosswind Leg →
 // Crosswind Turn → Downwind → Abeam → Abeam Extension → Base Turn → Base Leg → Roll-in — with the
-// Target abeam line and the Roll-in Range dimension. The route comes with the BOX v0.3 result (`geometry`,
+// Target abeam line and the Roll-in radius (Roll-in Point → Target). The route comes with the BOX v0.3 result (`geometry`,
 // box-pattern-geometry-v0.3, BE); this module only projects it. The Crosswind and Base Turns are the Common onset
 // level turns (their samples); their labels give the held turn's G, bank and radius.
 // - Attack Heading up, RIGHT pattern (Rev1.5 default): the pattern lies right of the attack run, the
@@ -32,7 +32,13 @@ export const BOX_TOP_VIEW_V0_5 = Object.freeze({
   id: "box-top-view-v0.5",
   // 0.5.1 (2026-10-25, owner, BOX Formation): options.formation draws each aircraft at its place in the pattern (the
   // BE's positions: #1 at its Abeam, followers by their Formation), as an aircraft symbol on the Downwind heading.
-  version: "0.5.1",
+  // 0.5.2 (2026-10-25, owner): Roll-in as on Offset. The Roll-in Range dimension is removed. The Roll-in radius is the
+  // Roll-in Point → Target line (Offset's radial style), and the Roll-in label carries "Roll-in Range NM / Roll-in Lead
+  // Angle °". options.advanced adds the MAP circle and the Roll-in Distance (= Base Distance: the OA1 → Target component
+  // square to the Initial heading) at the former BOX place, beside the Target on the side away from the pattern.
+  // 0.5.3 (2026-10-25, owner, MIL OUT): also draws a BOX v0.4 result (box-pattern-geometry-v0.4): the OUT Turn is the
+  // MIL OUT's own path, labelled with its speed, bank and G; the OUT Maneuver label gives the MIL climb.
+  version: "0.5.3",
   owner: "AG/bombing/box-pattern/SPEC.md",
   subject: "BOX",
   view: "Top View",
@@ -114,7 +120,7 @@ export function renderBoxTopView(svg, boxResult, options = {}) {
     width: WIDTH,
     minHeight: BOX_TOP_VIEW_V0_5.canvas.minHeight,
     maxHeight: BOX_TOP_VIEW_V0_5.canvas.maxHeight,
-    // Left: the Roll-in Range dimension and the attack-run labels; right: the Downwind labels.
+    // Left: the Advanced Roll-in Distance and the attack-run labels; right: the Downwind labels.
     margins: { top: Math.max(86, headerBlockHeight + 40), bottom: 76, left: 190, right: 190 },
     minSpan: 0.3,
     flipY: true,
@@ -133,7 +139,7 @@ export function renderBoxTopView(svg, boxResult, options = {}) {
   const title = boxTopViewTitle({ aircraftNumber: options.aircraftNumber });
   svg.setAttribute("aria-label", title);
   const defs = svgNode("defs");
-  [["track", C.attack], ["out", C.out], ["cross", C.crosswind], ["down", C.downwind], ["abeam", C.abeam], ["base", C.baseLeg], ["roll", C.roll], ["ref", C.reference]]
+  [["track", C.attack], ["out", C.out], ["cross", C.crosswind], ["down", C.downwind], ["abeam", C.abeam], ["base", C.baseLeg], ["roll", C.roll], ["ref", C.reference], ["red", C.rollInTarget]]
     .forEach(([name, color]) => defs.append(createOpenArrowMarker(`box-top-${name}`, color)));
   defs.append(createOpenArrowMarker("box-top-leader", SVG_DIAGRAM_COLORS_V0_1.helper, SVG_DIAGRAM_STYLE_V0_1.arrow.leader));
   const root = svgNode("g", { "data-view": BOX_TOP_VIEW_V0_5.id });
@@ -164,13 +170,30 @@ export function renderBoxTopView(svg, boxResult, options = {}) {
   if (shown(v.baseLegNm)) appendDirectedLine(root, P.baseTurnEnd, P.oa1, { color: C.baseLeg, width: 3.5, markerEndId: "box-top-base", toGap: 10 });
   arc(P.rollIn, C.roll, "box-top-roll", "roll-in", 4.5);
 
-  // Roll-in Range: the true OA1 → Target range, on the side away from the pattern (left).
-  const rollInRangeOffset = -(Math.abs(P.oa1.x - P.target.x) + 58);
-  const rangeDimension = appendAlignedDimension(root, {
-    from: P.oa1, to: P.target, offset: rollInRangeOffset, color: C.reference, markerId: "box-top-ref",
-    title: "Roll-in Range", detail: `${formatNm(v.rollInRangeNm)} NM`,
-    titleSize: SVG_DIAGRAM_STYLE_V0_1.font.dimensionTitlePx * textScale, detailSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx * textScale,
-  });
+  // Roll-in radius (Offset's radial style): the Roll-in Point → Target line; its range and lead are on the Roll-in label.
+  appendDirectedLine(root, P.oa1, P.target, { color: C.rollInTarget, width: 2.4, markerEndId: "box-top-red", fromGap: 9, toGap: 8 });
+
+  // Advanced: MAP (Track Point → Target ground range) as a dashed circle around the Target (Offset), and the Roll-in
+  // Distance (= Base Distance, square to the Initial heading) beside the Target on the side away from the pattern, where
+  // the former BOX drew its legacy "Roll-in Range". Neither is added to the fit (Advanced never resizes the canvas).
+  const advanced = options.advanced === true;
+  const mapNm = boxResult.bombDelivery.public.groundRangeNm;
+  const showMap = advanced && Number.isFinite(mapNm) && mapNm > 0;
+  const mapRadiusPx = showMap ? Math.hypot(fit.project(w({ alongNm: mapNm, sideNm: 0 })).x - P.target.x, fit.project(w({ alongNm: mapNm, sideNm: 0 })).y - P.target.y) : 0;
+  if (showMap) root.append(svgNode("circle", {
+    cx: P.target.x, cy: P.target.y, r: mapRadiusPx, fill: "none", stroke: C.attack, "stroke-width": 1.8, "stroke-dasharray": "9 7", "data-top-view-role": "map-circle",
+  }));
+  let distanceDimension = null;
+  if (advanced && Number.isFinite(v.baseDistanceNm)) {
+    const level = { x: P.target.x, y: P.oa1.y };
+    // OA1's level carried across to the attack line, then the dimension to the left of the Target.
+    root.append(svgNode("line", { x1: P.oa1.x, y1: P.oa1.y, x2: level.x, y2: level.y, stroke: C.reference, "stroke-width": 1, "stroke-dasharray": "4 4", opacity: 0.8 }));
+    distanceDimension = appendAlignedDimension(root, {
+      from: level, to: P.target, offset: -96, color: C.reference, markerId: "box-top-ref",
+      title: "Roll-in Distance", detail: `${formatNm(v.baseDistanceNm)} NM`,
+      titleSize: SVG_DIAGRAM_STYLE_V0_1.font.dimensionTitlePx * textScale, detailSize: SVG_DIAGRAM_STYLE_V0_1.font.detailPx * textScale,
+    });
+  }
 
   // Stations.
   const dot = (point, color, key, radius = 5.5, fill = "#ffffff") => root.append(svgNode("circle", {
@@ -231,10 +254,11 @@ export function renderBoxTopView(svg, boxResult, options = {}) {
   reserve([P.baseTurnEnd, P.oa1]);
   reserve(P.rollIn);
   reserve([P.abeamLineFrom, P.abeamLineTo], 3);
-  if (rangeDimension) {
-    reserve([rangeDimension.a, rangeDimension.b], 4);
-    reserve([P.oa1, rangeDimension.a], 3);
-    reserve([P.target, rangeDimension.b], 3);
+  reserve([P.oa1, P.target], 4);
+  if (distanceDimension) {
+    reserve([distanceDimension.a, distanceDimension.b], 4);
+    reserve([P.oa1, { x: P.target.x, y: P.oa1.y }], 3);
+    labels.reserveRect({ x: distanceDimension.label.x - 150 * textScale, y: distanceDimension.label.y - 18 * textScale, w: 150 * textScale, h: 36 * textScale });
   }
   const titleSize = SVG_DIAGRAM_STYLE_V0_1.font.lineTitlePx * textScale;
   const detailSize = SVG_DIAGRAM_STYLE_V0_1.font.detailPx * textScale;
@@ -258,17 +282,40 @@ export function renderBoxTopView(svg, boxResult, options = {}) {
   label(P.target, "Target", { labelKey: "target", color: C.target, fontSize: stationSize, candidates: stationCandidates(["downLeft", "left", "upLeft"]) });
   label(P.release, "Bombs Away", { labelKey: "bombs-away", color: C.attackText, fontSize: stationSize, candidates: stationCandidates(["left", "downLeft", "upLeft", "right"]) });
   label(P.trackPoint, "Track Point", { labelKey: "track-point", color: C.attackText, fontSize: stationSize, candidates: stationCandidates(["left", "upLeft", "downLeft"]) });
-  label(P.oa1, "Roll-in", { labelKey: "roll-in", color: C.rollText, fontSize: stationSize, candidates: stationCandidates(["below", "downRight", "downLeft"]) });
+  // Roll-in Range / Roll-in Lead Angle at the Roll-in Point (owner 2026-10-25: "xxNM/xx°").
+  const pub = boxResult.bombDelivery.public;
+  const rollInNote = Number.isFinite(pub.rollInRangeNm) && Number.isFinite(pub.leadAngleDeg) ? `${formatNm(pub.rollInRangeNm)}NM/${formatDeg(pub.leadAngleDeg)}°` : undefined;
+  label(P.oa1, "Roll-in", { labelKey: "roll-in", color: C.rollText, fontSize: stationSize, detail: rollInNote, detailFontSize: stationSize, candidates: stationCandidates(["below", "downRight", "downLeft"]) });
+  if (showMap) {
+    // On the circle beside the Target, on the side away from the pattern; the other side when that is off the canvas.
+    const inside = (point) => point.x >= 0 && point.x <= WIDTH && point.y >= 0 && point.y <= HEIGHT;
+    const spot = [{ x: P.target.x - mapRadiusPx * 0.71, y: P.target.y - mapRadiusPx * 0.71 }, { x: P.target.x + mapRadiusPx * 0.71, y: P.target.y - mapRadiusPx * 0.71 }].find(inside);
+    if (spot) label(spot, `MAP: ${formatNm(mapNm)} NM`, { labelKey: "map", color: C.attackText, fontSize: stationSize, candidates: stationCandidates(["upLeft", "left", "upRight"]) });
+  }
   label(P.abeam, "Abeam", { labelKey: "abeam", color: C.downwindText, fontSize: stationSize, candidates: stationCandidates(["upRight", "right", "downRight"]) });
-  const outDetail = out.inputs.mode === "CLIMB"
-    ? `${formatG(out.inputs.recoveryG)} G · Level · Climb Angle ${formatDeg(out.inputs.climbPitchDeg)}°`
-    : `${formatG(out.inputs.recoveryG)} G · Level`;
+  // BOX v0.4 MIL OUT: Recovery G, then the MIL climb to the OUT Turn Speed; BOX v0.3 (Rev1.5 OUT): the OUT Mode.
+  const milOut = Boolean(out.turn);
+  const outDetail = milOut
+    ? `${formatG(out.inputs.recoveryG)} G · Climb ${formatDeg(out.inputs.climbPitchDeg)}° MIL → ${formatKt(out.inputs.turnSpeedKcas)} KCAS`
+    : out.inputs.mode === "CLIMB"
+      ? `${formatG(out.inputs.recoveryG)} G · Level · Climb Angle ${formatDeg(out.inputs.climbPitchDeg)}°`
+      : `${formatG(out.inputs.recoveryG)} G · Level`;
   // Anchored toward the OUT Turn Start, clear of the Target abeam line that crosses the OUT run.
   const outAnchor = { x: P.release.x + (P.outTurnStart.x - P.release.x) * 0.7, y: P.release.y + (P.outTurnStart.y - P.release.y) * 0.7 };
   label(outAnchor, "OUT Maneuver", {
     labelKey: "out-maneuver", color: C.outText, detail: outDetail,
     candidates: lineCandidates(P.release, P.outTurnStart, -1),
   });
+  if (milOut) {
+    // OUT Turn: its bank and G until level, then level at the same G. Label out from its inside corner.
+    const outInside = fit.project(w({ alongNm: s.outTurnStart.alongNm, sideNm: s.outTurnEnd.sideNm }));
+    const middle = P.outTurn[Math.floor(P.outTurn.length / 2)];
+    label(middle, "OUT Turn", {
+      labelKey: "out-turn", color: C.outText,
+      detail: `${formatKt(out.inputs.turnSpeedKcas)} KCAS · ${formatDeg(out.inputs.turnBankDeg)}° · ${formatG(out.inputs.turnG)} G`,
+      candidates: arcCandidates(outInside, middle),
+    });
+  }
   if (shown(v.crossLegExtensionNm) && labelled(P.outTurnEnd, P.crossTurnStart)) label(mid(P.outTurnEnd, P.crossTurnStart), "Crosswind Leg", {
     labelKey: "crosswind-leg", color: C.crosswindText, detail: `${formatNm(v.crossLegExtensionNm)} NM · ${formatSec(pattern.crossLegTimeSec)} s`,
     candidates: lineCandidates(P.outTurnEnd, P.crossTurnStart, -1),
