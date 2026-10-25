@@ -1,0 +1,20 @@
+/* Wheel content of the PC Wide page. The workspace itself is the bombing app shared FE's (shared/wide-workspace-v0.1.css,
+   body.bombing-wide); this file styles the Wheel inputs and the Top View panel. Style the SVG boxes, never the paths,
+   labels or viewBox. */
+@import url("../shared/wide-workspace-v0.1.css?v=4d49217fa75b");
+
+.wide-center-panel[data-center-panel="topview"] { flex:1 0 100%; }
+.wheel-wide .wide-map-section .flight-draft-note { flex:none; font-size:11px; }
+/* Speed and altitude on one row (the Offset page's rule). */
+.wheel-wide .wide-inputs .field.speed-field { grid-column:auto; }
+.wheel-wide .wide-inputs .speed-field .compound { grid-template-columns:minmax(0,1fr) 92px; }
+.wheel-wide .wide-inputs .speed-field .compound select { padding-inline:6px 2px; }
+@media(max-width:760px) {
+  /* Target Elevation and Bomb on one row (the Offset page's phone rule). */
+  .wheel-wide .wide-inputs .input-grid:has(> .field > [data-key="targetElevationMslFt"]) { grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr); }
+  .wheel-wide .wide-inputs .input-grid:has(> .field > [data-key="targetElevationMslFt"]) > .field:has(> select) { grid-column:auto; }
+}
+@media(min-width:761px) {
+  .wheel-wide .wide-center .flight-draft-note { zoom:0.75; }
+}
+.wheel-wide .wide-standard-link { display:none; }
