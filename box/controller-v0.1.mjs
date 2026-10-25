@@ -20,6 +20,8 @@ import { formationPositionMarkup, installFormationSideSelects } from "../common/
 import { installSvgLegend } from "../common/diagram/svg-legend-v0.1.mjs";
 import { saveSvgAsPng } from "../common/diagram/svg-png-export-v0.1.mjs";
 import { svgNode } from "../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
+import { installSvgViewport } from "../common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
+import { installSmartLabelDrag } from "../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
 import { createTimePlayer, timeDialMarkup } from "../common/ui/time-dial-v0.1.mjs?v=0.1.0";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec } from "../common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { BOX_TOP_VIEW_V0_5, boxTopViewTitle, renderBoxTopView } from "../AG/bombing/box-pattern/view/box-top-view-v0.5.mjs?v=0.5.3";
@@ -411,11 +413,66 @@ function showCalculationFailed(svg, title, message, width) {
   lines.forEach((line, index) => svg.append(svgNode("text", { x: width / 2, y: 70 + index * 40, "text-anchor": "middle", "font-size": index === 0 ? 22 : 17, fill: "#14202c" }, line)));
 }
 
+// Top View Size (owner 2026-10-25, as on Offset): the Common viewport, button-only Size 50–200 % in 25 % steps, pan
+// only while zoomed in, Reset back to 100 %. The view's canvas is the 100 % base. A new result or another set of
+// shown aircraft refits; Text and Advanced keep the user's zoom. As on Offset, the Common label drag is installed too:
+// it keeps a pan from selecting the view's text (the BOX view marks no label movable yet, so no label moves).
+let topViewViewport = null;
+let topViewLabelDrag = null;
+let topViewFitKey = null;
+// One serial per answer object, so a new answer refits and a redraw of the same one does not.
+const resultSerials = new WeakMap();
+let nextResultSerial = 1;
+function resultSerial(result) {
+  if (!resultSerials.has(result)) resultSerials.set(result, nextResultSerial++);
+  return resultSerials.get(result);
+}
+function installTopViewSize() {
+  const sizeOutput = $("#top-view-size-output");
+  const zoomIn = $("#top-view-zoom-in");
+  const zoomOut = $("#top-view-zoom-out");
+  topViewViewport = installSvgViewport($("#box-top-view"), {
+    baseViewBox: { x: 0, y: 0, w: BOX_TOP_VIEW_V0_5.canvas.width, h: BOX_TOP_VIEW_V0_5.canvas.maxHeight },
+    panOnlyWhenZoomed: true,
+    buttonOnlyZoom: true,
+    allowPageScrollWhenPanDisabled: true,
+    maxZoom: 2,
+    maxZoomOut: 2,
+    onViewBoxChange: (box) => {
+      const percent = Math.round((topViewViewport?.getBaseViewBox().w ?? BOX_TOP_VIEW_V0_5.canvas.width) / box.w * 100);
+      sizeOutput.textContent = `${percent}%`;
+      zoomIn.disabled = percent >= 200;
+      zoomOut.disabled = percent <= 50;
+    },
+    resetButton: $("#top-view-zoom-reset"),
+  });
+  const stepSize = (delta) => {
+    const current = topViewViewport.getBaseViewBox().w / topViewViewport.getViewBox().w;
+    const next = Math.max(0.5, Math.min(2, Math.round((current + delta) * 100) / 100));
+    if (next !== current) topViewViewport.zoomCenter(current / next);
+  };
+  zoomIn.addEventListener("click", () => stepSize(0.25));
+  zoomOut.addEventListener("click", () => stepSize(-0.25));
+  sizeOutput.addEventListener("click", () => topViewViewport.reset());
+  topViewLabelDrag = installSmartLabelDrag($("#box-top-view"));
+}
+function syncTopViewSize(canvas, key) {
+  if (!topViewViewport) return;
+  topViewViewport.setBaseViewBox({ x: 0, y: 0, w: canvas.width, h: canvas.height });
+  if (key !== topViewFitKey) topViewViewport.autoFit();
+  else if (topViewViewport.isUserAdjusted()) topViewViewport.refresh();
+  else topViewViewport.ensureBaseWhenUnadjusted();
+  topViewFitKey = key;
+  topViewLabelDrag?.applyStoredPositions();
+}
+
 function renderTopView() {
   const svg = $("#box-top-view");
   const result = lastEntry?.result;
   if (!result) {
-    showCalculationFailed(svg, boxTopViewTitle({ aircraftNumber: 1 }), lastEntry?.error ?? "no result", BOX_TOP_VIEW_V0_5.canvas.width);
+    const width = BOX_TOP_VIEW_V0_5.canvas.width;
+    showCalculationFailed(svg, boxTopViewTitle({ aircraftNumber: 1 }), lastEntry?.error ?? "no result", width);
+    syncTopViewSize({ width, height: 220 }, null);
     $("#capture-top-view").disabled = true;
     return;
   }
@@ -423,7 +480,8 @@ function renderTopView() {
   const formation = flightSize > 1
     ? shownAircraft.visible().filter((number) => lastPositions[number]).map((number) => ({ number, ...lastPositions[number], color: AIRCRAFT_COLORS[number] }))
     : [];
-  renderBoxTopView(svg, result, { aircraftNumber: 1, textScale: topViewTextScale, formation, advanced: topViewAdvanced });
+  const rendered = renderBoxTopView(svg, result, { aircraftNumber: 1, textScale: topViewTextScale, formation, advanced: topViewAdvanced });
+  syncTopViewSize(rendered.canvas, `${resultSerial(result)}|${formation.map((item) => item.number).join(",")}`);
   $("#capture-top-view").disabled = false;
   legend?.render?.();
 }
@@ -595,6 +653,7 @@ function installSaveTab() {
 
 function installViewControls() {
   legend = installSvgLegend($("#box-legend"), BOX_TOP_VIEW_V0_5.legend);
+  installTopViewSize();
   const output = $("#top-view-font-scale-output");
   const step = (direction) => {
     const index = TOP_VIEW_TEXT_SCALES.indexOf(topViewTextScale);

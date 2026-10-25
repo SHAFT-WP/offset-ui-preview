@@ -1,9 +1,9 @@
-@import url("./common-ui-v0.2.css?v=d3f48cf799ac");
+@import url("./common-ui-v0.2.css?v=45ada22681b8");
 /* Parts made common (2026-10-22) bring their CSS: input fields, DED, Flight UI (bombing app shared FE), time dial (Common UI). */
-@import url("./shared/input-fields-v0.1.css?v=d3f48cf799ac");
-@import url("./shared/ded-v0.1.css?v=d3f48cf799ac");
-@import url("./shared/flight-ui-v0.1.css?v=d3f48cf799ac");
-@import url("./common/ui/time-dial-v0.1.css?v=d3f48cf799ac");
+@import url("./shared/input-fields-v0.1.css?v=45ada22681b8");
+@import url("./shared/ded-v0.1.css?v=45ada22681b8");
+@import url("./shared/flight-ui-v0.1.css?v=45ada22681b8");
+@import url("./common/ui/time-dial-v0.1.css?v=45ada22681b8");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}

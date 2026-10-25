@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BOX Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./box.css?v=d3f48cf799ac">
-<link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=d3f48cf799ac">
-<link rel="stylesheet" href="./wide-layout.css?v=d3f48cf799ac">
+<link rel="stylesheet" href="./box.css?v=45ada22681b8">
+<link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=45ada22681b8">
+<link rel="stylesheet" href="./wide-layout.css?v=45ada22681b8">
 </head>
 <body class="box-wide bombing-wide">
 <!-- BOX page (owner 2026-10-23 / 25): a separate page on the Offset FE layout (PC Wide and phone), BOX v0.3 BE through
@@ -109,6 +109,13 @@
             <button class="capture-button diagram-scale-output" id="top-view-font-scale-output" type="button" aria-label="Reset Top View text size to 100%">100%</button>
             <button class="capture-button" id="top-view-font-up" type="button" aria-label="Top View font larger">+</button>
           </div>
+          <div class="view-scale-control" role="group" aria-label="Top View picture size">
+            <span class="diagram-control-label">Size</span>
+            <button class="capture-button" id="top-view-zoom-out" type="button" aria-label="Picture smaller">-</button>
+            <button class="capture-button diagram-scale-output" id="top-view-size-output" type="button" aria-label="Reset Top View size to 100%">100%</button>
+            <button class="capture-button" id="top-view-zoom-in" type="button" aria-label="Picture larger">+</button>
+          </div>
+          <button class="capture-button" id="top-view-zoom-reset" type="button">Reset</button>
           <button class="capture-button" id="capture-top-view" type="button">PNG</button>
           <button class="capture-button view-toggle" id="top-view-advanced" type="button" aria-pressed="false" title="MAP and the Roll-in Distance">Advanced: Off</button>
         </div>
@@ -134,6 +141,6 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=d3f48cf799ac"></script>
+<script type="module" src="./wide-layout.mjs?v=45ada22681b8"></script>
 </body>
 </html>
