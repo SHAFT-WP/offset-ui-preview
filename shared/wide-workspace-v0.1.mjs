@@ -6,7 +6,8 @@
 // its tabs and the hooks for what a tab change draws. Styles: wide-workspace-v0.1.css (body.bombing-wide).
 import { AIRCRAFT_COLORS, AIRCRAFT_NUMBERS, showAircraftRow } from "./flight-ui-v0.1.mjs?v=0.1.0";
 
-export const WIDE_WORKSPACE_V0_1 = Object.freeze({ id: "bombing-wide-workspace-v0.1", version: "0.1.0" });
+// 0.1.1 (2026-10-25, BOX page): fullBdpOnEditLine false keeps the Full BDP toggle in the BDP tab head (shared BDP tab).
+export const WIDE_WORKSPACE_V0_1 = Object.freeze({ id: "bombing-wide-workspace-v0.1", version: "0.1.1" });
 
 const make = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -37,12 +38,16 @@ const button = (className, text, attributes = {}) => {
 // - ui: the page controller hooks (visibleAircraft, onVisibleAircraftChange, syncShowAircraftButtons,
 //   registerEditAircraft, savedEditAircraft, syncDedPngButtons, installSectionDisclosure).
 // - onShown(visible, centerTab), onCenterTab(key, previous), onEditAircraft(number): what the page draws.
+// - fullBdpOnEditLine (default true, Offset): the BDP tab's Full BDP toggle on the Edit aircraft line; false (BOX,
+//   shared BDP tab, owner 2026-10-25) leaves it in the tab head, immediately before Tab Default.
 export function mountWideWorkspace(options) {
   const {
     app, followers, flightSize, eyebrow, standardHref, inputTabs, inputPanes = [], centerTabs, reviewTabs,
     centerOfInput = {}, inputOfCenter = {}, sectionTab = (section) => section.dataset.tab, shownInputKey = (tab) => tab,
     statePill, statusMessage, statusSelector, ui, onShown = () => {}, onCenterTab = () => {}, onEditAircraft = () => {},
+    fullBdpOnEditLine = true,
   } = options;
+  if (!fullBdpOnEditLine) app.dataset.fullBdpPlacement = "head";
   let editAircraft = 1;
   // Both start unset so the first entry applies them.
   let inputTab = null;
@@ -270,7 +275,7 @@ export function mountWideWorkspace(options) {
   function syncFullBdpButton() {
     const toggle = editedFullBdpToggle();
     const on = toggle?.getAttribute("aria-pressed") === "true";
-    fullBdpButton.hidden = !toggle || inputTab !== "bdp";
+    fullBdpButton.hidden = !fullBdpOnEditLine || !toggle || inputTab !== "bdp";
     fullBdpButton.setAttribute("aria-pressed", String(on));
     fullBdpButton.textContent = `Full BDP: ${on ? "On" : "Off"}`;
   }

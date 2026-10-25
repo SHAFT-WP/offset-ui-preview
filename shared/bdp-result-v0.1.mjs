@@ -3,7 +3,8 @@
 // Common display precision; a value the BDP does not calculate shows N/A, never 0.
 import { formatDeg, formatFt, formatNm, formatSec, formatSecTenths } from "../common/ui/display-precision-v0.1.mjs?v=0.1.1";
 
-export const BDP_RESULT_V0_1 = Object.freeze({ id: "bombing-bdp-result-v0.1", version: "0.1.0" });
+// 0.2.0 (2026-10-23, BOX handoff G01): bdpResultRows takes the BDP result itself (was a result holding it as `profile`).
+export const BDP_RESULT_V0_1 = Object.freeze({ id: "bombing-bdp-result-v0.1", version: "0.2.0" });
 
 // One Result row (Common result panel markup: data-result-row, data-summary). resultKey marks the value for the
 // result-change states (data-result-key).
@@ -15,10 +16,11 @@ export function resultRow(label, renderedValue, resultKey = null, { summary = fa
 // The BDP rows shown in the summary (the page may pass its own set).
 export const BDP_RESULT_SUMMARY_KEYS = Object.freeze(new Set(["effectiveReleaseAltitudeMslFt", "trackingTimeSecResult", "leadAngleDeg", "nltReleaseMslFt"]));
 
-// The BDP Result rows of one aircraft. keyed: mark the values for the result-change states (#1); a follower's
-// rows are plain.
-export function bdpResultRows(result, { keyed = true, summaryKeys = BDP_RESULT_SUMMARY_KEYS } = {}) {
-  const p = result.profile.public;
+// The BDP Result rows of one aircraft, from the BDP result the pattern's BE used (Offset: its aircraft result's
+// `profile`; BOX: `bombDelivery`). keyed: mark the values for the result-change states (#1); a follower's rows are plain.
+export function bdpResultRows(bdp, { keyed = true, summaryKeys = BDP_RESULT_SUMMARY_KEYS } = {}) {
+  if (!bdp?.public) throw new TypeError("bdpResultRows takes a BDP result (with public)");
+  const p = bdp.public;
   const r = (label, text, key) => resultRow(label, text, keyed ? key : null, { summary: summaryKeys.has(key) });
   return [
     r("Effective Release Altitude", `${formatFt(p.effectiveReleaseAltitudeMslFt)} ft MSL`, "effectiveReleaseAltitudeMslFt"),

@@ -24,9 +24,12 @@ export const FT_PER_NM = 6076.11549;
 // (default 42, unchanged); Offset draws it one character (8 units) further left.
 // 0.1.13 (2026-10-15, owner R7): a host may put Roll-in Lead Angle under Roll-in Angle Off with
 // `rollInLeadInGroup` (Offset); Ground / Slant move one row down. Without it nothing changes.
+// 0.1.14 (2026-10-25, owner, BOX handoff): a host may end the Roll-in group with `rollInGroupTail` lines
+// ([{ text, ariaLabel }], e.g. BOX `Abeam +3sec`), drawn under Ground / Slant in the same movable group. Without
+// it nothing changes.
 export const COMMON_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "common-z-diagram-v0.1",
-  version: "0.1.13",
+  version: "0.1.14",
   oracle: "Bomb Profile REV.1.9 embedded BE Common Rev0.8 display renderer",
   legacyDisplaySource: "Common Z-Diagram Rev0.6 / BE Common Rev0.8 display grammar",
 });
@@ -186,6 +189,11 @@ export function renderCommonZDiagram(svg, data) {
   }
   text(360, rollInGroupY, lineText(labels.rollInRange, `${format(rollInNm, 1)} NM (Ground)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
   text(360, rollInGroupY + 26, lineText(labels.rollInRange, `${format(slantNm, 1)} NM (Slant)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+  const tail = Array.isArray(data.rollInGroupTail) ? data.rollInGroupTail.filter((line) => typeof line?.text === "string" && line.text) : [];
+  tail.forEach((line, index) => {
+    const tailNode = text(360, rollInGroupY + 26 * (index + 2), line.text, "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+    if (line.ariaLabel) tailNode.setAttribute("aria-label", line.ariaLabel);
+  });
   // Release Altitude and NLT Release both start LABEL_GAP after their line's right end.
   const LABEL_GAP = 20;
   const plannedEnd = 330, nltEnd = nltX + 130;

@@ -7,7 +7,9 @@ import { formatDeg, formatNm } from "../common/ui/display-precision-v0.1.mjs?v=0
 import { svgNode } from "../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { saveSvgAsPng } from "../common/diagram/svg-png-export-v0.1.mjs";
 
-export const DED_V0_1 = Object.freeze({ id: "bombing-ded-v0.1", version: "0.1.0" });
+// 0.1.1 (2026-10-25, BOX page): a page list of OA boxes (dedPagesMarkup / writeDedPages / clearDedPages) beside the
+// reference + OA1 pair; the pair is unchanged.
+export const DED_V0_1 = Object.freeze({ id: "bombing-ded-v0.1", version: "0.1.1" });
 // The value outputs of the two boxes; the reference box's title is "reference-title".
 export const DED_VALUE_KEYS = Object.freeze(["reference-bearing", "reference-range", "reference-elevation", "oa1-bearing", "oa1-range", "oa1-elevation"]);
 
@@ -53,6 +55,37 @@ export function clearDedValues(out) {
   for (const key of DED_VALUE_KEYS) {
     const node = out(key);
     if (node) node.textContent = "-";
+  }
+}
+
+// A list of pages, each box read RNG, TBRG, ELEV like OA1 (BOX: OA1 = the Roll-in point, OA2 = 10 NM past it;
+// owner 2026-10-23 / 25). Outputs are named `${attribute}="<index>-<range|bearing|elevation>"`.
+export function dedPagesMarkup(titles, attribute = "data-ded-oa") {
+  const rows = (index) => ["range:RNG", "bearing:TBRG", "elevation:ELEV"].map((item) => {
+    const [key, label] = item.split(":");
+    return `<div class="ded-row"><span>${label}</span><output ${attribute}="${index}-${key}">-</output></div>`;
+  }).join("");
+  return `<div class="ded-boxes">${titles.map((title, index) => `<div class="ded-screen" aria-live="polite"><div class="ded-page-title">${title}</div>${rows(index)}</div>`).join("")}</div>`;
+}
+
+// pages: [{ bearingDeg, rangeNm, rangeFt, elevationFt }] in box order; out(index, key) gives an output (a missing one
+// is skipped).
+export function writeDedPages(out, pages) {
+  pages.forEach((page, index) => {
+    const texts = { range: dedRangeText(page), bearing: dedBearingText(page.bearingDeg), elevation: dedElevationText(page.elevationFt) };
+    for (const [key, text] of Object.entries(texts)) {
+      const node = out(index, key);
+      if (node) node.textContent = text;
+    }
+  });
+}
+
+export function clearDedPages(out, count) {
+  for (let index = 0; index < count; index += 1) {
+    for (const key of ["range", "bearing", "elevation"]) {
+      const node = out(index, key);
+      if (node) node.textContent = "-";
+    }
   }
 }
 

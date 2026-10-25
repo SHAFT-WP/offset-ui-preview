@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BOX Tactics · V2 WORK</title>
+<link rel="stylesheet" href="./box.css?v=5263217bc724">
+<link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=5263217bc724">
+<link rel="stylesheet" href="./wide-layout.css?v=5263217bc724">
+</head>
+<body class="box-wide bombing-wide">
+<!-- BOX page (owner 2026-10-23 / 25): a separate page on the Offset FE layout (PC Wide and phone), BOX v0.3 BE through
+     the BOX Flight entrypoint. Tabs: BDP (shared BDP tab) / BOX / Spacer Turn (blank, the BOX S&R slot) / Formation
+     (#2–#4, next step) / Save/Load. -->
+<main class="app" id="box-calculator">
+  <header class="topbar">
+    <div>
+      <h1 id="box-page-title">BOX Tactics</h1>
+      <div class="subline">V2 modular work · BOX v0.3 BE · BDP v0.4</div>
+    </div>
+    <div class="toolbar">
+      <label class="flight-size-control" for="flight-size" title="BOX Formation (#2–#4) is the next step"><span>Size of Flight</span><select id="flight-size"><option value="1">1</option><option value="2" disabled>2</option><option value="3" disabled>3</option><option value="4" disabled>4</option></select></label>
+      <span class="rev" id="box-rev">V2 WORK · BOX BE 0.3</span>
+    </div>
+  </header>
+
+  <!-- Shared BDP tab (shared/bdp-tab-v0.1.mjs): the controller fills it. -->
+  <section class="section bdp-tab-section" data-tab="bdp" aria-labelledby="bdp-title-1" data-bdp-tab="1"></section>
+
+  <section class="section" data-tab="box" aria-labelledby="box-input-title">
+    <div class="section-head"><h2 id="box-input-title">BOX #1</h2><div class="box-head-status"><span id="lock-count" class="mode">LOCK 0</span><span id="state-pill" class="status ok">VALID</span></div></div>
+
+    <details class="input-group-panel" open>
+      <summary class="input-group-title">BDP Profile</summary>
+      <div class="input-grid" data-bdp-profile-copy></div>
+    </details>
+
+    <details class="input-group-panel" open>
+      <summary class="input-group-title">BOX Pattern</summary>
+      <div class="input-grid">
+        <label class="field"><span>Attack Heading (deg)</span><input data-key="attackHeadingDeg" type="text" inputmode="decimal"><span class="unit">TRUE · final attack axis · DED bearings</span></label>
+        <label class="field"><span>Angle-Off (deg)</span><output class="readout" data-bdp-fixed="angleOffDeg">90</output><span class="unit">BOX fixed</span></label>
+        <label class="field"><span>Base Turn G (G)</span><input data-key="baseTurnG" type="text" inputmode="decimal"><span class="unit">Level Turn · 90° · onset rates of this aircraft</span></label>
+        <label class="field"><span>Crosswind Turn G (G)</span><input data-key="crossTurnG" type="text" inputmode="decimal"><span class="unit">Level Turn · 90° · onset rates of this aircraft</span></label>
+        <label class="field"><span>Crosswind Leg Extension (NM)</span><input data-key="crossLegExtensionNm" type="text" inputmode="decimal"><span class="unit" data-cross-leg-note>Default: raised to the minimum when short</span></label>
+      </div>
+      <p class="constraint-note">Crosswind Leg Extension: the default (or a cleared field) is raised to the shortest leg that closes the pattern. A typed value is kept; below the minimum it shows the required length and an error.</p>
+    </details>
+
+    <details class="input-group-panel">
+      <summary class="input-group-title">Roll-in Condition</summary>
+      <div class="input-grid" data-roll-in-copy></div>
+    </details>
+
+    <details class="input-group-panel advanced-only">
+      <summary class="input-group-title">Turn Onset <span class="adv-tag">ADV</span></summary>
+      <div class="input-grid" data-turn-onset-copy></div>
+    </details>
+
+    <details class="input-group-panel advanced-only">
+      <summary class="input-group-title">OUT Maneuver <span class="adv-tag">ADV</span></summary>
+      <div class="input-grid">
+        <label class="field"><span>OUT Mode</span><select data-key="outMode"><option value="CLIMB">CLIMB</option><option value="LEVEL">LEVEL</option></select><span class="unit">Rev1.5 OUT</span></label>
+        <label class="field"><span>OUT Speed (kcas)</span><input data-key="outSpeedKcas" type="text" inputmode="decimal"><span class="unit">Blank: Release Speed</span></label>
+        <label class="field"><span>Recovery G (G)</span><input data-key="outRecoveryG" type="text" inputmode="decimal"><span class="unit">Blank: 5.0</span></label>
+        <label class="field"><span>Climb Pitch (deg)</span><input data-key="outClimbPitchDeg" type="text" inputmode="decimal"><span class="unit">Blank: Dive Angle − 10</span></label>
+        <label class="field"><span>Climb G (G)</span><input data-key="outClimbG" type="text" inputmode="decimal"><span class="unit">Blank: Recovery G / 2</span></label>
+        <label class="field"><span>Level-off Speed (kcas)</span><input data-key="outLevelOffSpeedKcas" type="text" inputmode="decimal"><span class="unit">Blank: Initial KCAS</span></label>
+      </div>
+    </details>
+    <div id="constraint-message" class="status-message valid">-</div>
+  </section>
+
+  <!-- Spacer Turn (owner 2026-10-23): the BOX S&R slot, a blank tab for now. -->
+  <section class="section" data-tab="spacer" aria-labelledby="spacer-title">
+    <div class="section-head"><h2 id="spacer-title">Spacer Turn</h2></div>
+    <p class="flight-draft-note">Spacer Turn is the BOX slot of S&amp;R. Its content comes in a later step.</p>
+  </section>
+
+  <section class="section save-section" data-tab="save" aria-labelledby="save-title">
+    <div class="section-head"><h2 id="save-title">Save/Load</h2></div>
+    <p class="flight-draft-note">Save keeps the BOX page's inputs (BDP and BOX), LOCK / LINK and the Flight size in this browser. A reload or a newly opened page loads the last Save; changes made after it are not kept until you press Save again. Load Default loads the Default conditions (not saved until Save); each input tab's Tab Default restores only that tab.</p>
+    <p class="flight-draft-note" id="reload-note">오류가 나면 브라우저를 새로고침해 주세요.</p>
+    <div class="save-actions">
+      <button class="btn" id="work-save" type="button">Save</button>
+      <button class="btn" id="work-default" type="button">Load Default</button>
+    </div>
+    <output id="save-status" class="status-message valid" role="status">-</output>
+  </section>
+
+  <section class="section top-view-section" aria-labelledby="top-view-title">
+    <div class="section-head">
+      <h2 id="top-view-title">BOX Top View</h2>
+      <div class="diagram-actions">
+        <div class="diagram-action-row top-view-aircraft" role="group" aria-label="Aircraft drawn in the Top View">
+          <span class="diagram-control-label">Show aircraft</span>
+          <button class="capture-button view-toggle active" type="button" data-top-view-aircraft-button="1" aria-pressed="true">#1</button>
+          <button class="capture-button view-toggle" type="button" data-top-view-aircraft-button="2" aria-pressed="false" hidden>#2</button>
+          <button class="capture-button view-toggle" type="button" data-top-view-aircraft-button="3" aria-pressed="false" hidden>#3</button>
+          <button class="capture-button view-toggle" type="button" data-top-view-aircraft-button="4" aria-pressed="false" hidden>#4</button>
+        </div>
+        <div class="diagram-action-row">
+          <div class="font-scale-control" role="group" aria-label="Top View font size">
+            <span class="diagram-control-label">Text</span>
+            <button class="capture-button" id="top-view-font-down" type="button" aria-label="Top View font smaller">-</button>
+            <button class="capture-button diagram-scale-output" id="top-view-font-scale-output" type="button" aria-label="Reset Top View text size to 100%">100%</button>
+            <button class="capture-button" id="top-view-font-up" type="button" aria-label="Top View font larger">+</button>
+          </div>
+          <button class="capture-button" id="capture-top-view" type="button">PNG</button>
+        </div>
+      </div>
+    </div>
+    <div class="top-view-shell"><svg id="box-top-view" viewBox="0 0 900 900" role="img" aria-label="BOX #1 Top View"></svg></div>
+    <svg class="diagram-legend-box" id="box-legend" role="img" aria-label="BOX Top View legend"></svg>
+  </section>
+
+  <div class="bdp-views" data-bdp-views="1" data-output-aircraft="1" data-aircraft-output="bdp"><div data-bdp-diagrams-host="1"></div></div>
+
+  <section class="section z-diagram-section" data-output-aircraft="1" data-aircraft-output="z" aria-labelledby="box-z-title">
+    <div class="section-head"><h2 id="box-z-title">BOX #1 Z-Diagram</h2><div class="diagram-action-row"><button class="btn" id="capture-z" type="button">PNG</button></div></div>
+    <div class="z-diagram-shell"><svg id="box-z-svg" viewBox="0 0 650 770" role="img" aria-label="BOX #1 Z-Diagram"><g data-z-root></g></svg></div>
+  </section>
+
+  <section class="section compact-results" id="result-section" data-result-panel data-output-aircraft="1" data-aircraft-output="result"><div class="result-panel-head"><h2>Result #1</h2><div data-result-controls aria-label="Result display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>BOX</h3><table><tbody class="result-rows" id="box-result-body"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" id="profile-result-body"></tbody></table></div><p data-result-empty>No available summary results.</p></div></section>
+
+  <section class="section ded-section" data-output-aircraft="1" data-aircraft-output="ded" aria-labelledby="ded-title">
+    <div class="section-head"><h2 id="ded-title">DED #1</h2><button class="btn ded-png-button" type="button" data-ded-png="1">PNG</button></div>
+    <div data-ded-pages="1"></div>
+  </section>
+
+  <div id="flight-followers"></div>
+</main>
+<script type="module" src="./wide-layout.mjs?v=5263217bc724"></script>
+</body>
+</html>

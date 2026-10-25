@@ -24,7 +24,7 @@ import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.0";
 // DED boxes, texts and PNG: bombing app shared FE (2026-10-22); the DED record is the Flight BE's.
 import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.0";
 // BDP Result rows and Fragment Data readouts: bombing app shared FE (2026-10-22).
-import { bdpResultRows, fragmentReadoutsMarkup, resultRow, semTurnAutoBankText, writeFragmentReadouts } from "./shared/bdp-result-v0.1.mjs?v=0.1.0";
+import { bdpResultRows, fragmentReadoutsMarkup, resultRow, semTurnAutoBankText, writeFragmentReadouts } from "./shared/bdp-result-v0.1.mjs?v=0.2.0";
 // Input field mechanics (solved values, bearings, LOCK / LINK, Enter commit, section collapse and tools): bombing app shared FE (2026-10-22).
 import {
   LINK_TEXTS, LOCK_TEXTS, canonicalToTargetBearing, createEnterCommit, displayedBearing, dropSolvedIfEdited, formatBearingInput, headingText as fmtHeading,
@@ -413,7 +413,7 @@ function offsetResultRows(result, { ipRangeText, reference = null, legacyDeltaTo
 
 // The BDP rows (shared bdp-result-v0.1.mjs), with this page's summary set.
 function profileResultRows(result, { keyed = true } = {}) {
-  return bdpResultRows(result, { keyed, summaryKeys: SUMMARY_RESULTS });
+  return bdpResultRows(result.profile, { keyed, summaryKeys: SUMMARY_RESULTS });
 }
 
 function renderOffsetResult(result) {

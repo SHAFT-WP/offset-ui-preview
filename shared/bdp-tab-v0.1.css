@@ -1,0 +1,13 @@
+/* The shared BDP tab (bdp-tab-v0.1.mjs, owner 2026-10-25). Full BDP Off shows Target Elevation/Bomb type, Wind,
+   Roll-in Turn and Turn Onset; the section's Full BDP toggle (show-full-bdp) adds BDP Profile and SEM / Recovery. */
+.bdp-tab-head { display:grid; gap:2px; min-width:0; }
+.bdp-tab-head h2 { margin:0; }
+.bdp-tab-note { margin:0; color:var(--muted); font-size:12px; font-weight:700; letter-spacing:.02em; }
+.bdp-tab-group { display:grid; gap:8px; min-width:0; }
+.bdp-tab-group + .bdp-tab-group { margin-top:6px; }
+.section .bdp-tab-group.bdp-full-only { display:none; }
+.section.show-full-bdp .bdp-tab-group.bdp-full-only { display:grid; }
+/* Fields of one SEM only. */
+.bdp-tab-group [data-csem-only][hidden], .bdp-tab-group [data-level-sem-only][hidden], .bdp-tab-group [data-sem-turn-level-only][hidden], .bdp-tab-group [data-sem-turn-slice-only][hidden] { display:none !important; }
+/* BDP results shown in the input grid (Roll-In Bank): read-only, never typed. */
+input[data-bdp-result] { cursor:default; border-style:dashed; border-color:var(--muted); }
