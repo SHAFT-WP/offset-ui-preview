@@ -2,13 +2,13 @@
 // controller's live nodes. Left = Edit aircraft + input tabs, centre = BOX Top View / BDP / Spacer Turn, right =
 // Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft (owner 2026-10-23 / 25: the
 // Offset FE layout).
-import { boxIndexUi } from "./controller-v0.1.mjs?v=5263217bc724";
+import { boxIndexUi } from "./controller-v0.1.mjs?v=7a79a4b15fb6";
 import { mountWideWorkspace } from "../shared/wide-workspace-v0.1.mjs?v=0.1.1";
 
 const app = document.getElementById("box-calculator");
 
-// Tabs (owner 2026-10-23): BDP, BOX, Spacer Turn (the BOX S&R slot, blank for now), Formation (#2–#4; next step,
-// hidden for #1 as on Offset), Save/Load.
+// Tabs (owner 2026-10-23 / 25): BDP, BOX, Spacer Turn (the BOX S&R slot, blank for now), Formation (#2–#4: each
+// follower's position, hidden for #1 as on Offset), Save/Load.
 const INPUT_TABS = [["bdp", "BDP"], ["box", "BOX"], ["spacer", "Spacer Turn"], ["formation", "Formation", { hidden: (editAircraft) => editAircraft === 1 }], ["save", "Save/Load"]];
 const CENTER_OF_INPUT = Object.freeze({ box: "topview", bdp: "bdp", spacer: "spacer" });
 const INPUT_OF_CENTER = Object.freeze({ topview: "box", bdp: "bdp", spacer: "spacer" });
@@ -30,7 +30,7 @@ const workspace = mountWideWorkspace({
   reviewTabs: [["result", "Result"], ["z", "Z-Diagram"], ["ded", "DED"]],
   statePill: (number) => document.getElementById(number === 1 ? "state-pill" : "flight-state-pill-" + number),
   statusMessage: (number) => document.getElementById(number === 1 ? "constraint-message" : "flight-status-" + number),
-  statusSelector: "#state-pill, #constraint-message",
+  statusSelector: "#state-pill, [id^='flight-state-pill-'], #constraint-message, [id^='flight-status-']",
   ui: boxIndexUi,
   // Shared BDP tab (owner 2026-10-25): Full BDP stays in the tab head, before Tab Default.
   fullBdpOnEditLine: false,

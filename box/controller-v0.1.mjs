@@ -2,7 +2,9 @@
 // never calculates: it keeps the BOX Flight record the BE returned, puts typed values into it, sends the edit events
 // (Common calculation client, BOX Flight Worker) and draws the adopted answer. BOX values stay in BOX (owner
 // 2026-10-25): nothing here reads or writes the Offset page's state.
-import { BOX_FLIGHT_DEFAULT_STATE, BOX_FLIGHT_DEFAULT_VALUES, BOX_FLIGHT_V0_1, boxFlightDefaultLead } from "../AG/bombing/box-pattern/box-flight-v0.1.mjs?v=0.1.0";
+import {
+  BOX_FLIGHT_DEFAULT_STATE, BOX_FLIGHT_DEFAULT_VALUES, BOX_FLIGHT_FORMATION_REFERENCE, BOX_FLIGHT_V0_1, boxFlightDefaultFollower, boxFlightDefaultLead,
+} from "../AG/bombing/box-pattern/box-flight-v0.1.mjs?v=0.2.0";
 import { createCalculationScheduler, createWorkerTransport } from "../common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
 import { WEAPON_DATABASE_V0_1 } from "../AG/bombing/bomb-delivery-planner/weapon-data-v0.1.mjs";
 import {
@@ -14,18 +16,21 @@ import { clearDedPages, dedPagesMarkup, installDedPngClicks, readDedCard, saveDe
 import { createSaveRun, isRecordObject, readWorkRecord, savedTimeText, writeWorkRecord } from "../shared/save-store-v0.1.mjs?v=0.1.1";
 import { AIRCRAFT_COLORS, createShownAircraft, installShownAircraftClicks } from "../shared/flight-ui-v0.1.mjs?v=0.1.0";
 import { installResultPanel } from "../common/ui/result-panel-v0.1.mjs";
+import { formationPositionMarkup, installFormationSideSelects } from "../common/ui/formation-position-v0.1.mjs";
 import { installSvgLegend } from "../common/diagram/svg-legend-v0.1.mjs";
 import { saveSvgAsPng } from "../common/diagram/svg-png-export-v0.1.mjs";
 import { svgNode } from "../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { createTimePlayer, timeDialMarkup } from "../common/ui/time-dial-v0.1.mjs?v=0.1.0";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec } from "../common/ui/display-precision-v0.1.mjs?v=0.1.1";
-import { BOX_TOP_VIEW_V0_5, boxTopViewTitle, renderBoxTopView } from "../AG/bombing/box-pattern/view/box-top-view-v0.5.mjs?v=0.5.0";
+import { BOX_TOP_VIEW_V0_5, boxTopViewTitle, renderBoxTopView } from "../AG/bombing/box-pattern/view/box-top-view-v0.5.mjs?v=0.5.1";
 import { boxAbeamText, boxZDiagramTitle, renderBoxZDiagramV0_3 } from "../AG/bombing/box-pattern/view/box-z-diagram-v0.3.mjs?v=0.3.0";
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.11.2";
 
-export const BOX_PAGE_CONTROLLER_V0_1 = Object.freeze({ id: "box-page-controller-v0.1", version: "0.1.0", flight: BOX_FLIGHT_V0_1.version });
+// 0.2.0 (2026-10-25, owner): Formation. #1–#4 fly #1's BDP and BOX data; #2–#4 hold only their Formation position, and
+// the BOX Top View shows each aircraft at its place. The spacing between them is the Spacer Turn's (a later step).
+export const BOX_PAGE_CONTROLLER_V0_1 = Object.freeze({ id: "box-page-controller-v0.1", version: "0.2.0", flight: BOX_FLIGHT_V0_1.version });
 
-const WORKER_URL = new URL("../AG/bombing/box-pattern/box-flight-worker-v0.1.mjs?v=0.1.0", import.meta.url);
+const WORKER_URL = new URL("../AG/bombing/box-pattern/box-flight-worker-v0.1.mjs?v=0.1.1", import.meta.url);
 const SAVE_KEY = "bombing-v2-box-work";
 const SAVE_SCHEMA = 1;
 // The BOX tab's fields besides its BDP Profile / Roll-in / Turn Onset copies (its Tab Default restores all of them).
@@ -44,6 +49,10 @@ const sameValue = (a, b) => (isNumber(a) && isNumber(b) ? Math.abs(a - b) <= 1e-
 
 let lead = boxFlightDefaultLead();
 let lastEntry = null;
+// The Flight: its size, the followers' records ({ formation }, kept when the size shrinks) and the places the BE gave.
+let flightSize = 1;
+const followers = {};
+let lastPositions = {};
 let scheduler = null;
 let transport = null;
 let topViewTextScale = 1;
@@ -88,9 +97,15 @@ function syncToggles() {
 
 // ---- Calculation ----------------------------------------------------------------------------------------------------
 
+const followerRecord = (number) => (followers[number] ??= boxFlightDefaultFollower(number));
+const followerNumbers = () => [2, 3, 4].filter((number) => number <= flightSize);
+
 function collectInput(edits) {
-  const input = { schemaVersion: BOX_FLIGHT_V0_1.schemaVersion, flightSize: 1, aircraft: { 1: structuredClone(lead) } };
-  const current = edits.filter((edit) => (edit.aircraft ?? 1) === 1);
+  const aircraft = { 1: structuredClone(lead) };
+  followerNumbers().forEach((number) => { aircraft[number] = structuredClone(followerRecord(number)); });
+  const input = { schemaVersion: BOX_FLIGHT_V0_1.schemaVersion, flightSize, aircraft };
+  // An edit for an aircraft no longer in the Flight goes with it.
+  const current = edits.filter((edit) => (edit.aircraft ?? 1) <= flightSize);
   return current.length ? { ...input, edits: current } : input;
 }
 
@@ -112,14 +127,37 @@ function applyLeadState(next, sentLead, edits) {
   syncToggles();
 }
 
+// A follower's next record: its Formation fields are rewritten unless one is being typed in and kept as sent.
+function applyFollowerState(number, next, sent, edits) {
+  followers[number] = structuredClone({ formation: next.formation });
+  const last = edits.findLast((edit) => (edit.aircraft ?? 1) === number) ?? null;
+  const typing = last && last.kind === "set" && last.commit !== true ? last.key : null;
+  const active = document.activeElement;
+  formationFields(number).forEach((field) => {
+    const key = field.dataset.formationField;
+    const value = next.formation[key];
+    if (field === active && key === typing && sameValue(value, sent?.formation?.[key])) return;
+    writeField(field, key, value);
+  });
+}
+
 function applyAnswer(message, sent) {
   const output = message.output;
   if (!output) {
-    renderLead({ status: "FAILED", result: null, error: message.error ?? "no result", errors: [message.error ?? "no result"], warnings: [], ded: null });
+    lastPositions = {};
+    const failed = { status: "FAILED", result: null, error: message.error ?? "no result", errors: [message.error ?? "no result"], warnings: [], ded: null };
+    followerNumbers().forEach((number) => renderFollowerStatus(number, failed));
+    renderLead(failed);
     return;
   }
   const next = output.nextInput?.aircraft?.[1];
   if (next && isRecordObject(next.values)) applyLeadState(next, sent.input.aircraft[1], sent.input.edits ?? []);
+  for (const number of followerNumbers()) {
+    const record = output.nextInput?.aircraft?.[number];
+    if (isRecordObject(record?.formation)) applyFollowerState(number, record, sent.input.aircraft[number], sent.input.edits ?? []);
+  }
+  lastPositions = Object.fromEntries(Object.entries(output.aircraftResults).filter(([, entry]) => entry?.position).map(([number, entry]) => [number, entry.position]));
+  followerNumbers().forEach((number) => renderFollowerStatus(number, output.aircraftResults[number]));
   renderLead(output.aircraftResults[1]);
 }
 
@@ -139,6 +177,52 @@ function installCalculation() {
 // ---- Edits ----------------------------------------------------------------------------------------------------------
 
 const enterCommit = createEnterCommit();
+const formationFields = (number) => [...app.querySelectorAll(`.flight-slot[data-aircraft="${number}"] [data-formation-field]`)];
+const slotNumber = (node) => Number(node.closest(".flight-slot")?.dataset.aircraft);
+
+// A follower's Formation field: the typed value goes into its record, then the event (the BE refills a cleared one).
+function commitFormationField(field, how) {
+  const number = slotNumber(field);
+  const key = field.dataset.formationField;
+  const record = followerRecord(number);
+  if (field.value.trim() === "") {
+    record.formation[key] = null;
+    scheduler[how]({ aircraft: number, kind: "clear", key });
+    return;
+  }
+  record.formation[key] = field.tagName === "SELECT" ? field.value : parsedFieldValue(field.value, null);
+  scheduler[how]({ aircraft: number, kind: "set", key, commit: true });
+}
+
+function installFormationEdits() {
+  app.addEventListener("input", (event) => {
+    const field = event.target.closest?.("input[data-formation-field]");
+    if (!field) return;
+    const record = followerRecord(slotNumber(field));
+    const key = field.dataset.formationField;
+    if (field.value.trim() === "") {
+      record.formation[key] = null;
+      scheduler.hold();
+      return;
+    }
+    record.formation[key] = parsedFieldValue(field.value, null);
+    scheduler.input({ aircraft: slotNumber(field), kind: "set", key });
+  });
+  app.addEventListener("change", (event) => {
+    const field = event.target.closest?.("[data-formation-field]");
+    if (!field) return;
+    if (field.tagName === "SELECT") { commitFormationField(field, "immediate"); return; }
+    if (enterCommit.consumed(field)) return;
+    commitFormationField(field, "commit");
+  });
+  app.addEventListener("keydown", (event) => {
+    const field = event.target.closest?.("input[data-formation-field]");
+    if (event.key !== "Enter" || !field) return;
+    event.preventDefault();
+    enterCommit.mark(field);
+    commitFormationField(field, "immediate");
+  });
+}
 
 function commitField(field, how) {
   const key = field.dataset.key;
@@ -312,7 +396,11 @@ function renderTopView() {
     $("#capture-top-view").disabled = true;
     return;
   }
-  renderBoxTopView(svg, result, { aircraftNumber: 1, textScale: topViewTextScale });
+  // Formation (Flight of 2–4): each shown aircraft at the place the BE gave it.
+  const formation = flightSize > 1
+    ? shownAircraft.visible().filter((number) => lastPositions[number]).map((number) => ({ number, ...lastPositions[number], color: AIRCRAFT_COLORS[number] }))
+    : [];
+  renderBoxTopView(svg, result, { aircraftNumber: 1, textScale: topViewTextScale, formation });
   $("#capture-top-view").disabled = false;
   legend?.render?.();
 }
@@ -417,18 +505,22 @@ function mountBdpViews() {
 // ---- DED PNG ----------------------------------------------------------------------------------------------------------
 
 const dedAvailable = (number) => number === 1 && !!lastEntry?.ded;
+// The DED is #1's (the Flight flies #1's data): "PNG (shown)" takes #1 when it is shown.
+const shownDedAircraft = () => shownAircraft.visible().filter((number) => number === 1);
 function syncDedPngButtons() {
-  syncDedPngButtonStates({ visibleAircraft: () => shownAircraft.visible(), available: dedAvailable });
+  syncDedPngButtonStates({ visibleAircraft: shownDedAircraft, available: dedAvailable });
 }
 
 // ---- Shown aircraft ---------------------------------------------------------------------------------------------------
 
-const shownAircraft = createShownAircraft({ available: () => [1] });
+const shownAircraft = createShownAircraft({ available: () => [1, ...followerNumbers()] });
 installShownAircraftClicks((number) => {
   shownAircraft.toggle(number);
   shownAircraft.sync();
   syncDedPngButtons();
 });
+// The Top View draws the shown aircraft's places.
+shownAircraft.onChange(() => renderTopView());
 
 // ---- Save / Load ------------------------------------------------------------------------------------------------------
 
@@ -455,7 +547,11 @@ function installSaveTab() {
     settle: () => scheduler.flush(),
     save: () => writeWorkRecord(localStorage, SAVE_KEY, {
       schemaVersion: SAVE_SCHEMA,
-      build: () => ({ schemaVersion: SAVE_SCHEMA, savedAt: new Date().toISOString(), flightSize: 1, aircraft: { 1: structuredClone(lead) }, editAircraft: editAircraftOf(), shown: shownAircraft.saved() }),
+      build: () => ({
+        schemaVersion: SAVE_SCHEMA, savedAt: new Date().toISOString(), flightSize,
+        aircraft: { 1: structuredClone(lead), ...Object.fromEntries(Object.entries(followers).map(([number, record]) => [number, structuredClone(record)])) },
+        editAircraft: editAircraftOf(), shown: shownAircraft.saved(),
+      }),
     }),
     status: setSaveStatus,
     savedText: (saved) => `Saved · ${savedTimeText(new Date(saved.savedAt))}`,
@@ -464,7 +560,9 @@ function installSaveTab() {
   $("#work-save").addEventListener("click", () => saveRun.run());
   $("#work-default").addEventListener("click", () => {
     lead = boxFlightDefaultLead();
+    [2, 3, 4].forEach((number) => { followers[number] = boxFlightDefaultFollower(number); });
     writeAllFields();
+    writeFormationFields();
     scheduler.reset();
     setSaveStatus("Default loaded · not saved until Save", "warning");
   });
@@ -488,12 +586,75 @@ function installViewControls() {
   $("#capture-top-view").addEventListener("click", () => png($("#box-top-view"), boxTopViewTitle({ aircraftNumber: 1 })));
   $("#capture-z").addEventListener("click", () => png($("#box-z-svg"), boxZDiagramTitle({ aircraftNumber: 1 })));
   installDedPngClicks({
-    visibleAircraft: () => shownAircraft.visible(),
+    visibleAircraft: shownDedAircraft,
     exportPng: (numbers) => {
       const cards = numbers.map((number) => readDedCard(app.querySelector(`[data-output-aircraft="${number}"][data-aircraft-output="ded"]`), number)).filter(Boolean);
       if (cards.length) saveDedPng(cards, { filename: `BOX_DED_${numbers.map((number) => `#${number}`).join("_")}.png`, colorOf: (number) => AIRCRAFT_COLORS[number] });
     },
   });
+}
+
+// ---- Flight (#2–#4) ---------------------------------------------------------------------------------------------------
+// Owner 2026-10-25: the Formation tab (Offset's structure, #2–#4) holds each follower's position; the BDP / BOX / Spacer
+// Turn tabs of a follower say that it flies #1's data.
+
+const followerNote = (number, text) => `<p class="flight-draft-note">${text}</p>`;
+function followerSlotMarkup(number) {
+  const reference = BOX_FLIGHT_FORMATION_REFERENCE[number];
+  const section = (tab, title, body, head = "") => `<section class="section" data-tab="${tab}" data-aircraft-tab="${number}"><div class="section-head"><h2>${title} #${number}</h2>${head}</div>${body}</section>`;
+  const sameData = followerNote(number, `#${number} flies #1's BDP and BOX data: the Flight has one data set. Edit it on #1.`);
+  return section("formation", "Formation",
+    followerNote(number, `Position from #${reference}'s tail, laid off at #1's Abeam on the Downwind heading. The BOX Top View shows each aircraft there. The Spacer Turn will set the spacing from this Formation (later step).`)
+      + formationPositionMarkup({ attribute: "data-formation-field", keys: { side: "side", bearing: "bearingDeg", range: "distanceNm" }, referenceLabel: `#${reference}` })
+      + `<div id="flight-status-${number}" class="status-message valid">-</div>`,
+    `<div class="box-head-status"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div>`)
+    + section("bdp", "BDP", sameData)
+    + section("box", "BOX", sameData)
+    + section("spacer", "Spacer Turn", followerNote(number, "Spacer Turn is the BOX slot of S&amp;R. Its content comes in a later step."));
+}
+
+function writeFormationFields() {
+  followerNumbers().forEach((number) => formationFields(number).forEach((field) => writeField(field, field.dataset.formationField, followerRecord(number).formation[field.dataset.formationField])));
+}
+
+function renderFollowerStatus(number, entry) {
+  const pill = document.getElementById(`flight-state-pill-${number}`);
+  const message = document.getElementById(`flight-status-${number}`);
+  if (!pill || !message) return;
+  const status = !entry || entry.status === "FAILED" ? "INVALID" : entry.status;
+  pill.textContent = status;
+  pill.className = `status ${status === "VALID" ? "ok" : status === "WARNING" ? "warn" : "bad"}`;
+  message.textContent = status === "VALID" ? "VALID" : `INVALID · ${entry?.error ?? "no result"}`;
+  message.className = `status-message ${status.toLowerCase()}`;
+}
+
+function renderFollowerSlots() {
+  const host = document.getElementById("flight-followers");
+  host.replaceChildren(...followerNumbers().map((number) => {
+    const slot = document.createElement("div");
+    slot.className = "flight-slot";
+    slot.dataset.aircraft = String(number);
+    slot.innerHTML = followerSlotMarkup(number);
+    return slot;
+  }));
+  installFormationSideSelects(host);
+  installSectionDisclosureOn(host.querySelectorAll(".section[data-tab]"), { idPrefix: "box-follower-body" });
+  installTabs(host);
+  writeFormationFields();
+}
+
+// Size of Flight: the followers it adds take their saved or default place and are shown; the ones it drops keep
+// their records for a later regrowth.
+function setFlightSize(size, { calculate = true } = {}) {
+  const before = flightSize;
+  flightSize = Math.min(4, Math.max(1, Number(size) || 1));
+  $("#flight-size").value = String(flightSize);
+  followerNumbers().forEach(followerRecord);
+  renderFollowerSlots();
+  shownAircraft.prune(flightSize);
+  if (flightSize > before) shownAircraft.replace([...shownAircraft.saved(), ...followerNumbers().filter((number) => number > before)]);
+  shownAircraft.sync();
+  if (calculate) scheduler.immediate();
 }
 
 // ---- Mount --------------------------------------------------------------------------------------------------------------
@@ -508,19 +669,29 @@ function mountInputs() {
   app.querySelector('[data-ded-pages="1"]').innerHTML = dedPagesMarkup(["OA1", "OA2"]);
 }
 
-function installTabs() {
-  // BDP: Full BDP immediately before Tab Default (owner 2026-10-25); BOX: Advanced (Turn Onset, OUT) and Tab Default.
-  installSectionTools(app.querySelectorAll(".section[data-tab]"), {
-    toolsOf: (section) => ({ bdp: ["fullBdp", "default"], box: ["advanced", "default"] })[section.dataset.tab] ?? [],
+function installTabs(root = app) {
+  // BDP: Full BDP immediately before Tab Default (owner 2026-10-25); BOX: Advanced (Turn Onset, OUT) and Tab Default;
+  // a follower's Formation: Tab Default. A follower's BDP / BOX note has no tools.
+  installSectionTools(root.querySelectorAll(".section[data-tab]"), {
+    toolsOf: (section) => (section.dataset.aircraftTab
+      ? (section.dataset.tab === "formation" ? ["default"] : [])
+      : ({ bdp: ["fullBdp", "default"], box: ["advanced", "default"] })[section.dataset.tab] ?? []),
     defaultLabel: "Tab Default",
-    onDefault: (section) => resetTab(section.dataset.tab),
+    onDefault: (section) => (section.dataset.aircraftTab ? resetFormation(Number(section.dataset.aircraftTab)) : resetTab(section.dataset.tab)),
   });
+}
+
+function resetFormation(number) {
+  followers[number] = boxFlightDefaultFollower(number);
+  writeFormationFields();
+  scheduler.reset();
 }
 
 mountInputs();
 mountBdpViews();
 installTabs();
 installEdits();
+installFormationEdits();
 installCalculation();
 installSaveTab();
 installViewControls();
@@ -530,11 +701,14 @@ if (loadedSave) {
   lead.values ??= {};
   lead.locks ??= {};
   lead.state ??= {};
-  if (Array.isArray(loadedSave.shown)) shownAircraft.replace(loadedSave.shown.filter((number) => number === 1));
+  [2, 3, 4].forEach((number) => { if (isRecordObject(loadedSave.aircraft[number]?.formation)) followers[number] = structuredClone({ formation: loadedSave.aircraft[number].formation }); });
+  setFlightSize(loadedSave.flightSize ?? 1, { calculate: false });
+  if (Array.isArray(loadedSave.shown)) shownAircraft.replace(loadedSave.shown.filter((number) => number <= flightSize));
   setSaveStatus(`Loaded · saved ${savedTimeText(new Date(loadedSave.savedAt))}`);
 } else {
   setSaveStatus("Default conditions · not saved yet", "warning");
 }
+$("#flight-size").addEventListener("change", (event) => setFlightSize(event.target.value));
 writeAllFields();
 scheduler.reset();
 

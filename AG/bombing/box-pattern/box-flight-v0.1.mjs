@@ -5,23 +5,26 @@ import { createCalculationCache, withCalculationCache } from "../../../common/ca
 // The flight-level mechanics (Flight structure, input records, edit events, per-aircraft reuse, editing session,
 // drop-order walk) are Flight Bombing Tactics'; this entrypoint gives them the BOX meaning.
 import {
-  aircraftSolveKey as flightSolveKey, applyFlightEdits, createFlightSession, dropOrderTiming, flightEditEvents, readFlightRecords, reusedSolve,
+  aircraftSolveKey as flightSolveKey, applyFlightEdits, createFlightSession, flightEditEvents, readFlightRecords, reusedSolve,
 } from "../../../flight/flight-bombing-tactics/flight-composition-v0.1.mjs";
 
 // BOX Flight entrypoint (BOX SPEC "BOX Flight entrypoint", 2026-10-25). One call takes the whole Flight input state
 // and returns every aircraft's Full BOX v0.3 result, its DED pages (OA1, OA2) and the next input state. It has the
 // Offset Flight entrypoint's shape, so the BOX page uses the same Flight host, Worker and session:
-//   { schemaVersion?, flightSize, aircraft: { 1: { values, locks, state } }, edit? | edits? }
+//   { schemaVersion?, flightSize, aircraft: { 1: { values, locks, state }, 2–4: { formation } }, edit? | edits? }
 // The BDP Profile edit rules are the Offset page's (one BDP list, owner 2026-10-25): a Tracking Time entry solves the
 // Roll-in Altitude ("time"), a Roll-in / Release Altitude entry solves the Tracking Time ("height"), and with the
 // Roll-in Altitude LOCK a Tracking Time entry moves the Release Altitude ("release"); Initial Altitude may be LINKED
 // to the Roll-in Altitude. BOX's turn conditions and Roll-in values stay in BOX (owner 2026-10-25).
-// #1 only for now: BOX Formation (#2–#4, Offset's Flight structure and position rules) is the next step, and a
-// follower record fails its aircraft with that message.
+// Formation (0.2.0, owner 2026-10-25): #1–#4 fly the same BOX data, #1's, so a follower record holds only its Formation
+// position (Offset's rule: bearing from the reference aircraft's tail, Left / Right, range; #2 and #3 off #1, #4 off
+// #3). The BE places each aircraft in the pattern for the Top View: #1 at its Abeam on the Downwind, the others
+// displaced by their Formation vectors on the Downwind heading. The spacing between aircraft is the Spacer Turn's
+// (a later step, which reads this Formation).
 // Pure: no DOM, window, storage or FE import; the input is never mutated; the same input gives the same output.
 export const BOX_FLIGHT_V0_1 = Object.freeze({
   id: "box-flight-v0.1",
-  version: "0.1.0",
+  version: "0.2.0",
   status: "work",
   schemaVersion: 1,
   components: Object.freeze({ boxComposition: BOX_V2_COMPOSITION_MODEL_V0_3.version }),
@@ -81,6 +84,20 @@ export const BOX_FLIGHT_DEFAULT_STATE = Object.freeze({
 export function boxFlightDefaultLead() {
   return { values: { ...BOX_FLIGHT_DEFAULT_VALUES }, locks: {}, state: { ...BOX_FLIGHT_DEFAULT_STATE } };
 }
+
+// Formation (Offset's Flight structure): the reference aircraft and the default (fingertip) position of each follower.
+export const BOX_FLIGHT_FORMATION_REFERENCE = Object.freeze({ 2: 1, 3: 1, 4: 3 });
+export const BOX_FLIGHT_FORMATION_DEFAULTS = Object.freeze({
+  2: Object.freeze({ side: "LEFT", bearingDeg: 90, distanceNm: 1 }),
+  3: Object.freeze({ side: "RIGHT", bearingDeg: 90, distanceNm: 2 }),
+  4: Object.freeze({ side: "RIGHT", bearingDeg: 90, distanceNm: 1 }),
+});
+export function boxFlightDefaultFollower(number) {
+  const formation = BOX_FLIGHT_FORMATION_DEFAULTS[number];
+  if (!formation) throw new RangeError("follower number must be 2, 3 or 4");
+  return { formation: { ...formation } };
+}
+const FORMATION_KEYS = new Set(["side", "bearingDeg", "distanceNm"]);
 
 // Keys a blank leaves to the BE (each one's default applies); every other numeric key is required.
 const OPTIONAL_KEYS = new Set(["semTurnDirection", "semTurnG", "semTurnSpeedKcas", "outSpeedKcas", "outRecoveryG", "outClimbPitchDeg", "outClimbG", "outLevelOffSpeedKcas"]);
@@ -150,8 +167,11 @@ function normalizeLead(record = {}) {
   };
 }
 
-function normalizeFollower() {
-  throw new TypeError("BOX Formation (#2–#4) is not available yet; it is the next step");
+// A follower holds only its Formation position (its BOX data is #1's). A missing record is the default position.
+function normalizeFollower(record = {}) {
+  if (!record || typeof record !== "object") throw new TypeError("a follower record must be an object");
+  const formation = record.formation ?? {};
+  return { formation: { side: formation.side ?? null, bearingDeg: formation.bearingDeg ?? null, distanceNm: formation.distanceNm ?? null } };
 }
 
 function normalizeFlightInput(input) {
@@ -219,10 +239,20 @@ function applyLeadEdit(lead, edit) {
   if (key === "crossLegExtensionNm") s.crossLegSource = isNumber(value) ? "USER" : "DEFAULT";
 }
 
+// A follower's Formation edit: the page puts the typed value into `formation`; a cleared field takes its default.
+function applyFollowerEdit(follower, edit, number) {
+  if (!FORMATION_KEYS.has(edit.key)) throw new TypeError(`"${edit.key}" is not a Formation field (#${number} flies #1's BOX data)`);
+  if (edit.kind === "clear") {
+    follower.formation[edit.key] = BOX_FLIGHT_FORMATION_DEFAULTS[number][edit.key];
+    return;
+  }
+  if (edit.kind !== "set") throw new TypeError(`edit kind "${edit.kind}" is not supported on #${number}`);
+}
+
 function applyEdits(aircraft, edits) {
   return applyFlightEdits(aircraft, edits, (number, edit) => {
-    if (number !== 1) throw new TypeError("BOX Formation (#2–#4) is not available yet");
-    applyLeadEdit(aircraft[1], edit);
+    if (number === 1) applyLeadEdit(aircraft[1], edit);
+    else applyFollowerEdit(aircraft[number], edit, number);
   });
 }
 
@@ -393,13 +423,60 @@ function solveLead(lead, stateError) {
 
 const SOLVE_MODEL_KEY = `${BOX_FLIGHT_V0_1.id}@${BOX_FLIGHT_V0_1.version}`;
 
-function outputRecord(record) {
+function outputRecord(number, record) {
   if (record.raw) return structuredClone(record.raw);
+  if (number !== 1) return { formation: record.formation };
   return { values: record.values, locks: record.locks, state: record.state };
+}
+
+// #1's place in the Formation: its Abeam on the Downwind, flying the Downwind heading (Attack Heading + 180°, RIGHT
+// pattern). Attack frame: alongNm along the Attack Heading from the Target, sideNm toward the pattern side.
+function leadPosition(result) {
+  const abeam = result.geometry.stations.abeam;
+  return { alongNm: abeam.alongNm, sideNm: abeam.sideNm, headingDeg: norm(result.attackHeadingDeg + 180) };
+}
+
+// A follower's place (Offset's Formation rule, offset-formation-v0.1 computeFormationOffsetVector): the bearing is
+// measured from the reference aircraft's tail, 0° behind, 90° abeam, 180° ahead, clockwise on the Left; the vector is
+// laid off from the reference aircraft's place on the Downwind heading. Every aircraft flies that heading.
+function followerPosition(number, follower, reference, attackHeadingDeg) {
+  const { side, bearingDeg, distanceNm } = follower.formation;
+  if (side !== "LEFT" && side !== "RIGHT") throw new TypeError(`#${number} Formation side must be LEFT or RIGHT`);
+  requireNumber(`#${number} Formation bearingDeg`, bearingDeg);
+  requireNumber(`#${number} Formation distanceNm`, distanceNm);
+  if (!(bearingDeg >= 0 && bearingDeg <= 180)) throw new RangeError(`#${number} Formation bearing must be between 0 and 180 deg`);
+  if (!(distanceNm >= 0)) throw new RangeError(`#${number} Formation range must be 0 NM or more`);
+  const trueBearingDeg = norm(reference.headingDeg + 180 + (side === "LEFT" ? bearingDeg : -bearingDeg));
+  const relative = ((trueBearingDeg - attackHeadingDeg) * Math.PI) / 180;
+  return {
+    alongNm: reference.alongNm + distanceNm * Math.cos(relative),
+    sideNm: reference.sideNm + distanceNm * Math.sin(relative),
+    headingDeg: reference.headingDeg,
+    referenceAircraft: BOX_FLIGHT_FORMATION_REFERENCE[number],
+    trueBearingFromReferenceDeg: trueBearingDeg,
+    distanceFromReferenceNm: distanceNm,
+  };
+}
+
+function placeFollower(number, follower, stateError, results) {
+  const base = { aircraft: number, elementLead: BOX_FLIGHT_FORMATION_REFERENCE[number], predecessor: number - 1, result: null, ded: null, derived: new Set(), warnings: [] };
+  const failed = (message) => ({ ...base, status: "FAILED", position: null, error: message, errors: [message] });
+  if (stateError) return failed(stateError);
+  const referenceNumber = BOX_FLIGHT_FORMATION_REFERENCE[number];
+  const reference = results[referenceNumber]?.position;
+  if (!reference) return failed(`#${referenceNumber} has no current position`);
+  try {
+    const position = followerPosition(number, follower, reference, results[1].result.attackHeadingDeg);
+    return { ...base, status: "VALID", position, error: null, errors: [] };
+  } catch (error) {
+    return failed(error.message);
+  }
 }
 
 function calculateFlight(input, session) {
   const { flightSize, aircraft, stateErrors } = normalizeFlightInput(input);
+  // A follower within the Flight size without a record takes the default Formation position.
+  for (let number = 2; number <= flightSize; number += 1) aircraft[number] ??= boxFlightDefaultFollower(number);
   const editErrors = applyEdits(aircraft, flightEditEvents(input));
   const errorOf = (number) => stateErrors[number] ?? editErrors[number];
   const results = {};
@@ -409,20 +486,21 @@ function calculateFlight(input, session) {
     return { entry, record: aircraft[1] };
   });
   aircraft[1] = lead.record;
-  results[1] = lead.entry;
+  // A copy: the solved entry may be kept for reuse by the next call.
+  results[1] = { ...lead.entry, position: lead.entry.result ? leadPosition(lead.entry.result) : null };
   solveLog[1] = lead.reused ? "reused" : "solved";
+  // Followers fly #1's BOX: only their places are computed (no solve, nothing to reuse).
   for (let number = 2; number <= flightSize; number += 1) {
-    const message = errorOf(number) ?? "BOX Formation (#2–#4) is not available yet; it is the next step";
-    results[number] = { aircraft: number, status: "FAILED", result: null, error: message, errors: [message], warnings: [], derived: new Set(), ded: null };
-    solveLog[number] = "solved";
+    results[number] = placeFollower(number, aircraft[number], errorOf(number), results);
+    solveLog[number] = "placed";
   }
 
   const aircraftResults = {};
   const nextAircraft = {};
-  for (const [key, record] of Object.entries(aircraft)) nextAircraft[key] = outputRecord(record);
+  for (const [key, record] of Object.entries(aircraft)) nextAircraft[key] = outputRecord(Number(key), record);
   for (const [key, entry] of Object.entries(results)) {
     const { derived, ...rest } = entry;
-    if (nextAircraft[key] && !aircraft[key].raw) nextAircraft[key].derivedKeys = [...derived].sort();
+    if (key === "1" && nextAircraft[key] && !aircraft[key].raw) nextAircraft[key].derivedKeys = [...derived].sort();
     aircraftResults[key] = rest;
   }
   const output = {
@@ -430,8 +508,8 @@ function calculateFlight(input, session) {
     flightSize,
     aircraftResults,
     constraintDiagnostics: [],
-    // Drop-order timing comes with BOX Formation; until then no follower has a result.
-    flightTiming: dropOrderTiming(flightSize, results, () => ({})),
+    // The spacing between aircraft (and so their drop-order times) is the Spacer Turn's, a later step.
+    flightTiming: {},
     nextInput: { schemaVersion: BOX_FLIGHT_V0_1.schemaVersion, flightSize, aircraft: nextAircraft },
   };
   return { output, solveLog };

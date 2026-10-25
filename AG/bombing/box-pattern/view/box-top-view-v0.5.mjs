@@ -30,7 +30,9 @@ import { BOX_TOP_VIEW_LEGEND, BOX_VIEW_COLORS as C, boxTopViewTitle } from "./bo
 
 export const BOX_TOP_VIEW_V0_5 = Object.freeze({
   id: "box-top-view-v0.5",
-  version: "0.5.0",
+  // 0.5.1 (2026-10-25, owner, BOX Formation): options.formation draws each aircraft at its place in the pattern (the
+  // BE's positions: #1 at its Abeam, followers by their Formation), as an aircraft symbol on the Downwind heading.
+  version: "0.5.1",
   owner: "AG/bombing/box-pattern/SPEC.md",
   subject: "BOX",
   view: "Top View",
@@ -105,7 +107,9 @@ export function renderBoxTopView(svg, boxResult, options = {}) {
   const errorSize = 12 * textScale;
   const headerBlockHeight = 22 + headerSize + errorLines.length * errorSize * 1.45;
 
-  const fitPoints = [W.abeamLineFrom, W.abeamLineTo, ...Object.values(s).map(w), ...pathKeys.flatMap((key) => W[key])];
+  // Formation (0.5.1): [{ number, alongNm, sideNm, headingDeg, color }] in the attack frame, from the BOX Flight BE.
+  const formation = Array.isArray(options.formation) ? options.formation.filter((item) => Number.isFinite(item?.alongNm) && Number.isFinite(item?.sideNm)) : [];
+  const fitPoints = [W.abeamLineFrom, W.abeamLineTo, ...Object.values(s).map(w), ...pathKeys.flatMap((key) => W[key]), ...formation.map(w)];
   const fit = createSvgAutoCanvas(fitPoints, {
     width: WIDTH,
     minHeight: BOX_TOP_VIEW_V0_5.canvas.minHeight,
@@ -180,6 +184,25 @@ export function renderBoxTopView(svg, boxResult, options = {}) {
   root.append(svgNode("line", { x1: P.target.x - 10, y1: P.target.y, x2: P.target.x + 10, y2: P.target.y, stroke: C.target, "stroke-width": 2 }));
   root.append(svgNode("line", { x1: P.target.x, y1: P.target.y - 10, x2: P.target.x, y2: P.target.y + 10, stroke: C.target, "stroke-width": 2 }));
 
+  // Formation: an aircraft symbol (a triangle on its heading) per aircraft, in its colour.
+  const aircraftPoints = formation.map((item) => {
+    const at = fit.project(w(item));
+    const relative = ((item.headingDeg - boxResult.attackHeadingDeg) * Math.PI) / 180;
+    const ahead = fit.project(w({ alongNm: item.alongNm + 0.1 * Math.cos(relative), sideNm: item.sideNm + 0.1 * Math.sin(relative) }));
+    const length = Math.hypot(ahead.x - at.x, ahead.y - at.y) || 1;
+    const u = { x: (ahead.x - at.x) / length, y: (ahead.y - at.y) / length };
+    const n = { x: -u.y, y: u.x };
+    const size = 11;
+    const tip = { x: at.x + u.x * size, y: at.y + u.y * size };
+    const left = { x: at.x - u.x * size * 0.7 + n.x * size * 0.75, y: at.y - u.y * size * 0.7 + n.y * size * 0.75 };
+    const right = { x: at.x - u.x * size * 0.7 - n.x * size * 0.75, y: at.y - u.y * size * 0.7 - n.y * size * 0.75 };
+    root.append(svgNode("path", {
+      d: `M${tip.x.toFixed(1)},${tip.y.toFixed(1)} L${left.x.toFixed(1)},${left.y.toFixed(1)} L${right.x.toFixed(1)},${right.y.toFixed(1)} Z`,
+      fill: item.color ?? C.reference, stroke: "#ffffff", "stroke-width": 1.5, "data-box-aircraft": String(item.number),
+    }));
+    return { item, at };
+  });
+
   // In-plot header (top left) and Rev1.5 GEOMETRY ERROR lines.
   root.append(svgNode("text", {
     x: 22, y: 22 + headerSize, fill: C.reference, "font-size": headerSize, "font-weight": 850, "data-top-view-role": "header",
@@ -192,6 +215,7 @@ export function renderBoxTopView(svg, boxResult, options = {}) {
   // Labels: on their element, or joined to it by a leader (Common smart labels).
   const labels = createSmartLabelLayout(root, { width: WIDTH, height: HEIGHT, labelPad: 8, pathPad: 6, charWidthEm: 0.7 });
   [P.abeam, P.oa1, P.trackPoint, P.target].forEach((point) => labels.reservePoint(point, 11));
+  aircraftPoints.forEach(({ at }) => labels.reservePoint(at, 12));
   labels.reservePoint(P.release, 7);
   const headerWidth = Math.max(240 * textScale, ...errorLines.map((line) => line.length * errorSize * 0.62));
   labels.reserveRect({ x: 16, y: 16, w: headerWidth, h: headerBlockHeight - 8 });
@@ -270,6 +294,11 @@ export function renderBoxTopView(svg, boxResult, options = {}) {
     labelKey: "base-leg", color: C.baseLegText, detail: `${formatNm(v.baseLegNm)} NM · ${formatSec(v.baseLegTimeSec)} s`,
     candidates: lineCandidates(P.baseTurnEnd, P.oa1, -1),
   });
+
+  aircraftPoints.forEach(({ item, at }) => label(at, `#${item.number}`, {
+    labelKey: `aircraft-${item.number}`, color: item.color ?? C.reference, fontSize: stationSize * 1.15,
+    candidates: stationCandidates(["right", "left", "upRight", "downRight"]),
+  }));
 
   applyTextHalo(root);
   scopeSvgMarkerIds(svg, options.scope ?? "box-top");

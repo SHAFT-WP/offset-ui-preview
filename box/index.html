@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BOX Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./box.css?v=5263217bc724">
-<link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=5263217bc724">
-<link rel="stylesheet" href="./wide-layout.css?v=5263217bc724">
+<link rel="stylesheet" href="./box.css?v=7a79a4b15fb6">
+<link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=7a79a4b15fb6">
+<link rel="stylesheet" href="./wide-layout.css?v=7a79a4b15fb6">
 </head>
 <body class="box-wide bombing-wide">
 <!-- BOX page (owner 2026-10-23 / 25): a separate page on the Offset FE layout (PC Wide and phone), BOX v0.3 BE through
      the BOX Flight entrypoint. Tabs: BDP (shared BDP tab) / BOX / Spacer Turn (blank, the BOX S&R slot) / Formation
-     (#2–#4, next step) / Save/Load. -->
+     (#2–#4: each follower's position; one data set, #1's) / Save/Load. -->
 <main class="app" id="box-calculator">
   <header class="topbar">
     <div>
@@ -19,7 +19,7 @@
       <div class="subline">V2 modular work · BOX v0.3 BE · BDP v0.4</div>
     </div>
     <div class="toolbar">
-      <label class="flight-size-control" for="flight-size" title="BOX Formation (#2–#4) is the next step"><span>Size of Flight</span><select id="flight-size"><option value="1">1</option><option value="2" disabled>2</option><option value="3" disabled>3</option><option value="4" disabled>4</option></select></label>
+      <label class="flight-size-control" for="flight-size" title="#1–#4 fly #1's BDP and BOX data; #2–#4 set their Formation position"><span>Size of Flight</span><select id="flight-size"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
       <span class="rev" id="box-rev">V2 WORK · BOX BE 0.3</span>
     </div>
   </header>
@@ -130,6 +130,6 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=5263217bc724"></script>
+<script type="module" src="./wide-layout.mjs?v=7a79a4b15fb6"></script>
 </body>
 </html>
