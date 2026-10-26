@@ -10,9 +10,9 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // The BE runs in a Worker (offset-flight-worker-v0.1.mjs); Common calculation-client-v0.1.mjs decides when a
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
-import { OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=2026-10-14a";
+import { OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.8";
 import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
-const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.2", import.meta.url);
+const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.3", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -35,6 +35,8 @@ import {
 import { createPresetStore, createSaveRun, savedTimeText } from "./shared/save-store-v0.1.mjs?v=0.1.1";
 // The shown-aircraft set and its #1–#4 buttons: bombing app shared FE (2026-10-22).
 import { createShownAircraft, installShownAircraftClicks } from "./shared/flight-ui-v0.1.mjs?v=0.1.0";
+// The BDP tab of index #1–#4 (owner composition 2026-10-25): bombing app shared FE, as on the BOX page.
+import { BDP_TAB_KEYS, bdpTabMarkup } from "./shared/bdp-tab-v0.1.mjs?v=0.1.1";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.10";
@@ -361,14 +363,18 @@ function applyLeadState(lead, sentLead, activeKey, commit) {
   syncInitialLinkUi();
 }
 
+// #1's LINK buttons: the Offset tab's (Standard: BDP tab's) and the index BDP tab's copy.
+const leadLinkButtons = () => $$('#initial-link-btn, [data-link-key="rollInAltitudeLinked"]').filter((button) => !button.closest(".flight-slot"));
 function syncInitialLinkUi() {
-  const button = $("#initial-link-btn");
-  if (button) syncToggleButton(button, rollInAltitudeLinked, { texts: LINK_TEXTS });
-  const note = $("[data-initial-link-note]");
-  if (note) note.textContent = rollInAltitudeLinked ? "Linked to Roll-in Altitude" : "Reference only (not linked)";
-  // #1's BDP section: a direct child of the calculator in Standard, inside the #1 workspace in PC Wide.
-  const section = button?.closest(".section[data-tab]");
-  if (section) section.dataset.solveMode = bdpSolveMode;
+  leadLinkButtons().forEach((button) => syncToggleButton(button, rollInAltitudeLinked, { texts: LINK_TEXTS }));
+  $$("[data-initial-link-note]").filter((note) => !note.closest(".flight-slot")).forEach((note) => {
+    note.textContent = rollInAltitudeLinked ? "Linked to Roll-in Altitude" : "Reference only (not linked)";
+  });
+  // The #1 sections holding Initial Altitude: a direct child of the calculator in Standard, inside the #1 workspace in PC Wide.
+  fields("initialAltitudeMslFt").forEach((field) => {
+    const section = field.closest(".section[data-tab]");
+    if (section) section.dataset.solveMode = bdpSolveMode;
+  });
 }
 
 const SUMMARY_RESULTS = new Set(['runAttackSummary', 'offsetHeadingDeg', 'actionRangeNm', 'approachRangeNm', 'offsetTurnSec', 'approachSec', 'effectiveReleaseAltitudeMslFt', 'trackingTimeSecResult', 'leadAngleDeg', 'nltReleaseMslFt']);
@@ -1314,6 +1320,27 @@ function clearPendingInputStates() {
 }
 
 
+// index BDP tab (owner composition 2026-10-25; shared SPEC "BDP tab composition"): the shared BDP tab of #1–#4.
+// Target Elevation/Bomb type, Wind, Roll-in Turn and Turn Onset; Full BDP adds BDP Profile (with Offset Geometry's
+// Angle-Off) and SEM / Recovery with the SEM Turn inside it. The Offset tab keeps its BDP Profile and Roll-in
+// Condition copies: a field and its copy are one value. A follower's Target Elevation is its own once entered
+// (blank: its element lead's), Wind stays the Flight's. Standard keeps its own BDP tab.
+const INDEX_BDP_TAB = Object.freeze({ angleOff: { key: "angleOffDeg", lock: true, note: "Offset Geometry · Approaching Heading → Attack Heading" }, turnNote: "Offset Turn" });
+// Follower LOCK / LINK option keys of the BDP Profile copy (the Offset tab's, one value).
+const FOLLOWER_BDP_LOCKS = Object.freeze({ rollInAltitudeMslFt: "rollInAltitudeLocked", diveAngleDeg: "diveAngleLocked", angleOffDeg: "angleOffLocked" });
+// Keys of the index BDP tab that are Offset's (its Angle-Off copy): never reset by the BDP Tab Default.
+const BDP_TAB_OFFSET_KEYS = new Set(["angleOffDeg", "angleOffLocked"]);
+function installLeadBdpTab() {
+  const section = INDEX_LAYOUT ? $('.section[data-tab="bdp"][data-bdp-tab="1"]') : null;
+  if (!section) return;
+  section.innerHTML = bdpTabMarkup({ number: 1, ...INDEX_BDP_TAB, targetNote: "Target MSL", windNote: "TRUE · wind FROM · shared by the Flight" });
+  section.querySelector("[data-sem-readouts]").id = "lead-sem-readouts";
+}
+function followerBdpTabMarkup(number) {
+  const follower = { leadNumber: elementLeadNumber(number), lockKeys: FOLLOWER_BDP_LOCKS, linkKey: "rollInAltitudeLinked", followKeys: FOLLOWER_BDP_EXTRA_KEYS };
+  return `<section class="section flight-draft-section bdp-tab-section" data-tab="bdp" data-aircraft-tab="${number}">${bdpTabMarkup({ number, ...INDEX_BDP_TAB, follower })}</section>`;
+}
+
 // Per-tab controls (2026-09-26): each input tab of each aircraft carries its own visibility
 // toggle, Save and Default in its section head instead of one global title-bar row.
 // BDP tabs use Full BDP (their Advanced fields are exactly the BDP extras); Reference Point uses
@@ -1488,16 +1515,20 @@ const LEAD_TACTICAL_KEYS = ["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg",
 function resetLeadTab(tab, section) {
   const current = capturePersistedState();
   const defaults = createDefaultPersistedState();
-  const owns = (key) => !!section.querySelector(`[data-key="${key}"]:not(#ip-bearing-input)`);
+  // index BDP tab: the shared tab's keys (BDP_TAB_KEYS); its Angle-Off copy stays Offset's.
+  const tabKey = (key) => !(INDEX_LAYOUT && tab === "bdp") || BDP_TAB_KEYS.includes(key);
+  const owns = (key) => tabKey(key) && !!section.querySelector(`[data-key="${key}"]:not(#ip-bearing-input)`);
   section.querySelectorAll("[data-key]").forEach((control) => {
     const key = control.dataset.key;
-    if (control.id !== "ip-bearing-input" && Object.hasOwn(defaults.inputs, key)) {
+    if (control.id !== "ip-bearing-input" && tabKey(key) && Object.hasOwn(defaults.inputs, key)) {
       current.inputs[key] = defaults.inputs[key];
       if (Object.hasOwn(defaults.inputTexts ?? {}, key)) current.inputTexts[key] = defaults.inputTexts[key];
       else delete current.inputTexts[key];
     }
   });
-  section.querySelectorAll("[data-lock-key]").forEach((button) => { current.locks[button.dataset.lockKey] = defaults.locks?.[button.dataset.lockKey] === true; });
+  section.querySelectorAll("[data-lock-key]").forEach((button) => {
+    if (tabKey(button.dataset.lockKey)) current.locks[button.dataset.lockKey] = defaults.locks?.[button.dataset.lockKey] === true;
+  });
   if (owns("initialAltitudeMslFt")) {
     current.rollInAltitudeLinked = defaults.rollInAltitudeLinked;
     current.solveMode = defaults.solveMode;
@@ -1527,7 +1558,7 @@ function resetFollowerTab(number, tab, section = null) {
   const draft = flightDraft(number);
   const defaults = defaultFlightDraft(number);
   const keys = section
-    ? [...new Set([...section.querySelectorAll("[data-flight-field]")].map((node) => node.dataset.flightField))]
+    ? [...new Set([...section.querySelectorAll("[data-flight-field]")].map((node) => node.dataset.flightField))].filter((key) => tab !== "bdp" || !BDP_TAB_OFFSET_KEYS.has(key))
     : FOLLOWER_TAB_KEYS[tab] ?? [];
   if (keys.includes("initialAltitudeMslFt")) keys.push("solveMode", "enteredTrackingTimeSec");
   if (keys.some((key) => FLIGHT_TACTICAL_DRIVERS.includes(key))) keys.push("driver");
@@ -1544,7 +1575,8 @@ function resetFollowerTab(number, tab, section = null) {
 // Follower BDP inputs owned per aircraft. An empty value follows the element lead's current value
 // (#2 / #3: #1, #4: #3; Roll-in Bank: automatic from this aircraft's own Dive Angle), shown as the
 // placeholder; the BE resolves it (AG SPEC "Flight entrypoint").
-const FOLLOWER_BDP_EXTRA_KEYS = ["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg"];
+// Target Elevation joined them on 2026-10-26 (owner 2026-10-25; Offset Flight 0.1.8): index only has its field.
+const FOLLOWER_BDP_EXTRA_KEYS = ["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg", "targetElevationMslFt"];
 // Follower selections stored as text: blank SEM End / SEM Turn follow the element lead; a blank Turn Direction is
 // this aircraft's own Roll-in side (owner 2026-10-19).
 const FOLLOWER_CHOICES = Object.freeze({ semEnd: ["LEVEL", "CLIMB"], semTurnType: ["LEVEL", "SLICE"], semTurnDirection: ["LEFT", "RIGHT"] });
@@ -1683,27 +1715,26 @@ function renderSemFragmentReadouts(box, result) {
   writeFragmentReadouts(box, result?.profile?.public?.fragment);
 }
 
-function followerExtraField(key, label, { always = false, fullBdp = false, attrs = "" } = {}) {
-  const className = always ? `field${fullBdp ? " bdp-extra" : ""}` : "field advanced-only bdp-extra";
+// A follower BDP value that follows its element lead while blank. Standard: an Advanced field of its BDP tab; index
+// (always): the Offset tab's Roll-in G (the index BDP tab is the shared BDP tab).
+function followerExtraField(key, label, { always = false, attrs = "" } = {}) {
+  const className = always ? "field" : "field advanced-only bdp-extra";
   const tag = always ? "" : ` <span class="adv-tag">ADV</span>`;
   return `<label class="${className}"${attrs}><span>${label}${tag}</span><input data-flight-field="${key}" type="text" inputmode="decimal"><span class="unit" data-follow-note></span></label>`;
 }
-// SEM End (owner handoff 2026-10-18 §6): this aircraft's, or its element lead's while "Follow" (blank); with the
-// CSEM its Target FPA (blank follows the lead too).
-function followerSemFields(number, { always = false } = {}) {
-  const className = always ? "field bdp-extra" : "field advanced-only bdp-extra";
-  const tag = always ? "" : ` <span class="adv-tag">ADV</span>`;
-  return `<label class="${className}"><span>SEM End${tag}</span><select data-flight-field="semEnd"><option value="">Follow #${elementLeadNumber(number)}</option><option value="LEVEL">Level (FPA 0°, then 1 G)</option><option value="CLIMB">CSEM (climb to Target FPA)</option></select><span class="unit">Every BDP view and S&amp;R fly this SEM</span></label>`
-    + followerExtraField("csemTargetFpaDeg", "CSEM Target FPA (deg)", { always, fullBdp: always, attrs: " data-csem-only" });
+// Standard follower BDP tab (index: the shared BDP tab). SEM End (owner handoff 2026-10-18 §6): this aircraft's, or
+// its element lead's while "Follow" (blank); with the CSEM its Target FPA (blank follows the lead too).
+function followerSemFields(number) {
+  return `<label class="field advanced-only bdp-extra"><span>SEM End <span class="adv-tag">ADV</span></span><select data-flight-field="semEnd"><option value="">Follow #${elementLeadNumber(number)}</option><option value="LEVEL">Level (FPA 0°, then 1 G)</option><option value="CLIMB">CSEM (climb to Target FPA)</option></select><span class="unit">Every BDP view and S&amp;R fly this SEM</span></label>`
+    + followerExtraField("csemTargetFpaDeg", "CSEM Target FPA (deg)", { attrs: " data-csem-only" });
 }
 // Level SEM turn (owner 2026-10-19): its type and numbers follow the element lead while blank / "Follow"; the
-// direction is this aircraft's own (blank: its Roll-in side). index wraps these in a group of its own (data-level-sem-only);
-// Standard marks each field.
-function followerSemTurnFields(number, { always = false } = {}) {
-  const className = always ? "field bdp-extra" : "field advanced-only bdp-extra";
-  const tag = always ? "" : ` <span class="adv-tag">ADV</span>`;
-  const level = always ? "" : " data-level-sem-only";
-  const extra = (key, label, attrs = "") => followerExtraField(key, label, { always, fullBdp: always, attrs: `${level}${attrs}` });
+// direction is this aircraft's own (blank: its Roll-in side). Each field is marked Level SEM only.
+function followerSemTurnFields(number) {
+  const className = "field advanced-only bdp-extra";
+  const tag = ` <span class="adv-tag">ADV</span>`;
+  const level = " data-level-sem-only";
+  const extra = (key, label, attrs = "") => followerExtraField(key, label, { attrs: `${level}${attrs}` });
   return `<label class="${className}"${level}><span>SEM Turn${tag}</span><select data-flight-field="semTurnType"><option value="">Follow #${elementLeadNumber(number)}</option><option value="LEVEL">Level turn (bank AUTO)</option><option value="SLICE">Slice (entered bank, descends)</option></select><span class="unit">Right at the level-off · speed and G held</span></label>`
     + `<label class="${className}"${level}><span>Turn Direction${tag}</span><select data-flight-field="semTurnDirection"><option value="">Roll-in direction</option><option value="LEFT">Left</option><option value="RIGHT">Right</option></select><span class="unit">This aircraft's own · blank: its Roll-in side</span></label>`
     + extra("semTurnDeg", "Turn Amount (deg)")
@@ -1763,10 +1794,10 @@ function followerCalculatingMarkup(number) {
   // Roll-in Altitude LOCK (index): a Tracking Time entry then moves Release Altitude.
   const rollInLocked = `<label class="field"><span class="lock-title"><span>Roll-in Altitude (ft MSL)</span><button class="lock-button" type="button" data-flight-field="rollInAltitudeLocked" aria-label="Lock Roll-in Altitude" aria-pressed="false">LOCK</button></span><input data-flight-field="rollInAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">BDP entry altitude</span></label>`;
   // index (handoff 2026-10-06 §4): the frequently edited profile sits with the Offset geometry; the
-  // BDP tab holds the settings (Target / Wind shared with #1, Bomb, Roll-in condition, SEM). Standard
-  // keeps the earlier grouping. Same draft keys either way.
+  // BDP tab is the shared BDP tab (owner composition 2026-10-25), whose BDP Profile and Roll-in Turn are copies of
+  // the Offset tab's (one value). Standard keeps the earlier grouping. Same draft keys either way.
   const inputSections = INDEX_LAYOUT ? [
-    flightSection(number, "BDP", `<div class="input-grid"><label class="field"><span>Target Elevation (ft MSL)</span><output data-flight-readout="targetElevationMslFt">-</output><span class="unit">Shared with #1</span></label>${field.weapon}</div>${group("Wind", `<label class="field"><span>Wind FROM / Speed</span><output data-flight-readout="wind">-</output><span class="unit">Shared with #1 · TRUE FROM</span></label>`)}<div class="bdp-full-group">${group("Roll-in / Turn Onset", ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label, { always: true, fullBdp: true })).join(""))}${group("SEM / Recovery", `${followerSemFields(number, { always: true })}${followerExtraField("recoveryG", "Recovery G (G)", { always: true, fullBdp: true })}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)", { always: true, fullBdp: true })}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)", { always: true, fullBdp: true })}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)", { always: true, fullBdp: true })}`)}<h3 class="input-group-title" data-level-sem-only>SEM Turn</h3><div class="input-grid" data-level-sem-only>${followerSemTurnFields(number, { always: true })}</div><div data-sem-readouts></div></div>`, { calculating: true, tab: "bdp" }),
+    followerBdpTabMarkup(number),
     flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${field.initialSpeed}${field.initialAltitude}${rollInLocked}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${foldGroup("Roll-in Condition", `${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${statusLine}`, { calculating: true, tab: "offset" }),
   ] : [
     flightSection(number, "BDP", `<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}${ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label)).join("")}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerSemFields(number)}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerSemTurnFields(number)}</div><div data-sem-readouts></div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target).</p>`, { calculating: true, tab: "bdp" }),
@@ -1952,6 +1983,13 @@ function installFlightLayout() {
       if (event.type !== "input" && unchangedFollowingField(field)) return;
       delete field.dataset.following;
     }
+    // The other copies of this field (index BDP tab ↔ Offset tab) show what is typed at once: one value.
+    followerFields(field.closest(".flight-slot"), key).forEach((copy) => {
+      if (copy === field) return;
+      if (copy.type === "checkbox") copy.checked = field.checked;
+      else copy.value = field.value;
+      delete copy.dataset.following;
+    });
     const draft = flightDraft(number);
     // Empty-field commit, same rule as #1: blank inherited BDP values keep meaning "follow the lead".
     if (!selection && field.value.trim() === "" && !FOLLOWER_BDP_EXTRA_KEYS.includes(key)) {
@@ -2022,6 +2060,10 @@ function fillEmptyFollowerField(number, key) {
 function followerField(slot, key) {
   return slot.querySelector(`[data-flight-field="${key}"]`);
 }
+// Every copy of a follower field (index: BDP tab and Offset tab hold the BDP Profile and the Roll-in fields).
+function followerFields(slot, key) {
+  return [...slot.querySelectorAll(`[data-flight-field="${key}"]`)];
+}
 
 function followerSlot(number) {
   return document.querySelector(`.flight-slot[data-aircraft="${number}"]`);
@@ -2061,9 +2103,9 @@ function applyFollowerState(number, record, sent, activeKey, commit) {
   const write = (key, value) => {
     if (typeof value !== "number") return;
     const text = fieldDisplayText(key, value);
-    const field = slot ? followerField(slot, key) : null;
-    if (field && field === active && !(commit && key === activeKey)) return;
-    if (field) field.value = text;
+    const copies = slot ? followerFields(slot, key) : [];
+    if (copies.includes(active) && !(commit && key === activeKey)) return;
+    copies.forEach((field) => { field.value = text; });
     draft[key] = text;
     draft.solved[key] = { text, value };
   };
@@ -2090,7 +2132,7 @@ function applyFollowerState(number, record, sent, activeKey, commit) {
 // follow shows the applied value in the field like any input, and its note says it follows the element
 // lead. Typing over it gives the aircraft its own value; clearing it follows again. (The Roll-in Bank is
 // no longer an extra: it is BDP v0.4's result, owner 2026-10-15.)
-const FOLLOWER_EXTRA_DIGITS = { fragmentHeightMarginPercent: 0, recoveryG: 1, speedOvershootKcas: 0, gOnsetTimeSec: 1, rollInG: 1, rollInRollRateDegSec: 0, rollOutRollRateDegSec: 0, gOnsetRateGSec: 1, csemTargetFpaDeg: 0, semTurnDeg: 0, semTurnG: 1, semTurnSpeedKcas: 0, semTurnBankDeg: 0 };
+const FOLLOWER_EXTRA_DIGITS = { fragmentHeightMarginPercent: 0, recoveryG: 1, speedOvershootKcas: 0, gOnsetTimeSec: 1, rollInG: 1, rollInRollRateDegSec: 0, rollOutRollRateDegSec: 0, gOnsetRateGSec: 1, csemTargetFpaDeg: 0, semTurnDeg: 0, semTurnG: 1, semTurnSpeedKcas: 0, semTurnBankDeg: 0, targetElevationMslFt: 0 };
 // What a blank (followed) entry means when the lead's is blank too.
 const FOLLOWER_EXTRA_PLACEHOLDERS = { semTurnG: "Recovery G", semTurnSpeedKcas: "Level-off" };
 const followerExtraText = (key, value) => String(Number(value.toFixed(FOLLOWER_EXTRA_DIGITS[key])));
@@ -2098,11 +2140,8 @@ function syncFollowerExtraFields(slot, entry, result, leadNumber) {
   const number = Number(slot.dataset.aircraft);
   const draft = flightDraft(number);
   const inputs = result.profile.canonicalInputs;
-  FOLLOWER_BDP_EXTRA_KEYS.forEach((key) => {
-    const field = followerField(slot, key);
-    if (!field) return;
+  FOLLOWER_BDP_EXTRA_KEYS.forEach((key) => followerFields(slot, key).forEach((field) => {
     const value = inputs[key];
-    const source = entry.inheritance?.[key]?.source;
     const following = String(draft[key] ?? "").trim() === "";
     const note = field.closest(".field")?.querySelector("[data-follow-note]");
     if (note) note.textContent = following ? `Follows #${leadNumber}` : `Own value · clear to follow #${leadNumber}`;
@@ -2117,10 +2156,15 @@ function syncFollowerExtraFields(slot, entry, result, leadNumber) {
     field.dataset.followingText = followerExtraText(key, value);
     if (field !== document.activeElement || field.dataset.refill) field.value = field.dataset.followingText;
     delete field.dataset.refill;
+  }));
+  // The tabs holding Initial Altitude (Standard: BDP, index: Offset and the BDP tab's copy) show the solve mode.
+  syncFollowerSolveMode(slot, draft);
+}
+function syncFollowerSolveMode(slot, draft) {
+  followerFields(slot, "initialAltitudeMslFt").forEach((field) => {
+    const section = field.closest(".section");
+    if (section) section.dataset.solveMode = draft.solveMode === "time" ? "time" : "height";
   });
-  // The tab holding Initial Altitude (Standard: BDP, index: Offset) shows the solve mode.
-  const section = followerField(slot, "initialAltitudeMslFt")?.closest(".section");
-  if (section) section.dataset.solveMode = draft.solveMode === "time" ? "time" : "height";
 }
 
 // A following extra field committed without a change (focus + Enter / Tab) stays following.
@@ -2227,14 +2271,11 @@ document.addEventListener("click", (event) => {
 function renderFollower(number, entry) {
   const slot = followerSlot(number);
   if (!slot) return;
-  // index BDP tab: Target Elevation and Wind are #1's (shared), shown read-only here.
-  const sharedTarget = slot.querySelector('[data-flight-readout="targetElevationMslFt"]');
-  if (sharedTarget) sharedTarget.textContent = `${value("targetElevationMslFt") ?? "-"} ft`;
+  // index BDP tab: the Wind is #1's (the Flight's), shown read-only here.
   const sharedWind = slot.querySelector('[data-flight-readout="wind"]');
   if (sharedWind) sharedWind.textContent = `${value("windDirectionDeg") ?? "-"}° / ${value("windSpeedKt") ?? "-"} kt`;
-  // The tab holding Initial Altitude (Standard: BDP, index: Offset) shows the stored solve mode.
-  const profileSection = followerField(slot, "initialAltitudeMslFt")?.closest(".section");
-  if (profileSection) profileSection.dataset.solveMode = flightDraft(number).solveMode === "time" ? "time" : "height";
+  // The tabs holding Initial Altitude show the stored solve mode.
+  syncFollowerSolveMode(slot, flightDraft(number));
   const zSvg = flightOutput(number, "svg[data-flight-z]");
   const zPng = flightOutput(number, "[data-flight-z-png]");
   if (!entry.result) {
@@ -2677,10 +2718,11 @@ function install() {
   // Header shows the Offset BE version actually loaded.
   const rev = $(".rev");
   if (rev) rev.textContent = `V2 WORK · OFFSET BE ${OFFSET_FLIGHT_V0_1.components.offsetBe} · FLIGHT ${OFFSET_FLIGHT_V0_1.version}`;
+  installLeadBdpTab();
   installCalculation();
   populateWeapons();
   installLocks();
-  $("#initial-link-btn")?.addEventListener("click", () => calculate({ aircraft: 1, kind: "toggle", key: "rollInAltitudeLinked", value: toggledValue(1, "toggle", "rollInAltitudeLinked", rollInAltitudeLinked) }));
+  leadLinkButtons().forEach((button) => button.addEventListener("click", () => calculate({ aircraft: 1, kind: "toggle", key: "rollInAltitudeLinked", value: toggledValue(1, "toggle", "rollInAltitudeLinked", rollInAltitudeLinked) })));
   installModeButtons();
   installFragmentMarginButton();
   installReferenceBearingControls();

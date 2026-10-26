@@ -1,5 +1,5 @@
 // Same cache token as the page controller (one module instance in the in-thread fallback).
-import { OFFSET_FLIGHT_V0_1, createOffsetFlightSession } from "./offset-flight-v0.1.mjs?v=2026-10-12d";
+import { OFFSET_FLIGHT_V0_1, createOffsetFlightSession } from "./offset-flight-v0.1.mjs?v=0.1.8";
 // The host itself is Flight Bombing Tactics' (2026-10-22): this module gives it the Offset Flight session.
 import { createFlightHost, serveFlightWorker } from "../../../flight/flight-bombing-tactics/flight-worker-host-v0.1.mjs";
 
@@ -20,7 +20,7 @@ import { createFlightHost, serveFlightWorker } from "../../../flight/flight-bomb
 //
 // The same module is the page's in-thread fallback when a module Worker cannot start.
 
-export const OFFSET_FLIGHT_WORKER_V0_1 = Object.freeze({ id: "offset-flight-worker-v0.1", version: "0.1.1", flight: OFFSET_FLIGHT_V0_1.version });
+export const OFFSET_FLIGHT_WORKER_V0_1 = Object.freeze({ id: "offset-flight-worker-v0.1", version: "0.1.2", flight: OFFSET_FLIGHT_V0_1.version });
 
 export function createOffsetFlightHost() {
   return createFlightHost(createOffsetFlightSession());

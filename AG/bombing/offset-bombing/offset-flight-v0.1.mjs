@@ -42,7 +42,10 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // every absolute Attack Heading (#1 and each follower, LOCKed or not), the VRP and VIP bearings and a locked
   // IP's bearing move by the Run-In change from #1 state.runInBaseDeg (the last solved Run-In); LOCKs stay on
   // and the driver is kept. state.runInTurnDeg adds up these turns (S&R turns its plan by it); the wind stays.
-  version: "0.1.7",
+  // 0.1.8 (2026-10-26, owner 2026-10-25, shared BDP tab): a follower's Target Elevation is its own input; blank
+  // follows the element lead's (#1 for #2 / #3, #3 for #4), like the other inherited BDP values. All blank flies as
+  // 0.1.7 (#1's Target Elevation for every aircraft).
+  version: "0.1.8",
   status: "work",
   schemaVersion: 1,
   components: Object.freeze({
@@ -96,7 +99,8 @@ const FOLLOWER_FALLBACK_DRIVERS = Object.freeze({ actionRangeNm: "offsetAngleDeg
 // 2026-10-19 (owner): the Level SEM turn — semTurnDeg and semTurnType (LEVEL / SLICE) follow the same way; the
 // optional semTurnG / semTurnSpeedKcas / semTurnBankDeg follow the lead's entry, whose blank means Recovery G / the
 // level-off speed / none. semTurnDirection is each aircraft's own (blank: its own Roll-in direction).
-export const OFFSET_FLIGHT_INHERITED_KEYS = Object.freeze(["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "semTurnDeg"]);
+// 2026-10-26 (0.1.8, owner 2026-10-25): targetElevationMslFt joins them (each aircraft's own once entered).
+export const OFFSET_FLIGHT_INHERITED_KEYS = Object.freeze(["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "semTurnDeg", "targetElevationMslFt"]);
 export const OFFSET_FLIGHT_INHERITED_TEXT_KEYS = Object.freeze(["semEnd", "semTurnType"]);
 export const OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS = Object.freeze(["semTurnG", "semTurnSpeedKcas", "semTurnBankDeg"]);
 const SEM_ENDS = Object.freeze(["LEVEL", "CLIMB"]);
@@ -806,8 +810,8 @@ function followerOffsetInput({ number, follower, leaderResult, leadNumber, fligh
     offsetRadiusNm: leaderResult.resolved.offsetRadiusNm,
     profile: {
       weaponId: v.weaponId ?? "M82",
-      // Target elevation and the true wind are the Flight's (#1's), same Target for every aircraft.
-      targetElevationMslFt: flightProfile.targetElevationMslFt,
+      // The true wind is the Flight's (#1's); the Target Elevation is this aircraft's own or its element lead's (0.1.8).
+      targetElevationMslFt: inherited.targetElevationMslFt,
       windDirectionTrueDeg: requireNumber("#1 windDirectionDeg", flightLeadValues.windDirectionDeg),
       windSpeedKt: flightProfile.windSpeedKt,
       recoveryG: inherited.recoveryG,
