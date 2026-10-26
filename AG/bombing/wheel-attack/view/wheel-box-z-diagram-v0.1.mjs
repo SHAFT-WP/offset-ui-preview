@@ -6,12 +6,13 @@ import { boxAbeamText } from "../../box-pattern/view/box-z-diagram-v0.3.mjs";
 import { wheelZDiagramTitle } from "./wheel-view-style-v0.1.mjs";
 import { formatWheelRadiusNm } from "../wheel-box-geometry-v0.6.mjs";
 
-// Wheel-BOX #n Z-Diagram for the Wheel-BOX v0.8 result (2026-10-25): the BDP Z of the Wheel's own BDP v0.4 solve
+// Wheel-BOX #n Z-Diagram for the Wheel-BOX v0.8 / v0.9 result (2026-10-25): the BDP Z of the Wheel's own BDP v0.4 solve
 // (Angle-Off 90°) in the Common Z grammar, as BOX's (box-z-diagram-v0.3): the Roll-in group ends with `Abeam +Nsec`,
 // the time flown past the Wheel's Abeam before the Base Turn, and the rows give the Wheel and the Base Turn.
+// 0.1.1 (Wheel-BOX v0.9): a Base Turn G the BE raised to fit Base Distance reads `requested → flown G`.
 export const WHEEL_BOX_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "wheel-box-z-diagram-v0.1",
-  version: "0.1.0",
+  version: "0.1.1",
   owner: "AG/bombing/wheel-attack/SPEC.md",
   subject: "Wheel-BOX",
   view: "Z-Diagram",
@@ -28,13 +29,13 @@ export function buildWheelBoxZDiagramRowsV0_1(result) {
   return [
     { label: "Wheel Radius / Speed / Bank", value: `${formatWheelRadiusNm(wheel.radiusNm)} NM / ${formatKt(wheel.wheelSpeedKcas)} KCAS / ${formatDeg(wheel.wheelBankAngleDeg)}°` },
     { label: "Wheel 180° Time", value: `${formatSec(wheel.wheelTurn180TimeSec)} sec` },
-    { label: "Base Turn Speed / G / Bank", value: `${formatKt(result.pattern.patternSpeedKcas)} KCAS / ${formatG(base.loadFactorG)} G / ${formatDeg(base.bankAngleDeg)}°` },
+    { label: "Base Turn Speed / G / Bank", value: `${formatKt(result.pattern.patternSpeedKcas)} KCAS / ${base.autoRaised ? `${formatG(base.requestedLoadFactorG)} → ` : ""}${formatG(base.loadFactorG)} G / ${formatDeg(base.bankAngleDeg)}°` },
   ];
 }
 
 export function renderWheelBoxZDiagramV0_1(svg, result, options = {}) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
-  if (!result?.bombDelivery || !result?.wheel || !result?.turns?.base) throw new TypeError("result must be a Wheel-BOX v0.8 result");
+  if (!result?.bombDelivery || !result?.wheel || !result?.turns?.base) throw new TypeError("result must be a Wheel-BOX v0.8 / v0.9 result");
   const title = wheelZDiagramTitle({ aircraftNumber: options.aircraftNumber });
   svg.setAttribute("aria-label", title);
   const data = buildBdpZDiagramData(result.bombDelivery);

@@ -16,8 +16,8 @@ import { WHEEL_TOP_VIEW_LEGEND, WHEEL_VIEW_COLORS as C, wheelTopViewTitle } from
 import { formatWheelRadiusNm } from "../wheel-box-geometry-v0.6.mjs";
 
 // Wheel-BOX #n Top View — Wheel-owned view in the V2 unified view grammar (common/diagram/SPEC.md; Wheel SPEC
-// "Wheel-BOX v0.8 views"), drawn on the BOX Top View's layout (box-top-view-v0.5) for the Wheel-BOX v0.8 route
-// (wheel-box-geometry-v0.6, BE); this module only projects it:
+// "Wheel-BOX v0.8 views"), drawn on the BOX Top View's layout (box-top-view-v0.5) for the Wheel-BOX v0.8 / v0.9 route
+// (wheel-box-geometry-v0.6 / v0.7, BE); this module only projects it:
 //   Wheel (Target-centred circle; the quarter flown to Abeam drawn solid) → Abeam → Abeam Extension (Downwind heading)
 //   → Base Turn → Base Leg → Roll-in → Tracking, with the Target abeam line, the Roll-in Point → Target line and the
 //   Roll-in label `Roll-in Range NM/Roll-in Lead Angle °` (as BOX).
@@ -25,10 +25,11 @@ import { formatWheelRadiusNm } from "../wheel-box-geometry-v0.6.mjs";
 // - Advanced: the MAP circle and the Roll-in Distance (as BOX), the Min Wheel Radius circle when the Wheel is larger,
 //   and the Orbit circle when an Orbit is given (a waiting circle, never part of the route).
 // - Formation (options.formation): each aircraft at its BE place, a triangle on its heading.
+// - 0.1.1 (Wheel-BOX v0.9): a Base Turn G the BE raised to fit Base Distance reads `requested → flown G` (no radius).
 // - Self-contained: fills an empty <svg>; every stroke, fill and text halo is an attribute.
 export const WHEEL_BOX_TOP_VIEW_V0_1 = Object.freeze({
   id: "wheel-box-top-view-v0.1",
-  version: "0.1.0",
+  version: "0.1.1",
   owner: "AG/bombing/wheel-attack/SPEC.md",
   subject: "Wheel-BOX",
   view: "Top View",
@@ -83,7 +84,7 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
   const geometry = wheelResult?.geometry;
   if (!geometry?.stations?.abeam || !geometry?.paths?.wheel || !geometry?.validation || !wheelResult?.turns?.base) {
-    throw new TypeError("wheelResult must be a Wheel-BOX v0.8 result with its route geometry");
+    throw new TypeError("wheelResult must be a Wheel-BOX v0.8 / v0.9 result with its route geometry");
   }
   const sign = wheelResult.direction === "LEFT" ? -1 : 1;
   // Attack frame → drawing frame: x = toward the Wheel side (mirrored for LEFT), y = along the Attack Heading (up).
@@ -301,7 +302,10 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
   const baseInside = fit.project(w({ alongNm: s.baseTurnStart.alongNm, sideNm: s.baseTurnEnd.sideNm }));
   label(baseMiddle, "Base Turn", {
     labelKey: "base-turn", color: C.abeamText,
-    detail: `${kcas} · ${formatG(base.loadFactorG)} G · ${formatDeg(base.bankAngleDeg)}° · R ${formatNm(base.instantaneous.radiusNm)} NM`,
+    // A raised G reads `requested → flown` in place of the turn radius (the label keeps its length; the Result has both).
+    detail: base.autoRaised
+      ? `${kcas} · ${formatG(base.requestedLoadFactorG)} → ${formatG(base.loadFactorG)} G · ${formatDeg(base.bankAngleDeg)}°`
+      : `${kcas} · ${formatG(base.loadFactorG)} G · ${formatDeg(base.bankAngleDeg)}° · R ${formatNm(base.instantaneous.radiusNm)} NM`,
     candidates: arcCandidates(baseInside, baseMiddle),
   });
   if (shown(v.baseLegNm) && labelled(P.baseTurnEnd, P.oa1)) label(mid(P.baseTurnEnd, P.oa1), "Base Leg", {

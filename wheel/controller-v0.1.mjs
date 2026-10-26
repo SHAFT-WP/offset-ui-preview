@@ -4,7 +4,7 @@
 // Wheel values stay in Wheel: nothing here reads or writes the Offset or BOX page's state.
 import {
   WHEEL_FLIGHT_DEFAULT_STATE, WHEEL_FLIGHT_DEFAULT_VALUES, WHEEL_FLIGHT_FORMATION_REFERENCE, WHEEL_FLIGHT_V0_1, wheelFlightDefaultFollower, wheelFlightDefaultLead,
-} from "../AG/bombing/wheel-attack/wheel-flight-v0.1.mjs?v=0.1.0";
+} from "../AG/bombing/wheel-attack/wheel-flight-v0.1.mjs?v=0.2.0";
 import { createCalculationScheduler, createWorkerTransport } from "../common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
 import { WEAPON_DATABASE_V0_1 } from "../AG/bombing/bomb-delivery-planner/weapon-data-v0.1.mjs";
 import {
@@ -24,19 +24,22 @@ import { installSvgViewport } from "../common/diagram/svg-viewport-v0.1.mjs?v=0.
 import { installSmartLabelDrag } from "../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
 import { createTimePlayer, timeDialMarkup } from "../common/ui/time-dial-v0.1.mjs?v=0.1.0";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec } from "../common/ui/display-precision-v0.1.mjs?v=0.1.1";
-import { WHEEL_BOX_TOP_VIEW_V0_1, renderWheelBoxTopView, wheelRadiusText, wheelTopViewTitle } from "../AG/bombing/wheel-attack/view/wheel-box-top-view-v0.1.mjs?v=0.1.0";
-import { renderWheelBoxZDiagramV0_1, wheelAbeamText, wheelZDiagramTitle } from "../AG/bombing/wheel-attack/view/wheel-box-z-diagram-v0.1.mjs?v=0.1.0";
+import { WHEEL_BOX_TOP_VIEW_V0_1, renderWheelBoxTopView, wheelRadiusText, wheelTopViewTitle } from "../AG/bombing/wheel-attack/view/wheel-box-top-view-v0.1.mjs?v=0.1.1";
+import { renderWheelBoxZDiagramV0_1, wheelAbeamText, wheelZDiagramTitle } from "../AG/bombing/wheel-attack/view/wheel-box-z-diagram-v0.1.mjs?v=0.1.1";
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.11.2";
 
 // 0.1.0 (2026-10-25, owner): #1–#4 fly #1's BDP and Wheel data; #2–#4 hold only their Formation position, and the Wheel
 // Top View shows each aircraft at its place (BOX's Formation rule).
-export const WHEEL_PAGE_CONTROLLER_V0_1 = Object.freeze({ id: "wheel-page-controller-v0.1", version: "0.1.0", flight: WHEEL_FLIGHT_V0_1.version });
+// 0.2.0 (2026-10-26, owner; Wheel-BOX v0.9 through Wheel Flight 0.2.0): Downwind Angle 0°, shown fixed, never typed;
+// the Base Turn G field is the G asked for, its note and the Result give the G flown; Min Wheel Radius is the geometry or
+// the Wheel turn limit radius (no Base Distance floor); Wheel / Orbit limits NOT_EVALUATED read as such.
+export const WHEEL_PAGE_CONTROLLER_V0_1 = Object.freeze({ id: "wheel-page-controller-v0.1", version: "0.2.0", flight: WHEEL_FLIGHT_V0_1.version });
 
-const WORKER_URL = new URL("../AG/bombing/wheel-attack/wheel-flight-worker-v0.1.mjs?v=0.1.0", import.meta.url);
+const WORKER_URL = new URL("../AG/bombing/wheel-attack/wheel-flight-worker-v0.1.mjs?v=0.1.1", import.meta.url);
 const SAVE_KEY = "bombing-v2-wheel-work";
 const SAVE_SCHEMA = 1;
 // The Wheel tab's fields besides its BDP Profile / Roll-in / Turn Onset copies (its Tab Default restores all of them).
-const WHEEL_KEYS = Object.freeze(["attackHeadingDeg", "direction", "downwindAngleDeg", "wheelRadiusNm", "baseTurnG", "wheelSpeedKcas", "wheelAltitudeMslFt", "orbitRadiusNm", "orbitSpeedKcas", "orbitAltitudeMslFt"]);
+const WHEEL_KEYS = Object.freeze(["attackHeadingDeg", "direction", "wheelRadiusNm", "baseTurnG", "wheelSpeedKcas", "wheelAltitudeMslFt", "orbitRadiusNm", "orbitSpeedKcas", "orbitAltitudeMslFt"]);
 const WHEEL_TAB_COPY_KEYS = Object.freeze(["initialSpeedValue", "initialSpeedMode", "initialAltitudeMslFt", "rollInAltitudeMslFt", "diveAngleDeg", "trackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"]);
 // Display digits of values a solve writes back (the BDP tab's, plus the Wheel Radius at its 0.01 NM step).
 const FIELD_DIGITS = Object.freeze({ ...BDP_FIELD_DIGITS, wheelRadiusNm: 2 });
@@ -340,21 +343,28 @@ const legTime = (seconds) => `${formatSec(seconds)} sec`;
 function turnText(turn) {
   return `${formatG(turn.loadFactorG)} G · ${formatDeg(turn.bankAngleDeg)}° · R ${formatNm(turn.instantaneous.radiusNm)} NM · ${formatSec(turn.timeSec)} sec`;
 }
+// The Base Turn G the BE flew: the G asked for, or raised to fit Base Distance (both shown).
+const raisedGText = (base) => `${formatG(base.requestedLoadFactorG)} → ${formatG(base.loadFactorG)} G · raised to fit Base Distance`;
+// Source-bounded turn limits: within, outside (the issues), or not evaluated (the reason; neither a pass nor a block).
+function limitsText(performance) {
+  if (performance.valid === null) return `not evaluated: ${performance.reason}`;
+  return performance.valid ? "within the source limits" : `outside: ${performance.issues.join(", ")}`;
+}
 
 function wheelResultRows(result) {
   const p = result.pattern;
   const w = result.wheel;
   const abeam = wheelAbeamText(p.abeamExtensionTimeSec) ?? "-";
   const row = (label, text, key, summary = false) => resultRow(label, text, key, { summary });
-  const limits = w.performance.valid ? "within the source limits" : `outside: ${w.performance.issues.join(", ")}`;
   const rows = [
     row("Abeam", `${abeam.replace("Abeam ", "")} · ${formatNm(p.abeamExtensionDistanceNm)} NM`, "abeam", true),
     row("Wheel Radius", `${fieldText("wheelRadiusNm", w.radiusNm)} NM · ${w.radiusMode === "MIN_WHEEL_RADIUS" ? "MIN" : "manual"} · min ${wheelRadiusText(w.minimumUsableWheelRadiusNm)} NM`, "wheelRadiusNm", true),
-    row("Min Wheel Radius", `${wheelRadiusText(w.minWheelRadiusNm)} NM (Base Distance) · zero Base Leg ${wheelRadiusText(w.wheelRadiusForZeroBaseLegNm)} NM`, "minWheelRadiusNm"),
+    row("Min Wheel Radius", `${wheelRadiusText(w.minWheelRadiusNm)} NM · zero Base Leg ${wheelRadiusText(w.geometryMinWheelRadiusNm)} NM · turn limit ${isNumber(w.performanceMinWheelRadiusNm) ? `${wheelRadiusText(w.performanceMinWheelRadiusNm)} NM` : "not evaluated"}`, "minWheelRadiusNm"),
     row("Wheel Turn", `${formatKt(w.wheelSpeedKcas)} kcas · ${formatFt(w.wheelAltitudeMslFt)} ft · ${formatDeg(w.wheelBankAngleDeg)}° · 180° ${legTime(w.wheelTurn180TimeSec)}`, "wheelTurn", true),
-    row("Wheel Performance", `${w.performance.profile?.id ?? "source profile"} · ${limits}`, "wheelPerformance"),
-    row("Downwind", `${headingText(result.downwindHeadingDeg)} · Downwind Angle ${formatDeg(p.downwindAngleDeg)}°`, "downwind"),
+    row("Wheel Performance", `${w.performance.profile?.id ?? "source profile"} · ${limitsText(w.performance)}`, "wheelPerformance"),
+    row("Downwind", `${headingText(result.downwindHeadingDeg)} · Downwind Angle ${formatDeg(p.downwindAngleDeg)}° · Fixed`, "downwind"),
     row("Base Turn", turnText(result.turns.base), "baseTurn", true),
+    ...(result.turns.base.autoRaised ? [row("Base Turn G", raisedGText(result.turns.base), "baseTurnG", true)] : []),
     row("Base Leg", `${formatNm(p.baseLegNm)} NM · ${legTime(p.baseLegTimeSec)}`, "baseLegNm", true),
     row("Base Distance", `${formatNm(p.baseDistanceNm)} NM`, "baseDistanceNm"),
     row("Roll-in Long. D", `${formatNm(p.rollInLongitudinalDistanceNm)} NM`, "rollInLongitudinalDistanceNm"),
@@ -362,7 +372,7 @@ function wheelResultRows(result) {
   ];
   if (result.orbit) {
     const o = result.orbit;
-    rows.push(row("Orbit", `${formatNm(o.orbitRadiusNm)} NM · ${formatKt(o.orbitSpeedKcas)} kcas · ${formatFt(o.orbitAltitudeMslFt)} ft · ${formatDeg(o.orbitBankAngleDeg)}° · 180° ${legTime(o.orbitTurn180TimeSec)}${o.performance.valid ? "" : ` · outside: ${o.performance.issues.join(", ")}`}`, "orbit"));
+    rows.push(row("Orbit", `${formatNm(o.orbitRadiusNm)} NM · ${formatKt(o.orbitSpeedKcas)} kcas · ${formatFt(o.orbitAltitudeMslFt)} ft · ${formatDeg(o.orbitBankAngleDeg)}° · 180° ${legTime(o.orbitTurn180TimeSec)}${o.performance.valid ? "" : ` · ${limitsText(o.performance)}`}`, "orbit"));
   }
   rows.push(row("Direction", result.direction, "direction"), row("Attack Heading", headingText(result.attackHeadingDeg), "attackHeadingDeg"));
   return rows;
@@ -387,6 +397,8 @@ function renderPlaceholders(result) {
     fields(key).forEach((field) => { field.placeholder = isNumber(value) ? String(Math.round(value)) : ""; });
   }
   fields("orbitRadiusNm").forEach((field) => { field.placeholder = "No Orbit"; });
+  const gNote = app.querySelector("[data-base-turn-g-note]");
+  if (gNote) gNote.textContent = result?.turns?.base?.autoRaised ? `Flown ${formatG(result.turns.base.loadFactorG)} G · raised to fit Base Distance` : "Level Turn 90° · default 2 G, up to 3 G";
   const note = app.querySelector("[data-wheel-radius-note]");
   if (note) {
     const minimum = result?.wheel?.minimumUsableWheelRadiusNm;
@@ -786,7 +798,10 @@ if (loadedSave) {
   [2, 3, 4].forEach((number) => { if (isRecordObject(loadedSave.aircraft[number]?.formation)) followers[number] = structuredClone({ formation: loadedSave.aircraft[number].formation }); });
   setFlightSize(loadedSave.flightSize ?? 1, { calculate: false });
   if (Array.isArray(loadedSave.shown)) shownAircraft.replace(loadedSave.shown.filter((number) => number <= flightSize));
-  setSaveStatus(`Loaded · saved ${savedTimeText(new Date(loadedSave.savedAt))}`);
+  // An angle saved before Wheel-BOX v0.9 is now 0° (Wheel Flight drops it with a warning on the first solve).
+  const savedAngle = loadedSave.aircraft[1].values.downwindAngleDeg;
+  const angleNote = typeof savedAngle === "number" && savedAngle !== 0 ? ` · saved Downwind Angle ${formatDeg(savedAngle)}° is now fixed at 0°` : "";
+  setSaveStatus(`Loaded · saved ${savedTimeText(new Date(loadedSave.savedAt))}${angleNote}`, angleNote ? "warning" : "valid");
 } else {
   setSaveStatus("Default conditions · not saved yet", "warning");
 }

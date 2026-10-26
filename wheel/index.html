@@ -4,23 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Wheel Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./wheel.css?v=10c543377286">
-<link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=10c543377286">
-<link rel="stylesheet" href="./wide-layout.css?v=10c543377286">
+<link rel="stylesheet" href="./wheel.css?v=54f699f6dbd2">
+<link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=54f699f6dbd2">
+<link rel="stylesheet" href="./wide-layout.css?v=54f699f6dbd2">
 </head>
 <body class="wheel-wide bombing-wide">
 <!-- Wheel page (owner 2026-10-25: Wheel-BOX (V2), a separate page as BOX's): the Offset FE layout (PC Wide and phone),
-     the Wheel-BOX v0.8 BE through the Wheel Flight entrypoint. Tabs: BDP (shared BDP tab) / Wheel / Spacer Turn (blank,
+     the Wheel-BOX v0.9 BE through the Wheel Flight entrypoint. Tabs: BDP (shared BDP tab) / Wheel / Spacer Turn (blank,
      the Wheel S&R slot) / Formation (#2–#4: each follower's position; one data set, #1's) / Save/Load. -->
 <main class="app" id="wheel-calculator">
   <header class="topbar">
     <div>
       <h1 id="wheel-page-title">Wheel Tactics</h1>
-      <div class="subline">V2 modular work · Wheel-BOX v0.8 BE · BDP v0.4</div>
+      <div class="subline">V2 modular work · Wheel-BOX v0.9 BE · BDP v0.4</div>
     </div>
     <div class="toolbar">
       <label class="flight-size-control" for="flight-size" title="#1–#4 fly #1's BDP and Wheel data; #2–#4 set their Formation position"><span>Size of Flight</span><select id="flight-size"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
-      <span class="rev" id="wheel-rev">V2 WORK · WHEEL-BOX BE 0.8</span>
+      <span class="rev" id="wheel-rev">V2 WORK · WHEEL-BOX BE 0.9</span>
     </div>
   </header>
 
@@ -41,11 +41,12 @@
         <label class="field"><span>Attack Heading (deg)</span><input data-key="attackHeadingDeg" type="text" inputmode="decimal"><span class="unit">TRUE · final attack axis · DED bearings</span></label>
         <label class="field"><span>Direction</span><select data-key="direction"><option value="RIGHT">RIGHT</option><option value="LEFT">LEFT</option></select><span class="unit">Wheel side · Roll-in turn</span></label>
         <label class="field"><span>Angle-Off (deg)</span><output class="readout" data-bdp-fixed="angleOffDeg">90</output><span class="unit">Wheel-BOX fixed</span></label>
-        <label class="field"><span>Downwind Angle (deg)</span><input data-key="downwindAngleDeg" type="text" inputmode="decimal"><span class="unit">From the rear axis · + toward Target</span></label>
+        <label class="field"><span>Downwind Angle (deg)</span><output class="readout" data-wheel-fixed="downwindAngleDeg">0</output><span class="unit">Fixed · Downwind = Attack Heading reciprocal</span></label>
         <label class="field"><span>Wheel Radius (NM)</span><input data-key="wheelRadiusNm" type="text" inputmode="decimal"><span class="unit" data-wheel-radius-note>MIN: the smallest radius that flies the route</span></label>
-        <label class="field"><span>Base Turn G (G)</span><input data-key="baseTurnG" type="text" inputmode="decimal"><span class="unit">Level Turn · 90° − Downwind Angle · onset rates of this aircraft</span></label>
+        <label class="field"><span>Base Turn G (G)</span><input data-key="baseTurnG" type="text" inputmode="decimal"><span class="unit" data-base-turn-g-note>Level Turn 90° · default 2 G, up to 3 G</span></label>
       </div>
-      <p class="constraint-note">Wheel Radius MIN follows the smallest radius that flies the route: Min Wheel Radius (= Base Distance), raised so the Base Leg is not negative. A typed radius is kept; below a minimum it shows the required radius and an error. Clear the field to go back to MIN.</p>
+      <p class="constraint-note">Base Turn G is the G asked for (> 1, up to 3 G). It is flown when the 90° Base Turn fits inside Base Distance; otherwise the smallest G up to 3 G that fits is flown and the Result shows both. If no G up to 3 G fits, there is no Min Wheel Radius and the route cannot connect.</p>
+      <p class="constraint-note">Wheel Radius MIN follows Min Wheel Radius, the smallest radius that flies the route: the Base Turn's transfer + Roll-in Long. D (a zero Base Leg), or the Wheel turn's load factor limit radius when that is larger. Base Distance is not a floor. A typed radius is kept; below the minimum it shows the required radius and an error. Clear the field to go back to MIN.</p>
     </details>
 
     <details class="input-group-panel">
@@ -64,7 +65,7 @@
         <label class="field"><span>Wheel Speed (kcas)</span><input data-key="wheelSpeedKcas" type="text" inputmode="decimal"><span class="unit">Turn readout · Blank: Initial KCAS</span></label>
         <label class="field"><span>Wheel Altitude (ft MSL)</span><input data-key="wheelAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">Turn readout · Blank: Roll-in Altitude</span></label>
       </div>
-      <p class="constraint-note">The Wheel turn readout (bank, 180° time) and its source-bounded limits (5.5 G, Mach 0.95) use this speed and altitude; they do not move the attack route.</p>
+      <p class="constraint-note">The Wheel turn readout (bank, 180° time) and its source-bounded limits (5.5 G, Mach 0.95; M82 / M84 only, other weapons not evaluated) use this speed and altitude; they do not move the attack route.</p>
     </details>
 
     <details class="input-group-panel advanced-only">
@@ -146,6 +147,6 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=10c543377286"></script>
+<script type="module" src="./wide-layout.mjs?v=54f699f6dbd2"></script>
 </body>
 </html>

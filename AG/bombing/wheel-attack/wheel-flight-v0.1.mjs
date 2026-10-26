@@ -1,4 +1,4 @@
-import { WHEEL_BOX_BE_MODEL_V0_8, calculateWheelBoxV0_8Full } from "./wheel-box-be-v0.8.mjs";
+import { WHEEL_BOX_BE_MODEL_V0_9, calculateWheelBoxV0_9Full } from "./wheel-box-be-v0.9.mjs";
 import { FRAGMENT_MARGIN_MODES, ROLL_IN_ONSET_DEFAULTS, calculateBombDeliveryV0_4Full } from "../bomb-delivery-planner/bomb-delivery-planner-v0.4.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import { createCalculationCache, withCalculationCache } from "../../../common/calculation/calculation-cache-v0.1.mjs";
@@ -9,7 +9,7 @@ import {
 } from "../../../flight/flight-bombing-tactics/flight-composition-v0.1.mjs";
 
 // Wheel Flight entrypoint (Wheel SPEC "Wheel Flight entrypoint and the Wheel page BE", owner 2026-10-25: the Wheel page
-// as BOX's). One call takes the whole Flight input state and returns every aircraft's Full Wheel-BOX v0.8 result, its
+// as BOX's). One call takes the whole Flight input state and returns every aircraft's Full Wheel-BOX v0.9 result, its
 // DED pages (OA1, OA2) and the next input state. It has the BOX / Offset Flight entrypoint's shape, so the Wheel page
 // uses the same Flight host, Worker and session:
 //   { schemaVersion?, flightSize, aircraft: { 1: { values, locks, state }, 2–4: { formation } }, edit? | edits? }
@@ -21,18 +21,22 @@ import {
 // Formation: #1–#4 fly the same Wheel data, #1's; a follower record holds only its Formation position (BOX's rule),
 // laid off from #1's Abeam on the Downwind heading, on the pattern side (RIGHT / LEFT).
 // Pure: no DOM, window, storage or FE import; the input is never mutated; the same input gives the same output.
+// 0.2.0 (2026-10-26, Wheel-BOX handoff): on Wheel-BOX v0.9 — Downwind Angle fixed at 0° (a non-zero value of an older
+// record becomes 0° with a warning, and leaves the record), Base Turn G the requested G (≤ 3 G; the G flown is the
+// result's, never written back), Min Wheel Radius v0.9's, every BDP weapon flown.
 export const WHEEL_FLIGHT_V0_1 = Object.freeze({
   id: "wheel-flight-v0.1",
-  version: "0.1.0",
+  version: "0.2.0",
   status: "work",
   schemaVersion: 1,
-  components: Object.freeze({ wheelComposition: WHEEL_BOX_BE_MODEL_V0_8.version }),
+  components: Object.freeze({ wheelComposition: WHEEL_BOX_BE_MODEL_V0_9.version }),
 });
 
 // Defaults of a new Wheel aircraft (the page's Default and each Tab Default return to these). The BDP values are BOX's
-// (one BDP list); the Wheel values: Attack Heading 000, RIGHT, Downwind Angle 0°, Wheel Radius MIN, Base Turn G 2
-// (owner 2026-10-25: Base / Crosswind Turn 2 G). A blank optional value (Wheel turn Speed / Altitude, Orbit, SEM Turn
-// G / Speed / Direction) is the BE's default; without an Orbit Radius there is no Orbit.
+// (one BDP list); the Wheel values: Attack Heading 000, RIGHT, Wheel Radius MIN, Base Turn G 2 (owner 2026-10-25:
+// Base / Crosswind Turn 2 G; the requested G). The Downwind Angle is not a value: v0.9 fixes it at 0°. A blank optional
+// value (Wheel turn Speed / Altitude, Orbit, SEM Turn G / Speed / Direction) is the BE's default; without an Orbit
+// Radius there is no Orbit.
 export const WHEEL_FLIGHT_DEFAULT_VALUES = Object.freeze({
   weaponId: "M82",
   targetElevationMslFt: 31,
@@ -64,7 +68,6 @@ export const WHEEL_FLIGHT_DEFAULT_VALUES = Object.freeze({
   semTurnBankDeg: 85,
   attackHeadingDeg: 0,
   direction: "RIGHT",
-  downwindAngleDeg: 0,
   wheelRadiusNm: null,
   baseTurnG: 2,
   wheelSpeedKcas: null,
@@ -147,15 +150,26 @@ function normalizeSolveMode(mode, rollInLocked) {
   return mode === "time" ? "time" : "height";
 }
 
+// A Downwind Angle of an older record (Wheel Flight 0.1) leaves the record: v0.9 flies 0°. A non-zero one is reported
+// once, as a warning of the solve that read it (the next state no longer carries it).
+function downwindNotices(values) {
+  if (!Object.hasOwn(values, "downwindAngleDeg")) return [];
+  const angle = values.downwindAngleDeg;
+  delete values.downwindAngleDeg;
+  return isNumber(angle) && angle !== 0 ? [`Downwind Angle ${angle}° of an earlier setting is now fixed at 0° (Wheel-BOX v0.9).`] : [];
+}
+
 function normalizeLead(record = {}) {
   if (!record || typeof record !== "object") throw new TypeError("aircraft[1] must be an object");
   const state = record.state ?? {};
   const values = { ...(record.values ?? {}) };
+  const notices = downwindNotices(values);
   const locks = Object.fromEntries(Object.entries(record.locks ?? {}).filter(([key]) => LOCK_KEYS.has(key)).map(([key, on]) => [key, on === true]));
   const entered = blank(state.enteredTrackingTimeSec) ? WHEEL_FLIGHT_DEFAULT_STATE.enteredTrackingTimeSec : requireNumber("enteredTrackingTimeSec", state.enteredTrackingTimeSec);
   return {
     values,
     locks,
+    notices,
     state: {
       solveMode: normalizeSolveMode(state.solveMode, locks.rollInAltitudeMslFt === true),
       rollInAltitudeLinked: state.rollInAltitudeLinked !== false,
@@ -324,7 +338,6 @@ function leadWheelInput(lead, bombDeliveryInput) {
     bombDeliveryInput,
     attackHeadingDeg: norm(n("attackHeadingDeg")),
     direction: textChoice("direction", v.direction),
-    downwindAngleDeg: n("downwindAngleDeg"),
     // MIN: the BE's radius (the record's value is the one it wrote back); MANUAL: the typed radius.
     wheelRadiusNm: s.wheelRadiusSource === "MANUAL" ? n("wheelRadiusNm") : null,
     baseTurnG: n("baseTurnG"),
@@ -337,7 +350,7 @@ function leadWheelInput(lead, bombDeliveryInput) {
 function solveReleaseAltitude(bombDeliveryInput) {
   const config = WHEEL_FLIGHT_RELEASE_SOLVE;
   const rollInAltitudeMslFt = bombDeliveryInput.initialAltitudeMslFt;
-  const angleOffDeg = WHEEL_BOX_BE_MODEL_V0_8.fixedAngleOffDeg;
+  const angleOffDeg = WHEEL_BOX_BE_MODEL_V0_9.fixedAngleOffDeg;
   const f = (releaseAltitudeMslFt) => calculateBombDeliveryV0_4Full({ ...bombDeliveryInput, angleOffDeg, solveMode: "time", releaseAltitudeMslFt }).public.resolvedInitialAltitudeMslFt - rollInAltitudeMslFt;
   const conflict = (belowNlt) => new Error(`CONSTRAINT CONFLICT: Roll-in Altitude LOCK: no Release Altitude gives Tracking Time ${bombDeliveryInput.trackingTimeSec} sec from Roll-in Altitude ${Math.round(rollInAltitudeMslFt)} ft${belowNlt ? " (Release would be below NLT; shorten Tracking Time or raise Roll-in Altitude)" : ""}`);
   let x0 = bombDeliveryInput.releaseAltitudeMslFt;
@@ -400,7 +413,15 @@ function leadDed(result) {
 function solveLead(lead, stateError) {
   const derived = new Set();
   const base = { aircraft: 1, elementLead: null, predecessor: null };
-  if (stateError) return { ...base, status: "FAILED", result: null, error: stateError, errors: [stateError], warnings: [], derived, ded: null };
+  // No result, no MIN: a MIN Wheel Radius is cleared rather than left at the last answer's radius (v0.9).
+  const failed = (message, warnings) => {
+    if (lead.state.wheelRadiusSource === "MIN" && lead.values.wheelRadiusNm !== null) {
+      lead.values.wheelRadiusNm = null;
+      derived.add("wheelRadiusNm");
+    }
+    return { ...base, status: "FAILED", result: null, error: message, errors: [message], warnings, derived, ded: null };
+  };
+  if (stateError) return failed(stateError, []);
   try {
     const bombDeliveryInput = leadBdpInput(lead);
     if (lead.state.solveMode === "release") {
@@ -408,14 +429,14 @@ function solveLead(lead, stateError) {
       bombDeliveryInput.releaseAltitudeMslFt = release;
       lead.values.releaseAltitudeMslFt = release;
     }
-    const result = calculateWheelBoxV0_8Full(leadWheelInput(lead, bombDeliveryInput));
+    const result = calculateWheelBoxV0_9Full(leadWheelInput(lead, bombDeliveryInput));
     deriveLeadNext(lead, result, derived);
     const errors = [...result.geometry.validation.errors];
-    const warnings = [...result.geometry.validation.warnings];
+    const warnings = [...(lead.notices ?? []), ...result.geometry.validation.warnings];
     const status = errors.length ? "INVALID" : warnings.length ? "WARNING" : "VALID";
     return { ...base, status, result, error: null, errors, warnings, derived, ded: leadDed(result) };
   } catch (error) {
-    return { ...base, status: "FAILED", result: null, error: error.message, errors: [error.message], warnings: [], derived, ded: null };
+    return failed(error.message, [...(lead.notices ?? [])]);
   }
 }
 
@@ -429,8 +450,8 @@ function outputRecord(number, record) {
   return { values: record.values, locks: record.locks, state: record.state };
 }
 
-// #1's place in the Formation: its Abeam on the Wheel, flying the Downwind heading (Attack Heading + 180° turned by the
-// Downwind Angle toward the Target). Attack frame: alongNm along the Attack Heading from the Target, sideNm toward the
+// #1's place in the Formation: its Abeam on the Wheel, flying the Downwind heading (Attack Heading + 180°; v0.9 fixes
+// the Downwind Angle at 0°). Attack frame: alongNm along the Attack Heading from the Target, sideNm toward the
 // pattern side (right of the Attack Heading for RIGHT, left for LEFT).
 function leadPosition(result) {
   const abeam = result.geometry.stations.abeam;
