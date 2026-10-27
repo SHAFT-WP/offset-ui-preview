@@ -46,9 +46,11 @@ import { BDP_TAB_KEYS, bdpTabMarkup } from "./shared/bdp-tab-v0.1.mjs?v=0.1.1";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.10";
-import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.9";
+import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.10";
 import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.2";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
+// POP-UP Z-Diagram (POP-UP SPEC §13.8 / §13.8a; the POP-UP page only): a BE-owned view of the POP-UP Flight result.
+import { renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.11.2";
 
@@ -176,6 +178,10 @@ let enteredTrackingTimeSec = DEFAULT_TRACKING_TIME_SEC;
 let popupDriver = "DEFAULT";
 let popupRequest = null;
 let popupMinimumExposure = null;
+// Each aircraft's POP-UP record (Full) for the Z-Diagram and the Top View Pop Point, and the Z climb-leg tick
+// (owner 2026-10-27: starts on Roll-in; the Pull Down button moves it to the Pull Down altitude).
+const popupFull = new Map();
+let popupZTick = "ROLL_IN";
 let topViewTextScale = TOP_VIEW_TEXT_SCALE_DEFAULT;
 let topViewAdvanced = false;
 // IP Bottom (default on): Top View drawn with the Run-In (IP -> Target) pointing up; off = north up
@@ -803,6 +809,8 @@ function renderTopView() {
     upHeadingDeg: topViewIpBottom ? upResult.resolved.runInHeadingDeg : 0,
     northArrow: !topViewIpBottom,
     timeSec: topViewTimeSec ?? undefined,
+    // POP-UP: each drawn aircraft's Pop Point (the BE's popPoint) on its Approach leg.
+    ...(POPUP_MODE ? { markers: aircraft.map((item) => ({ item, pop: popupFull.get(item.number)?.popPoint })).filter(({ pop }) => pop).map(({ item, pop }) => ({ x: pop.x, y: pop.y, label: item.number === 1 ? "Pop" : `Pop #${item.number}` })) } : {}),
   });
   syncTopViewViewport(svg, rendered, aircraft.map((item) => `${item.number}:${topViewResultId(item.result)}`).join(","));
   syncTimeDials(svg, aircraft.map((item) => item.result), topViewTimeSec);
@@ -936,7 +944,10 @@ function renderLead(entry) {
     renderStatus(POPUP_MODE ? { ...result, state: entry.status, errors: entry.errors ?? [], warnings: entry.warnings ?? [] } : result);
     renderOffsetResult(result);
     renderProfileResult(result);
-    if (POPUP_MODE) renderPopup(entry);
+    if (POPUP_MODE) {
+      if (entry.popup) popupFull.set(1, entry.popup); else popupFull.delete(1);
+      renderPopup(entry);
+    }
     renderSemFragmentReadouts($("#lead-sem-readouts"), result);
     resultPanel.refresh();
     refreshBdpDiagrams(1);
@@ -958,7 +969,10 @@ function renderLead(entry) {
   // diagrams are cleared; the BE fails every follower that depends on #1.
   lastResult = null;
   lastResultFull = null;
-  if (POPUP_MODE) renderPopup(null);
+  if (POPUP_MODE) {
+    popupFull.delete(1);
+    renderPopup(null);
+  }
   renderSemFragmentReadouts($("#lead-sem-readouts"), null);
   showCalculationFailed($("#offset-z-svg"), "Offset #1 Z-Diagram", errorMessage);
   $("#capture-z").disabled = true;
@@ -2337,6 +2351,10 @@ const zAdvancedOn = new Set();
 function renderZDiagramOf(number, svg, resultFull) {
   if (!svg) return false;
   delete svg.dataset.calculationFailed;
+  if (POPUP_MODE && popupFull.has(number)) {
+    const data = renderPopupZDiagram(svg, resultFull, popupFull.get(number), { tick: popupZTick, aircraftNumber: number });
+    return data.supported;
+  }
   return renderOffsetZDiagram(svg, resultFull, { aircraftNumber: number, deltaTime: zDeltaTime(Math.max(2, number)), advanced: zAdvancedOn.has(number) });
 }
 function zAdvancedMarkup(number) {
@@ -2360,6 +2378,23 @@ document.addEventListener("click", (event) => {
     const resultFull = flightResultsFull.get(number);
     const svg = flightOutput(number, "svg[data-flight-z]");
     if (resultFull) renderZDiagramOf(number, svg, resultFull);
+  }
+});
+
+// POP-UP Z climb-leg tick (§13.8a): one option for every aircraft's Z on the page.
+document.addEventListener("click", (event) => {
+  const button = event.target.closest?.("[data-popup-z-tick]");
+  if (!button || !POPUP_MODE) return;
+  popupZTick = popupZTick === "ROLL_IN" ? "PULL_DOWN" : "ROLL_IN";
+  $$("[data-popup-z-tick]").forEach((b) => {
+    const on = popupZTick === "PULL_DOWN";
+    b.setAttribute("aria-pressed", String(on));
+    b.classList.toggle("active", on);
+    b.textContent = `Pull Down: ${on ? "On" : "Off"}`;
+  });
+  if (lastResultFull) renderZDiagramOf(1, $("#offset-z-svg"), lastResultFull);
+  for (const [number, resultFull] of flightResultsFull) {
+    if (number !== 1) renderZDiagramOf(number, flightOutput(number, "svg[data-flight-z]"), resultFull);
   }
 });
 
@@ -2387,6 +2422,7 @@ function renderFollower(number, entry) {
     return;
   }
   const resultFull = entry.result;
+  if (POPUP_MODE) { if (entry.popup) popupFull.set(number, entry.popup); else popupFull.delete(number); }
   const result = truncateBeOutput(resultFull);
   flightResultsFull.set(number, resultFull);
   flightResults.set(number, result);

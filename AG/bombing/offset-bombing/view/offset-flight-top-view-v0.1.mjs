@@ -5,6 +5,7 @@ import {
   offsetTopViewTitle,
   offsetTopViewWorldPoints,
 } from "./offset-top-view-v0.1.mjs?v=0.1.10";
+import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { OFFSET_AIRCRAFT_PALETTES } from "./offset-view-style-v0.1.mjs?v=0.1.5";
 export { offsetAircraftColors, offsetFlightTopViewLegend } from "./offset-view-style-v0.1.mjs?v=0.1.5";
 
@@ -30,7 +31,9 @@ export const OFFSET_FLIGHT_TOP_VIEW_V0_1 = Object.freeze({
   // 0.1.7 (2026-10-07): Top View 0.1.8 / view style 0.1.4 tokens (MAP circle, legend timing rows).
   // 0.1.8 (2026-10-12): Top View 0.1.9 / view style 0.1.5 tokens (Tracking Time 0.1 s).
   // 0.1.9 (2026-10-15): Top View 0.1.10 token (onset Offset turn path).
-  version: "0.1.9",
+  // 0.1.10 (2026-10-27, owner, POP-UP step 4): options.markers [{ x, y, label, color }] on the combined view (the
+  // POP-UP page's Pop Points), included in the fit; absent, nothing changes.
+  version: "0.1.10",
   layers: Object.freeze(["offset-plot-lead-<n>", "offset-plot-companion-<k>", "offset-plot-<n>"]),
   combinedLayers: Object.freeze(["offset-plot-aircraft-<n>"]),
 });
@@ -55,7 +58,8 @@ export function renderOffsetCombinedTopView(svg, aircraft, options = {}) {
   if (!drawn.length) throw new TypeError("at least one solved aircraft is required");
   const numbers = drawn.map((item) => item.number);
   const title = offsetCombinedTopViewTitle(numbers);
-  const frame = createOffsetTopViewFrame(svg, drawn.flatMap((item) => offsetTopViewWorldPoints(item.result)), { ...options, title });
+  const markers = (Array.isArray(options.markers) ? options.markers : []).filter((m) => Number.isFinite(m?.x) && Number.isFinite(m?.y));
+  const frame = createOffsetTopViewFrame(svg, [...drawn.flatMap((item) => offsetTopViewWorldPoints(item.result)), ...markers.map(({ x, y }) => ({ x, y }))], { ...options, title });
   const common = { advanced: options.advanced, upHeadingDeg: options.upHeadingDeg, timeSec: options.timeSec };
   const base = drawn[0];
   const top = drawn[drawn.length - 1];
@@ -76,6 +80,18 @@ export function renderOffsetCombinedTopView(svg, aircraft, options = {}) {
     return { item, layer };
   });
   layers.filter(({ item }) => item === base || item === top).forEach(({ layer }) => layer.placeLabels());
+  if (markers.length) {
+    const group = svgNode("g", { "data-top-view-role": "markers" });
+    for (const marker of markers) {
+      const at = frame.project({ x: marker.x, y: marker.y });
+      const color = marker.color ?? "#c2185b";
+      group.append(
+        svgNode("circle", { cx: at.x, cy: at.y, r: 7 * frame.fontScale, fill: "#ffffff", stroke: color, "stroke-width": 3 * frame.fontScale, "data-marker": marker.label }),
+        svgNode("text", { x: at.x + 11 * frame.fontScale, y: at.y + 4 * frame.fontScale, "font-size": frame.detailSize, "font-weight": 700, fill: color }, marker.label),
+      );
+    }
+    frame.root.append(group);
+  }
   finishOffsetTopViewFrame(frame, { scope: "offset-top" });
   svg.dataset.topViewAircraft = numbers.join(",");
   return { title, numbers, canvas: { width: frame.width, height: frame.height }, fontScale: frame.fontScale };
