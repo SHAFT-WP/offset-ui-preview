@@ -16,7 +16,7 @@ import { calculatePopupClimbFull } from "./popup-climb-v0.2.mjs";
 // angle, repeated until the angle settles (the Offset solve moves the Roll-in a little with the angle).
 export const POPUP_FLIGHT_V0_1 = Object.freeze({
   id: "popup-flight-v0.1",
-  version: "0.1.0",
+  version: "0.1.1",
   status: "work",
   offsetFlight: `${OFFSET_FLIGHT_V0_1.id} ${OFFSET_FLIGHT_V0_1.version}`,
   popupBe: `${POPUP_BE_V0_2.id} ${POPUP_BE_V0_2.version}`,
@@ -28,36 +28,52 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
 const DEG = Math.PI / 180;
 const blank = (value) => value === null || value === undefined || value === "";
 
-// The page's POP-UP edits (FE edit events, as Offset's): a typed angle / distance / time becomes that aircraft's
-// driver; { key: "popupDriver", value: "DEFAULT" } goes back to the automatic rule. They are the POP-UP's, so they
-// are not passed to the Offset Flight.
+// The page's POP-UP edits (FE edit events, as Offset's, for any aircraft): a typed angle / distance / time becomes
+// that aircraft's driver; { key: "popupDriver", value: "DEFAULT" } goes back to the automatic rule. A field emptied
+// and committed ({ kind: "clear" }) keeps the driver and takes back its value from the start of the edit (else the
+// edit's fallback), which is written back to the field. They are the POP-UP's, so they are not passed to the
+// Offset Flight.
 const POPUP_DRIVER_OF_KEY = Object.freeze({ popupAngleDeg: "ANGLE", popupGroundDistanceNm: "GROUND_DISTANCE", popupExposureTimeSec: "EXPOSURE_TIME" });
 const isPopupEdit = (edit) => typeof edit?.key === "string" && edit.key.startsWith("popup");
+const editsOf = (input) => [...(input.edit ? [input.edit] : []), ...(input.edits ?? [])];
 function editedDrivers(input) {
   const drivers = {};
-  for (const edit of [...(input.edit ? [input.edit] : []), ...(input.edits ?? [])]) {
-    if (!isPopupEdit(edit)) continue;
+  for (const edit of editsOf(input)) {
+    if (!isPopupEdit(edit) || edit.kind === "clear") continue;
     const number = String(edit.aircraft ?? 1);
     if (edit.key === "popupDriver") drivers[number] = edit.value ?? "DEFAULT";
     else if (POPUP_DRIVER_OF_KEY[edit.key]) drivers[number] = POPUP_DRIVER_OF_KEY[edit.key];
   }
   return drivers;
 }
+function clearedValues(input) {
+  const cleared = {};
+  for (const edit of editsOf(input)) {
+    if (!isPopupEdit(edit) || edit.kind !== "clear") continue;
+    const value = [edit.before?.value, edit.fallbackValue].find((v) => typeof v === "number" && Number.isFinite(v));
+    if (value === undefined) continue;
+    (cleared[String(edit.aircraft ?? 1)] ||= {})[edit.key] = value;
+  }
+  return cleared;
+}
 
 // Per aircraft: its own values, else #1's (a follower without its own POP-UP inputs flies #1's), then the defaults.
-function popupSettings(input, number, edited) {
+// A blank Popup G follows #1's.
+function popupSettings(input, number, edited, cleared) {
   const own = input.aircraft[number] ?? {};
   const lead = input.aircraft[1] ?? {};
   const ownInputs = number === "1" || !blank(own.state?.popupDriver) || !!edited[number];
   const source = ownInputs ? own : lead;
-  const pick = (key) => (blank(own.values?.[key]) ? lead.values?.[key] : own.values?.[key]);
+  const valueOf = (record, n, key) => cleared[n]?.[key] ?? record.values?.[key];
+  const sourceValue = (key) => valueOf(source, ownInputs ? number : "1", key);
+  const pick = (key) => (blank(valueOf(own, number, key)) ? valueOf(lead, "1", key) : valueOf(own, number, key));
   const driver = edited[number] ?? source.state?.popupDriver ?? (number === "1" ? undefined : edited["1"]) ?? "DEFAULT";
   return {
     driver,
     popupG: blank(pick("popupG")) ? POPUP_FLIGHT_V0_1.defaultPopupG : Number(pick("popupG")),
-    popupAngleDeg: source.values?.popupAngleDeg,
-    groundDistanceNm: source.values?.popupGroundDistanceNm,
-    exposureTimeSec: source.values?.popupExposureTimeSec,
+    popupAngleDeg: sourceValue("popupAngleDeg"),
+    groundDistanceNm: sourceValue("popupGroundDistanceNm"),
+    exposureTimeSec: sourceValue("popupExposureTimeSec"),
   };
 }
 
@@ -102,7 +118,8 @@ function popupFlight(input, offsetFlight) {
   if (!input?.aircraft?.[1]) throw new TypeError("POP-UP Flight input needs aircraft #1");
   const numbers = Object.keys(input.aircraft);
   const edited = editedDrivers(input);
-  const settings = Object.fromEntries(numbers.map((n) => [n, popupSettings(input, n, edited)]));
+  const cleared = clearedValues(input);
+  const settings = Object.fromEntries(numbers.map((n) => [n, popupSettings(input, n, edited, cleared)]));
   // First angles: the driver's own value or the automatic rule on the aircraft's Dive.
   const angles = {};
   for (const n of numbers) {

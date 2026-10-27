@@ -1,10 +1,10 @@
-@import url("../common-ui-v0.2.css?v=d5f92ed9e1d3");
+@import url("../common-ui-v0.2.css?v=dc368cfaafc0");
 /* Shared parts bring their CSS (bombing app shared FE): input fields, DED, Flight UI, the shared BDP tab; time dial (Common UI). */
-@import url("../shared/input-fields-v0.1.css?v=d5f92ed9e1d3");
-@import url("../shared/ded-v0.1.css?v=d5f92ed9e1d3");
-@import url("../shared/flight-ui-v0.1.css?v=d5f92ed9e1d3");
-@import url("../shared/bdp-tab-v0.1.css?v=d5f92ed9e1d3");
-@import url("../common/ui/time-dial-v0.1.css?v=d5f92ed9e1d3");
+@import url("../shared/input-fields-v0.1.css?v=dc368cfaafc0");
+@import url("../shared/ded-v0.1.css?v=dc368cfaafc0");
+@import url("../shared/flight-ui-v0.1.css?v=dc368cfaafc0");
+@import url("../shared/bdp-tab-v0.1.css?v=dc368cfaafc0");
+@import url("../common/ui/time-dial-v0.1.css?v=dc368cfaafc0");
 
 /* Wheel page (owner 2026-10-27, the Wheel as BOX's): the Wheel-BOX page's rules (the BOX and Offset pages' general rules), then the Wheel inputs. */
 :root{color-scheme:dark}

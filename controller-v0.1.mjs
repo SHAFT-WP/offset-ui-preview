@@ -17,8 +17,8 @@ const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-fli
 // with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
 // climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
 const POPUP_MODE = document.body.classList.contains("popup-page");
-const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.0", import.meta.url);
-const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.0", import.meta.url);
+const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.1", import.meta.url);
+const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.1", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -50,7 +50,7 @@ import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLe
 import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.2";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // POP-UP Z-Diagram (POP-UP SPEC §13.8 / §13.8a; the POP-UP page only): a BE-owned view of the POP-UP Flight result.
-import { renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.0";
+import { popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.11.2";
 
@@ -177,7 +177,8 @@ let enteredTrackingTimeSec = DEFAULT_TRACKING_TIME_SEC;
 // POP-UP: #1's Popup angle driver (the BE's; DEFAULT = the automatic rule) and the on-demand minimum exposure.
 let popupDriver = "DEFAULT";
 let popupRequest = null;
-let popupMinimumExposure = null;
+// Minimum-exposure answers by aircraft number (each aircraft's own Calculate / Apply).
+const popupMinimumExposure = new Map();
 // Each aircraft's POP-UP record (Full) for the Z-Diagram and the Top View Pop Point, and the Z climb-leg tick
 // (owner 2026-10-27: starts on Roll-in; the Pull Down button moves it to the Pull Down altitude).
 const popupFull = new Map();
@@ -893,7 +894,7 @@ function applyCalculationAnswer(message, sent) {
   if (output.nextInput) applyFlightState(output.nextInput, input, input.edits ?? []);
   else syncInitialLinkUi();
   lastFlightTiming = output.flightTiming ?? {};
-  if (POPUP_MODE && output.popupMinimumExposure) popupMinimumExposure = output.popupMinimumExposure;
+  if (POPUP_MODE && output.popupMinimumExposure) popupMinimumExposure.set(output.popupMinimumExposure.aircraft, output.popupMinimumExposure);
   renderLead(output.aircraftResults[1]);
   for (let number = 2; number <= flightLayout.size; number += 1) {
     if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) renderFollower(number, output.aircraftResults[number] ?? { status: "FAILED", result: null, error: `Aircraft #${number} has no current result` });
@@ -974,7 +975,7 @@ function renderLead(entry) {
     renderPopup(null);
   }
   renderSemFragmentReadouts($("#lead-sem-readouts"), null);
-  showCalculationFailed($("#offset-z-svg"), "Offset #1 Z-Diagram", errorMessage);
+  showCalculationFailed($("#offset-z-svg"), zDiagramTitle(1), errorMessage);
   $("#capture-z").disabled = true;
   clearDed();
   refreshBdpDiagrams(1);
@@ -984,8 +985,9 @@ function renderLead(entry) {
 // POP-UP results (#1): the BE's popup record of the Flight entry; nothing is computed here.
 const POPUP_DRIVER_TEXT = Object.freeze({ DEFAULT: "AUTO · Dive ≤ 15° → +5°, else +10°", ANGLE: "Popup Angle", GROUND_DISTANCE: "Ground Distance", EXPOSURE_TIME: "Exposure Time" });
 const POPUP_EVENT_TEXT = Object.freeze({ POP: "Pop Point", PULL_UP_END: "Pull-up End", ROLL_IN_START: "Roll-in Start", PULL_DOWN: "Pull Down", APEX: "Apex", TRACK_POINT: "Track Point", RELEASE: "Release" });
-function popupResultRows(p) {
-  const r = (label, text, key, summary = false) => row(label, text, key, { summary });
+// keyed: #1's rows carry result keys (result-change states); a follower's are plain.
+function popupResultRows(p, { keyed = true } = {}) {
+  const r = (label, text, key, summary = false) => row(label, text, keyed ? key : null, { summary });
   const kt = (v) => `${Number.isFinite(v) ? Math.round(v) : "-"} KCAS`;
   const one = (v) => (Number.isFinite(v) ? v.toFixed(1) : "-");
   const ft = (v) => `${Number.isFinite(v) ? Math.round(v) : "-"} ft`;
@@ -1015,11 +1017,13 @@ function renderPopup(entry) {
   const out = $("#popup-min-exposure-out");
   const apply = $("#popup-min-apply");
   if (out) {
-    const m = popupMinimumExposure;
-    out.textContent = !m ? "-" : m.status === "VALID" ? `${m.angleDeg.toFixed(1)}° · ${m.exposureTimeSec.toFixed(1)} s` : `Unavailable · ${m.reason ?? ""}`;
-    if (apply) apply.hidden = !(m && m.status === "VALID");
+    renderPopupMinimumExposure(popupMinimumExposure.get(1), out, apply);
   }
   resultPanel.refresh();
+}
+function renderPopupMinimumExposure(m, out, apply) {
+  out.textContent = !m ? "-" : m.status === "VALID" ? `${m.angleDeg.toFixed(1)}° · ${m.exposureTimeSec.toFixed(1)} s` : `Unavailable · ${m.reason ?? ""}`;
+  if (apply) apply.hidden = !(m && m.status === "VALID");
 }
 function installPopupControls() {
   $("#popup-auto")?.addEventListener("click", () => calculate({ aircraft: 1, kind: "set", key: "popupDriver", value: "DEFAULT", commit: true }));
@@ -1030,11 +1034,34 @@ function installPopupControls() {
     calculate();
   });
   $("#popup-min-apply")?.addEventListener("click", () => {
-    const m = popupMinimumExposure;
+    const m = popupMinimumExposure.get(1);
     if (!m || m.status !== "VALID") return;
     const text = m.angleDeg.toFixed(1);
     setValue("popupAngleDeg", text, { includeActive: true });
     calculate({ aircraft: 1, kind: "set", key: "popupAngleDeg", commit: true });
+  });
+  // #2–#4: the same three controls in each follower's POP-UP group.
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-popup-auto], [data-popup-min], [data-popup-min-apply]");
+    const number = Number(button?.closest(".flight-slot")?.dataset.aircraft);
+    if (!button || !(number >= 2 && number <= 4)) return;
+    if (button.hasAttribute("data-popup-auto")) {
+      calculate({ aircraft: number, kind: "set", key: "popupDriver", value: "DEFAULT", commit: true });
+    } else if (button.hasAttribute("data-popup-min")) {
+      popupRequest = { minimumExposure: number };
+      const out = button.closest(".flight-slot").querySelector("[data-popup-min-out]");
+      if (out) out.textContent = "Calculating…";
+      calculate();
+    } else {
+      const m = popupMinimumExposure.get(number);
+      if (!m || m.status !== "VALID") return;
+      const text = m.angleDeg.toFixed(1);
+      const draft = flightDraft(number);
+      draft.popupAngleDeg = text;
+      dropSolvedIfEdited(draft.solved, "popupAngleDeg", text);
+      followerFields(followerSlot(number), "popupAngleDeg").forEach((field) => { field.value = text; });
+      calculate({ aircraft: number, kind: "set", key: "popupAngleDeg", commit: true });
+    }
   });
 }
 
@@ -1672,6 +1699,7 @@ function resetFollowerTab(number, tab, section = null) {
     : FOLLOWER_TAB_KEYS[tab] ?? [];
   if (keys.includes("initialAltitudeMslFt")) keys.push("solveMode", "enteredTrackingTimeSec");
   if (keys.some((key) => FLIGHT_TACTICAL_DRIVERS.includes(key))) keys.push("driver");
+  if (keys.includes("popupAngleDeg")) keys.push("popupDriver");
   keys.forEach((key) => {
     if (!Object.hasOwn(defaults, key)) return;
     draft[key] = defaults[key];
@@ -1687,6 +1715,12 @@ function resetFollowerTab(number, tab, section = null) {
 // placeholder; the BE resolves it (AG SPEC "Flight entrypoint").
 // Target Elevation joined them on 2026-10-26 (owner 2026-10-25; Offset Flight 0.1.8): index only has its field.
 const FOLLOWER_BDP_EXTRA_KEYS = ["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg", "targetElevationMslFt"];
+// POP-UP page (owner 2026-10-27): each follower's own POP-UP inputs (Offset tab, POP-UP group) and angle driver
+// (AUTO by default). A blank Popup G follows #1's, shown like the BDP extras.
+const POPUP_FOLLOWER_VALUE_KEYS = POPUP_MODE ? ["popupAngleDeg", "popupGroundDistanceNm", "popupExposureTimeSec", "popupG"] : [];
+const POPUP_FOLLOWER_PROFILE_KEYS = ["initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "diveAngleDeg", "releaseAltitudeMslFt"];
+const POPUP_DRIVERS = ["DEFAULT", "ANGLE", "GROUND_DISTANCE", "EXPOSURE_TIME"];
+const followsLeadWhenBlank = (key) => FOLLOWER_BDP_EXTRA_KEYS.includes(key) || (POPUP_MODE && key === "popupG");
 // Follower selections stored as text: blank SEM End / SEM Turn follow the element lead; a blank Turn Direction is
 // this aircraft's own Roll-in side (owner 2026-10-19).
 const FOLLOWER_CHOICES = Object.freeze({ semEnd: ["LEVEL", "CLIMB"], semTurnType: ["LEVEL", "SLICE"], semTurnDirection: ["LEFT", "RIGHT"] });
@@ -1725,6 +1759,11 @@ function factoryFlightDraft(number = 2) {
     actionRangeLocked: false, sameTimeAsLead: false,
     rollInAltitudeLocked: false, attackHeadingLocked: false, angleOffLocked: false, approachRangeLocked: false, diveAngleLocked: false,
     driver: "actionRangeNm",
+    // POP-UP page: #1's POP-UP BDP Profile defaults (low-level ingress) and an AUTO Popup angle.
+    ...(POPUP_MODE ? {
+      ...Object.fromEntries(POPUP_FOLLOWER_PROFILE_KEYS.map((key) => [key, POPUP_DEFAULT_INPUT_VALUES[key]])),
+      ...Object.fromEntries(POPUP_FOLLOWER_VALUE_KEYS.map((key) => [key, ""])), popupDriver: "DEFAULT",
+    } : {}),
     // Full values behind fields that show a rounded solved value ({ key: { text, value } }).
     solved: {},
   };
@@ -1862,7 +1901,7 @@ function followerDraftMarkup(number) {
     flightSection(number, "Formation", `<p class="flight-draft-note">Position relative to #${leadNumber} · display only, not yet fed into geometry.</p>${followerFormationMarkup(leadNumber)}`),
     flightSection(number, "BDP", `<p class="flight-draft-note">Aircraft #${number} input draft · profile calculation is not connected.</p><label class="field flight-weapon-field"><span>Bomb</span><select data-flight-field="weaponId"></select></label>`),
     flightSection(number, "Offset", `<p class="flight-draft-note">Aircraft #${number} Offset draft · align to #${leadNumber}. Inputs and results are not connected yet.</p>`),
-    flightSection(number, "Z-Diagram", `<p class="flight-draft-note">Aircraft #${number} diagram is pending its profile result.</p>`, { heading: offsetZDiagramTitle({ aircraftNumber: number }) }),
+    flightSection(number, "Z-Diagram", `<p class="flight-draft-note">Aircraft #${number} diagram is pending its profile result.</p>`, { heading: zDiagramTitle(number) }),
     flightSection(number, "Top View", `<p class="flight-draft-note">Leader #1 is the reference. Aircraft #${number} overlay is pending.</p>`, { heading: offsetTopViewTitle({ aircraftNumber: number }) }),
     flightSection(number, "Result", `<p class="flight-draft-note">No calculated result for aircraft #${number}.</p>`),
     flightSection(number, "DED", `<p class="flight-draft-note">Aircraft #${number} DED is pending its profile result.</p>`),
@@ -1906,12 +1945,21 @@ function followerCalculatingMarkup(number) {
   // index (handoff 2026-10-06 §4): the frequently edited profile sits with the Offset geometry; the
   // BDP tab is the shared BDP tab (owner composition 2026-10-25), whose BDP Profile and Roll-in Turn are copies of
   // the Offset tab's (one value). Standard keeps the earlier grouping. Same draft keys either way.
+  // POP-UP page: this aircraft's POP-UP inputs (same fields and controls as #1's group).
+  const popupGroup = !POPUP_MODE ? "" : `<details class="input-group-panel" open><summary class="input-group-title">POP-UP</summary><div class="driver"><span>마지막 입력한 값이 Driver · AUTO = 다이브 ≤15° +5°, 그 외 +10°</span><output data-popup-driver-out>DRIVER · AUTO</output></div><div class="input-grid">`
+    + `<label class="field"><span>Popup Angle (deg)</span><input data-flight-field="popupAngleDeg" type="text" inputmode="decimal"><span class="unit">Climb angle · 0–55° (exclusive)</span></label>`
+    + `<label class="field"><span>Ground Distance (NM)</span><input data-flight-field="popupGroundDistanceNm" type="text" inputmode="decimal"><span class="unit">Pop Point → Roll-in Start</span></label>`
+    + `<label class="field"><span>Exposure Time (sec)</span><input data-flight-field="popupExposureTimeSec" type="text" inputmode="decimal"><span class="unit">Pop Point → Apex · MIL</span></label>`
+    + `<label class="field"><span>Popup G (G)</span><input data-flight-field="popupG" type="text" inputmode="decimal"><span class="unit" data-follow-note></span></label>`
+    + `<div class="field"><span>Angle driver</span><button class="btn" type="button" data-popup-auto>AUTO</button><span class="unit">Automatic angle rule</span></div>`
+    + `<div class="field"><span>Minimum exposure</span><span class="compound"><button class="btn" type="button" data-popup-min>Calculate</button><output class="readout" data-popup-min-out>-</output><button class="btn" type="button" data-popup-min-apply hidden>Apply</button></span><span class="unit">Popup angle with the shortest Pop → Apex</span></div>`
+    + `</div></details>`;
   const inputSections = INDEX_LAYOUT ? [
     followerBdpTabMarkup(number),
-    flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${field.initialSpeed}${field.initialAltitude}${rollInLocked}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${foldGroup("Roll-in Condition", `${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${statusLine}`, { calculating: true, tab: "offset" }),
+    flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${field.initialSpeed}${field.initialAltitude}${rollInLocked}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${foldGroup("Roll-in Condition", `${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${popupGroup}${statusLine}`, { calculating: true, tab: "offset" }),
   ] : [
     flightSection(number, "BDP", `<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}${ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label)).join("")}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerSemFields(number)}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerSemTurnFields(number)}</div><div data-sem-readouts></div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target).</p>`, { calculating: true, tab: "bdp" }),
-    flightSection(number, "Offset", `${statusHead}<div class="input-grid">${field.runIn}${field.ipRange}${field.attack}${field.angleOff}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}</div>${statusLine}`, { calculating: true, tab: "offset" }),
+    flightSection(number, "Offset", `${statusHead}<div class="input-grid">${field.runIn}${field.ipRange}${field.attack}${field.angleOff}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}</div>${popupGroup}${statusLine}`, { calculating: true, tab: "offset" }),
   ];
   return [
     flightSection(number, "Formation", `<p class="flight-draft-note">Start point relative to #${leadNumber}'s own IP; feeds this aircraft's Run-In line.</p>${followerFormationMarkup(leadNumber)}`, { calculating: true, tab: "formation" }),
@@ -1919,9 +1967,9 @@ function followerCalculatingMarkup(number) {
     // View order (user 2026-10-02): BDP Top View, BDP Profile, Z-Diagram; the Offset Top View is the
     // one Flight view under #1 (user 2026-10-05). The two BDP views show only while its Full is on.
     `<div class="bdp-views" data-bdp-views="${number}" data-output-aircraft="${number}" data-aircraft-output="bdp">${offsetBdpDiagramsMarkup(number)}</div>`,
-    flightSection(number, "Z-Diagram", `<div class="diagram-actions"><div class="diagram-action-row"><button class="capture-button" type="button" data-flight-z-png>PNG</button>${zAdvancedMarkup(number)}</div></div><div class="z-diagram-shell"><svg data-flight-z viewBox="0 0 650 710" role="img" aria-label="${offsetZDiagramTitle({ aircraftNumber: number })}"><g data-z-root></g></svg></div>`, { calculating: true, heading: offsetZDiagramTitle({ aircraftNumber: number }), output: "z" }),
+    flightSection(number, "Z-Diagram", `<div class="diagram-actions"><div class="diagram-action-row"><button class="capture-button" type="button" data-flight-z-png>PNG</button>${zAdvancedMarkup(number)}</div></div><div class="z-diagram-shell"><svg data-flight-z viewBox="0 0 650 710" role="img" aria-label="${zDiagramTitle(number)}"><g data-z-root></g></svg></div>`, { calculating: true, heading: zDiagramTitle(number), output: "z" }),
     // Same variables as Result #1 first (same groups and order), then what only this aircraft has.
-    flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${predecessor}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true, output: "result" }),
+    flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body">${POPUP_MODE ? `<div data-result-group><h3>POP-UP</h3><table><tbody class="result-rows" data-flight-result="popup"></tbody></table></div>` : ""}<div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${predecessor}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true, output: "result" }),
     FLIGHT_DED_AIRCRAFT.has(number)
       ? flightSection(number, "DED", followerDedMarkup(), { calculating: true, output: "ded", tools: `<button class="btn ded-png-button" type="button" data-ded-png="${number}">PNG</button>` })
       : flightSection(number, "DED", `<p class="flight-draft-note">Aircraft #${number} DED is pending its profile result.</p>`, { output: "ded" }),
@@ -2029,6 +2077,7 @@ function normalizeFlightDraft(number, record, fallback) {
     approachRangeNm: str("approachRangeNm"),
     ...Object.fromEntries(FOLLOWER_LOCK_OPTIONS.map((key) => [key, record[key] === true])),
     driver: FLIGHT_TACTICAL_DRIVERS.includes(record.driver) ? record.driver : "actionRangeNm",
+    ...(POPUP_MODE ? { ...Object.fromEntries(POPUP_FOLLOWER_VALUE_KEYS.map((key) => [key, typeof record[key] === "string" ? record[key] : ""])), popupDriver: POPUP_DRIVERS.includes(record.popupDriver) ? record.popupDriver : "DEFAULT" } : {}),
     solved: normalizeSolvedValues(record),
   };
 }
@@ -2089,7 +2138,7 @@ function installFlightLayout() {
     }
     if (event.type === "change" && !selection && enterCommit.consumed(field)) return;
     if (event.type === "input") enterCommit.clear();
-    if (FOLLOWER_BDP_EXTRA_KEYS.includes(key)) {
+    if (followsLeadWhenBlank(key)) {
       if (event.type !== "input" && unchangedFollowingField(field)) return;
       delete field.dataset.following;
     }
@@ -2102,7 +2151,7 @@ function installFlightLayout() {
     });
     const draft = flightDraft(number);
     // Empty-field commit, same rule as #1: blank inherited BDP values keep meaning "follow the lead".
-    if (!selection && field.value.trim() === "" && !FOLLOWER_BDP_EXTRA_KEYS.includes(key)) {
+    if (!selection && field.value.trim() === "" && !followsLeadWhenBlank(key)) {
       if (event.type === "change") fillEmptyFollowerField(number, key);
       else calculationScheduler.hold();
       return;
@@ -2120,7 +2169,7 @@ function installFlightLayout() {
     const field = event.target.closest?.("input[data-flight-field]");
     if (!field || field.type === "checkbox" || !flightSlotNumber(field)) return;
     // A cleared BDP extra follows again at once and shows the followed value (focus stays).
-    if (field.value.trim() === "" && FOLLOWER_BDP_EXTRA_KEYS.includes(field.dataset.flightField)) {
+    if (field.value.trim() === "" && followsLeadWhenBlank(field.dataset.flightField)) {
       field.dataset.refill = "true";
       updateFlightDraft({ type: "enter", target: field });
       return;
@@ -2192,6 +2241,9 @@ function collectFollowerRecord(number) {
   // in the draft; the draft is what counts for these (a typed value reaches it on input).
   FOLLOWER_BDP_EXTRA_KEYS.forEach((key) => { values[key] = parsedFieldValue(draft[key], draft.solved?.[key]); });
   values.weaponId = text("weaponId") || draft.weaponId;
+  // POP-UP: the angle / distance / time as the other values (an emptied field goes as null and the BE refills it);
+  // Popup G from the draft as the BDP extras (blank = null: follows #1).
+  POPUP_FOLLOWER_VALUE_KEYS.forEach((key) => { values[key] = key === "popupG" ? parsedFieldValue(draft[key], draft.solved?.[key]) : read(key); });
   // Blank SEM End / SEM Turn = follow the element lead; blank Turn Direction = own Roll-in side (the BE resolves them).
   Object.keys(FOLLOWER_CHOICES).forEach((key) => { values[key] = followerChoice(key, draft[key]) || null; });
   const entered = Number.parseFloat(draft.enteredTrackingTimeSec);
@@ -2199,7 +2251,7 @@ function collectFollowerRecord(number) {
     values,
     formation: { side: text("side") === "RIGHT" ? "RIGHT" : "LEFT", bearingDeg: read("bearingDeg"), distanceNm: read("distanceNm") },
     options: Object.fromEntries(FOLLOWER_LOCK_OPTIONS.map((key) => [key, draft[key] === true])),
-    state: { driver: draft.driver, solveMode: draft.solveMode, enteredTrackingTimeSec: Number.isFinite(entered) ? entered : null, rollInAltitudeLinked: draft.rollInAltitudeLinked !== false },
+    state: { driver: draft.driver, solveMode: draft.solveMode, enteredTrackingTimeSec: Number.isFinite(entered) ? entered : null, rollInAltitudeLinked: draft.rollInAltitudeLinked !== false, ...(POPUP_MODE ? { popupDriver: draft.popupDriver || "DEFAULT" } : {}) },
   };
 }
 
@@ -2222,7 +2274,7 @@ function applyFollowerState(number, record, sent, activeKey, commit) {
   Object.entries(record.values).forEach(([key, value]) => {
     if (sameStateValue(value, sent.values[key]) && !(commit && key === activeKey && REFORMAT_ON_COMMIT.has(key))) return;
     // A BDP extra the BE returned to "follow" (null).
-    if (value === null && FOLLOWER_BDP_EXTRA_KEYS.includes(key)) {
+    if (value === null && followsLeadWhenBlank(key)) {
       draft[key] = "";
       delete draft.solved[key];
       return;
@@ -2235,6 +2287,7 @@ function applyFollowerState(number, record, sent, activeKey, commit) {
   draft.solveMode = record.state.solveMode;
   draft.enteredTrackingTimeSec = String(record.state.enteredTrackingTimeSec);
   draft.rollInAltitudeLinked = record.state.rollInAltitudeLinked;
+  if (POPUP_MODE && POPUP_DRIVERS.includes(record.state.popupDriver)) draft.popupDriver = record.state.popupDriver;
   slot?.querySelectorAll(".lock-button[data-flight-field]").forEach((button) => syncFlightToggleButton(button, draft[button.dataset.flightField] === true));
 }
 
@@ -2307,6 +2360,11 @@ function renderFollowerResult(number, slot, options = {}) {
 function renderFollowerResultRows(number, slot, { result = null, delta = null, state = "INVALID", message = "" } = {}) {
   const body = (group) => flightOutput(number, `[data-flight-result="${group}"]`);
   if (!body("offset")) return;
+  const popupBody = body("popup");
+  if (popupBody) {
+    const p = result ? popupFull.get(number) : null;
+    popupBody.innerHTML = p && Number.isFinite(p.groundDistanceNm) ? popupResultRows(truncateBeOutput(p), { keyed: false }).join("") : "";
+  }
   if (!result) {
     body("offset").innerHTML = [row("State", state, null, { summary: true }), message ? row("Message", message, null, { summary: true }) : ""].join("");
     body("profile").innerHTML = "";
@@ -2333,7 +2391,7 @@ function installFollowerTopViewControls(number, slot) {
   const zSvg = flightOutput(number, "svg[data-flight-z]");
   if (!zPng || !zSvg || zPng.dataset.installed) return;
   zPng.dataset.installed = "true";
-  zPng.addEventListener("click", () => saveSvgAsPng(zSvg, `${offsetZDiagramTitle({ aircraftNumber: number }).replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" }));
+  zPng.addEventListener("click", () => saveSvgAsPng(zSvg, `${zDiagramTitle(number).replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" }));
 }
 
 // Offset #n Z (every aircraft, 2026-10-01). ΔTime is the drop-order delta: #(n-1) Impact − #n
@@ -2358,8 +2416,14 @@ function renderZDiagramOf(number, svg, resultFull) {
   return renderOffsetZDiagram(svg, resultFull, { aircraftNumber: number, deltaTime: zDeltaTime(Math.max(2, number)), advanced: zAdvancedOn.has(number) });
 }
 function zAdvancedMarkup(number) {
-  return `<button class="capture-button view-toggle" type="button" data-z-advanced="${number}" aria-pressed="false">Advanced: Off</button>`;
+  return `<button class="capture-button view-toggle" type="button" data-z-advanced="${number}" aria-pressed="false">Advanced: Off</button>${POPUP_MODE ? popupZTickMarkup() : ""}`;
 }
+// POP-UP: every aircraft's Z carries the one climb-leg tick option (§13.8a).
+function popupZTickMarkup() {
+  const on = popupZTick === "PULL_DOWN";
+  return `<button class="capture-button view-toggle${on ? " active" : ""}" type="button" data-popup-z-tick aria-pressed="${on}" title="Climb-leg tick: Roll-in Altitude (off) or Pull Down altitude (on)">Pull Down: ${on ? "On" : "Off"}</button>`;
+}
+const zDiagramTitle = (number) => (POPUP_MODE ? popupZDiagramTitle : offsetZDiagramTitle)({ aircraftNumber: number });
 function syncZAdvancedButton(button) {
   const on = zAdvancedOn.has(Number(button.dataset.zAdvanced));
   button.setAttribute("aria-pressed", String(on));
@@ -2409,14 +2473,16 @@ function renderFollower(number, entry) {
   syncFollowerSolveMode(slot, flightDraft(number));
   const zSvg = flightOutput(number, "svg[data-flight-z]");
   const zPng = flightOutput(number, "[data-flight-z-png]");
+  if (POPUP_MODE) renderFollowerPopupControls(number, slot, entry);
   if (!entry.result) {
+    if (POPUP_MODE) popupFull.delete(number);
     flightResults.delete(number);
     flightResultsFull.delete(number);
     renderFollowerStatus(number, "INVALID", entry.error);
     renderFollowerResult(number, slot, { state: "INVALID", message: entry.error });
     renderSemFragmentReadouts(slot.querySelector("[data-sem-readouts]"), null);
     renderFollowerDed(number, null);
-    showCalculationFailed(zSvg, offsetZDiagramTitle({ aircraftNumber: number }), entry.error ?? "no result");
+    showCalculationFailed(zSvg, zDiagramTitle(number), entry.error ?? "no result");
     if (zPng) zPng.disabled = true;
     refreshBdpDiagrams(number);
     return;
@@ -2430,7 +2496,9 @@ function renderFollower(number, entry) {
   // The entry's state and warnings: the Flight entrypoint adds what the aircraft result cannot know
   // (a typed value its LOCK / ANGLE / TIME then replaced).
   const warnings = entry.warnings ?? result.warnings;
-  renderFollowerStatus(number, entry.status ?? result.state, result.errors.length ? result.errors.join(" / ") : warnings[0] ?? "-");
+  // POP-UP: the entry's errors carry the POP-UP checks merged into the Offset's.
+  const errors = POPUP_MODE ? entry.errors ?? result.errors : result.errors;
+  renderFollowerStatus(number, entry.status ?? result.state, errors.length ? errors.join(" / ") : warnings[0] ?? "-");
   const runInReadout = slot.querySelector('[data-flight-readout="runInHeadingDeg"]');
   if (runInReadout) runInReadout.textContent = fmtHeading(result.resolved.runInHeadingDeg);
   const ipRangeReadout = slot.querySelector('[data-flight-readout="ipRangeFromTargetNm"]');
@@ -2443,6 +2511,31 @@ function renderFollower(number, entry) {
   const zDrawn = renderZDiagramOf(number, zSvg, resultFull);
   if (zPng) zPng.disabled = !zDrawn;
   refreshBdpDiagrams(number);
+}
+
+// POP-UP group of a follower: its driver, its minimum-exposure answer and a blank Popup G showing #1's (BE values).
+function renderFollowerPopupControls(number, slot, entry) {
+  const draft = flightDraft(number);
+  const driverOut = slot.querySelector("[data-popup-driver-out]");
+  if (driverOut) driverOut.textContent = `DRIVER · ${POPUP_DRIVER_TEXT[draft.popupDriver] ?? draft.popupDriver}`;
+  const out = slot.querySelector("[data-popup-min-out]");
+  if (out) renderPopupMinimumExposure(popupMinimumExposure.get(number), out, slot.querySelector("[data-popup-min-apply]"));
+  const g = entry.popup?.popupG;
+  followerFields(slot, "popupG").forEach((field) => {
+    const following = String(draft.popupG ?? "").trim() === "";
+    const note = field.closest(".field")?.querySelector("[data-follow-note]");
+    if (note) note.textContent = following ? "Follows #1 · BDP G onset rate" : "Own value · clear to follow #1";
+    if (!following || !Number.isFinite(g)) {
+      delete field.dataset.refill;
+      delete field.dataset.following;
+      delete field.dataset.followingText;
+      return;
+    }
+    field.dataset.following = "true";
+    field.dataset.followingText = String(Number(g.toFixed(1)));
+    if (field !== document.activeElement || field.dataset.refill) field.value = field.dataset.followingText;
+    delete field.dataset.refill;
+  });
 }
 
 function installSectionDisclosure() {
@@ -2950,7 +3043,7 @@ function install() {
     event.currentTarget.textContent = `Advanced: ${topViewAdvanced ? "On" : "Off"}`;
     renderTopView();
   });
-  $("#capture-z").addEventListener("click", () => saveSvgAsPng($("#offset-z-svg"), `${offsetZDiagramTitle({ aircraftNumber: 1 }).replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" }));
+  $("#capture-z").addEventListener("click", () => saveSvgAsPng($("#offset-z-svg"), `${zDiagramTitle(1).replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" }));
 
   const restored = loadPersistedState();
   if (!restored) applyPersistedState(defaultPersistedState);
