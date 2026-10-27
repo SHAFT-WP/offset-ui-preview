@@ -1,7 +1,7 @@
 import { casToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
-import { evaluatePw229Performance } from "../../../flight/aircraft-performance/work/pw229-performance-v0.1.mjs";
-import { PW229_MODEL_V0_1 } from "../../../flight/aircraft-performance/data/pw229-model-v0.1.mjs";
+// The adopted performance model entry (owner 2026-10-27, aircraft-performance SPEC §16): today PW-229 MIL, unchanged.
+import { ADOPTED_PERFORMANCE_MODEL, ADOPTED_PERFORMANCE_MODEL_V0_1, evaluateAdoptedPerformance } from "../../../flight/aircraft-performance/adopted-performance-model-v0.1.mjs";
 
 // BOX OUT Maneuver v0.2 — the MIL-power OUT (owner 2026-10-25; AG/bombing/box-pattern/SPEC.md "OUT Maneuver v0.2"):
 //   "Out 기동은 밀파워로 피치 25도에서 진행. 350노트에서 90도 뱅크 1.5g, cross 지점에서 Roll in altitude, roll in 속도
@@ -21,14 +21,17 @@ import { PW229_MODEL_V0_1 } from "../../../flight/aircraft-performance/data/pw22
 
 export const BOX_OUT_MANEUVER_MODEL_V0_2 = Object.freeze({
   id: "box-out-maneuver-v0.2",
-  version: "0.2.0",
+  // 0.2.1 (2026-10-27, owner): the model comes from the adopted performance entry (performanceEntry); same model,
+  // every number unchanged.
+  version: "0.2.1",
   status: "Work / MIL OUT on the PW-229 research model (unofficial adoption) / Not Official",
   recoverySource: "box-out-maneuver-v0.1 Recovery (Level-off sign corrected)",
-  performanceModel: PW229_MODEL_V0_1.modelId,
+  performanceModel: ADOPTED_PERFORMANCE_MODEL.modelId,
+  performanceEntry: `${ADOPTED_PERFORMANCE_MODEL_V0_1.id} ${ADOPTED_PERFORMANCE_MODEL_V0_1.version}`,
   performanceAdoption: "UNOFFICIAL",
   // Premises of the performance model (SPEC): the fuel is the middle of the model's fuel range; the AoA is a nominal
   // value that only the model's envelope check reads (the model has no lift law).
-  fuelKg: (PW229_MODEL_V0_1.domain.ranges.fuelKg[0] + PW229_MODEL_V0_1.domain.ranges.fuelKg[1]) / 2,
+  fuelKg: (ADOPTED_PERFORMANCE_MODEL.domain.ranges.fuelKg[0] + ADOPTED_PERFORMANCE_MODEL.domain.ranges.fuelKg[1]) / 2,
   nominalAoaDeg: 5,
   // RK4 time step of the flown phases; the end of each phase is found inside its last step.
   stepSec: 0.25,
@@ -103,7 +106,7 @@ function performanceProbe() {
   let states = 0;
   let outside = 0;
   const evaluate = (altitudeMslFt, casKt, loadFactorG, verticalSpeedMps) => {
-    const perf = evaluatePw229Performance(PW229_MODEL_V0_1, {
+    const perf = evaluateAdoptedPerformance({
       altitudeMslFt,
       casKt,
       fuelKg: BOX_OUT_MANEUVER_MODEL_V0_2.fuelKg,
@@ -349,10 +352,10 @@ export function calculateBoxOutManeuverV0_2Full(bombDeliveryResult, options = {}
     energyLeg: { targetAltitudeMslFt: target.altitudeMslFt, targetCasKt: target.casKt, ...leg },
     minimumSpeedHeldSec: pitchUp.floorSec + climb.floorSec + slice.floorSec + levelTurn.floorSec,
     performance: {
-      modelId: PW229_MODEL_V0_1.modelId,
-      engineModel: PW229_MODEL_V0_1.engineModel,
-      powerSetting: PW229_MODEL_V0_1.powerSetting,
-      configurationId: PW229_MODEL_V0_1.configurationId,
+      modelId: ADOPTED_PERFORMANCE_MODEL.modelId,
+      engineModel: ADOPTED_PERFORMANCE_MODEL.engineModel,
+      powerSetting: ADOPTED_PERFORMANCE_MODEL.powerSetting,
+      configurationId: ADOPTED_PERFORMANCE_MODEL.configurationId,
       adoption: "UNOFFICIAL",
       fuelKg: BOX_OUT_MANEUVER_MODEL_V0_2.fuelKg,
       aoaDeg: BOX_OUT_MANEUVER_MODEL_V0_2.nominalAoaDeg,

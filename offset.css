@@ -1,10 +1,10 @@
-@import url("./common-ui-v0.2.css?v=0e70d3747772");
+@import url("./common-ui-v0.2.css?v=a43576a6fd5b");
 /* Parts made common (2026-10-22) bring their CSS: input fields, DED, Flight UI, the shared BDP tab (index, 2026-10-26) (bombing app shared FE), time dial (Common UI). */
-@import url("./shared/input-fields-v0.1.css?v=0e70d3747772");
-@import url("./shared/ded-v0.1.css?v=0e70d3747772");
-@import url("./shared/flight-ui-v0.1.css?v=0e70d3747772");
-@import url("./shared/bdp-tab-v0.1.css?v=0e70d3747772");
-@import url("./common/ui/time-dial-v0.1.css?v=0e70d3747772");
+@import url("./shared/input-fields-v0.1.css?v=a43576a6fd5b");
+@import url("./shared/ded-v0.1.css?v=a43576a6fd5b");
+@import url("./shared/flight-ui-v0.1.css?v=a43576a6fd5b");
+@import url("./shared/bdp-tab-v0.1.css?v=a43576a6fd5b");
+@import url("./common/ui/time-dial-v0.1.css?v=a43576a6fd5b");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}

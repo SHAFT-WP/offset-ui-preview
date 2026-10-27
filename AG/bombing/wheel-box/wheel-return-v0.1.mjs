@@ -1,5 +1,5 @@
-import { evaluatePw229Performance } from "../../../flight/aircraft-performance/work/pw229-performance-v0.1.mjs";
-import { PW229_MODEL_V0_1 } from "../../../flight/aircraft-performance/data/pw229-model-v0.1.mjs";
+// The adopted performance model entry (owner 2026-10-27, aircraft-performance SPEC §16): today PW-229 MIL, unchanged.
+import { ADOPTED_PERFORMANCE_MODEL, ADOPTED_PERFORMANCE_MODEL_V0_1, evaluateAdoptedPerformance } from "../../../flight/aircraft-performance/adopted-performance-model-v0.1.mjs";
 import { casToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 
 // Wheel Return v0.1 — the path from the CSEM End back into the Wheel at Abeam (owner 2026-10-26; Wheel SPEC §19):
@@ -27,13 +27,16 @@ import { casToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 // Attack frame (NM): alongNm along the Attack Heading from the Target, sideNm toward the pattern side.
 export const WHEEL_RETURN_MODEL_V0_1 = Object.freeze({
   id: "wheel-return-v0.1",
-  version: "0.1.0",
+  // 0.1.1 (2026-10-27, owner): the model comes from the adopted performance entry (performanceEntry); same model,
+  // every number unchanged.
+  version: "0.1.1",
   status: "Work / MIL return on the PW-229 research model (unofficial adoption) / Not Official",
   phaseSource: "box-out-maneuver-v0.2 (Climb, OUT Turn, energy leg)",
-  performanceModel: PW229_MODEL_V0_1.modelId,
+  performanceModel: ADOPTED_PERFORMANCE_MODEL.modelId,
+  performanceEntry: `${ADOPTED_PERFORMANCE_MODEL_V0_1.id} ${ADOPTED_PERFORMANCE_MODEL_V0_1.version}`,
   performanceAdoption: "UNOFFICIAL",
   // BOX OUT v0.2's premises and defaults.
-  fuelKg: (PW229_MODEL_V0_1.domain.ranges.fuelKg[0] + PW229_MODEL_V0_1.domain.ranges.fuelKg[1]) / 2,
+  fuelKg: (ADOPTED_PERFORMANCE_MODEL.domain.ranges.fuelKg[0] + ADOPTED_PERFORMANCE_MODEL.domain.ranges.fuelKg[1]) / 2,
   nominalAoaDeg: 5,
   turnSpeedKcas: 350,
   turnBankDeg: 90,
@@ -73,7 +76,7 @@ function performanceProbe() {
   let states = 0;
   let outside = 0;
   const evaluate = (altitudeMslFt, casKt, loadFactorG, verticalSpeedMps) => {
-    const perf = evaluatePw229Performance(PW229_MODEL_V0_1, {
+    const perf = evaluateAdoptedPerformance({
       altitudeMslFt, casKt, fuelKg: model.fuelKg, loadFactorG, aoaDeg: model.nominalAoaDeg, verticalSpeedMps,
     }, { allowResearchExtrapolation: true });
     states += 1;
@@ -293,10 +296,10 @@ export function calculateWheelReturnV0_1({ start, abeam, target, turnG = WHEEL_R
 
   const probe = performanceProbe();
   const performance = () => ({
-    modelId: PW229_MODEL_V0_1.modelId,
-    engineModel: PW229_MODEL_V0_1.engineModel,
-    powerSetting: PW229_MODEL_V0_1.powerSetting,
-    configurationId: PW229_MODEL_V0_1.configurationId,
+    modelId: ADOPTED_PERFORMANCE_MODEL.modelId,
+    engineModel: ADOPTED_PERFORMANCE_MODEL.engineModel,
+    powerSetting: ADOPTED_PERFORMANCE_MODEL.powerSetting,
+    configurationId: ADOPTED_PERFORMANCE_MODEL.configurationId,
     adoption: "UNOFFICIAL",
     fuelKg: model.fuelKg,
     aoaDeg: model.nominalAoaDeg,
