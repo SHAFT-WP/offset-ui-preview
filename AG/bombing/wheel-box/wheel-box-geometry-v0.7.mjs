@@ -9,7 +9,7 @@
 //   onset level turn, its samples) → Base Leg → OA1 / Roll-in → Tracking → Release.
 // iBT is retired (as BOX): the end of the Abeam Extension is `baseTurnStart`.
 
-import { formatWheelRadiusNm } from "./wheel-box-geometry-v0.6.mjs";
+import { formatWheelRadiusNm } from "../wheel-attack/wheel-box-geometry-v0.6.mjs";
 
 export const WHEEL_BOX_GEOMETRY_MODEL_V0_7 = Object.freeze({
   id: "wheel-box-geometry-v0.7",

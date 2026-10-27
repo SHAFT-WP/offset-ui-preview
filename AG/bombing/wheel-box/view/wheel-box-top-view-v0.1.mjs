@@ -13,7 +13,7 @@ import { createSmartLabelLayout } from "../../../../common/diagram/svg-smart-lab
 import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { formatDeg, formatG, formatKt, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { WHEEL_TOP_VIEW_ADVANCED_LEGEND, WHEEL_TOP_VIEW_LEGEND, WHEEL_VIEW_COLORS as C, wheelTopViewTitle } from "./wheel-view-style-v0.1.mjs";
-import { formatWheelRadiusNm } from "../wheel-box-geometry-v0.6.mjs";
+import { formatWheelRadiusNm } from "../../wheel-attack/wheel-box-geometry-v0.6.mjs";
 
 // Wheel-BOX #n Top View — Wheel-owned view in the V2 unified view grammar (common/diagram/SPEC.md; Wheel SPEC
 // "Wheel-BOX v0.8 views"), drawn on the BOX Top View's layout (box-top-view-v0.5) for the Wheel-BOX v0.8 / v0.9 route

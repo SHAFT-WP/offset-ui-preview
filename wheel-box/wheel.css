@@ -1,0 +1,29 @@
+@import url("../common-ui-v0.2.css?v=374d4111c9c9");
+/* Shared parts bring their CSS (bombing app shared FE): input fields, DED, Flight UI, the shared BDP tab; time dial (Common UI). */
+@import url("../shared/input-fields-v0.1.css?v=374d4111c9c9");
+@import url("../shared/ded-v0.1.css?v=374d4111c9c9");
+@import url("../shared/flight-ui-v0.1.css?v=374d4111c9c9");
+@import url("../shared/bdp-tab-v0.1.css?v=374d4111c9c9");
+@import url("../common/ui/time-dial-v0.1.css?v=374d4111c9c9");
+
+/* Wheel page (owner 2026-10-25): the BOX page's rules, which are the Offset page's general rules, then the Wheel inputs. */
+:root{color-scheme:dark}
+.section-head,.result-panel-head{flex-wrap:wrap}
+.flight-draft-note{margin:0;color:var(--muted);font-size:12px;line-height:1.5}
+.z-diagram-shell{width:100%;max-width:1140px;margin:auto;box-sizing:border-box;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.z-diagram-shell svg{width:100%;height:auto;display:block}
+.status-message{margin-top:10px;border-radius:10px;padding:10px 12px;font-size:11px;line-height:1.5}.status-message.valid{background:var(--green-soft);color:var(--green)}.status-message.warning{background:var(--amber-soft);color:var(--amber)}.status-message.invalid{background:var(--red-soft);color:var(--red)}
+.top-view-section .section-head{display:block}.top-view-section .section-head h2{margin-bottom:10px}
+.capture-button:disabled{opacity:.42;cursor:default}
+/* Diagram CSS boundary (CSS-SPEC §1): the shell and svg box only; the Wheel views set their own aspect ratio, strokes and text. */
+.top-view-shell{border:1px solid #dfe6ee;border-radius:12px;background:#fff;overflow:hidden}#wheel-top-view{display:block;width:100%;height:auto;background:#fff}
+.constraint-note{font-size:10px;color:var(--muted);line-height:1.4;margin:8px 0 0}
+.capture-button.view-toggle[aria-pressed="true"]{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}
+/* BDP views (centre BDP tab): Dive Profile, 3D, Top View, HUD in one column while shown. */
+.bdp-views{display:none}
+.bdp-views.show-full-views{display:block}
+.bdp-views.show-full-views .bdp-diagrams{display:grid;grid-template-columns:minmax(0,1fr);margin-top:0}
+.wheel-head-status{display:flex;gap:8px;align-items:center}
+.input-group-panel+.input-group-panel{margin-top:8px}
+.save-actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.adv-tag{font-size:9px;font-weight:900;color:var(--muted);margin-left:6px}

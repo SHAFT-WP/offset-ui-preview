@@ -1,17 +1,16 @@
 // Presentation layer of the Wheel page (index.html): the PC Wide workspace (bombing app shared FE) places the Wheel
-// controller's live nodes. Left = Edit aircraft + input tabs, centre = Wheel Top View / BDP / Spacer Turn, right =
-// Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft (owner 2026-10-25: a page
-// like BOX's).
-import { wheelIndexUi } from "./controller-v0.1.mjs?v=0637538e0a9f";
+// controller's live nodes. Left = Edit aircraft + input tabs, centre = Wheel Top View / BDP, right = Result / Z-Diagram /
+// DED, every output tab showing the one shared set of shown aircraft (owner 2026-10-27: the Wheel as BOX's page).
+import { wheelIndexUi } from "./controller-v0.1.mjs?v=374d4111c9c9";
 import { mountWideWorkspace } from "../shared/wide-workspace-v0.1.mjs?v=0.1.1";
 
 const app = document.getElementById("wheel-calculator");
 
-// Tabs (owner 2026-10-25, BOX's): BDP, Wheel, Spacer Turn (the Wheel S&R slot, blank for now; the input tab reads
-// "Spacer.T"), Formation (#2–#4: each follower's position, hidden for #1 as on Offset), Save/Load.
-const INPUT_TABS = [["bdp", "BDP"], ["wheel", "Wheel"], ["spacer", "Spacer.T"], ["formation", "Formation", { hidden: (editAircraft) => editAircraft === 1 }], ["save", "Save/Load"]];
-const CENTER_OF_INPUT = Object.freeze({ wheel: "topview", bdp: "bdp", spacer: "spacer" });
-const INPUT_OF_CENTER = Object.freeze({ topview: "wheel", bdp: "bdp", spacer: "spacer" });
+// Tabs: BDP, Wheel, Wheel Slot (#2–#4: each follower's place in the attack order, hidden for #1 as Formation is on
+// Offset), Save/Load. The Wheel has no Spacer Turn: its spacing is the attack interval.
+const INPUT_TABS = [["bdp", "BDP"], ["wheel", "Wheel"], ["slot", "Wheel Slot", { hidden: (editAircraft) => editAircraft === 1 }], ["save", "Save/Load"]];
+const CENTER_OF_INPUT = Object.freeze({ wheel: "topview", bdp: "bdp", slot: "topview" });
+const INPUT_OF_CENTER = Object.freeze({ topview: "wheel", bdp: "bdp" });
 
 const workspace = mountWideWorkspace({
   app,
@@ -23,7 +22,6 @@ const workspace = mountWideWorkspace({
   centerTabs: [
     ["topview", "Wheel Top View", { section: document.getElementById("wheel-top-view")?.closest("section") }],
     ["bdp", "BDP", { title: "BDP", blocks: true }],
-    ["spacer", "Spacer Turn", { title: "Spacer Turn", host: true }],
   ],
   centerOfInput: CENTER_OF_INPUT,
   inputOfCenter: INPUT_OF_CENTER,
@@ -32,7 +30,7 @@ const workspace = mountWideWorkspace({
   statusMessage: (number) => document.getElementById(number === 1 ? "constraint-message" : "flight-status-" + number),
   statusSelector: "#state-pill, [id^='flight-state-pill-'], #constraint-message, [id^='flight-status-']",
   ui: wheelIndexUi,
-  // Shared BDP tab (owner 2026-10-25): Full BDP stays in the tab head, before Tab Default.
+  // Shared BDP tab: Full BDP stays in the tab head, before Tab Default (as BOX and Wheel-BOX).
   fullBdpOnEditLine: false,
   onShown(visible, centerTab) {
     if (centerTab === "bdp") wheelIndexUi.showBdpViews(visible);
@@ -42,14 +40,6 @@ const workspace = mountWideWorkspace({
     if (key === "bdp" || previous === "bdp") wheelIndexUi.showBdpViews(key === "bdp" ? shown : []);
   },
 });
-
-const spacerHost = workspace.centerHost("spacer");
-if (spacerHost) {
-  const note = document.createElement("p");
-  note.className = "flight-draft-note";
-  note.textContent = "Spacer Turn is the Wheel slot of S&R. Its content comes in a later step.";
-  spacerHost.append(note);
-}
 wheelIndexUi.installSectionDisclosure();
 
 // First entry: input Wheel, centre Wheel Top View, right Result, edit #1, shown #1.

@@ -4,7 +4,7 @@ import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.
 import { formatDeg, formatG, formatKt, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { boxAbeamText } from "../../box-pattern/view/box-z-diagram-v0.3.mjs";
 import { wheelZDiagramTitle } from "./wheel-view-style-v0.1.mjs";
-import { formatWheelRadiusNm } from "../wheel-box-geometry-v0.6.mjs";
+import { formatWheelRadiusNm } from "../../wheel-attack/wheel-box-geometry-v0.6.mjs";
 
 // Wheel-BOX #n Z-Diagram for the Wheel-BOX v0.8 / v0.9 result (2026-10-25): the BDP Z of the Wheel's own BDP v0.4 solve
 // (Angle-Off 90°) in the Common Z grammar, as BOX's (box-z-diagram-v0.3): the Roll-in group ends with `Abeam +Nsec`,

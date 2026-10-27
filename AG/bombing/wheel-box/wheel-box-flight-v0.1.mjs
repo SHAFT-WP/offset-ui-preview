@@ -8,7 +8,7 @@ import {
   aircraftSolveKey as flightSolveKey, applyFlightEdits, createFlightSession, flightEditEvents, readFlightRecords, reusedSolve,
 } from "../../../flight/flight-bombing-tactics/flight-composition-v0.1.mjs";
 
-// Wheel Flight entrypoint (Wheel SPEC "Wheel Flight entrypoint and the Wheel page BE", owner 2026-10-25: the Wheel page
+// Wheel-BOX Flight entrypoint (Wheel SPEC "Wheel-BOX Flight entrypoint and the Wheel page BE", owner 2026-10-25: the Wheel page
 // as BOX's). One call takes the whole Flight input state and returns every aircraft's Full Wheel-BOX v0.10 result, its
 // DED pages (OA1, OA2) and the next input state. It has the BOX / Offset Flight entrypoint's shape, so the Wheel page
 // uses the same Flight host, Worker and session:
@@ -28,8 +28,8 @@ import {
 // the Join G and the Extension are the result's, never written back); a new aircraft's SEM End is CLIMB (CSEM), as the
 // Return starts at the CSEM End. A saved record keeps its SEM End; a blank Return Turn G is the BE default. A new
 // aircraft's Initial Speed is 300 KCAS (owner: "휠박스의 디폴트 속도는 300이 적당할 듯"); DED OA2 is the Base Turn start.
-export const WHEEL_FLIGHT_V0_1 = Object.freeze({
-  id: "wheel-flight-v0.1",
+export const WHEEL_BOX_FLIGHT_V0_1 = Object.freeze({
+  id: "wheel-box-flight-v0.1",
   version: "0.3.0",
   status: "work",
   schemaVersion: 1,
@@ -41,7 +41,7 @@ export const WHEEL_FLIGHT_V0_1 = Object.freeze({
 // Base / Crosswind Turn 2 G; the requested G). The Downwind Angle is not a value: v0.9 fixes it at 0°. A blank optional
 // value (Wheel turn Speed / Altitude, Orbit, SEM Turn G / Speed / Direction) is the BE's default; without an Orbit
 // Radius there is no Orbit.
-export const WHEEL_FLIGHT_DEFAULT_VALUES = Object.freeze({
+export const WHEEL_BOX_FLIGHT_DEFAULT_VALUES = Object.freeze({
   weaponId: "M82",
   targetElevationMslFt: 31,
   windDirectionDeg: 0,
@@ -83,26 +83,26 @@ export const WHEEL_FLIGHT_DEFAULT_VALUES = Object.freeze({
 });
 // The Wheel options a blank leaves to the BE.
 const WHEEL_OPTION_KEYS = Object.freeze(["wheelSpeedKcas", "wheelAltitudeMslFt", "orbitRadiusNm", "orbitSpeedKcas", "orbitAltitudeMslFt"]);
-export const WHEEL_FLIGHT_DEFAULT_STATE = Object.freeze({
+export const WHEEL_BOX_FLIGHT_DEFAULT_STATE = Object.freeze({
   solveMode: "height",
   rollInAltitudeLinked: true,
   enteredTrackingTimeSec: 18,
   wheelRadiusSource: "MIN",
   fragmentMarginAppliesTo: "HEIGHT_AND_RADIUS",
 });
-export function wheelFlightDefaultLead() {
-  return { values: { ...WHEEL_FLIGHT_DEFAULT_VALUES }, locks: {}, state: { ...WHEEL_FLIGHT_DEFAULT_STATE } };
+export function wheelBoxFlightDefaultLead() {
+  return { values: { ...WHEEL_BOX_FLIGHT_DEFAULT_VALUES }, locks: {}, state: { ...WHEEL_BOX_FLIGHT_DEFAULT_STATE } };
 }
 
 // Formation (Offset's Flight structure): the reference aircraft and the default (fingertip) position of each follower.
-export const WHEEL_FLIGHT_FORMATION_REFERENCE = Object.freeze({ 2: 1, 3: 1, 4: 3 });
-export const WHEEL_FLIGHT_FORMATION_DEFAULTS = Object.freeze({
+export const WHEEL_BOX_FLIGHT_FORMATION_REFERENCE = Object.freeze({ 2: 1, 3: 1, 4: 3 });
+export const WHEEL_BOX_FLIGHT_FORMATION_DEFAULTS = Object.freeze({
   2: Object.freeze({ side: "LEFT", bearingDeg: 90, distanceNm: 1 }),
   3: Object.freeze({ side: "RIGHT", bearingDeg: 90, distanceNm: 2 }),
   4: Object.freeze({ side: "RIGHT", bearingDeg: 90, distanceNm: 1 }),
 });
-export function wheelFlightDefaultFollower(number) {
-  const formation = WHEEL_FLIGHT_FORMATION_DEFAULTS[number];
+export function wheelBoxFlightDefaultFollower(number) {
+  const formation = WHEEL_BOX_FLIGHT_FORMATION_DEFAULTS[number];
   if (!formation) throw new RangeError("follower number must be 2, 3 or 4");
   return { formation: { ...formation } };
 }
@@ -123,13 +123,13 @@ const WHEEL_RADIUS_SOURCES = new Set(["MIN", "MANUAL"]);
 const FRAGMENT_MARGIN_MODE_SET = new Set(FRAGMENT_MARGIN_MODES);
 
 // Tracking Time is entered in 0.1 s (the Offset page's step); BDP rounds the same.
-export const WHEEL_FLIGHT_TRACKING_TIME_STEP_SEC = 0.1;
+export const WHEEL_BOX_FLIGHT_TRACKING_TIME_STEP_SEC = 0.1;
 const roundTrackingTime = (value) => Math.round(value * 10) / 10;
 
 // Roll-in Altitude LOCK with a Tracking Time entry: the Release Altitude that gives the entered Tracking Time from
 // the held Roll-in Altitude. Wheel's BDP input does not depend on the pattern (Angle-Off fixed at 90°, wind relative to
 // the Attack Heading), so the search runs on the BDP alone.
-export const WHEEL_FLIGHT_RELEASE_SOLVE = Object.freeze({ toleranceFt: 0.01, acceptFt: 0.5, iterations: 40 });
+export const WHEEL_BOX_FLIGHT_RELEASE_SOLVE = Object.freeze({ toleranceFt: 0.01, acceptFt: 0.5, iterations: 40 });
 
 const FT_PER_NM = 6076.11549;
 const norm = (deg) => ((deg % 360) + 360) % 360;
@@ -155,7 +155,7 @@ function normalizeSolveMode(mode, rollInLocked) {
   return mode === "time" ? "time" : "height";
 }
 
-// A Downwind Angle of an older record (Wheel Flight 0.1) leaves the record: v0.9 flies 0°. A non-zero one is reported
+// A Downwind Angle of an older record (Wheel-BOX Flight 0.1) leaves the record: v0.9 flies 0°. A non-zero one is reported
 // once, as a warning of the solve that read it (the next state no longer carries it).
 function downwindNotices(values) {
   if (!Object.hasOwn(values, "downwindAngleDeg")) return [];
@@ -170,7 +170,7 @@ function normalizeLead(record = {}) {
   const values = { ...(record.values ?? {}) };
   const notices = downwindNotices(values);
   const locks = Object.fromEntries(Object.entries(record.locks ?? {}).filter(([key]) => LOCK_KEYS.has(key)).map(([key, on]) => [key, on === true]));
-  const entered = blank(state.enteredTrackingTimeSec) ? WHEEL_FLIGHT_DEFAULT_STATE.enteredTrackingTimeSec : requireNumber("enteredTrackingTimeSec", state.enteredTrackingTimeSec);
+  const entered = blank(state.enteredTrackingTimeSec) ? WHEEL_BOX_FLIGHT_DEFAULT_STATE.enteredTrackingTimeSec : requireNumber("enteredTrackingTimeSec", state.enteredTrackingTimeSec);
   return {
     values,
     locks,
@@ -193,7 +193,7 @@ function normalizeFollower(record = {}) {
 }
 
 function normalizeFlightInput(input) {
-  return readFlightRecords(input, { schemaVersion: WHEEL_FLIGHT_V0_1.schemaVersion, normalizeLead, normalizeFollower });
+  return readFlightRecords(input, { schemaVersion: WHEEL_BOX_FLIGHT_V0_1.schemaVersion, normalizeLead, normalizeFollower });
 }
 
 // ---- One-shot edit events -----------------------------------------------------------------------------------------
@@ -227,7 +227,7 @@ function applyLeadEdit(lead, edit) {
   }
   if (edit.kind === "clear") {
     // A cleared field takes its default (an optional one goes blank), with the LINK and solve-mode rules.
-    let value = Object.hasOwn(WHEEL_FLIGHT_DEFAULT_VALUES, key) ? WHEEL_FLIGHT_DEFAULT_VALUES[key] : null;
+    let value = Object.hasOwn(WHEEL_BOX_FLIGHT_DEFAULT_VALUES, key) ? WHEEL_BOX_FLIGHT_DEFAULT_VALUES[key] : null;
     if (key === "rollInAltitudeMslFt" && s.solveMode !== "time" && s.rollInAltitudeLinked && isNumber(v.initialAltitudeMslFt)) value = Math.round(v.initialAltitudeMslFt);
     else if (key === "initialAltitudeMslFt" && s.rollInAltitudeLinked && isNumber(v.rollInAltitudeMslFt)) value = Math.round(v.rollInAltitudeMslFt);
     else if (key === "trackingTimeSec") s.solveMode = "height";
@@ -261,7 +261,7 @@ function applyLeadEdit(lead, edit) {
 function applyFollowerEdit(follower, edit, number) {
   if (!FORMATION_KEYS.has(edit.key)) throw new TypeError(`"${edit.key}" is not a Formation field (#${number} flies #1's Wheel data)`);
   if (edit.kind === "clear") {
-    follower.formation[edit.key] = WHEEL_FLIGHT_FORMATION_DEFAULTS[number][edit.key];
+    follower.formation[edit.key] = WHEEL_BOX_FLIGHT_FORMATION_DEFAULTS[number][edit.key];
     return;
   }
   if (edit.kind !== "set") throw new TypeError(`edit kind "${edit.kind}" is not supported on #${number}`);
@@ -277,7 +277,7 @@ function applyEdits(aircraft, edits) {
 // ---- #1 solve ------------------------------------------------------------------------------------------------------
 
 function textChoice(key, value) {
-  if (blank(value)) return OPTIONAL_KEYS.has(key) ? undefined : WHEEL_FLIGHT_DEFAULT_VALUES[key];
+  if (blank(value)) return OPTIONAL_KEYS.has(key) ? undefined : WHEEL_BOX_FLIGHT_DEFAULT_VALUES[key];
   const allowed = TEXT_CHOICES[key];
   if (allowed && !allowed.includes(value)) throw new TypeError(`${key} "${value}" is not supported`);
   return value;
@@ -314,7 +314,7 @@ function leadBdpInput(lead) {
     // A Roll-in Altitude too low gives a negative Tracking Time, not an error (the Offset page's rule).
     allowNegativeTrackingTime: true,
     trackingTimeSec: solveMode === "time" ? n("trackingTimeSec") : s.enteredTrackingTimeSec,
-    trackingTimeStepSec: WHEEL_FLIGHT_TRACKING_TIME_STEP_SEC,
+    trackingTimeStepSec: WHEEL_BOX_FLIGHT_TRACKING_TIME_STEP_SEC,
     releaseAltitudeMslFt: n("releaseAltitudeMslFt"),
     rollInG: n("rollInG"),
     rollInRollRateDegSec: n("rollInRollRateDegSec"),
@@ -347,7 +347,7 @@ function leadWheelInput(lead, bombDeliveryInput) {
     wheelRadiusNm: s.wheelRadiusSource === "MANUAL" ? n("wheelRadiusNm") : null,
     baseTurnG: n("baseTurnG"),
     // The Return: a blank (or a record from before 0.3.0) is the BE default.
-    returnTurnG: optionalNumber("returnTurnG", v.returnTurnG) ?? WHEEL_FLIGHT_DEFAULT_VALUES.returnTurnG,
+    returnTurnG: optionalNumber("returnTurnG", v.returnTurnG) ?? WHEEL_BOX_FLIGHT_DEFAULT_VALUES.returnTurnG,
     ...options,
   };
 }
@@ -355,7 +355,7 @@ function leadWheelInput(lead, bombDeliveryInput) {
 // "release" mode: the Release Altitude at which the time-mode BDP (entered Tracking Time) reaches the held Roll-in
 // Altitude (secant on the BDP at the Wheel-BOX Angle-Off).
 function solveReleaseAltitude(bombDeliveryInput) {
-  const config = WHEEL_FLIGHT_RELEASE_SOLVE;
+  const config = WHEEL_BOX_FLIGHT_RELEASE_SOLVE;
   const rollInAltitudeMslFt = bombDeliveryInput.initialAltitudeMslFt;
   const angleOffDeg = WHEEL_BOX_BE_MODEL_V0_10.fixedAngleOffDeg;
   const f = (releaseAltitudeMslFt) => calculateBombDeliveryV0_4Full({ ...bombDeliveryInput, angleOffDeg, solveMode: "time", releaseAltitudeMslFt }).public.resolvedInitialAltitudeMslFt - rollInAltitudeMslFt;
@@ -450,7 +450,7 @@ function solveLead(lead, stateError) {
 
 // ---- Flight ---------------------------------------------------------------------------------------------------------
 
-const SOLVE_MODEL_KEY = `${WHEEL_FLIGHT_V0_1.id}@${WHEEL_FLIGHT_V0_1.version}`;
+const SOLVE_MODEL_KEY = `${WHEEL_BOX_FLIGHT_V0_1.id}@${WHEEL_BOX_FLIGHT_V0_1.version}`;
 
 function outputRecord(number, record) {
   if (record.raw) return structuredClone(record.raw);
@@ -484,17 +484,17 @@ function followerPosition(number, follower, reference, attackHeadingDeg) {
     sideNm: reference.sideNm + reference.sideSign * distanceNm * Math.sin(relative),
     headingDeg: reference.headingDeg,
     sideSign: reference.sideSign,
-    referenceAircraft: WHEEL_FLIGHT_FORMATION_REFERENCE[number],
+    referenceAircraft: WHEEL_BOX_FLIGHT_FORMATION_REFERENCE[number],
     trueBearingFromReferenceDeg: trueBearingDeg,
     distanceFromReferenceNm: distanceNm,
   };
 }
 
 function placeFollower(number, follower, stateError, results) {
-  const base = { aircraft: number, elementLead: WHEEL_FLIGHT_FORMATION_REFERENCE[number], predecessor: number - 1, result: null, ded: null, derived: new Set(), warnings: [] };
+  const base = { aircraft: number, elementLead: WHEEL_BOX_FLIGHT_FORMATION_REFERENCE[number], predecessor: number - 1, result: null, ded: null, derived: new Set(), warnings: [] };
   const failed = (message) => ({ ...base, status: "FAILED", position: null, error: message, errors: [message] });
   if (stateError) return failed(stateError);
-  const referenceNumber = WHEEL_FLIGHT_FORMATION_REFERENCE[number];
+  const referenceNumber = WHEEL_BOX_FLIGHT_FORMATION_REFERENCE[number];
   const reference = results[referenceNumber]?.position;
   if (!reference) return failed(`#${referenceNumber} has no current position`);
   try {
@@ -508,7 +508,7 @@ function placeFollower(number, follower, stateError, results) {
 function calculateFlight(input, session) {
   const { flightSize, aircraft, stateErrors } = normalizeFlightInput(input);
   // A follower within the Flight size without a record takes the default Formation position.
-  for (let number = 2; number <= flightSize; number += 1) aircraft[number] ??= wheelFlightDefaultFollower(number);
+  for (let number = 2; number <= flightSize; number += 1) aircraft[number] ??= wheelBoxFlightDefaultFollower(number);
   const editErrors = applyEdits(aircraft, flightEditEvents(input));
   const errorOf = (number) => stateErrors[number] ?? editErrors[number];
   const results = {};
@@ -536,33 +536,33 @@ function calculateFlight(input, session) {
     aircraftResults[key] = rest;
   }
   const output = {
-    model: { ...WHEEL_FLIGHT_V0_1, components: { ...WHEEL_FLIGHT_V0_1.components } },
+    model: { ...WHEEL_BOX_FLIGHT_V0_1, components: { ...WHEEL_BOX_FLIGHT_V0_1.components } },
     flightSize,
     aircraftResults,
     constraintDiagnostics: [],
     // The spacing between aircraft (and so their drop-order times) is the Spacer Turn's, a later step.
     flightTiming: {},
-    nextInput: { schemaVersion: WHEEL_FLIGHT_V0_1.schemaVersion, flightSize, aircraft: nextAircraft },
+    nextInput: { schemaVersion: WHEEL_BOX_FLIGHT_V0_1.schemaVersion, flightSize, aircraft: nextAircraft },
   };
   return { output, solveLog };
 }
 
 // Pure reference entrypoint: every call starts from nothing; identical BDP sub-solves inside the call run once.
-export function calculateWheelFlightFull(input) {
+export function calculateWheelBoxFlightFull(input) {
   return withCalculationCache(createCalculationCache(), () => calculateFlight(input, null)).output;
 }
 
-// Editing session: the same contract as calculateWheelFlightFull for the repeated calls of one page (the Flight host
+// Editing session: the same contract as calculateWheelBoxFlightFull for the repeated calls of one page (the Flight host
 // and Worker hold it).
-export function createWheelFlightSession({ solveLimit = 32, cacheLimits = { "bdp-v0.4": 512, "ballistic-trajectory": 512, "sem-nlt": 64 } } = {}) {
+export function createWheelBoxFlightSession({ solveLimit = 32, cacheLimits = { "bdp-v0.4": 512, "ballistic-trajectory": 512, "sem-nlt": 64 } } = {}) {
   return createFlightSession(calculateFlight, { solveLimit, cacheLimits });
 }
 
 // Public entrypoint: results truncated to 5 decimals (docs/FE-BE-RULES.md), without nextInput (the next input state
-// is continued only from calculateWheelFlightFull).
-export function calculateWheelFlight(input) {
-  const { nextInput, ...rest } = calculateWheelFlightFull(input);
+// is continued only from calculateWheelBoxFlightFull).
+export function calculateWheelBoxFlight(input) {
+  const { nextInput, ...rest } = calculateWheelBoxFlightFull(input);
   return truncateBeOutput(rest);
 }
 
-export { FT_PER_NM as WHEEL_FLIGHT_FT_PER_NM };
+export { FT_PER_NM as WHEEL_BOX_FLIGHT_FT_PER_NM };

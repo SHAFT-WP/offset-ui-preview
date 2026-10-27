@@ -1,7 +1,7 @@
 import { BOMB_DELIVERY_PLANNER_MODEL_V0_4, ROLL_IN_ONSET_DEFAULTS, calculateBombDeliveryV0_4Full } from "../bomb-delivery-planner/bomb-delivery-planner-v0.4.mjs";
 import { ONSET_LEVEL_TURN_MODEL_V0_1, calculateOnsetLevelTurn } from "../../../common/maneuvers/turn-performance/onset-level-turn-v0.1.mjs";
-import { calculateOrbitHoldingTurnV0_3, calculateWheelTurnV0_3 } from "./wheel-orbit-turn-v0.3.mjs";
-import { WHEEL_ORBIT_PERFORMANCE_LIMITATIONS_V0_1, WHEEL_ORBIT_PERFORMANCE_PROFILE_V0_1, evaluateWheelOrbitPerformanceValidityV0_1 } from "./wheel-orbit-performance-validity-v0.1.mjs";
+import { calculateOrbitHoldingTurnV0_3, calculateWheelTurnV0_3 } from "../wheel-attack/wheel-orbit-turn-v0.3.mjs";
+import { WHEEL_ORBIT_PERFORMANCE_LIMITATIONS_V0_1, WHEEL_ORBIT_PERFORMANCE_PROFILE_V0_1, evaluateWheelOrbitPerformanceValidityV0_1 } from "../wheel-attack/wheel-orbit-performance-validity-v0.1.mjs";
 import { buildWheelBoxGeometryV0_7 } from "./wheel-box-geometry-v0.7.mjs";
 import { truncateDecimals, truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 
