@@ -4,23 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Wheel Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./wheel.css?v=54f699f6dbd2">
-<link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=54f699f6dbd2">
-<link rel="stylesheet" href="./wide-layout.css?v=54f699f6dbd2">
+<link rel="stylesheet" href="./wheel.css?v=0637538e0a9f">
+<link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=0637538e0a9f">
+<link rel="stylesheet" href="./wide-layout.css?v=0637538e0a9f">
 </head>
 <body class="wheel-wide bombing-wide">
 <!-- Wheel page (owner 2026-10-25: Wheel-BOX (V2), a separate page as BOX's): the Offset FE layout (PC Wide and phone),
-     the Wheel-BOX v0.9 BE through the Wheel Flight entrypoint. Tabs: BDP (shared BDP tab) / Wheel / Spacer Turn (blank,
+     the Wheel-BOX v0.10 BE through the Wheel Flight entrypoint. Tabs: BDP (shared BDP tab) / Wheel / Spacer Turn (blank,
      the Wheel S&R slot) / Formation (#2–#4: each follower's position; one data set, #1's) / Save/Load. -->
 <main class="app" id="wheel-calculator">
   <header class="topbar">
     <div>
       <h1 id="wheel-page-title">Wheel Tactics</h1>
-      <div class="subline">V2 modular work · Wheel-BOX v0.9 BE · BDP v0.4</div>
+      <div class="subline">V2 modular work · Wheel-BOX v0.10 BE · BDP v0.4</div>
     </div>
     <div class="toolbar">
       <label class="flight-size-control" for="flight-size" title="#1–#4 fly #1's BDP and Wheel data; #2–#4 set their Formation position"><span>Size of Flight</span><select id="flight-size"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
-      <span class="rev" id="wheel-rev">V2 WORK · WHEEL-BOX BE 0.9</span>
+      <span class="rev" id="wheel-rev">V2 WORK · WHEEL-BOX BE 0.10</span>
     </div>
   </header>
 
@@ -77,6 +77,14 @@
       </div>
       <p class="constraint-note">Orbit is the waiting / deconfliction / targeting circle around the Target. It is not part of the attack route; the Top View shows it in Advanced.</p>
     </details>
+
+    <details class="input-group-panel advanced-only">
+      <summary class="input-group-title">Return <span class="adv-tag">ADV</span></summary>
+      <div class="input-grid">
+        <label class="field"><span>Return Turn G (G)</span><input data-key="returnTurnG" type="text" inputmode="decimal"><span class="unit" data-return-turn-note>90° bank to level · default 1.5 G</span></label>
+      </div>
+      <p class="constraint-note">After a CSEM (SEM End CLIMB), the Return flies from the CSEM End back into the Wheel at Abeam (BOX OUT physics, MIL, PW-229 research model, unofficial): it climbs on at the CSEM angle until 350 KCAS (the speed falls), turns toward the Wheel side at 90° bank and Return Turn G while the path falls to level (or the speed to 300 KCAS), then goes on at the G that ends the turn on the Abeam line (Downwind heading), holding 300 KCAS by descending where MIL cannot hold it, and flies the Downwind to Abeam getting back the Roll-in Altitude only (a MIL climb at the speed it has, or a descent when above); the speed at Abeam is not set. When the altitude would not be back by Abeam, it first gains altitude straight ahead (the Extension), so the path ahead lengthens. It never goes wider than the Wheel Radius. The Abeam Extension is flown to OA2, the Base Turn start (a visual reference: the time to it depends on the speed at Abeam).</p>
+    </details>
     <div id="constraint-message" class="status-message valid">-</div>
   </section>
 
@@ -123,7 +131,7 @@
           </div>
           <button class="capture-button" id="top-view-zoom-reset" type="button">Reset</button>
           <button class="capture-button" id="capture-top-view" type="button">PNG</button>
-          <button class="capture-button view-toggle" id="top-view-advanced" type="button" aria-pressed="false" title="MAP, the Roll-in Distance, Min Wheel and Orbit">Advanced: Off</button>
+          <button class="capture-button view-toggle" id="top-view-advanced" type="button" aria-pressed="false" title="MAP, the Roll-in Distance, Min Wheel, Orbit, the SEM and the Return">Advanced: Off</button>
         </div>
       </div>
     </div>
@@ -147,6 +155,6 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=54f699f6dbd2"></script>
+<script type="module" src="./wide-layout.mjs?v=0637538e0a9f"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
 // Wheel values stay in Wheel: nothing here reads or writes the Offset or BOX page's state.
 import {
   WHEEL_FLIGHT_DEFAULT_STATE, WHEEL_FLIGHT_DEFAULT_VALUES, WHEEL_FLIGHT_FORMATION_REFERENCE, WHEEL_FLIGHT_V0_1, wheelFlightDefaultFollower, wheelFlightDefaultLead,
-} from "../AG/bombing/wheel-attack/wheel-flight-v0.1.mjs?v=0.2.0";
+} from "../AG/bombing/wheel-attack/wheel-flight-v0.1.mjs?v=0.3.0";
 import { createCalculationScheduler, createWorkerTransport } from "../common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
 import { WEAPON_DATABASE_V0_1 } from "../AG/bombing/bomb-delivery-planner/weapon-data-v0.1.mjs";
 import {
@@ -24,8 +24,8 @@ import { installSvgViewport } from "../common/diagram/svg-viewport-v0.1.mjs?v=0.
 import { installSmartLabelDrag } from "../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
 import { createTimePlayer, timeDialMarkup } from "../common/ui/time-dial-v0.1.mjs?v=0.1.0";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec } from "../common/ui/display-precision-v0.1.mjs?v=0.1.1";
-import { WHEEL_BOX_TOP_VIEW_V0_1, renderWheelBoxTopView, wheelRadiusText, wheelTopViewTitle } from "../AG/bombing/wheel-attack/view/wheel-box-top-view-v0.1.mjs?v=0.1.1";
-import { renderWheelBoxZDiagramV0_1, wheelAbeamText, wheelZDiagramTitle } from "../AG/bombing/wheel-attack/view/wheel-box-z-diagram-v0.1.mjs?v=0.1.1";
+import { WHEEL_BOX_TOP_VIEW_V0_1, renderWheelBoxTopView, wheelRadiusText, wheelTopViewTitle } from "../AG/bombing/wheel-attack/view/wheel-box-top-view-v0.1.mjs?v=0.2.0";
+import { renderWheelBoxZDiagramV0_1, wheelAbeamText, wheelZDiagramTitle } from "../AG/bombing/wheel-attack/view/wheel-box-z-diagram-v0.1.mjs?v=0.1.2";
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.11.2";
 
 // 0.1.0 (2026-10-25, owner): #1–#4 fly #1's BDP and Wheel data; #2–#4 hold only their Formation position, and the Wheel
@@ -33,13 +33,16 @@ import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBd
 // 0.2.0 (2026-10-26, owner; Wheel-BOX v0.9 through Wheel Flight 0.2.0): Downwind Angle 0°, shown fixed, never typed;
 // the Base Turn G field is the G asked for, its note and the Result give the G flown; Min Wheel Radius is the geometry or
 // the Wheel turn limit radius (no Base Distance floor); Wheel / Orbit limits NOT_EVALUATED read as such.
-export const WHEEL_PAGE_CONTROLLER_V0_1 = Object.freeze({ id: "wheel-page-controller-v0.1", version: "0.2.0", flight: WHEEL_FLIGHT_V0_1.version });
+// 0.3.0 (2026-10-26, owner; Wheel-BOX v0.10 through Wheel Flight 0.3.0): the Return after a CSEM (Advanced: Return Turn
+// G; the Join G in its note), its Result rows (the 300 KCAS hold; the Roll-in Altitude only, a descent to it, the speed
+// at Abeam) and the circuit; OA2 = the Base Turn start in the Abeam row.
+export const WHEEL_PAGE_CONTROLLER_V0_1 = Object.freeze({ id: "wheel-page-controller-v0.1", version: "0.3.0", flight: WHEEL_FLIGHT_V0_1.version });
 
-const WORKER_URL = new URL("../AG/bombing/wheel-attack/wheel-flight-worker-v0.1.mjs?v=0.1.1", import.meta.url);
+const WORKER_URL = new URL("../AG/bombing/wheel-attack/wheel-flight-worker-v0.1.mjs?v=0.1.2", import.meta.url);
 const SAVE_KEY = "bombing-v2-wheel-work";
 const SAVE_SCHEMA = 1;
 // The Wheel tab's fields besides its BDP Profile / Roll-in / Turn Onset copies (its Tab Default restores all of them).
-const WHEEL_KEYS = Object.freeze(["attackHeadingDeg", "direction", "wheelRadiusNm", "baseTurnG", "wheelSpeedKcas", "wheelAltitudeMslFt", "orbitRadiusNm", "orbitSpeedKcas", "orbitAltitudeMslFt"]);
+const WHEEL_KEYS = Object.freeze(["attackHeadingDeg", "direction", "wheelRadiusNm", "baseTurnG", "wheelSpeedKcas", "wheelAltitudeMslFt", "orbitRadiusNm", "orbitSpeedKcas", "orbitAltitudeMslFt", "returnTurnG"]);
 const WHEEL_TAB_COPY_KEYS = Object.freeze(["initialSpeedValue", "initialSpeedMode", "initialAltitudeMslFt", "rollInAltitudeMslFt", "diveAngleDeg", "trackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"]);
 // Display digits of values a solve writes back (the BDP tab's, plus the Wheel Radius at its 0.01 NM step).
 const FIELD_DIGITS = Object.freeze({ ...BDP_FIELD_DIGITS, wheelRadiusNm: 2 });
@@ -60,7 +63,8 @@ let lastPositions = {};
 let scheduler = null;
 let transport = null;
 let topViewTextScale = 1;
-// Top View Advanced: MAP, the Roll-in Distance, the Min Wheel Radius and the Orbit circles.
+// Top View Advanced: MAP, the Roll-in Distance, the Min Wheel Radius and the Orbit circles, and the SEM and the Return
+// (owner 2026-10-27; off, the first Wheel drawing). The legend follows it.
 let topViewAdvanced = false;
 let bdpViewsShown = false;
 let bdpClockSec = null;
@@ -357,7 +361,7 @@ function wheelResultRows(result) {
   const abeam = wheelAbeamText(p.abeamExtensionTimeSec) ?? "-";
   const row = (label, text, key, summary = false) => resultRow(label, text, key, { summary });
   const rows = [
-    row("Abeam", `${abeam.replace("Abeam ", "")} · ${formatNm(p.abeamExtensionDistanceNm)} NM`, "abeam", true),
+    row("Abeam", `${abeam.replace("Abeam ", "")} · ${formatNm(p.abeamExtensionDistanceNm)} NM${oa2Text(result)}`, "abeam", true),
     row("Wheel Radius", `${fieldText("wheelRadiusNm", w.radiusNm)} NM · ${w.radiusMode === "MIN_WHEEL_RADIUS" ? "MIN" : "manual"} · min ${wheelRadiusText(w.minimumUsableWheelRadiusNm)} NM`, "wheelRadiusNm", true),
     row("Min Wheel Radius", `${wheelRadiusText(w.minWheelRadiusNm)} NM · zero Base Leg ${wheelRadiusText(w.geometryMinWheelRadiusNm)} NM · turn limit ${isNumber(w.performanceMinWheelRadiusNm) ? `${wheelRadiusText(w.performanceMinWheelRadiusNm)} NM` : "not evaluated"}`, "minWheelRadiusNm"),
     row("Wheel Turn", `${formatKt(w.wheelSpeedKcas)} kcas · ${formatFt(w.wheelAltitudeMslFt)} ft · ${formatDeg(w.wheelBankAngleDeg)}° · 180° ${legTime(w.wheelTurn180TimeSec)}`, "wheelTurn", true),
@@ -374,7 +378,36 @@ function wheelResultRows(result) {
     const o = result.orbit;
     rows.push(row("Orbit", `${formatNm(o.orbitRadiusNm)} NM · ${formatKt(o.orbitSpeedKcas)} kcas · ${formatFt(o.orbitAltitudeMslFt)} ft · ${formatDeg(o.orbitBankAngleDeg)}° · 180° ${legTime(o.orbitTurn180TimeSec)}${o.performance.valid ? "" : ` · ${limitsText(o.performance)}`}`, "orbit"));
   }
+  rows.push(...returnRows(result, row));
   rows.push(row("Direction", result.direction, "direction"), row("Attack Heading", headingText(result.attackHeadingDeg), "attackHeadingDeg"));
+  return rows;
+}
+
+// OA2 (Wheel-BOX v0.10): the Base Turn start, the Abeam Extension's visual reference, as the Roll-in point's range / angle.
+function oa2Text(result) {
+  const v = result.geometry?.values ?? {};
+  return isNumber(v.oa2RangeNm) && isNumber(v.oa2AngleDeg) ? ` · to OA2 ${formatNm(v.oa2RangeNm)}NM/${formatDeg(v.oa2AngleDeg)}° (Base Turn start)` : "";
+}
+
+// The Return (v0.10): solved, not calculated (no CSEM) or INVALID (the reason); the recovery and the circuit.
+function returnRows(result, row) {
+  const ret = result.return;
+  if (!ret) return [];
+  if (ret.status === "NOT_CALCULATED") return [row("Return", `not calculated · ${ret.reason}`, "return")];
+  if (ret.status !== "VALID" && !ret.samples?.length) return [row("Return", `INVALID · ${ret.errors.join(" / ")}`, "return")];
+  const perf = ret.performance;
+  const p = ret.phases;
+  const extension = ret.extensionNm > 0 ? ` · Extension ${formatNm(ret.extensionNm)} NM (altitude first)` : "";
+  // The Join G turn at 300 KCAS where MIL cannot hold it: the altitude it gives up.
+  const held = ret.minimumSpeedHeldSec > 0 ? ` (300 kcas held ${legTime(ret.minimumSpeedHeldSec)}, ${formatFt(p.turnLevel.altitudeMslFt - p.turnBank.altitudeMslFt)} ft)` : "";
+  const descent = p.downwind.descentFt > 0 ? ` · ${formatFt(p.downwind.descentFt)} ft descended on the Downwind (below MIL)` : "";
+  const rows = [
+    row("Return", `${legTime(ret.timeSec)} · ${formatNm(ret.distanceNm)} NM · Climb ${formatFt(p.climb.altitudeMslFt)} ft / ${formatKt(p.climb.casKt)} kcas${extension} · Turn ${formatG(ret.inputs.turnG)} G (90° bank) → ${formatG(ret.joinLoadFactorG)} G${held} · Downwind ${formatNm(p.downwind.distanceNm)} NM`, "return", true),
+    row("Recovery", ret.recovery
+      ? `${formatFt(ret.target.altitudeMslFt)} ft at ${legTime(ret.recovery.timeSec)}${descent} · ${formatKt(ret.abeamState.casKt)} kcas at Abeam · ${perf.engineModel} ${perf.powerSetting} research model · unofficial${perf.outsideDomainStates ? ` · ${perf.outsideDomainStates}/${perf.states} states outside its data` : ""}`
+      : `not back by Abeam · ${ret.errors.join(" / ")}`, "recovery"),
+  ];
+  if (result.circuit) rows.push(row("Circuit", `${formatNm(result.circuit.distanceNm)} NM · ${legTime(result.circuit.timeSec)} (Abeam → Release → SEM → Return)`, "circuit", true));
   return rows;
 }
 
@@ -397,6 +430,8 @@ function renderPlaceholders(result) {
     fields(key).forEach((field) => { field.placeholder = isNumber(value) ? String(Math.round(value)) : ""; });
   }
   fields("orbitRadiusNm").forEach((field) => { field.placeholder = "No Orbit"; });
+  const turnNote = app.querySelector("[data-return-turn-note]");
+  if (turnNote) turnNote.textContent = Number.isFinite(result?.return?.joinLoadFactorG) ? `90° bank · then ${formatG(result.return.joinLoadFactorG)} G to the Abeam line` : "90° bank to level · default 1.5 G";
   const gNote = app.querySelector("[data-base-turn-g-note]");
   if (gNote) gNote.textContent = result?.turns?.base?.autoRaised ? `Flown ${formatG(result.turns.base.loadFactorG)} G · raised to fit Base Distance` : "Level Turn 90° · default 2 G, up to 3 G";
   const note = app.querySelector("[data-wheel-radius-note]");
@@ -656,7 +691,9 @@ function installSaveTab() {
 // ---- Top View / Z controls --------------------------------------------------------------------------------------------
 
 function installViewControls() {
-  legend = installSvgLegend($("#wheel-legend"), WHEEL_BOX_TOP_VIEW_V0_1.legend);
+  // The legend reads its items at each render: Advanced swaps them in place.
+  const legendItems = [...WHEEL_BOX_TOP_VIEW_V0_1.legend];
+  legend = installSvgLegend($("#wheel-legend"), legendItems);
   installTopViewSize();
   const output = $("#top-view-font-scale-output");
   const step = (direction) => {
@@ -674,6 +711,7 @@ function installViewControls() {
     advancedButton.setAttribute("aria-pressed", String(topViewAdvanced));
     advancedButton.classList.toggle("active", topViewAdvanced);
     advancedButton.textContent = `Advanced: ${topViewAdvanced ? "On" : "Off"}`;
+    legendItems.splice(0, legendItems.length, ...(topViewAdvanced ? WHEEL_BOX_TOP_VIEW_V0_1.advancedLegend : WHEEL_BOX_TOP_VIEW_V0_1.legend));
     renderTopView();
   });
   const png = (svg, title) => saveSvgAsPng(svg, `${title.replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" });

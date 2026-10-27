@@ -1,4 +1,4 @@
-import { WHEEL_BOX_BE_MODEL_V0_9, calculateWheelBoxV0_9Full } from "./wheel-box-be-v0.9.mjs";
+import { WHEEL_BOX_BE_MODEL_V0_10, calculateWheelBoxV0_10Full } from "./wheel-box-be-v0.10.mjs";
 import { FRAGMENT_MARGIN_MODES, ROLL_IN_ONSET_DEFAULTS, calculateBombDeliveryV0_4Full } from "../bomb-delivery-planner/bomb-delivery-planner-v0.4.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import { createCalculationCache, withCalculationCache } from "../../../common/calculation/calculation-cache-v0.1.mjs";
@@ -9,7 +9,7 @@ import {
 } from "../../../flight/flight-bombing-tactics/flight-composition-v0.1.mjs";
 
 // Wheel Flight entrypoint (Wheel SPEC "Wheel Flight entrypoint and the Wheel page BE", owner 2026-10-25: the Wheel page
-// as BOX's). One call takes the whole Flight input state and returns every aircraft's Full Wheel-BOX v0.9 result, its
+// as BOX's). One call takes the whole Flight input state and returns every aircraft's Full Wheel-BOX v0.10 result, its
 // DED pages (OA1, OA2) and the next input state. It has the BOX / Offset Flight entrypoint's shape, so the Wheel page
 // uses the same Flight host, Worker and session:
 //   { schemaVersion?, flightSize, aircraft: { 1: { values, locks, state }, 2–4: { formation } }, edit? | edits? }
@@ -24,16 +24,20 @@ import {
 // 0.2.0 (2026-10-26, Wheel-BOX handoff): on Wheel-BOX v0.9 — Downwind Angle fixed at 0° (a non-zero value of an older
 // record becomes 0° with a warning, and leaves the record), Base Turn G the requested G (≤ 3 G; the G flown is the
 // result's, never written back), Min Wheel Radius v0.9's, every BDP weapon flown.
+// 0.3.0 (2026-10-26, owner): on Wheel-BOX v0.10 — the Return after a CSEM back into the Wheel at Abeam (Return Turn G;
+// the Join G and the Extension are the result's, never written back); a new aircraft's SEM End is CLIMB (CSEM), as the
+// Return starts at the CSEM End. A saved record keeps its SEM End; a blank Return Turn G is the BE default. A new
+// aircraft's Initial Speed is 300 KCAS (owner: "휠박스의 디폴트 속도는 300이 적당할 듯"); DED OA2 is the Base Turn start.
 export const WHEEL_FLIGHT_V0_1 = Object.freeze({
   id: "wheel-flight-v0.1",
-  version: "0.2.0",
+  version: "0.3.0",
   status: "work",
   schemaVersion: 1,
-  components: Object.freeze({ wheelComposition: WHEEL_BOX_BE_MODEL_V0_9.version }),
+  components: Object.freeze({ wheelComposition: WHEEL_BOX_BE_MODEL_V0_10.version }),
 });
 
 // Defaults of a new Wheel aircraft (the page's Default and each Tab Default return to these). The BDP values are BOX's
-// (one BDP list); the Wheel values: Attack Heading 000, RIGHT, Wheel Radius MIN, Base Turn G 2 (owner 2026-10-25:
+// (one BDP list) but the Initial Speed, 300 KCAS (owner 2026-10-26); the Wheel values: Attack Heading 000, RIGHT, Wheel Radius MIN, Base Turn G 2 (owner 2026-10-25:
 // Base / Crosswind Turn 2 G; the requested G). The Downwind Angle is not a value: v0.9 fixes it at 0°. A blank optional
 // value (Wheel turn Speed / Altitude, Orbit, SEM Turn G / Speed / Direction) is the BE's default; without an Orbit
 // Radius there is no Orbit.
@@ -42,7 +46,7 @@ export const WHEEL_FLIGHT_DEFAULT_VALUES = Object.freeze({
   targetElevationMslFt: 31,
   windDirectionDeg: 0,
   windSpeedKt: 0,
-  initialSpeedValue: 350,
+  initialSpeedValue: 300,
   initialSpeedMode: "CAS",
   initialAltitudeMslFt: 16000,
   rollInAltitudeMslFt: 16000,
@@ -54,7 +58,7 @@ export const WHEEL_FLIGHT_DEFAULT_VALUES = Object.freeze({
   rollInRollRateDegSec: ROLL_IN_ONSET_DEFAULTS.rollInRollRateDegSec,
   rollOutRollRateDegSec: ROLL_IN_ONSET_DEFAULTS.rollOutRollRateDegSec,
   gOnsetRateGSec: ROLL_IN_ONSET_DEFAULTS.gOnsetRateGSec,
-  semEnd: "LEVEL",
+  semEnd: "CLIMB",
   csemTargetFpaDeg: 30,
   recoveryG: 5,
   gOnsetTimeSec: 2,
@@ -75,6 +79,7 @@ export const WHEEL_FLIGHT_DEFAULT_VALUES = Object.freeze({
   orbitRadiusNm: null,
   orbitSpeedKcas: null,
   orbitAltitudeMslFt: null,
+  returnTurnG: WHEEL_BOX_BE_MODEL_V0_10.defaultReturnTurnG,
 });
 // The Wheel options a blank leaves to the BE.
 const WHEEL_OPTION_KEYS = Object.freeze(["wheelSpeedKcas", "wheelAltitudeMslFt", "orbitRadiusNm", "orbitSpeedKcas", "orbitAltitudeMslFt"]);
@@ -341,6 +346,8 @@ function leadWheelInput(lead, bombDeliveryInput) {
     // MIN: the BE's radius (the record's value is the one it wrote back); MANUAL: the typed radius.
     wheelRadiusNm: s.wheelRadiusSource === "MANUAL" ? n("wheelRadiusNm") : null,
     baseTurnG: n("baseTurnG"),
+    // The Return: a blank (or a record from before 0.3.0) is the BE default.
+    returnTurnG: optionalNumber("returnTurnG", v.returnTurnG) ?? WHEEL_FLIGHT_DEFAULT_VALUES.returnTurnG,
     ...options,
   };
 }
@@ -350,7 +357,7 @@ function leadWheelInput(lead, bombDeliveryInput) {
 function solveReleaseAltitude(bombDeliveryInput) {
   const config = WHEEL_FLIGHT_RELEASE_SOLVE;
   const rollInAltitudeMslFt = bombDeliveryInput.initialAltitudeMslFt;
-  const angleOffDeg = WHEEL_BOX_BE_MODEL_V0_9.fixedAngleOffDeg;
+  const angleOffDeg = WHEEL_BOX_BE_MODEL_V0_10.fixedAngleOffDeg;
   const f = (releaseAltitudeMslFt) => calculateBombDeliveryV0_4Full({ ...bombDeliveryInput, angleOffDeg, solveMode: "time", releaseAltitudeMslFt }).public.resolvedInitialAltitudeMslFt - rollInAltitudeMslFt;
   const conflict = (belowNlt) => new Error(`CONSTRAINT CONFLICT: Roll-in Altitude LOCK: no Release Altitude gives Tracking Time ${bombDeliveryInput.trackingTimeSec} sec from Roll-in Altitude ${Math.round(rollInAltitudeMslFt)} ft${belowNlt ? " (Release would be below NLT; shorten Tracking Time or raise Roll-in Altitude)" : ""}`);
   let x0 = bombDeliveryInput.releaseAltitudeMslFt;
@@ -399,8 +406,9 @@ function deriveLeadNext(lead, result, derived) {
   if (s.wheelRadiusSource === "MIN") write("wheelRadiusNm", result.wheel.radiusNm);
 }
 
-// DED pages (as BOX, owner 2026-10-25): OA1 = the Roll-in point; OA2 = 10 NM past OA1 along the travel direction. The
-// composition gives the Target → point bearings, ranges and the Roll-in altitude.
+// DED pages: OA1 = the Roll-in point; OA2 = the Base Turn start (Wheel-BOX v0.10, owner 2026-10-26: the Abeam Extension
+// is flown to it, a visual reference, not timed). The composition gives the Target → point bearings, ranges and the
+// Roll-in altitude.
 function leadDed(result) {
   return {
     pages: [
@@ -429,7 +437,7 @@ function solveLead(lead, stateError) {
       bombDeliveryInput.releaseAltitudeMslFt = release;
       lead.values.releaseAltitudeMslFt = release;
     }
-    const result = calculateWheelBoxV0_9Full(leadWheelInput(lead, bombDeliveryInput));
+    const result = calculateWheelBoxV0_10Full(leadWheelInput(lead, bombDeliveryInput));
     deriveLeadNext(lead, result, derived);
     const errors = [...result.geometry.validation.errors];
     const warnings = [...(lead.notices ?? []), ...result.geometry.validation.warnings];

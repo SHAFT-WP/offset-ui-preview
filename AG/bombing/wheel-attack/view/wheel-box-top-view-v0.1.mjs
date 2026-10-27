@@ -12,7 +12,7 @@ import {
 import { createSmartLabelLayout } from "../../../../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
 import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { formatDeg, formatG, formatKt, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
-import { WHEEL_TOP_VIEW_LEGEND, WHEEL_VIEW_COLORS as C, wheelTopViewTitle } from "./wheel-view-style-v0.1.mjs";
+import { WHEEL_TOP_VIEW_ADVANCED_LEGEND, WHEEL_TOP_VIEW_LEGEND, WHEEL_VIEW_COLORS as C, wheelTopViewTitle } from "./wheel-view-style-v0.1.mjs";
 import { formatWheelRadiusNm } from "../wheel-box-geometry-v0.6.mjs";
 
 // Wheel-BOX #n Top View — Wheel-owned view in the V2 unified view grammar (common/diagram/SPEC.md; Wheel SPEC
@@ -26,16 +26,25 @@ import { formatWheelRadiusNm } from "../wheel-box-geometry-v0.6.mjs";
 //   and the Orbit circle when an Orbit is given (a waiting circle, never part of the route).
 // - Formation (options.formation): each aircraft at its BE place, a triangle on its heading.
 // - 0.1.1 (Wheel-BOX v0.9): a Base Turn G the BE raised to fit Base Distance reads `requested → flown G` (no radius).
+// - 0.2.0 (Wheel-BOX v0.10): the SEM from Release and the Return to Abeam (geometry v0.8), both in the fit; with a
+//   Return the Wheel circle is a reference (thin) and its quarter is not drawn as flown. Return label: the turn's G
+//   (Return Turn G → Join G), time, distance, the Extension when flown. OA2, the Base Turn start (the Abeam Extension is
+//   flown to it), with its range / angle as the Roll-in's: `OA2 Range NM/OA2 angle °` (the angle off the reciprocal of
+//   the Attack Heading, as the Roll-in Lead Angle).
+//   The SEM and the Return are Advanced (owner 2026-10-27: "advanced tab을 눌렀을 때 보이게 하자. 그전에는 그냥 제일 처음
+//   그렸었던 sem을 반영하지 않은 그래프로"): Advanced off is the first Wheel drawing (the Wheel quarter flown to Abeam,
+//   no SEM, no Return, the fit without them); Advanced on adds them, in the fit. OA2 is drawn in both.
 // - Self-contained: fills an empty <svg>; every stroke, fill and text halo is an attribute.
 export const WHEEL_BOX_TOP_VIEW_V0_1 = Object.freeze({
   id: "wheel-box-top-view-v0.1",
-  version: "0.1.1",
+  version: "0.2.0",
   owner: "AG/bombing/wheel-attack/SPEC.md",
   subject: "Wheel-BOX",
   view: "Top View",
   orientation: "ATTACK_HEADING_UP",
   canvas: Object.freeze({ width: 900, minHeight: 620, maxHeight: 1300 }),
   legend: WHEEL_TOP_VIEW_LEGEND,
+  advancedLegend: WHEEL_TOP_VIEW_ADVANCED_LEGEND,
 });
 
 // The page shows radii as the views do (the Wheel Radius field's step, rounded up).
@@ -84,7 +93,7 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
   const geometry = wheelResult?.geometry;
   if (!geometry?.stations?.abeam || !geometry?.paths?.wheel || !geometry?.validation || !wheelResult?.turns?.base) {
-    throw new TypeError("wheelResult must be a Wheel-BOX v0.8 / v0.9 result with its route geometry");
+    throw new TypeError("wheelResult must be a Wheel-BOX v0.8 – v0.10 result with its route geometry");
   }
   const sign = wheelResult.direction === "LEFT" ? -1 : 1;
   // Attack frame → drawing frame: x = toward the Wheel side (mirrored for LEFT), y = along the Attack Heading (up).
@@ -96,7 +105,13 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
   const textScale = clamp(Number(options.textScale) || 1, 0.5, 2);
   const advanced = options.advanced === true;
   const s = geometry.stations;
-  const pathKeys = ["wheel", "wheelArc", "baseTurn", "rollIn"];
+  // v0.10: the SEM and the Return (null when absent), drawn in Advanced only.
+  const ret = wheelResult.return;
+  const hasReturn = advanced && Array.isArray(geometry.paths.return) && geometry.paths.return.length > 1;
+  const hasSem = advanced && Array.isArray(geometry.paths.sem) && geometry.paths.sem.length > 1;
+  const RETURN_STATIONS = ["csemEnd", "returnTurnStart", "returnLevel", "returnJoin"];
+  const fitStations = Object.entries(s).filter(([key]) => hasReturn || !RETURN_STATIONS.includes(key)).map(([, value]) => value);
+  const pathKeys = ["wheel", "wheelArc", "baseTurn", "rollIn", ...(hasSem ? ["sem"] : []), ...(hasReturn ? ["return"] : [])];
   const W = Object.fromEntries(Object.entries(s).map(([key, value]) => [key, w(value)]));
   pathKeys.forEach((key) => { W[key] = geometry.paths[key].map(w); });
   const extentNm = Math.max(v.wheelRadiusNm, 1);
@@ -108,7 +123,7 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
   const headerBlockHeight = 22 + headerSize + errorLines.length * errorSize * 1.45;
 
   const formation = Array.isArray(options.formation) ? options.formation.filter((item) => Number.isFinite(item?.alongNm) && Number.isFinite(item?.sideNm)) : [];
-  const fitPoints = [W.abeamLineFrom, W.abeamLineTo, ...Object.values(s).map(w), ...pathKeys.flatMap((key) => W[key]), ...formation.map(w)];
+  const fitPoints = [W.abeamLineFrom, W.abeamLineTo, ...fitStations.map(w), ...pathKeys.flatMap((key) => W[key]), ...formation.map(w)];
   const fit = createSvgAutoCanvas(fitPoints, {
     width: WIDTH,
     minHeight: WHEEL_BOX_TOP_VIEW_V0_1.canvas.minHeight,
@@ -130,7 +145,7 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
   const title = wheelTopViewTitle({ aircraftNumber: options.aircraftNumber });
   svg.setAttribute("aria-label", title);
   const defs = svgNode("defs");
-  [["wheel", C.wheel], ["track", C.attack], ["abeam", C.abeam], ["base", C.baseLeg], ["roll", C.roll], ["ref", C.reference], ["red", C.rollInTarget]]
+  [["wheel", C.wheel], ["track", C.attack], ["abeam", C.abeam], ["base", C.baseLeg], ["roll", C.roll], ["ref", C.reference], ["red", C.rollInTarget], ["sem", C.sem]]
     .forEach(([name, color]) => defs.append(createOpenArrowMarker(`wheel-top-${name}`, color)));
   defs.append(createOpenArrowMarker("wheel-top-leader", SVG_DIAGRAM_COLORS_V0_1.helper, SVG_DIAGRAM_STYLE_V0_1.arrow.leader));
   const root = svgNode("g", { "data-view": WHEEL_BOX_TOP_VIEW_V0_1.id });
@@ -162,9 +177,12 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
   const showOrbit = advanced && orbit && Number.isFinite(orbit.orbitRadiusNm);
   if (showOrbit) circle(orbit.orbitRadiusNm, C.orbit, "orbit-circle", "12 6 2 6", 1.6);
 
-  // The Wheel: the whole circle thin, the quarter flown to Abeam solid.
+  // The Wheel: the whole circle thin; without a Return, the quarter flown to Abeam solid; with one, the SEM and the
+  // Return to Abeam instead.
   path(P.wheel, C.wheel, { role: "wheel", width: 1.6, opacity: 0.55 });
-  path(P.wheelArc, C.wheel, { markerId: "wheel-top-wheel", role: "wheel-arc", width: 3.5 });
+  if (!hasReturn) path(P.wheelArc, C.wheel, { markerId: "wheel-top-wheel", role: "wheel-arc", width: 3.5 });
+  if (hasSem) path(P.sem, C.sem, { markerId: hasReturn ? undefined : "wheel-top-sem", role: "sem", width: 2.6 });
+  if (hasReturn) path(P.return, C.wheel, { markerId: "wheel-top-wheel", role: "return", width: 3.5 });
   // The route in flight order.
   appendDirectedLine(root, P.trackPoint, P.release, { color: C.attack, width: 3.6, markerEndId: "wheel-top-track", fromGap: 7, toGap: 6 });
   if (shown(v.abeamExtensionDistanceNm)) appendDirectedLine(root, P.abeam, P.baseTurnStart, { color: C.abeam, width: 3.5, markerEndId: "wheel-top-abeam", fromGap: 7, toGap: 3 });
@@ -194,6 +212,9 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
   dot(P.oa1, C.roll, "oa1", 7);
   dot(P.trackPoint, C.attack, "track-point", 4.5);
   dot(P.release, C.attack, "release", 3.5);
+  if (hasReturn) dot(P.csemEnd, C.sem, "csem-end", 4);
+  const hasOa2 = Number.isFinite(v.oa2RangeNm) && Number.isFinite(v.oa2AngleDeg);
+  if (hasOa2) dot(P.baseTurnStart, C.abeam, "oa2", 5);
   root.append(svgNode("circle", { cx: P.target.x, cy: P.target.y, r: 6, fill: C.target, stroke: "#ffffff", "stroke-width": 2, "data-wheel-station": "target" }));
   root.append(svgNode("line", { x1: P.target.x - 10, y1: P.target.y, x2: P.target.x + 10, y2: P.target.y, stroke: C.target, "stroke-width": 2 }));
   root.append(svgNode("line", { x1: P.target.x, y1: P.target.y - 10, x2: P.target.x, y2: P.target.y + 10, stroke: C.target, "stroke-width": 2 }));
@@ -232,12 +253,16 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
   [P.abeam, P.oa1, P.trackPoint, P.target].forEach((point) => labels.reservePoint(point, 11));
   aircraftPoints.forEach(({ at }) => labels.reservePoint(at, 12));
   labels.reservePoint(P.release, 7);
+  if (hasReturn) labels.reservePoint(P.csemEnd, 7);
+  if (hasOa2) labels.reservePoint(P.baseTurnStart, 9);
   const headerWidth = Math.max(240 * textScale, ...errorLines.map((line) => line.length * errorSize * 0.62));
   labels.reserveRect({ x: 16, y: 16, w: headerWidth, h: headerBlockHeight - 8 });
   const reserve = (points, pad = 6) => { for (let i = 1; i < points.length; i += 1) labels.reserveSegment(points[i - 1], points[i], pad); };
   reserve([P.trackPoint, P.release]);
   reserve(P.wheel, 3);
-  reserve(P.wheelArc);
+  if (!hasReturn) reserve(P.wheelArc);
+  if (hasSem) reserve(P.sem, 4);
+  if (hasReturn) reserve(P.return);
   reserve([P.abeam, P.baseTurnStart]);
   reserve(P.baseTurn);
   reserve([P.baseTurnEnd, P.oa1]);
@@ -270,7 +295,12 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
   const pub = wheelResult.bombDelivery.public;
   const rollInNote = Number.isFinite(pub.rollInRangeNm) && Number.isFinite(pub.leadAngleDeg) ? `${formatNm(pub.rollInRangeNm)}NM/${formatDeg(pub.leadAngleDeg)}°` : undefined;
   label(P.oa1, "Roll-in", { labelKey: "roll-in", color: C.rollText, fontSize: stationSize, detail: rollInNote, detailFontSize: stationSize, candidates: stationCandidates(["below", "downRight", "downLeft"], mirror) });
+  if (hasReturn) label(P.csemEnd, "CSEM End", { labelKey: "csem-end", color: C.semText, fontSize: stationSize, candidates: stationCandidates(["left", "upLeft", "downLeft"], mirror) });
   label(P.abeam, "Abeam", { labelKey: "abeam", color: C.wheelText, fontSize: stationSize, candidates: stationCandidates(["upRight", "right", "downRight"], mirror) });
+  if (hasOa2) label(P.baseTurnStart, "OA2", {
+    labelKey: "oa2", color: C.abeamText, fontSize: stationSize, detail: `${formatNm(v.oa2RangeNm)}NM/${formatDeg(v.oa2AngleDeg)}°`, detailFontSize: stationSize,
+    candidates: stationCandidates(["right", "downRight", "upRight", "left"], mirror),
+  });
   // The Wheel: its radius, bank and 180° time on the flown quarter.
   const arcMiddle = P.wheelArc[Math.floor(P.wheelArc.length / 2)];
   label(arcMiddle, "Wheel", {
@@ -290,6 +320,16 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
     // On the far side from the pattern, ahead of the abeam line (the attack and the Roll-in are behind the Target).
     const spot = { x: P.target.x - sign * pxPerNm * wheel.minWheelRadiusNm * 0.87, y: P.target.y - pxPerNm * wheel.minWheelRadiusNm * 0.5 };
     label(spot, "Min Wheel", { labelKey: "min-wheel", color: C.reference, fontSize: stationSize, detail: `${formatWheelRadiusNm(wheel.minWheelRadiusNm)} NM`, detailFontSize: stationSize, candidates: stationCandidates(["left", "upLeft", "downLeft"], mirror) });
+  }
+  if (hasReturn) {
+    // On the Return's farthest point ahead: the turn's G (90° bank → level Join G), time, distance and any Extension.
+    const farthest = P.return.reduce((best, point) => (point.y < best.y ? point : best), P.return[0]);
+    const extension = ret.extensionNm > 0 ? ` · Ext ${formatNm(ret.extensionNm)} NM` : "";
+    label(farthest, "Return", {
+      labelKey: "return", color: C.wheelText,
+      detail: `${formatG(ret.inputs.turnG)} → ${formatG(ret.joinLoadFactorG)} G · ${formatSec(ret.timeSec)} s · ${formatNm(ret.distanceNm)} NM${extension}`,
+      candidates: stationCandidates(["above", "upRight", "upLeft"], mirror),
+    });
   }
   if (shown(v.abeamExtensionDistanceNm) && labelled(P.abeam, P.baseTurnStart)) label(mid(P.abeam, P.baseTurnStart), "Abeam Extension", {
     labelKey: "abeam-extension", color: C.abeamText,
