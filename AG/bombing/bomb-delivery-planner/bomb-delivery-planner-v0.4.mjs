@@ -4,12 +4,10 @@ import { buildBombDeliveryVisualizationState } from "./visualization-state-v0.1.
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import {
   ROLL_IN_LARGE_BANK_WARNING_DEG,
-  ROLL_IN_LOW_ANGLE_BOUNDARY_DEG,
   ROLL_IN_ONSET_DEFAULTS,
   ROLL_IN_V0_2_MODEL,
   RollInSolveError,
   integrateRollInV0_2,
-  isLevelTurnRollIn,
 } from "./roll-in-v0.2.mjs";
 import { FRAGMENT_MARGIN_MODES, SEM_FRAGMENT_MODEL_V0_1, calculateSemPathAndFragment, fragmentCylinder } from "./sem-fragment-v0.1.mjs";
 import { SEM_TURN_MODEL_V0_1 } from "./sem-turn-v0.1.mjs";
@@ -30,7 +28,11 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_4 = Object.freeze({
   // Attack Heading; absent RIGHT — a host resolves its own default), `semTurnG` (absent: Recovery G),
   // `semTurnSpeedKcas` (absent: the level-off speed), `semTurnBankDeg` (SLICE only; LEVEL is AUTO acos(1/G)); the
   // Roll-in onset rates. A turn that cannot be flown makes the SEM INVALID like a CSEM; MINALT / NLT unchanged.
-  version: "0.4.3",
+  // 0.4.4 (2026-10-27, owner, POP-UP SPEC §13.6): no below-10° boundary. Roll-in v0.2.1 solves the slice turn at
+  // every Dive (no level-turn branch); the SEM NLT is computed at every Dive (core option nltAllDives; NLT = MINALT
+  // at 0°, and it clamps the Release as above 10°); the SEM path and fragment check run above 0° (none at 0°: no
+  // recovery). Every consumer (Offset, BOX, Wheel, Wheel-BOX) changes below 10° Dive; 10° and above are unchanged.
+  version: "0.4.4",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   rollInModel: ROLL_IN_V0_2_MODEL,
   semFragmentModel: SEM_FRAGMENT_MODEL_V0_1,
@@ -167,13 +169,13 @@ export function calculateBombDeliveryV0_4Full(rawInput) {
   return cachedCalculation("bdp-v0.4", { model: BOMB_DELIVERY_PLANNER_MODEL_V0_4, core: BOMB_DELIVERY_PLANNER_MODEL_V0_2, input }, () => solveCanonical(input));
 }
 
-// SEM path, SEM minimum altitude and fragment check (§6.6) from the effective Release. Below 10° Dive the BDP is
-// MINALT-only (no SEM): the cylinder values are given, the path and the check are not.
+// SEM path, SEM minimum altitude and fragment check (§6.6) from the effective Release. At Dive 0° there is no recovery
+// (no SEM): the cylinder values are given, the path and the check are not (0.4.4; before, everything below 10°).
 function semFragment(input, calculation) {
   const KT_TO_FPS = 1.687809857;
   const windRad = (input.windDirectionDeg * Math.PI) / 180;
   const windFps = input.windSpeedKt * KT_TO_FPS;
-  if (!calculation.diagnostics.nltSupported) {
+  if (!calculation.diagnostics.nltSupported || !(input.diveAngleDeg > 0)) {
     return { applicable: false, ...fragmentCylinder({ weapon: calculation.weapon, targetElevationMslFt: input.targetElevationMslFt, fragmentHeightMarginPercent: input.fragmentHeightMarginPercent, fragmentMarginAppliesTo: input.fragmentMarginAppliesTo }) };
   }
   const cylinderOnly = () => fragmentCylinder({ weapon: calculation.weapon, targetElevationMslFt: input.targetElevationMslFt, fragmentHeightMarginPercent: input.fragmentHeightMarginPercent, fragmentMarginAppliesTo: input.fragmentMarginAppliesTo });
@@ -226,7 +228,7 @@ function semTurnInput(input) {
 
 function solveCanonical(input) {
   const rollInOnset = Object.fromEntries(ONSET_KEYS.map((key) => [key, input[key]]));
-  const calculation = calculateBombDeliveryV0_2({ ...input, rollInOnset }, { rollIn: rollInV0_2ForOneCall() });
+  const calculation = calculateBombDeliveryV0_2({ ...input, rollInOnset }, { rollIn: rollInV0_2ForOneCall(), nltAllDives: true });
   const state = buildBombDeliveryVisualizationState(calculation);
   const roll = calculation.rollIn;
   const sem = semFragment(input, calculation);
@@ -247,7 +249,7 @@ function solveCanonical(input) {
       semLevelOffTimeSec: sem.applicable ? sem.semLevelOffTimeSec : null,
       fragment,
       fragmentCheck: sem.applicable ? { applicable: true, ...sem.fragmentCheck } : { applicable: false },
-      // The SEM flown and its conditions (sem-fragment 0.1.1); null below Dive 10° (MINALT only).
+      // The SEM flown and its conditions (sem-fragment 0.1.1); null at Dive 0° (no recovery).
       sem: sem.applicable ? { status: "VALID", ...sem.sem } : sem.invalid ? { status: "INVALID", end: input.semEnd, targetFpaDeg: input.semEnd === "CLIMB" ? input.csemTargetFpaDeg : null, recoveryG: input.recoveryG, gOnsetTimeSec: input.gOnsetTimeSec, recoverySpeedKcas: input.releaseSpeedKcas + input.speedOvershootKcas, turn: input.semEnd === "LEVEL" && input.semTurnDeg !== 0 ? { type: input.semTurnType, headingChangeDeg: input.semTurnDeg, direction: input.semTurnDirection, loadFactorG: input.semTurnG ?? input.recoveryG, speedKcas: input.semTurnSpeedKcas, bankDeg: input.semTurnType === "SLICE" ? input.semTurnBankDeg : null } : null, errors: sem.errors } : null,
     },
     local: calculation.local,
@@ -290,8 +292,6 @@ export function calculateBombDeliveryV0_4(rawInput) {
 export {
   FRAGMENT_MARGIN_MODES,
   ROLL_IN_LARGE_BANK_WARNING_DEG,
-  ROLL_IN_LOW_ANGLE_BOUNDARY_DEG,
   ROLL_IN_ONSET_DEFAULTS,
   RollInSolveError,
-  isLevelTurnRollIn,
 };

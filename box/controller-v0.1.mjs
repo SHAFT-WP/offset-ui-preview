@@ -32,7 +32,7 @@ import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBd
 // the BOX Top View shows each aircraft at its place. The spacing between them is the Spacer Turn's (a later step).
 export const BOX_PAGE_CONTROLLER_V0_1 = Object.freeze({ id: "box-page-controller-v0.1", version: "0.2.0", flight: BOX_FLIGHT_V0_1.version });
 
-const WORKER_URL = new URL("../AG/bombing/box-pattern/box-flight-worker-v0.1.mjs?v=0.1.2", import.meta.url);
+const WORKER_URL = new URL("../AG/bombing/box-pattern/box-flight-worker-v0.1.mjs?v=0.1.3", import.meta.url);
 const SAVE_KEY = "bombing-v2-box-work";
 const SAVE_SCHEMA = 1;
 // The BOX tab's fields besides its BDP Profile / Roll-in / Turn Onset copies (its Tab Default restores all of them).

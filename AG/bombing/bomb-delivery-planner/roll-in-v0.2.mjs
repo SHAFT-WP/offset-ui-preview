@@ -5,11 +5,13 @@ import { casToTas, machToTas } from "../../../common/airspeed/airspeed-v0.1.mjs"
 // roll input (the bank unwinds as mu_dot = psi_dot·sin(gamma)); roll out at the Roll-out Rate while G goes
 // linearly to cos(Dive). The Roll-in Bank and the hold time are solved so the Track Point has heading change
 // = Angle Off and flight path = −Dive. Speed is held in the entered mode (CAS or Mach), as in the BMS check.
-// Below 10° Dive the Roll-in is a level turn with the same onsets (bank acos(1/G), altitude held).
+// 0.2.1 (2026-10-27, owner, POP-UP SPEC §13.6): the below-10° level-turn branch is removed — the slice solve
+// runs at every Dive (0° ≤ Dive < 90°). At 0° it converges to a level turn (bank ≈ acos(1/G) plus the onset
+// transient, a small dip that the roll-out recovers to FPA 0), so the 9.9° / 10° jump disappears.
 
 export const ROLL_IN_V0_2_MODEL = Object.freeze({
   id: "bdp-roll-in-v0.2-model-b-rate-onset",
-  version: "0.2.0",
+  version: "0.2.1",
   technique: "B",
   onsetShape: "LINEAR",
   speedHold: "ENTERED_MODE",
@@ -20,7 +22,6 @@ export const ROLL_IN_ONSET_DEFAULTS = Object.freeze({
   rollOutRollRateDegSec: 55,
   gOnsetRateGSec: 2,
 });
-export const ROLL_IN_LOW_ANGLE_BOUNDARY_DEG = 10;
 export const ROLL_IN_LARGE_BANK_WARNING_DEG = 150;
 
 const G_FTPS2 = 32.174;
@@ -34,10 +35,6 @@ const DIVE_TOLERANCE_RAD = 1e-9;
 const TAS_GRID_STEP_FT = 25;
 const TAS_GRID_ABOVE_FT = 1000;
 const TAS_GRID_POINTS = 1 + (1000 + 20000) / 25;
-
-export function isLevelTurnRollIn(diveAngleDeg) {
-  return diveAngleDeg < ROLL_IN_LOW_ANGLE_BOUNDARY_DEG;
-}
 
 // Counters for performance tests only; they never change a result.
 export const rollInSolveStats = { solves: 0, bankEvaluations: 0 };
@@ -324,99 +321,24 @@ function solveSliceTurn(dyn, onset, target, bankHintDeg) {
   return best;
 }
 
-// Level turn with onsets (Dive < 10°): bank acos(1/G) at the Roll-in Rate, G at the G Onset Rate, hold, roll-out
-// at the Roll-out Rate with G back to 1. Horizontal turn rate g·n·sin(bank)/V; altitude and speed held.
-function solveLevelTurn(dyn, onset, target) {
-  const bankRad = Math.acos(1 / target.loadFactor);
-  const v = dyn.tasFpsAt(dyn.initialState[2]);
-  const levelDynamics = (s, c) => {
-    const bank = c.bankRad;
-    return [v * Math.cos(s[4]), v * Math.sin(s[4]), 0, 0, (G_FTPS2 * c.loadFactor * Math.sin(bank)) / v, 0];
-  };
-  const level = { ...dyn, derivative: levelDynamics };
-  level.rk4 = (s, controls, tau, dt) => {
-    const add = (k, a) => s.map((value, i) => value + a * k[i]);
-    const k1 = levelDynamics(s, controls(tau, s));
-    const k2 = levelDynamics(add(k1, dt / 2), controls(tau + dt / 2));
-    const k3 = levelDynamics(add(k2, dt / 2), controls(tau + dt / 2));
-    const k4 = levelDynamics(add(k3, dt), controls(tau + dt));
-    const next = s.map((value, i) => value + (dt / 6) * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]));
-    next[5] = controls(tau + dt).bankRad;
-    return next;
-  };
-  level.phase = (s, durationSec, controls, onStep) => {
-    let state = s;
-    for (let tau = 0; durationSec - tau > 1e-12;) {
-      const dt = Math.min(STEP_SEC, durationSec - tau);
-      state = level.rk4(state, controls, tau, dt);
-      tau += dt;
-      onStep?.(tau, state, controls(tau));
-    }
-    return state;
-  };
-  const rollRate = onset.rollInRollRateDegSec * DEG;
-  const rollSec = bankRad / rollRate;
-  const pullSec = (target.loadFactor - 1) / onset.gOnsetRateGSec;
-  const rollOutSec = bankRad / (onset.rollOutRollRateDegSec * DEG);
-  const controls = {
-    roll: (tau) => ({ loadFactor: 1, bankRad: Math.min(bankRad, rollRate * tau) }),
-    pull: (tau) => ({ loadFactor: Math.min(target.loadFactor, 1 + onset.gOnsetRateGSec * tau), bankRad }),
-    hold: () => ({ loadFactor: target.loadFactor, bankRad }),
-    rollOut: (tau) => {
-      const x = Math.min(1, tau / rollOutSec);
-      return { loadFactor: target.loadFactor + (1 - target.loadFactor) * x, bankRad: bankRad * (1 - x) };
-    },
-  };
-  let s = level.phase(dyn.initialState, rollSec, controls.roll);
-  s = level.phase(s, pullSec, controls.pull);
-  const holdStart = s;
-  const endAt = (holdSec) => level.phase(level.phase(holdStart, holdSec, controls.hold), rollOutSec, controls.rollOut);
-  const atZero = endAt(0);
-  if (atZero[4] > target.angleOffRad + HEADING_TOLERANCE_RAD) {
-    throw new RollInSolveError("ONSET_OVERSHOOT", "Roll-in onsets alone turn past the Angle Off (Angle Off too small for the roll and G onset rates)");
-  }
-  // Heading during the hold is linear in time, so one correction is exact up to integration error.
-  const holdRate = (G_FTPS2 * target.loadFactor * Math.sin(bankRad)) / v;
-  let holdSec = (target.angleOffRad - atZero[4]) / holdRate;
-  for (let i = 0; i < 4; i += 1) holdSec -= (endAt(holdSec)[4] - target.angleOffRad) / holdRate;
-  return { level, controls, rollSec, pullSec, holdSec, rollOutSec, bankRad, holdStart };
-}
-
 // Re-flies the solved Roll-in and records 0.1 s samples and the result in the v0.1 contract plus v0.2 fields.
 export function integrateRollInV0_2(params, initialAltitudeMslFt) {
   rollInSolveStats.solves += 1;
   const onset = onsetFrom(params);
   if (!(params.rollInG > 1 && params.rollInG <= 9)) throw new RangeError("rollInG must be > 1 and <= 9");
   if (!(params.angleOffDeg > 0 && params.angleOffDeg < 180)) throw new RangeError("angleOffDeg must be > 0 and < 180");
-  const levelTurn = isLevelTurnRollIn(params.diveAngleDeg);
   const dyn = createDynamics(params, initialAltitudeMslFt);
   const target = { loadFactor: params.rollInG, diveRad: params.diveAngleDeg * DEG, angleOffRad: params.angleOffDeg * DEG };
   const samples = [];
   const sample = (t, s, c, phase) => samples.push({ t, s: s.slice(), loadFactor: c.loadFactor, phase });
-  let phases;
-  let bankRad;
-  let integrate;
-  if (levelTurn) {
-    const sol = solveLevelTurn(dyn, onset, target);
-    bankRad = sol.bankRad;
-    phases = [
-      ["roll", sol.rollSec, sol.controls.roll],
-      ["pull", sol.pullSec, sol.controls.pull],
-      ["hold", sol.holdSec, sol.controls.hold],
-      ["rollOut", sol.rollOutSec, sol.controls.rollOut],
-    ];
-    integrate = sol.level.phase;
-  } else {
-    const sol = solveSliceTurn(dyn, onset, target, params.bankHintDeg);
-    bankRad = sol.bankDeg * DEG;
-    phases = [
-      ["roll", sol.plan.rollSec, sol.plan.rollControls],
-      ["pull", sol.plan.pullSec, sol.plan.pullControls],
-      ["hold", sol.holdSec, sol.plan.holdControls],
-      ["rollOut", null, null],
-    ];
-    integrate = dyn.phase;
-  }
+  const sol = solveSliceTurn(dyn, onset, target, params.bankHintDeg);
+  const bankRad = sol.bankDeg * DEG;
+  const phases = [
+    ["roll", sol.plan.rollSec, sol.plan.rollControls],
+    ["pull", sol.plan.pullSec, sol.plan.pullControls],
+    ["hold", sol.holdSec, sol.plan.holdControls],
+    ["rollOut", null, null],
+  ];
   // Fly the solution once and keep every step.
   let s = dyn.initialState.slice();
   let t = 0;
@@ -426,14 +348,14 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
   for (const [name, durationSec, controls] of phases) {
     let duration = durationSec;
     let phaseControls = controls;
-    if (name === "rollOut" && !levelTurn) {
+    if (name === "rollOut") {
       const plan = sliceTurnPlan(dyn, onset, { bankRad, loadFactor: target.loadFactor, diveRad: target.diveRad }).rollOutPhase(s);
       duration = plan.rollOutSec;
       phaseControls = plan.controls;
+      bankAtRollOutStartRad = s[5];
     }
-    if (name === "rollOut") bankAtRollOutStartRad = s[5];
     const t0 = t;
-    s = integrate(s, duration, phaseControls, (tau, state, c) => sample(t0 + tau, state, c, name));
+    s = dyn.phase(s, duration, phaseControls, (tau, state, c) => sample(t0 + tau, state, c, name));
     t = t0 + duration;
     phaseTimes[name] = duration;
   }
@@ -449,7 +371,7 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
   const pushSample = (tSec, st, loadFactor, phase, arcFt) => out.push({
     t: tSec,
     groundArcFt: arcFt,
-    altitudeLossFt: levelTurn ? 0 : initialAltitudeMslFt - st[2],
+    altitudeLossFt: initialAltitudeMslFt - st[2],
     forwardFt: st[0],
     turnSideFt: st[1],
     headingChangeRad: st[4],
@@ -486,7 +408,7 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
   const rollInBankAngleDeg = bankRad / DEG;
   return {
     model: ROLL_IN_V0_2_MODEL,
-    mode: levelTurn ? "LEVEL_TURN" : "SLICE_TURN",
+    mode: "SLICE_TURN",
     onset,
     rollInBankAngleDeg,
     phaseTimesSec: {
@@ -506,12 +428,12 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
     displacementTurnSideFt: yFt,
     finalAttackAxisForwardFt: xFt * Math.cos(finalHeadingRad) + yFt * Math.sin(finalHeadingRad),
     finalAttackAxisLateralFt: Math.abs(-xFt * Math.sin(finalHeadingRad) + yFt * Math.cos(finalHeadingRad)),
-    altitudeLossFt: levelTurn ? 0 : altitudeLossFt,
+    altitudeLossFt,
     groundArcFt,
     spatialArcFt,
     equivalentRadiusFt: groundArcFt / target.angleOffRad,
     averageTurnRateDegSec: params.angleOffDeg / rollInTimeSec,
-    dynamicFinalDiveDeg: levelTurn ? 0 : -end[3] / DEG,
+    dynamicFinalDiveDeg: -end[3] / DEG,
     samples: out,
   };
 }

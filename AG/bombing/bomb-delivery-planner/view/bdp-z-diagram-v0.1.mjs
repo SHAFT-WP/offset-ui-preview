@@ -12,7 +12,10 @@ export const BDP_Z_DIAGRAM_V0_1 = Object.freeze({
   // 0.1.6 (2026-10-03, user): Roll-in Angle Off heads the upper Roll-in group (Common Z 0.1.11).
   // 0.1.7 (2026-10-12, user): bdpZLowerColumns option trackingTimeTenths (Offset shows Tracking Time
   // in 0.1 s; the BDP page keeps whole seconds).
-  version: "0.1.7",
+  // 0.1.8 (2026-10-27, owner, POP-UP SPEC §13.6): the Z is drawn whenever the result has an NLT and the Dive is
+  // above 0° (BDP v0.4.4 computes the NLT at every Dive); a result without an NLT (BDP v0.3 below 10°) keeps the
+  // below-10° notice and Dive 0° keeps "LEVEL · not applicable".
+  version: "0.1.8",
   oracle: "Bomb Profile REV.1.9 · R_20260830",
   baseRenderer: "common/diagram/z-diagram/z-diagram-v0.1.mjs",
 });
@@ -36,7 +39,7 @@ export function buildBdpZDiagramData(result) {
   if (!result?.public || !result?.canonicalInputs) throw new TypeError("BDP result is required");
   const input = result.canonicalInputs;
   const diveAngleDeg = input.diveAngleDeg;
-  if (diveAngleDeg < 10) {
+  if (!(diveAngleDeg > 0) || !Number.isFinite(result.public.nltReleaseMslFt)) {
     return {
       supported: false,
       reason: diveAngleDeg === 0 ? "LEVEL_NO_Z_DIAGRAM" : "BELOW_10_DEG_NO_Z_DIAGRAM",

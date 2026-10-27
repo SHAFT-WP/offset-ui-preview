@@ -38,7 +38,7 @@ import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBd
 // at Abeam) and the circuit; OA2 = the Base Turn start in the Abeam row.
 export const WHEEL_BOX_PAGE_CONTROLLER_V0_1 = Object.freeze({ id: "wheel-box-page-controller-v0.1", version: "0.3.0", flight: WHEEL_BOX_FLIGHT_V0_1.version });
 
-const WORKER_URL = new URL("../AG/bombing/wheel-box/wheel-box-flight-worker-v0.1.mjs?v=0.1.2", import.meta.url);
+const WORKER_URL = new URL("../AG/bombing/wheel-box/wheel-box-flight-worker-v0.1.mjs?v=0.1.3", import.meta.url);
 const SAVE_KEY = "bombing-v2-wheel-work";
 const SAVE_SCHEMA = 1;
 // The Wheel tab's fields besides its BDP Profile / Roll-in / Turn Onset copies (its Tab Default restores all of them).

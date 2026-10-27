@@ -32,7 +32,7 @@ import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBd
 // (no Formation position); the Angle-Off and the Wheel Radius are the BE's (shown solved, never typed).
 export const WHEEL_PAGE_CONTROLLER_V0_1 = Object.freeze({ id: "wheel-page-controller-v0.1", version: "0.1.0", flight: WHEEL_ATTACK_FLIGHT_V0_1.version });
 
-const WORKER_URL = new URL("../AG/bombing/wheel-attack/wheel-attack-flight-worker-v0.1.mjs?v=0.1.0", import.meta.url);
+const WORKER_URL = new URL("../AG/bombing/wheel-attack/wheel-attack-flight-worker-v0.1.mjs?v=0.1.1", import.meta.url);
 // The Wheel page's own record (the Wheel-BOX page keeps `bombing-v2-wheel-work`).
 const SAVE_KEY = "bombing-v2-wheel-attack-work";
 const SAVE_SCHEMA = 1;

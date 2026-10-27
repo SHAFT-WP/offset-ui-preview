@@ -23,6 +23,8 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
   // rounded to 0.1 s instead of whole seconds; the default stays whole seconds.
   // Behavior-preserving hook (2026-10-15): calculateBombDeliveryV0_2(input, { rollIn }) runs another Roll-in
   // integrator (BDP v0.4, Roll-in v0.2). Without options the results are unchanged; version stays 0.2.13.
+  // Behavior-preserving hook (2026-10-27, owner, POP-UP SPEC §13.6): options.nltAllDives (BDP v0.4) computes the
+  // SEM NLT at every Dive (NLT = MINALT at 0°) instead of MINALT-only below 10°. Without it nothing changes.
   version: "0.2.13",
   flightPathReference: "GROUND",
   legacyGeometrySource: "Bomb Profile REV.1.9 · R_20260830",
@@ -80,7 +82,7 @@ function normalizeInput(raw) {
   };
 }
 
-function validate(p, { rollInBankSolved = false } = {}) {
+function validate(p, { rollInBankSolved = false, nltAllDives = false } = {}) {
   [
     "fragmentHeightMarginPercent",
     "targetElevationMslFt",
@@ -115,8 +117,9 @@ function validate(p, { rollInBankSolved = false } = {}) {
     throw new RangeError("Tracking Time must be > 0");
   }
 
-  // Below 10° the project contract is MINALT-only. NLT/SEM inputs are unused and must not invalidate geometry/ballistics.
-  if (p.diveAngleDeg >= MIN_NLT_DIVE_ANGLE_DEG) {
+  // Below 10° the project contract is MINALT-only (unless options.nltAllDives). NLT/SEM inputs are unused and must not
+  // invalidate geometry/ballistics.
+  if (nltAllDives || p.diveAngleDeg >= MIN_NLT_DIVE_ANGLE_DEG) {
     [
       "speedOvershootKcas",
       "maneuverInitiationDelaySec",
@@ -149,12 +152,14 @@ function calculateMinAltOnlySafety({ weapon, targetElevationMslFt, releaseFpaDeg
 
 // options.rollIn = { integrate, solvesBank } (BDP v0.4): the Roll-in integrator to use, and whether it solves
 // the Roll-in Bank itself (then rollInBankAngleDeg is not required). The result then also carries `rollIn`.
+// options.nltAllDives (BDP v0.4): the SEM NLT at every Dive; the legacy RNLT diagnostic stays at 10° and above.
 export function calculateBombDeliveryV0_2(rawInput, options = {}) {
   const input = normalizeInput(rawInput);
   const rollIn = options.rollIn ?? null;
-  validate(input, { rollInBankSolved: rollIn?.solvesBank === true });
+  const nltAllDives = options.nltAllDives === true;
+  validate(input, { rollInBankSolved: rollIn?.solvesBank === true, nltAllDives });
   const weapon = getWeaponById(input.weaponId);
-  const nltSupported = input.diveAngleDeg >= MIN_NLT_DIVE_ANGLE_DEG;
+  const nltSupported = nltAllDives || input.diveAngleDeg >= MIN_NLT_DIVE_ANGLE_DEG;
 
   const safety = nltSupported
     ? calculateSemNltSafety({
@@ -198,7 +203,7 @@ export function calculateBombDeliveryV0_2(rawInput, options = {}) {
       ? input.initialSpeedValue
       : tasToCas(profile.initialTasKt, profile.initialMslFt);
 
-  const legacySafety = nltSupported
+  const legacySafety = input.diveAngleDeg >= MIN_NLT_DIVE_ANGLE_DEG
     ? calculateLegacySafety({
         weapon,
         targetElevationMslFt: input.targetElevationMslFt,

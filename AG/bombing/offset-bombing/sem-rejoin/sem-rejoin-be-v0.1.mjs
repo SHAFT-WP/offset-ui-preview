@@ -47,7 +47,9 @@ export const SEM_REJOIN_V0_1 = Object.freeze({
   // cross range, heading change and bank; S&R starts at the turn's end (no straight level carry after it).
   // 0.3.2 (2026-10-22, owner): the plan follows the Offset Run-In turn — its absolute headings (Turn / Arc HEADING,
   // Arc END_RADIAL, the draw heading, the Egress heading) turn by the Flight's runInTurnDeg change; the wind stays.
-  version: "0.3.2",
+  // 0.3.3 (2026-10-27, owner, POP-UP SPEC §13.6): BDP v0.4.4 flies a SEM at every Dive above 0°, so below 10° is
+  // supported; only Dive 0° (level delivery, no recovery) has no SEM and is UNSUPPORTED.
+  version: "0.3.3",
   model: Object.freeze({ id: "sr-energy-neutral-point-mass-v0.1", version: "0.1.0", integrationStepSec: 0.01 }),
   components: Object.freeze({
     sem: `${CLIMB_SEM_MODEL_V0_2.id} ${CLIMB_SEM_MODEL_V0_2.version}`,
@@ -404,6 +406,9 @@ function computeSem(view, windKt) {
   const base = { release: { timeSec: release.timeSec, point: release.point, attackHeadingDeg: release.attackHeadingDeg }, inputs: input };
   if (profile.diagnostics.nltSupported !== true) {
     return { ...base, status: "UNSUPPORTED", errors: ["SEM is not available below Dive Angle 10° (BDP MINALT-only delivery, BDP SPEC §6.2)"], warnings: [] };
+  }
+  if (!(profile.canonicalInputs.diveAngleDeg > 0)) {
+    return { ...base, status: "UNSUPPORTED", errors: ["SEM is not available at Dive Angle 0° (level delivery: no recovery)"], warnings: [] };
   }
   if (isFiniteNumber(profile.public.trackingTimeSec) && profile.public.trackingTimeSec < 0) {
     return { ...base, status: "UNSUPPORTED", errors: ["Negative Tracking Time: the BDP Release state is an altitude shortfall, not a flown state"], warnings: [] };
