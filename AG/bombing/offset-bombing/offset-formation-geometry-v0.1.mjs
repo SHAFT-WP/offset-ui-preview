@@ -33,7 +33,9 @@ export const OFFSET_FORMATION_GEOMETRY_V0_1 = Object.freeze({
   // 0.1.9 (2026-10-15, owner R3): profile.fragmentMarginAppliesTo passes through to BDP v0.4.1.
   // 0.1.10 (2026-10-19, owner): the Level SEM turn inputs pass through to BDP v0.4.3 (direction absent: the
   // aircraft's Roll-in direction).
-  version: "0.1.10",
+  // 0.1.11 (2026-10-27, owner, POP-UP step 3b): profile.rollInStartFpaDeg / rollInSpeedModel pass through to BDP
+  // v0.4.5; absent, nothing changes.
+  version: "0.1.11",
   status: "work",
   purpose:
     "Off-axis Offset geometry for a Flight follower whose IP is displaced from the shared Target-through Run-In axis by its Formation position, while Target and Run-In heading stay shared with its element lead. Reuses offset-geometry-v0.2.mjs's pure heading/vector helpers without modifying offset-be-v0.2.mjs or offset-geometry-v0.2.mjs's own single-aircraft (on-axis) contract.",
@@ -99,6 +101,9 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirecti
     // BDP v0.4 Roll-in onset rates (absent: the BDP defaults).
     ...Object.fromEntries(["rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"].filter((key) => profile[key] !== undefined && profile[key] !== null).map((key) => [key, finite(key, profile[key])])),
     ballisticModelId: profile.ballisticModelId,
+    // POP-UP Roll-in option (0.1.11, BDP v0.4.5): only when the profile has it.
+    ...(profile.rollInStartFpaDeg === undefined ? {} : { rollInStartFpaDeg: finite("rollInStartFpaDeg", profile.rollInStartFpaDeg) }),
+    ...(profile.rollInSpeedModel === undefined ? {} : { rollInSpeedModel: profile.rollInSpeedModel }),
   };
 }
 

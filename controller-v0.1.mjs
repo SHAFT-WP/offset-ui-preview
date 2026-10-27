@@ -1,4 +1,4 @@
-import { readOffsetWorkSave, writeOffsetWorkSave } from "./work-save-v0.1.mjs?v=0.1.0";
+import { POPUP_STORAGE_KEYS, readOffsetWorkSave, writeOffsetWorkSave } from "./work-save-v0.1.mjs?v=0.1.1";
 import { formatDeg, formatG, formatKt, formatNm, formatSec, formatSignedSec, truncateBeOutput } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
 import { formationPositionMarkup, installFormationSideSelects } from "./common/ui/formation-position-v0.1.mjs";
@@ -10,9 +10,15 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // The BE runs in a Worker (offset-flight-worker-v0.1.mjs); Common calculation-client-v0.1.mjs decides when a
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
-import { OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.8";
+import { OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.9";
 import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
-const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.4", import.meta.url);
+const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.5", import.meta.url);
+// POP-UP page (owner 2026-10-27, POP-UP SPEC §13.1 "Offset as is, modified"): popup/index.html runs this controller
+// with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
+// climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
+const POPUP_MODE = document.body.classList.contains("popup-page");
+const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.0", import.meta.url);
+const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.0", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -63,7 +69,7 @@ const FLIGHT_WINGMEN = new Set([2, 4]);
 const FLIGHT_DED_AIRCRAFT = new Set([2, 3, 4]);
 // Developer default preset (index UI handoff 2026-10-06 §3): replaces the built-in defaults in this
 // browser only. The work save is one complete Flight snapshot (work-save-v0.1.mjs).
-const PRESET_KEY = "flight-sim-tools.offset.v2.default-preset.v1";
+const PRESET_KEY = POPUP_MODE ? "flight-sim-tools.popup.v2.default-preset.v1" : "flight-sim-tools.offset.v2.default-preset.v1";
 const PRESET_SCHEMA_VERSION = 1;
 // index.html (body.offset-wide) groups the inputs as Offset (profile + geometry) / BDP (settings);
 // index-standard.html keeps the earlier BDP / Offset grouping. Same keys and state either way.
@@ -73,7 +79,7 @@ const LEAD_TURN_DRIVERS = new Set(["offsetG", "offsetBankDeg", "offsetRadiusNm"]
 // Follower driver keys a stored draft may carry ("Angle #n" / "Time #n" toggles, their exclusivity
 // with the LOCKs and the both-fixed Roll-in Altitude / Tracking Time solve are the BE's).
 const FLIGHT_TACTICAL_DRIVERS = ["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "approachRangeNm"];
-const DEFAULT_INPUT_VALUES = Object.freeze({
+const OFFSET_DEFAULT_INPUT_VALUES = Object.freeze({
   weaponId: "M82",
   targetElevationMslFt: "31",
   initialSpeedValue: "350",
@@ -122,6 +128,24 @@ const DEFAULT_INPUT_VALUES = Object.freeze({
   offsetBankDeg: "60",
   offsetRadiusNm: "1.6",
 });
+// POP-UP defaults (step 3b): a low-level ingress (Offset leg 500 ft / 480 KCAS), Roll-in Altitude 4,000 ft at
+// 400 KCAS, Dive 20°, Roll-in G 3, Popup G 3 (POP-UP SPEC §13.2c); the Popup angle from the automatic rule.
+const POPUP_DEFAULT_INPUT_VALUES = Object.freeze({
+  offsetAltitudeMslFt: "500",
+  offsetSpeedValue: "480",
+  initialAltitudeMslFt: "4000",
+  rollInAltitudeMslFt: "4000",
+  initialSpeedValue: "400",
+  diveAngleDeg: "20",
+  releaseAltitudeMslFt: "3300",
+  rollInG: "3",
+  vrpRangeNm: "8.0",
+  popupG: "3",
+  popupAngleDeg: "",
+  popupGroundDistanceNm: "",
+  popupExposureTimeSec: "",
+});
+const DEFAULT_INPUT_VALUES = POPUP_MODE ? Object.freeze({ ...OFFSET_DEFAULT_INPUT_VALUES, ...POPUP_DEFAULT_INPUT_VALUES }) : OFFSET_DEFAULT_INPUT_VALUES;
 
 const locks = {};
 let driver = "vrpRangeNm";
@@ -148,6 +172,10 @@ let fragmentMarginAppliesTo = "HEIGHT_AND_RADIUS";
 let bdpSolveMode = "height";
 const DEFAULT_TRACKING_TIME_SEC = 18;
 let enteredTrackingTimeSec = DEFAULT_TRACKING_TIME_SEC;
+// POP-UP: #1's Popup angle driver (the BE's; DEFAULT = the automatic rule) and the on-demand minimum exposure.
+let popupDriver = "DEFAULT";
+let popupRequest = null;
+let popupMinimumExposure = null;
 let topViewTextScale = TOP_VIEW_TEXT_SCALE_DEFAULT;
 let topViewAdvanced = false;
 // IP Bottom (default on): Top View drawn with the Run-In (IP -> Target) pointing up; off = north up
@@ -264,7 +292,7 @@ const LEAD_VALUE_KEYS = Object.keys(DEFAULT_INPUT_VALUES);
 // Display digits of fields a solve writes back (docs/TERMINOLOGY.md): angles and ft integer, NM and G
 // one decimal, Tracking Time one decimal (user 2026-10-12; entered in 0.1 s); the Full value stays
 // behind the text (solvedInputValues / draft.solved).
-const FIELD_DISPLAY_DIGITS = Object.freeze({ attackHeadingDeg: 0, angleOffDeg: 0, offsetAngleDeg: 0, actionRangeNm: 1, approachRangeNm: 1, ipRangeNm: 1, vrpRangeNm: 1, offsetG: 1, offsetBankDeg: 0, offsetRadiusNm: 1, trackingTimeSec: 1, rollInAltitudeMslFt: 0, initialAltitudeMslFt: 0, releaseAltitudeMslFt: 0, rollInBankAngleDeg: 0, rollInG: 1 });
+const FIELD_DISPLAY_DIGITS = Object.freeze({ popupAngleDeg: 1, popupGroundDistanceNm: 2, popupExposureTimeSec: 1, attackHeadingDeg: 0, angleOffDeg: 0, offsetAngleDeg: 0, actionRangeNm: 1, approachRangeNm: 1, ipRangeNm: 1, vrpRangeNm: 1, offsetG: 1, offsetBankDeg: 0, offsetRadiusNm: 1, trackingTimeSec: 1, rollInAltitudeMslFt: 0, initialAltitudeMslFt: 0, releaseAltitudeMslFt: 0, rollInBankAngleDeg: 0, rollInG: 1 });
 function fieldDisplayText(key, value) {
   if (key === "runInHeadingDeg") return formatBearingInput(value);
   // A written-back Attack Heading reads like the entered one: integer, three digits ("030"; a Run-In turn rewrites it).
@@ -284,6 +312,7 @@ function collectLeadRecord() {
       driver, turnDriver, referenceMode, ipLinkedToVrp: ipLinked, ipLockHeadingDeg, runInBaseDeg, runInTurnDeg, rollInAltitudeLinked,
       solveMode: bdpSolveMode, enteredTrackingTimeSec, vipBearingExplicit, vipRangeExplicit, vrpBearingExplicit, vrpRangeExplicit,
       fragmentMarginAppliesTo,
+      ...(POPUP_MODE ? { popupDriver } : {}),
     },
   };
 }
@@ -342,6 +371,7 @@ function applyLeadState(lead, sentLead, activeKey, commit) {
   vrpBearingExplicit = s.vrpBearingExplicit;
   vrpRangeExplicit = s.vrpRangeExplicit;
   if (s.fragmentMarginAppliesTo) fragmentMarginAppliesTo = s.fragmentMarginAppliesTo;
+  if (POPUP_MODE && s.popupDriver) popupDriver = s.popupDriver;
   syncFragmentMarginButton();
   Object.keys(locks).forEach((key) => { locks[key] = lead.locks?.[key] === true; });
   syncLockButtons();
@@ -837,7 +867,10 @@ function toggledValue(aircraft, kind, key, current) {
 function collectCalculationInput(edits) {
   const input = collectFlightInput();
   const current = edits.filter((edit) => !!input.aircraft[edit.aircraft ?? 1]);
-  return current.length ? { ...input, edits: current } : input;
+  // POP-UP: the minimum-exposure request goes with the next request only.
+  const request = POPUP_MODE && popupRequest ? { popupRequest } : {};
+  popupRequest = null;
+  return current.length ? { ...input, ...request, edits: current } : { ...input, ...request };
 }
 
 // Answer to the current state (calculation-client adopts nothing else): the returned state is stored
@@ -852,6 +885,7 @@ function applyCalculationAnswer(message, sent) {
   if (output.nextInput) applyFlightState(output.nextInput, input, input.edits ?? []);
   else syncInitialLinkUi();
   lastFlightTiming = output.flightTiming ?? {};
+  if (POPUP_MODE && output.popupMinimumExposure) popupMinimumExposure = output.popupMinimumExposure;
   renderLead(output.aircraftResults[1]);
   for (let number = 2; number <= flightLayout.size; number += 1) {
     if (FLIGHT_CALCULATING_AIRCRAFT.has(number)) renderFollower(number, output.aircraftResults[number] ?? { status: "FAILED", result: null, error: `Aircraft #${number} has no current result` });
@@ -875,7 +909,9 @@ const saveExtensions = new Map();
 const flightDefaultsListeners = new Set();
 
 function installCalculation() {
-  const transport = createWorkerTransport({ workerUrl: OFFSET_FLIGHT_WORKER_URL });
+  const transport = POPUP_MODE
+    ? createWorkerTransport({ workerUrl: POPUP_FLIGHT_WORKER_URL, hostFactory: "createPopupFlightHost" })
+    : createWorkerTransport({ workerUrl: OFFSET_FLIGHT_WORKER_URL });
   calculationScheduler = createCalculationScheduler({ collect: collectCalculationInput, apply: applyCalculationAnswer, transport });
   // Read-only diagnostics for the browser oracle and performance checks (nothing here calculates).
   globalThis.offsetCalculation = Object.freeze({
@@ -896,9 +932,11 @@ function renderLead(entry) {
     $("#turn-time-out").textContent = `${formatSec(result.timing.offsetTurnSec)} sec`;
     $("#driver-out").textContent = `DRIVER · ${driver}`;
     $("#lock-count").textContent = `LOCK ${Object.values(locks).filter(Boolean).length}`;
-    renderStatus(result);
+    // POP-UP: the Flight entry's status (the POP-UP checks merged into the Offset's).
+    renderStatus(POPUP_MODE ? { ...result, state: entry.status, errors: entry.errors ?? [], warnings: entry.warnings ?? [] } : result);
     renderOffsetResult(result);
     renderProfileResult(result);
+    if (POPUP_MODE) renderPopup(entry);
     renderSemFragmentReadouts($("#lead-sem-readouts"), result);
     resultPanel.refresh();
     refreshBdpDiagrams(1);
@@ -920,12 +958,70 @@ function renderLead(entry) {
   // diagrams are cleared; the BE fails every follower that depends on #1.
   lastResult = null;
   lastResultFull = null;
+  if (POPUP_MODE) renderPopup(null);
   renderSemFragmentReadouts($("#lead-sem-readouts"), null);
   showCalculationFailed($("#offset-z-svg"), "Offset #1 Z-Diagram", errorMessage);
   $("#capture-z").disabled = true;
   clearDed();
   refreshBdpDiagrams(1);
   lastResultSnapshot = null;
+}
+
+// POP-UP results (#1): the BE's popup record of the Flight entry; nothing is computed here.
+const POPUP_DRIVER_TEXT = Object.freeze({ DEFAULT: "AUTO · Dive ≤ 15° → +5°, else +10°", ANGLE: "Popup Angle", GROUND_DISTANCE: "Ground Distance", EXPOSURE_TIME: "Exposure Time" });
+const POPUP_EVENT_TEXT = Object.freeze({ POP: "Pop Point", PULL_UP_END: "Pull-up End", ROLL_IN_START: "Roll-in Start", PULL_DOWN: "Pull Down", APEX: "Apex", TRACK_POINT: "Track Point", RELEASE: "Release" });
+function popupResultRows(p) {
+  const r = (label, text, key, summary = false) => row(label, text, key, { summary });
+  const kt = (v) => `${Number.isFinite(v) ? Math.round(v) : "-"} KCAS`;
+  const one = (v) => (Number.isFinite(v) ? v.toFixed(1) : "-");
+  const ft = (v) => `${Number.isFinite(v) ? Math.round(v) : "-"} ft`;
+  const speed = p.speedCheck;
+  const speedText = !speed ? "-" : speed.status === "MIL_OK"
+    ? `MIL OK · ${kt(speed.arrivalKcas)} (+${Math.round(speed.marginKt)} kt over ${Math.round(speed.rollInSpeedKcas)})`
+    : `MIL SHORT · ${kt(speed.arrivalKcas)} (${Math.round(speed.marginKt)} kt) · AB not judged (no AB model)`;
+  const events = (p.events ?? []).map((e) => r(POPUP_EVENT_TEXT[e.name] ?? e.name, `${one(e.timeSec)} s · ${ft(e.altitudeMslFt)}${Number.isFinite(e.kcas) ? ` · ${kt(e.kcas)}` : ""}`, `popupEvent${e.name}`));
+  return [
+    r("Popup Angle", `${one(p.popupAngleDeg)}° · ${POPUP_DRIVER_TEXT[p.driver] ?? p.driver}`, "popupAngleDeg", true),
+    r("Ground Distance", `${Number.isFinite(p.groundDistanceNm) ? p.groundDistanceNm.toFixed(2) : "-"} NM`, "popupGroundDistanceNm", true),
+    r("Exposure (Pop → Apex)", `${one(p.exposureTimeSec)} s`, "popupExposureTimeSec", true),
+    r("Hold-Down", `${Number.isFinite(p.holdDownNm) ? p.holdDownNm.toFixed(2) : "-"} NM${Number.isFinite(p.holdDownSec) ? ` / ${one(p.holdDownSec)} s` : ""}`, "popupHoldDownNm", true),
+    r("Apex", `${ft(p.events?.find((e) => e.name === "APEX")?.altitudeMslFt)} · ${kt(p.apexKcas)}`, "popupApex", true),
+    r("Roll-in Speed check", speedText, "popupSpeedCheck", true),
+    r("Popup G", `${formatG(p.popupG)} G${p.climb?.pullUp && !p.climb.pullUp.reachesPopupG ? ` (peak ${formatG(p.climb.pullUp.peakG)} G)` : ""}`, "popupG"),
+    ...events,
+    ...(p.notes ?? []).map((note, i) => r("Note", note, `popupNote${i}`)),
+  ];
+}
+function renderPopup(entry) {
+  const body = $("#popup-result-body");
+  const p = entry?.popup ?? null;
+  if (body) body.innerHTML = p && Number.isFinite(p.groundDistanceNm) ? popupResultRows(truncateBeOutput(p)).join("") : "";
+  const driverOut = $("#popup-driver-out");
+  if (driverOut) driverOut.textContent = `DRIVER · ${POPUP_DRIVER_TEXT[popupDriver] ?? popupDriver}`;
+  const out = $("#popup-min-exposure-out");
+  const apply = $("#popup-min-apply");
+  if (out) {
+    const m = popupMinimumExposure;
+    out.textContent = !m ? "-" : m.status === "VALID" ? `${m.angleDeg.toFixed(1)}° · ${m.exposureTimeSec.toFixed(1)} s` : `Unavailable · ${m.reason ?? ""}`;
+    if (apply) apply.hidden = !(m && m.status === "VALID");
+  }
+  resultPanel.refresh();
+}
+function installPopupControls() {
+  $("#popup-auto")?.addEventListener("click", () => calculate({ aircraft: 1, kind: "set", key: "popupDriver", value: "DEFAULT", commit: true }));
+  $("#popup-min-exposure")?.addEventListener("click", () => {
+    popupRequest = { minimumExposure: 1 };
+    const out = $("#popup-min-exposure-out");
+    if (out) out.textContent = "Calculating…";
+    calculate();
+  });
+  $("#popup-min-apply")?.addEventListener("click", () => {
+    const m = popupMinimumExposure;
+    if (!m || m.status !== "VALID") return;
+    const text = m.angleDeg.toFixed(1);
+    setValue("popupAngleDeg", text, { includeActive: true });
+    calculate({ aircraft: 1, kind: "set", key: "popupAngleDeg", commit: true });
+  });
 }
 
 // Placeholder drawn in a view whose solve failed (no stale geometry is left on screen).
@@ -2482,7 +2578,8 @@ function readDefaultPreset() {
 }
 
 function saveWorkState() {
-  return writeOffsetWorkSave(localStorage, { lead: capturePersistedState(), flight: captureFlightLayout() });
+  const snapshot = { lead: capturePersistedState(), flight: captureFlightLayout() };
+  return POPUP_MODE ? writeOffsetWorkSave(localStorage, snapshot, POPUP_STORAGE_KEYS) : writeOffsetWorkSave(localStorage, snapshot);
 }
 
 // Every work Save uses the same completion and error path, in both layouts (shared Save run).
@@ -2718,6 +2815,10 @@ function install() {
   // Header shows the Offset BE version actually loaded.
   const rev = $(".rev");
   if (rev) rev.textContent = `V2 WORK · OFFSET BE ${OFFSET_FLIGHT_V0_1.components.offsetBe} · FLIGHT ${OFFSET_FLIGHT_V0_1.version}`;
+  if (POPUP_MODE) {
+    import(POPUP_FLIGHT_URL.href).then((m) => { if (rev) rev.textContent = `V2 WORK · POP-UP FLIGHT ${m.POPUP_FLIGHT_V0_1.version} · OFFSET FLIGHT ${OFFSET_FLIGHT_V0_1.version}`; }).catch(() => {});
+    installPopupControls();
+  }
   installLeadBdpTab();
   installCalculation();
   populateWeapons();
@@ -2727,7 +2828,7 @@ function install() {
   installFragmentMarginButton();
   installReferenceBearingControls();
   installValueStateBindings();
-  try { restoredWorkSave = readOffsetWorkSave(localStorage); }
+  try { restoredWorkSave = POPUP_MODE ? readOffsetWorkSave(localStorage, POPUP_STORAGE_KEYS) : readOffsetWorkSave(localStorage); }
   catch { restoredWorkSave = { lead: null, flight: null, notice: "Saved conditions unavailable · browser storage could not be read" }; }
   installFlightLayout();
   const leadDiagramsHost = document.querySelector('[data-bdp-diagrams-host="1"]');

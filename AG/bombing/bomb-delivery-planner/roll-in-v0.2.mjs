@@ -1,5 +1,6 @@
 import { casToTas, machToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { ADOPTED_PERFORMANCE_MODEL, ADOPTED_PERFORMANCE_MODEL_V0_1, evaluateAdoptedPerformance } from "../../../flight/aircraft-performance/adopted-performance-model-v0.1.mjs";
+import { ADOPTED_ACCELERATION_GRID_V0_1, adoptedAccelerationGrid } from "../../../flight/aircraft-performance/adopted-acceleration-grid-v0.1.mjs";
 
 // BDP Roll-in v0.2 (owner 2026-10-15, SPEC §5.1): technique B with linear rate onsets.
 // Roll at 1 G to the Roll-in Bank at the Roll-in Rate; pull at the G Onset Rate to Roll-in G; hold G with no
@@ -34,7 +35,7 @@ export const ROLL_IN_ONSET_DEFAULTS = Object.freeze({
 });
 export const ROLL_IN_LARGE_BANK_WARNING_DEG = 150;
 export const ROLL_IN_SPEED_MODELS = Object.freeze(["HOLD", "MIL"]);
-// MIL speed premises (BOX OUT v0.2's): the fuel is the middle of the model's range; the AoA is nominal and only the
+// MIL speed premises (BOX OUT v0.2's; the acceleration from the adopted model's grid, exact in G): the fuel is the middle of the model's range; the AoA is nominal and only the
 // model's envelope check reads it (the model has no lift law).
 export const ROLL_IN_MIL_PREMISES = Object.freeze({
   performanceEntry: `${ADOPTED_PERFORMANCE_MODEL_V0_1.id} ${ADOPTED_PERFORMANCE_MODEL_V0_1.version}`,
@@ -43,7 +44,6 @@ export const ROLL_IN_MIL_PREMISES = Object.freeze({
   fuelKg: (ADOPTED_PERFORMANCE_MODEL.domain.ranges.fuelKg[0] + ADOPTED_PERFORMANCE_MODEL.domain.ranges.fuelKg[1]) / 2,
   nominalAoaDeg: 5,
 });
-const MPS_TO_FPS = 1 / 0.3048;
 
 const G_FTPS2 = 32.174;
 const KT_TO_FPS = 1.687809857;
@@ -102,31 +102,17 @@ function createDynamics(params, initialAltitudeMslFt) {
   };
   const mil = params.speedModel === "MIL";
   const n = mil ? 7 : 6;
-  const performance = { states: 0, outsideDomainStates: 0, issues: new Set() };
-  // dV/dt (ft/s²) at MIL for a TAS, altitude, flight path and G (the model's tasRateMps2 = (T − D)/m − g·Vz/V).
+  // (T − D)/m from the adopted model's acceleration grid (exact in G, bilinear in altitude and TAS; 0.2.2), minus
+  // g·sin(gamma). The envelope report is made on the flown states with the exact model (performanceDomainOf).
+  const accel = mil ? adoptedAccelerationGrid({ fuelKg: ROLL_IN_MIL_PREMISES.fuelKg, aoaDeg: ROLL_IN_MIL_PREMISES.nominalAoaDeg }) : null;
   const speedRateFps2 = (tasFps, altitudeMslFt, gamma, loadFactor) => {
     if (!(tasFps > 1)) throw new RollInSolveError("SPEED", "Roll-in speed reaches zero at MIL");
-    const verticalSpeedMps = tasFps * Math.sin(gamma) * 0.3048;
-    let perf;
     try {
-      perf = evaluateAdoptedPerformance({
-        altitudeMslFt,
-        casKt: tasToCas(tasFps / KT_TO_FPS, altitudeMslFt),
-        fuelKg: ROLL_IN_MIL_PREMISES.fuelKg,
-        loadFactorG: loadFactor,
-        aoaDeg: ROLL_IN_MIL_PREMISES.nominalAoaDeg,
-        verticalSpeedMps,
-      }, { allowResearchExtrapolation: true });
+      return accel(altitudeMslFt, tasFps, loadFactor) - G_FTPS2 * Math.sin(gamma);
     } catch (error) {
       // No thrust data (e.g. below sea level on a too-deep trial bank): this bank fails like a vertical path.
-      throw new RollInSolveError("PERFORMANCE_UNAVAILABLE", `MIL performance unavailable at ${Math.round(altitudeMslFt)} ft MSL (${error.message})`);
+      throw new RollInSolveError("PERFORMANCE_UNAVAILABLE", error.message);
     }
-    performance.states += 1;
-    if (perf.outsideDomain) {
-      performance.outsideDomainStates += 1;
-      perf.domainIssues.forEach((issue) => performance.issues.add(issue));
-    }
-    return perf.tasRateMps2 * MPS_TO_FPS;
   };
   function derivativeInto(out, s, c) {
     const altitude = s[2];
@@ -183,8 +169,23 @@ function createDynamics(params, initialAltitudeMslFt) {
   if (mil) initialState.push(exactTasFps(initialAltitudeMslFt));
   // TAS of a state: the integrated one (MIL) or the held one at its altitude.
   const tasFpsOf = (state) => (mil ? state[6] : tasFpsAt(state[2]));
-  const performanceReport = () => ({ states: performance.states, outsideDomainStates: performance.outsideDomainStates, domainIssues: [...performance.issues].sort() });
-  return { tasFpsAt, tasFpsOf, derivative, rk4, phase, initialState, mil, performanceReport };
+  // The research-envelope report of flown states [state, loadFactor], with the exact model.
+  const performanceDomainOf = (flown) => {
+    const issues = new Set();
+    let outside = 0;
+    for (const [st, loadFactor] of flown) {
+      const perf = evaluateAdoptedPerformance({
+        altitudeMslFt: st[2], casKt: tasToCas(st[6] / KT_TO_FPS, st[2]), fuelKg: ROLL_IN_MIL_PREMISES.fuelKg, loadFactorG: loadFactor,
+        aoaDeg: ROLL_IN_MIL_PREMISES.nominalAoaDeg, verticalSpeedMps: st[6] * Math.sin(st[3]) * 0.3048,
+      }, { allowResearchExtrapolation: true });
+      if (perf.outsideDomain) {
+        outside += 1;
+        perf.domainIssues.forEach((issue) => issues.add(issue));
+      }
+    }
+    return { states: flown.length, outsideDomainStates: outside, domainIssues: [...issues].sort() };
+  };
+  return { tasFpsAt, tasFpsOf, derivative, rk4, phase, initialState, mil, performanceDomainOf };
 }
 
 // Slice-turn (technique B) phases for one Roll-in Bank; the hold is integrated step by step so the roll-out
@@ -406,7 +407,6 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
     ["rollOut", null, null],
   ];
   // Fly the solution once and keep every step.
-  const performanceBeforeFlight = dyn.performanceReport();
   let s = dyn.initialState.slice();
   let t = 0;
   sample(0, s, { loadFactor: 1 }, "roll");
@@ -533,7 +533,6 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
         break;
       }
     }
-    const flight = dyn.performanceReport();
     return {
       startFpaDeg,
       speedModel,
@@ -542,13 +541,9 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
       apex,
       apexBeforePullDown: apex !== null && apex.timeSec < pullDownState.t,
       ...(dyn.mil ? {
-        milPremises: { ...ROLL_IN_MIL_PREMISES },
-        // The final flight's states only (the bank search before it is not counted).
-        performanceDomain: {
-          states: flight.states - performanceBeforeFlight.states,
-          outsideDomainStates: flight.outsideDomainStates - performanceBeforeFlight.outsideDomainStates,
-          domainIssues: flight.domainIssues,
-        },
+        milPremises: { ...ROLL_IN_MIL_PREMISES, accelerationGrid: `${ADOPTED_ACCELERATION_GRID_V0_1.id} ${ADOPTED_ACCELERATION_GRID_V0_1.version}` },
+        // The flown integration steps, checked with the exact model.
+        performanceDomain: dyn.performanceDomainOf(samples.map((x) => [x.s, x.loadFactor])),
       } : {}),
     };
   }

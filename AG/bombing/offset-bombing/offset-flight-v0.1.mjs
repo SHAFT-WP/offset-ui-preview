@@ -45,7 +45,9 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // 0.1.8 (2026-10-26, owner 2026-10-25, shared BDP tab): a follower's Target Elevation is its own input; blank
   // follows the element lead's (#1 for #2 / #3, #3 for #4), like the other inherited BDP values. All blank flies as
   // 0.1.7 (#1's Target Elevation for every aircraft).
-  version: "0.1.8",
+  // 0.1.9 (2026-10-27, owner, POP-UP step 3b): the POP-UP Roll-in option passes through each aircraft's profile
+  // (values rollInStartFpaDeg / rollInSpeedModel, BDP v0.4.5); absent (Offset) nothing changes.
+  version: "0.1.9",
   status: "work",
   schemaVersion: 1,
   components: Object.freeze({
@@ -503,7 +505,16 @@ function leadOffsetInput(lead) {
       semTurnDeg: blank(v.semTurnDeg) ? undefined : n("semTurnDeg"),
       semTurnDirection: semTurnDirectionOf(v.semTurnDirection),
       ...Object.fromEntries(OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS.map((key) => [key, blank(v[key]) ? undefined : n(key)])),
+      ...popUpProfile(v),
     },
+  };
+}
+
+// POP-UP Roll-in option (0.1.9; the POP-UP page sets it per aircraft): only the keys present.
+function popUpProfile(v) {
+  return {
+    ...(blank(v.rollInStartFpaDeg) ? {} : { rollInStartFpaDeg: requireNumber("rollInStartFpaDeg", v.rollInStartFpaDeg) }),
+    ...(blank(v.rollInSpeedModel) ? {} : { rollInSpeedModel: v.rollInSpeedModel }),
   };
 }
 
@@ -839,6 +850,7 @@ function followerOffsetInput({ number, follower, leaderResult, leadNumber, fligh
       semTurnDirection: semTurnDirectionOf(v.semTurnDirection),
       // The Flight's (#1's) developer option.
       fragmentMarginAppliesTo: flightProfile.fragmentMarginAppliesTo,
+      ...popUpProfile(v),
     },
   };
   // Angle #n: the element lead's solved Offset Angle held as a fixed value (the heading hold above

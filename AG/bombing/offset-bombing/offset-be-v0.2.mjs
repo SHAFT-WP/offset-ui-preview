@@ -32,7 +32,9 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 // (onset-level-turn 0.1.1).
 // 0.2.14 (2026-10-19, owner): the Level SEM turn inputs pass through to BDP v0.4.3; a blank direction is the
 // aircraft's Roll-in direction.
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.14", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
+// 0.2.15 (2026-10-27, owner, POP-UP step 3b): profile.rollInStartFpaDeg / rollInSpeedModel pass through to BDP v0.4.5
+// (the POP-UP Roll-in option); absent, nothing changes.
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.15", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -173,6 +175,9 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirecti
     // BDP v0.4 Roll-in onset rates (absent: the BDP defaults).
     ...Object.fromEntries(["rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"].filter((key) => profile[key] !== undefined && profile[key] !== null).map((key) => [key, finite(key, profile[key])])),
     ballisticModelId: profile.ballisticModelId,
+    // POP-UP Roll-in option (0.2.15, BDP v0.4.5): only when the profile has it.
+    ...(profile.rollInStartFpaDeg === undefined ? {} : { rollInStartFpaDeg: finite("rollInStartFpaDeg", profile.rollInStartFpaDeg) }),
+    ...(profile.rollInSpeedModel === undefined ? {} : { rollInSpeedModel: profile.rollInSpeedModel }),
   };
 }
 
