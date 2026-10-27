@@ -5,6 +5,7 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 import {
   ROLL_IN_LARGE_BANK_WARNING_DEG,
   ROLL_IN_ONSET_DEFAULTS,
+  ROLL_IN_SPEED_MODELS,
   ROLL_IN_V0_2_MODEL,
   RollInSolveError,
   integrateRollInV0_2,
@@ -32,7 +33,12 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_4 = Object.freeze({
   // every Dive (no level-turn branch); the SEM NLT is computed at every Dive (core option nltAllDives; NLT = MINALT
   // at 0°, and it clamps the Release as above 10°); the SEM path and fragment check run above 0° (none at 0°: no
   // recovery). Every consumer (Offset, BOX, Wheel, Wheel-BOX) changes below 10° Dive; 10° and above are unchanged.
-  version: "0.4.4",
+  // 0.4.5 (2026-10-27, owner, POP-UP SPEC §13.2–13.3, step 2): the POP-UP Roll-in option, off by default (every
+  // consumer's result unchanged): `rollInStartFpaDeg` (the Popup angle at Roll-in Start, 0 ≤ x < 90; absent 0) and
+  // `rollInSpeedModel` ("HOLD" default | "MIL": TAS integrated with the adopted performance model at MIL, so the
+  // Track Point speed is a result and the Track goes linearly to the Release Speed). With either, `public.rollInPopUp`
+  // gives the Pull Down, the Apex (FPA 0) and, at MIL, the performance domain report. Roll-in v0.2.2.
+  version: "0.4.5",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   rollInModel: ROLL_IN_V0_2_MODEL,
   semFragmentModel: SEM_FRAGMENT_MODEL_V0_1,
@@ -145,18 +151,41 @@ function canonicalInput(rawInput) {
     angleOffDeg: rawInput.angleOffDeg,
     rollInG: rawInput.rollInG,
     ...onsetInput(rawInput),
+    ...popUpRollInInput(rawInput),
     ballisticModelId: rawInput.ballisticModelId,
+  };
+}
+
+// POP-UP Roll-in option (0.4.5): kept out of the canonical input at its defaults, so other consumers' inputs (and
+// their cache keys) are unchanged.
+function popUpRollInInput(rawInput) {
+  const out = {};
+  const fpa = rawInput.rollInStartFpaDeg;
+  if (fpa !== undefined && fpa !== null && fpa !== 0) {
+    if (typeof fpa !== "number" || !Number.isFinite(fpa) || !(fpa > 0 && fpa < 90)) throw new RangeError("rollInStartFpaDeg must be finite, >= 0 and < 90");
+    out.rollInStartFpaDeg = fpa;
+  }
+  const speedModel = rawInput.rollInSpeedModel ?? "HOLD";
+  if (!ROLL_IN_SPEED_MODELS.includes(speedModel)) throw new RangeError(`rollInSpeedModel must be one of ${ROLL_IN_SPEED_MODELS.join(", ")}`);
+  if (speedModel !== "HOLD") out.rollInSpeedModel = speedModel;
+  return out;
+}
+
+function popUpRollInParams(input) {
+  return {
+    ...(input.rollInStartFpaDeg === undefined ? {} : { startFpaDeg: input.rollInStartFpaDeg }),
+    ...(input.rollInSpeedModel === undefined ? {} : { speedModel: input.rollInSpeedModel }),
   };
 }
 
 // One BDP call may fly the Roll-in several times (time mode: the Initial Altitude fixed point). Each flight
 // starts its bank search at the previous one's bank; the sequence is fixed by the input, so the result is too.
-function rollInV0_2ForOneCall() {
+function rollInV0_2ForOneCall(popUp = {}) {
   let bankHintDeg = null;
   return {
     solvesBank: true,
     integrate(params, initialAltitudeMslFt) {
-      const roll = integrateRollInV0_2({ ...params, bankHintDeg }, initialAltitudeMslFt);
+      const roll = integrateRollInV0_2({ ...params, ...popUp, bankHintDeg }, initialAltitudeMslFt);
       bankHintDeg = roll.rollInBankAngleDeg;
       return roll;
     },
@@ -228,7 +257,7 @@ function semTurnInput(input) {
 
 function solveCanonical(input) {
   const rollInOnset = Object.fromEntries(ONSET_KEYS.map((key) => [key, input[key]]));
-  const calculation = calculateBombDeliveryV0_2({ ...input, rollInOnset }, { rollIn: rollInV0_2ForOneCall(), nltAllDives: true });
+  const calculation = calculateBombDeliveryV0_2({ ...input, rollInOnset }, { rollIn: rollInV0_2ForOneCall(popUpRollInParams(input)), nltAllDives: true });
   const state = buildBombDeliveryVisualizationState(calculation);
   const roll = calculation.rollIn;
   const sem = semFragment(input, calculation);
@@ -243,6 +272,17 @@ function solveCanonical(input) {
       rollInBankAtRollOutStartDeg: roll.bankAtRollOutStartDeg,
       rollInMaxDiveDeg: roll.maxDiveDeg,
       rollInLargeBankWarning: roll.largeBankWarning,
+      // POP-UP Roll-in (0.4.5; only with the option): Pull Down, Apex, speed model and its domain report.
+      ...(roll.pullDown ? {
+        rollInPopUp: {
+          startFpaDeg: roll.startFpaDeg,
+          speedModel: roll.speedModel,
+          pullDown: roll.pullDown,
+          apex: roll.apex,
+          apexBeforePullDown: roll.apexBeforePullDown,
+          ...(roll.milPremises ? { milPremises: roll.milPremises, performanceDomain: roll.performanceDomain } : {}),
+        },
+      } : {}),
       // §6.6: display and check only.
       semMinimumAltitudeMslFt: sem.applicable ? sem.semMinimumAltitudeMslFt : null,
       semMinimumAltitudeAglFt: sem.applicable ? sem.semMinimumAltitudeAglFt : null,
@@ -293,5 +333,6 @@ export {
   FRAGMENT_MARGIN_MODES,
   ROLL_IN_LARGE_BANK_WARNING_DEG,
   ROLL_IN_ONSET_DEFAULTS,
+  ROLL_IN_SPEED_MODELS,
   RollInSolveError,
 };

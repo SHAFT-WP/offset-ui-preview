@@ -1,4 +1,5 @@
-import { casToTas, machToTas } from "../../../common/airspeed/airspeed-v0.1.mjs";
+import { casToTas, machToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
+import { ADOPTED_PERFORMANCE_MODEL, ADOPTED_PERFORMANCE_MODEL_V0_1, evaluateAdoptedPerformance } from "../../../flight/aircraft-performance/adopted-performance-model-v0.1.mjs";
 
 // BDP Roll-in v0.2 (owner 2026-10-15, SPEC §5.1): technique B with linear rate onsets.
 // Roll at 1 G to the Roll-in Bank at the Roll-in Rate; pull at the G Onset Rate to Roll-in G; hold G with no
@@ -8,10 +9,19 @@ import { casToTas, machToTas } from "../../../common/airspeed/airspeed-v0.1.mjs"
 // 0.2.1 (2026-10-27, owner, POP-UP SPEC §13.6): the below-10° level-turn branch is removed — the slice solve
 // runs at every Dive (0° ≤ Dive < 90°). At 0° it converges to a level turn (bank ≈ acos(1/G) plus the onset
 // transient, a small dip that the roll-out recovers to FPA 0), so the 9.9° / 10° jump disappears.
+// 0.2.2 (2026-10-27, owner, POP-UP SPEC §13.2–13.3, step 2): two options for the POP-UP Roll-in, both off by
+// default (every result unchanged without them):
+//   startFpaDeg — the flight path at Roll-in Start (the Popup angle; 0 = level, as before);
+//   speedModel  — "HOLD" (default: speed held in the entered mode) or "MIL": TAS is a state, integrated with the
+//                 adopted performance model at MIL, dV/dt = (T − D)/m − g·sin(gamma) (BOX OUT v0.2's premises:
+//                 fuel the middle of the model's range, nominal AoA 5° for its envelope check only).
+// With either option the result adds the Pull Down (end of the roll at 1 G, where the pull to Roll-in G starts;
+// POP-UP SPEC §13.2a), the Apex (FPA crosses 0 from above; null when the Roll-in never climbs) and, with MIL,
+// the performance domain report.
 
 export const ROLL_IN_V0_2_MODEL = Object.freeze({
   id: "bdp-roll-in-v0.2-model-b-rate-onset",
-  version: "0.2.1",
+  version: "0.2.2",
   technique: "B",
   onsetShape: "LINEAR",
   speedHold: "ENTERED_MODE",
@@ -23,6 +33,17 @@ export const ROLL_IN_ONSET_DEFAULTS = Object.freeze({
   gOnsetRateGSec: 2,
 });
 export const ROLL_IN_LARGE_BANK_WARNING_DEG = 150;
+export const ROLL_IN_SPEED_MODELS = Object.freeze(["HOLD", "MIL"]);
+// MIL speed premises (BOX OUT v0.2's): the fuel is the middle of the model's range; the AoA is nominal and only the
+// model's envelope check reads it (the model has no lift law).
+export const ROLL_IN_MIL_PREMISES = Object.freeze({
+  performanceEntry: `${ADOPTED_PERFORMANCE_MODEL_V0_1.id} ${ADOPTED_PERFORMANCE_MODEL_V0_1.version}`,
+  performanceModel: ADOPTED_PERFORMANCE_MODEL.modelId,
+  powerSetting: ADOPTED_PERFORMANCE_MODEL.powerSetting,
+  fuelKg: (ADOPTED_PERFORMANCE_MODEL.domain.ranges.fuelKg[0] + ADOPTED_PERFORMANCE_MODEL.domain.ranges.fuelKg[1]) / 2,
+  nominalAoaDeg: 5,
+});
+const MPS_TO_FPS = 1 / 0.3048;
 
 const G_FTPS2 = 32.174;
 const KT_TO_FPS = 1.687809857;
@@ -62,6 +83,7 @@ function onsetFrom(params) {
 }
 
 // Point-mass state [forwardFt, turnSideFt, altitudeMslFt, gammaRad, headingRad, bankRad]; TAS follows altitude.
+// With speedModel "MIL" (0.2.2) the state has a seventh entry, TAS (ft/s), integrated with the performance model.
 function createDynamics(params, initialAltitudeMslFt) {
   const mode = params.initialSpeedMode === "MACH" ? "MACH" : "CAS";
   const value = params.initialSpeedValue;
@@ -78,12 +100,40 @@ function createDynamics(params, initialAltitudeMslFt) {
     const f = x - i;
     return gridValues[i] + (gridValues[i + 1] - gridValues[i]) * f;
   };
+  const mil = params.speedModel === "MIL";
+  const n = mil ? 7 : 6;
+  const performance = { states: 0, outsideDomainStates: 0, issues: new Set() };
+  // dV/dt (ft/s²) at MIL for a TAS, altitude, flight path and G (the model's tasRateMps2 = (T − D)/m − g·Vz/V).
+  const speedRateFps2 = (tasFps, altitudeMslFt, gamma, loadFactor) => {
+    if (!(tasFps > 1)) throw new RollInSolveError("SPEED", "Roll-in speed reaches zero at MIL");
+    const verticalSpeedMps = tasFps * Math.sin(gamma) * 0.3048;
+    let perf;
+    try {
+      perf = evaluateAdoptedPerformance({
+        altitudeMslFt,
+        casKt: tasToCas(tasFps / KT_TO_FPS, altitudeMslFt),
+        fuelKg: ROLL_IN_MIL_PREMISES.fuelKg,
+        loadFactorG: loadFactor,
+        aoaDeg: ROLL_IN_MIL_PREMISES.nominalAoaDeg,
+        verticalSpeedMps,
+      }, { allowResearchExtrapolation: true });
+    } catch (error) {
+      // No thrust data (e.g. below sea level on a too-deep trial bank): this bank fails like a vertical path.
+      throw new RollInSolveError("PERFORMANCE_UNAVAILABLE", `MIL performance unavailable at ${Math.round(altitudeMslFt)} ft MSL (${error.message})`);
+    }
+    performance.states += 1;
+    if (perf.outsideDomain) {
+      performance.outsideDomainStates += 1;
+      perf.domainIssues.forEach((issue) => performance.issues.add(issue));
+    }
+    return perf.tasRateMps2 * MPS_TO_FPS;
+  };
   function derivativeInto(out, s, c) {
     const altitude = s[2];
     const gamma = s[3];
     const heading = s[4];
     if (Math.abs(gamma) >= VERTICAL_LIMIT_RAD) throw new RollInSolveError("VERTICAL", "Roll-in path reaches the vertical");
-    const v = tasFpsAt(altitude);
+    const v = mil ? s[6] : tasFpsAt(altitude);
     const bank = c.bankRad ?? s[5];
     const cosG = Math.cos(gamma);
     const headingRate = (G_FTPS2 * c.loadFactor * Math.sin(bank)) / (v * cosG);
@@ -93,25 +143,26 @@ function createDynamics(params, initialAltitudeMslFt) {
     out[3] = (G_FTPS2 / v) * (c.loadFactor * Math.cos(bank) - cosG);
     out[4] = headingRate;
     out[5] = c.bankRad === undefined ? headingRate * Math.sin(gamma) : 0;
+    if (mil) out[6] = speedRateFps2(v, altitude, gamma, c.loadFactor);
     return out;
   }
-  const derivative = (s, c) => derivativeInto(new Array(6), s, c);
+  const derivative = (s, c) => derivativeInto(new Array(n), s, c);
   // Classic RK4 on scratch arrays; only the returned state is allocated.
-  const k1 = new Float64Array(6);
-  const k2 = new Float64Array(6);
-  const k3 = new Float64Array(6);
-  const k4 = new Float64Array(6);
-  const tmp = new Float64Array(6);
+  const k1 = new Float64Array(n);
+  const k2 = new Float64Array(n);
+  const k3 = new Float64Array(n);
+  const k4 = new Float64Array(n);
+  const tmp = new Float64Array(n);
   function rk4(s, controls, tau, dt) {
     derivativeInto(k1, s, controls(tau, s));
-    for (let i = 0; i < 6; i += 1) tmp[i] = s[i] + (dt / 2) * k1[i];
+    for (let i = 0; i < n; i += 1) tmp[i] = s[i] + (dt / 2) * k1[i];
     derivativeInto(k2, tmp, controls(tau + dt / 2, tmp));
-    for (let i = 0; i < 6; i += 1) tmp[i] = s[i] + (dt / 2) * k2[i];
+    for (let i = 0; i < n; i += 1) tmp[i] = s[i] + (dt / 2) * k2[i];
     derivativeInto(k3, tmp, controls(tau + dt / 2, tmp));
-    for (let i = 0; i < 6; i += 1) tmp[i] = s[i] + dt * k3[i];
+    for (let i = 0; i < n; i += 1) tmp[i] = s[i] + dt * k3[i];
     derivativeInto(k4, tmp, controls(tau + dt, tmp));
-    const next = new Array(6);
-    for (let i = 0; i < 6; i += 1) next[i] = s[i] + (dt / 6) * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]);
+    const next = new Array(n);
+    for (let i = 0; i < n; i += 1) next[i] = s[i] + (dt / 6) * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]);
     const c = controls(tau + dt, next);
     if (c.bankRad !== undefined) next[5] = c.bankRad;
     return next;
@@ -127,7 +178,13 @@ function createDynamics(params, initialAltitudeMslFt) {
     }
     return state;
   }
-  return { tasFpsAt, derivative, rk4, phase, initialState: [0, 0, initialAltitudeMslFt, 0, 0, 0] };
+  const startFpaRad = (params.startFpaDeg ?? 0) * DEG;
+  const initialState = [0, 0, initialAltitudeMslFt, startFpaRad, 0, 0];
+  if (mil) initialState.push(exactTasFps(initialAltitudeMslFt));
+  // TAS of a state: the integrated one (MIL) or the held one at its altitude.
+  const tasFpsOf = (state) => (mil ? state[6] : tasFpsAt(state[2]));
+  const performanceReport = () => ({ states: performance.states, outsideDomainStates: performance.outsideDomainStates, domainIssues: [...performance.issues].sort() });
+  return { tasFpsAt, tasFpsOf, derivative, rk4, phase, initialState, mil, performanceReport };
 }
 
 // Slice-turn (technique B) phases for one Roll-in Bank; the hold is integrated step by step so the roll-out
@@ -224,7 +281,7 @@ function solveHoldForBank(dyn, onset, target, bankRad) {
 // End-dive error (degrees, + = deeper than Dive) for one Roll-in Bank. A failed bank tells only on which side
 // the answer lies: a vertical path or an onset that already passes the Angle Off means "too much bank";
 // no turn means "too little".
-const FAILURE_SIDE = Object.freeze({ VERTICAL: 1, ONSET_OVERSHOOT: 1, NO_TURN: -1 });
+const FAILURE_SIDE = Object.freeze({ VERTICAL: 1, ONSET_OVERSHOOT: 1, NO_TURN: -1, PERFORMANCE_UNAVAILABLE: 1, SPEED: 1 });
 
 function evaluateBank(dyn, onset, target, bankDeg) {
   rollInSolveStats.bankEvaluations += 1;
@@ -275,6 +332,9 @@ function solveSliceTurn(dyn, onset, target, bankHintDeg) {
     }
   }
   const noSolution = () => {
+    if (failures.has("PERFORMANCE_UNAVAILABLE") && !failures.has("ONSET_OVERSHOOT")) {
+      return new RollInSolveError("PERFORMANCE_UNAVAILABLE", "No Roll-in Bank found: the MIL performance model has no data on the trial paths (e.g. below sea level)");
+    }
     if (failures.has("ONSET_OVERSHOOT")) {
       return new RollInSolveError("ONSET_OVERSHOOT", "Roll-in onsets alone turn past the Angle Off (Angle Off too small for the roll and G onset rates)");
     }
@@ -327,6 +387,12 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
   const onset = onsetFrom(params);
   if (!(params.rollInG > 1 && params.rollInG <= 9)) throw new RangeError("rollInG must be > 1 and <= 9");
   if (!(params.angleOffDeg > 0 && params.angleOffDeg < 180)) throw new RangeError("angleOffDeg must be > 0 and < 180");
+  const startFpaDeg = params.startFpaDeg ?? 0;
+  if (typeof startFpaDeg !== "number" || !Number.isFinite(startFpaDeg) || !(startFpaDeg > -90 && startFpaDeg < 90)) throw new RangeError("startFpaDeg must be finite, > -90 and < 90");
+  const speedModel = params.speedModel ?? "HOLD";
+  if (!ROLL_IN_SPEED_MODELS.includes(speedModel)) throw new RangeError(`speedModel must be one of ${ROLL_IN_SPEED_MODELS.join(", ")}`);
+  // The POP-UP outputs (0.2.2) come with either option; without them the result is 0.2.1's.
+  const popUpOutputs = startFpaDeg !== 0 || speedModel !== "HOLD";
   const dyn = createDynamics(params, initialAltitudeMslFt);
   const target = { loadFactor: params.rollInG, diveRad: params.diveAngleDeg * DEG, angleOffRad: params.angleOffDeg * DEG };
   const samples = [];
@@ -340,11 +406,13 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
     ["rollOut", null, null],
   ];
   // Fly the solution once and keep every step.
+  const performanceBeforeFlight = dyn.performanceReport();
   let s = dyn.initialState.slice();
   let t = 0;
   sample(0, s, { loadFactor: 1 }, "roll");
   const phaseTimes = {};
   let bankAtRollOutStartRad = null;
+  let pullDownState = null;
   for (const [name, durationSec, controls] of phases) {
     let duration = durationSec;
     let phaseControls = controls;
@@ -358,10 +426,11 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
     s = dyn.phase(s, duration, phaseControls, (tau, state, c) => sample(t0 + tau, state, c, name));
     t = t0 + duration;
     phaseTimes[name] = duration;
+    if (name === "roll") pullDownState = { t, s };
   }
   const end = s;
   if (Math.abs(end[4] - target.angleOffRad) > 1e-7) throw new RollInSolveError("NO_SOLUTION", "Roll-in did not end on the Angle Off");
-  const tasKtAt = (alt) => dyn.tasFpsAt(alt) / KT_TO_FPS;
+  const tasKtOf = (state) => dyn.tasFpsOf(state) / KT_TO_FPS;
   // Ground arc along the integration steps; samples on the exact 0.1 s grid (linear between steps) plus the
   // Track Point, as in v0.1.
   let groundArcFt = 0;
@@ -378,7 +447,7 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
     bankDeg: st[5] / DEG,
     fpaDeg: st[3] / DEG,
     loadFactor,
-    tasKt: tasKtAt(st[2]),
+    tasKt: tasKtOf(st),
     phase,
   });
   pushSample(0, samples[0].s, 1, "roll", 0);
@@ -420,8 +489,8 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
     bankAtRollOutStartDeg: Math.abs(bankAtRollOutStartRad) / DEG,
     maxDiveDeg: maxDiveRad / DEG,
     largeBankWarning: rollInBankAngleDeg > ROLL_IN_LARGE_BANK_WARNING_DEG,
-    initialTasKt: tasKtAt(initialAltitudeMslFt),
-    finalTasKt: tasKtAt(end[2]),
+    initialTasKt: tasKtOf(dyn.initialState),
+    finalTasKt: tasKtOf(end),
     finalDiveAngleDeg: params.diveAngleDeg,
     rollInTimeSec,
     displacementForwardFt: xFt,
@@ -435,5 +504,52 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
     averageTurnRateDegSec: params.angleOffDeg / rollInTimeSec,
     dynamicFinalDiveDeg: -end[3] / DEG,
     samples: out,
+    ...(popUpOutputs ? popUpResult() : {}),
   };
+
+  // POP-UP outputs (0.2.2). A point: time from Roll-in Start, altitude, TAS, FPA, position and heading change.
+  function point(tSec, st) {
+    return {
+      timeSec: tSec,
+      altitudeMslFt: st[2],
+      altitudeGainFt: st[2] - initialAltitudeMslFt,
+      tasKt: tasKtOf(st),
+      fpaDeg: st[3] / DEG,
+      bankDeg: st[5] / DEG,
+      forwardFt: st[0],
+      turnSideFt: st[1],
+      headingChangeDeg: st[4] / DEG,
+    };
+  }
+  function popUpResult() {
+    // Apex: the first step where the FPA crosses 0 from above, linear between the two integration steps.
+    let apex = null;
+    for (let i = 1; i < samples.length && startFpaDeg > 0; i += 1) {
+      const a = samples[i - 1];
+      const b = samples[i];
+      if (a.s[3] > 0 && b.s[3] <= 0) {
+        const f = a.s[3] / (a.s[3] - b.s[3]);
+        apex = point(a.t + (b.t - a.t) * f, a.s.map((value, k) => value + (b.s[k] - value) * f));
+        break;
+      }
+    }
+    const flight = dyn.performanceReport();
+    return {
+      startFpaDeg,
+      speedModel,
+      // Pull Down (POP-UP SPEC §13.2a): the end of the 1 G roll, where the G onset starts.
+      pullDown: point(pullDownState.t, pullDownState.s),
+      apex,
+      apexBeforePullDown: apex !== null && apex.timeSec < pullDownState.t,
+      ...(dyn.mil ? {
+        milPremises: { ...ROLL_IN_MIL_PREMISES },
+        // The final flight's states only (the bank search before it is not counted).
+        performanceDomain: {
+          states: flight.states - performanceBeforeFlight.states,
+          outsideDomainStates: flight.outsideDomainStates - performanceBeforeFlight.outsideDomainStates,
+          domainIssues: flight.domainIssues,
+        },
+      } : {}),
+    };
+  }
 }
