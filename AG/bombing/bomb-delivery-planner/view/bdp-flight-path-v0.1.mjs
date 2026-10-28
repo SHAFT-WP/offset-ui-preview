@@ -23,7 +23,8 @@ export const BDP_FLIGHT_PATH_V0_1 = Object.freeze({
   // 0.1.4 (2026-10-20, owner): `bomb` — the BE's bomb trajectory from Release to Impact in this frame (bombAt gives
   // the bomb at t). Its samples keep the ballistic model's sample interval (the last at Impact); the wind's cross
   // drift grows with time as in the BE (impact cross range / impact time; none without that impact point).
-  version: "0.1.4",
+  // 0.1.5 (2026-10-28): optional host startSec and sampled altitude/FPA/CAS for Popup's pre-Roll-in climb.
+  version: "0.1.5",
   window: Object.freeze({ startSec: -3, afterSemEndSec: 1 }),
   hudStartSec: -3,
   // HUD angle of attack (research viewer SPEC §5.4, BMS 4.38.1 fit, PROVISIONAL): a + b·G / CAS² (deg, CAS m/s).
@@ -48,8 +49,10 @@ export function hudAoaDeg(loadFactor, casKt) {
 
 // rollDirection: the side the Roll-in turns to (the BDP frame's turn side). LEFT mirrors x, heading and bank.
 // approach (optional): [{ t (s, ≤ 0, from the Roll-in Point), x, y (ft, this frame), headingDeg, bankDeg,
-// loadFactor }] in time order, ending at the Roll-in Point; height and speed are the Roll-in Point's (level).
-export function buildBdpFlightPath(result, { rollDirection = "RIGHT", approach = null } = {}) {
+// loadFactor, z?, fpaDeg?, kcas? }] in time order. Missing height/FPA/CAS retain the Roll-in values.
+// startSec (optional, negative): the host's pre-Roll-in window; otherwise Roll-in −3 s.
+export function buildBdpFlightPath(result, { rollDirection = "RIGHT", approach = null, startSec = BDP_FLIGHT_PATH_V0_1.window.startSec } = {}) {
+  const startT = Number.isFinite(startSec) && startSec < 0 ? startSec : BDP_FLIGHT_PATH_V0_1.window.startSec;
   const pub = result?.public;
   const input = result?.canonicalInputs;
   const roll = result?.visualization?.rollInTrajectorySamples;
@@ -146,7 +149,7 @@ export function buildBdpFlightPath(result, { rollDirection = "RIGHT", approach =
     release: { ...release },
     trackPointT: trackPoint.t,
     releaseT: release.t,
-    startT: BDP_FLIGHT_PATH_V0_1.window.startSec,
+    startT,
     endT,
     plannedIaaDeg: result.local?.aimOffAngleDeg ?? null,
     diveDeg,
@@ -167,7 +170,7 @@ export function buildBdpFlightPath(result, { rollDirection = "RIGHT", approach =
     targetElevationMslFt: elevation,
     // TAS at the Roll-in Point: the straight, level approach before it (flightStateAt at t < 0).
     initialTasKt: roll[0].tasKt,
-    approach: approachSamples(approach, samples[0], BDP_FLIGHT_PATH_V0_1.window.startSec, roll[0].tasKt),
+    approach: approachSamples(approach, samples[0], startT, roll[0].tasKt),
     minAltAglFt: pub.minAltMslFt - elevation,
     semMinAglFt: pub.semMinimumAltitudeAglFt ?? null,
   };
@@ -207,7 +210,10 @@ export function bombAt(path, t) {
 function approachSamples(approach, rollIn, startT, rollInTasKt) {
   const given = (Array.isArray(approach) ? approach : [])
     .filter((a) => [a?.t, a?.x, a?.y, a?.headingDeg].every(Number.isFinite) && a.t < rollIn.t)
-    .map((a) => ({ ...rollIn, t: a.t, x: a.x, y: a.y, headingDeg: a.headingDeg, bankDeg: Number.isFinite(a.bankDeg) ? a.bankDeg : 0, loadFactor: Number.isFinite(a.loadFactor) ? a.loadFactor : 1, phase: a.phase ?? "approach" }))
+    .map((a) => ({ ...rollIn, t: a.t, x: a.x, y: a.y, headingDeg: a.headingDeg,
+      z: Number.isFinite(a.z) ? a.z : rollIn.z, fpaDeg: Number.isFinite(a.fpaDeg) ? a.fpaDeg : rollIn.fpaDeg,
+      kcas: Number.isFinite(a.kcas) ? a.kcas : rollIn.kcas,
+      bankDeg: Number.isFinite(a.bankDeg) ? a.bankDeg : 0, loadFactor: Number.isFinite(a.loadFactor) ? a.loadFactor : 1, phase: a.phase ?? "approach" }))
     .sort((a, b) => a.t - b.t);
   const known = [...given, { ...rollIn }];
   let start;

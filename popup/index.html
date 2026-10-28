@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>POP-UP Tactics · V2 WORK</title>
-<link rel="stylesheet" href="../offset.css?v=dc368cfaafc0">
-  <link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=dc368cfaafc0">
-<link rel="stylesheet" href="../wide-layout.css?v=dc368cfaafc0">
+<link rel="stylesheet" href="../offset.css?v=f7583d6c5d51">
+  <link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=f7583d6c5d51">
+<link rel="stylesheet" href="../wide-layout.css?v=f7583d6c5d51">
 </head>
 <!-- POP-UP page (owner 2026-10-27, POP-UP SPEC §13.1: the Offset taken as is and modified). The Offset index
      markup with the POP-UP input group and Result group; the Offset controller runs in POP-UP mode (body.popup-page):
@@ -86,7 +86,7 @@
       <summary class="input-group-title" id="dive-profile-title">BDP Profile</summary>
       <div class="input-grid">
         <label class="field speed-field"><span>Initial Speed</span><span class="compound"><input data-key="initialSpeedValue" type="text" inputmode="decimal" value="350"><select data-key="initialSpeedMode"><option value="CAS" selected>kcas</option><option value="MACH">Mach</option></select></span><span class="unit">Roll-in start speed input</span></label>
-        <label class="field"><span class="lock-title"><span>Initial Altitude (ft MSL)</span><button id="initial-link-btn" class="lock-button" type="button" aria-label="Link Initial Altitude to Roll-in Altitude" aria-pressed="true">LINKED</button></span><input data-key="initialAltitudeMslFt" type="text" inputmode="decimal" value="16000"><span class="unit" data-initial-link-note>Linked to Roll-in Altitude</span></label>
+        <label class="field"><span class="lock-title"><span>Initial Altitude (ft MSL)</span><button id="initial-link-btn" class="lock-button" type="button" aria-label="Link Initial Altitude to Roll-in Altitude" aria-pressed="false">LINK</button></span><input data-key="initialAltitudeMslFt" type="text" inputmode="decimal" value="500"><span class="unit" data-initial-link-note>Reference only (not linked)</span></label>
         <label class="field"><span class="lock-title"><span>Roll-in Altitude (ft MSL)</span><button class="lock-button" type="button" data-lock-key="rollInAltitudeMslFt" aria-label="Lock Roll-in Altitude" aria-pressed="false">LOCK</button></span><input data-key="rollInAltitudeMslFt" type="text" inputmode="decimal" value="16000"><span class="unit">OA1 / BDP entry altitude · LOCK: Tracking Time → Release Alt</span></label>
         <label class="field"><span class="lock-title"><span>Dive Angle (deg)</span><button class="lock-button" type="button" data-lock-key="diveAngleDeg" aria-pressed="false">LOCK</button></span><input data-key="diveAngleDeg" type="text" inputmode="decimal" value="45"><span class="unit">BDP / Offset parameter</span></label>
         <label class="field"><span>Tracking Time (sec)</span><input data-key="trackingTimeSec" type="text" inputmode="decimal" value="18.0"><span class="unit">Track Point → Release · 0.1 s</span></label>
@@ -249,7 +249,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="../wide-layout.mjs?v=dc368cfaafc0"></script>
+<script type="module" src="../wide-layout.mjs?v=f7583d6c5d51"></script>
 
 </body>
 </html>

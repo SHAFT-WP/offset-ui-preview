@@ -1,7 +1,7 @@
 /* BOX content of the PC Wide page. The workspace itself is the bombing app shared FE's (shared/wide-workspace-v0.1.css,
    body.bombing-wide); this file styles the BOX inputs and the Top View panel. Style the SVG boxes, never the paths,
    labels or viewBox. */
-@import url("../shared/wide-workspace-v0.1.css?v=dc368cfaafc0");
+@import url("../shared/wide-workspace-v0.1.css?v=f7583d6c5d51");
 
 .wide-center-panel[data-center-panel="topview"] { flex:1 0 100%; }
 .box-wide .wide-map-section .flight-draft-note { flex:none; font-size:11px; }

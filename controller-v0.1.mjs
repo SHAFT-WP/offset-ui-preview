@@ -51,8 +51,9 @@ import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bo
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // POP-UP Z-Diagram (POP-UP SPEC §13.8 / §13.8a; the POP-UP page only): a BE-owned view of the POP-UP Flight result.
 import { popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.0";
+import { popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.11.2";
+import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.11.3";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -135,7 +136,7 @@ const OFFSET_DEFAULT_INPUT_VALUES = Object.freeze({
 const POPUP_DEFAULT_INPUT_VALUES = Object.freeze({
   offsetAltitudeMslFt: "500",
   offsetSpeedValue: "480",
-  initialAltitudeMslFt: "4000",
+  initialAltitudeMslFt: "500",
   rollInAltitudeMslFt: "4000",
   initialSpeedValue: "400",
   diveAngleDeg: "20",
@@ -167,7 +168,7 @@ let vipRangeExplicit = false;
 let vrpBearingExplicit = false;
 let vrpRangeExplicit = false;
 // LINK (2026-10-01): Initial Altitude and Roll-in Altitude hold the same value while on.
-let rollInAltitudeLinked = true;
+let rollInAltitudeLinked = !POPUP_MODE;
 // Developer option (owner Q8, 2026-10-15): Fragment Height Margin on the radius too, or on the height only.
 let fragmentMarginAppliesTo = "HEIGHT_AND_RADIUS";
 // BDP solve mode (last edited Roll-in / Initial or Tracking Time) and the last entered Tracking Time.
@@ -719,12 +720,11 @@ function syncClockDials() {
   } catch (_) { phase = null; }
   syncTimeDials(null, results, topViewTimeSec, phase);
 }
-// The 3D Profile / HUD View copies (`3d-n`, `hud-n`) cover only that aircraft's window on the one clock, Roll-in −3 s
-// to 1 s after its SEM (owner 2026-10-20): the slider starts at Roll-in −3 s, also while the clock is off.
+// Each aircraft's 3D/HUD dial uses the same clock. Popup 3D starts at Pop −3 s; HUD and other pages at Roll-in −3 s.
 function flightDialWindow(dial) {
   const number = Number(/^(?:3d|hud)-(\d)$/.exec(dial?.dataset.timeDial ?? "")?.[1]);
   if (!number) return null;
-  const startSec = hudStartClockSec(number);
+  const startSec = dial.dataset.timeDial.startsWith("3d-") ? threeDStartClockSec(number) : hudStartClockSec(number);
   const endSec = hudEndClockSec(number);
   return Number.isFinite(endSec) && endSec > startSec ? { startSec, endSec } : null;
 }
@@ -1345,7 +1345,7 @@ function factoryPersistedState() {
     ipLinked: true,
     ipLockHeadingDeg: 0,
     runInTurnDeg: 0,
-    rollInAltitudeLinked: true,
+    rollInAltitudeLinked: !POPUP_MODE,
     solveMode: "height",
     enteredTrackingTimeSec: DEFAULT_TRACKING_TIME_SEC,
     vipBearingExplicit: false,
@@ -1522,6 +1522,26 @@ function dialTimeFromRollIn(result) {
 // The HUD starts at Roll-in −3 s (owner handoff §3.1): the real Offset path before it, a little longer (the BDP flight
 // path cuts it at −3 s, 0.1.3).
 const HUD_APPROACH_SEC = 3.5;
+// Popup's view adapter places the BE's climb samples in the BDP frame, once per solved result.
+const popupBdpApproaches = new WeakMap();
+function popupBdpApproach(number) {
+  const popup = POPUP_MODE ? popupFull.get(number) : null;
+  if (!popup?.climb) return null;
+  const elevation = flightResultOf(number)?.profile?.canonicalInputs.targetElevationMslFt;
+  if (!Number.isFinite(elevation)) return null;
+  if (!popupBdpApproaches.has(popup)) {
+    popupBdpApproaches.set(popup, popupApproachInBdpFrame(popup, elevation));
+  }
+  return popupBdpApproaches.get(popup);
+}
+function threeDStartClockSec(number) {
+  const approach = popupBdpApproach(number);
+  if (!approach) return hudStartClockSec(number);
+  try {
+    const rollLeg = timelineOf(flightResultOf(number)).legs.find((leg) => leg.phase === "roll-in");
+    return rollLeg.startSec + approach.startSec;
+  } catch (_) { return hudStartClockSec(number); }
+}
 // HUD Play from off or the end starts at this aircraft's Roll-in −3 s on the Offset clock (not before the IP).
 function hudStartClockSec(number) {
   try {
@@ -1573,13 +1593,14 @@ function refreshBdpDiagrams(number) {
       profileView: { timeAfterReleaseSec: dialTimeAfterRelease(result) },
       // 2026-10-15 (owner R6): 3D Profile and HUD View on the same clock (seconds from the Roll-in Point).
       // 2026-10-18 (owner handoff §3.1): the real approach before the Roll-in Point (the HUD starts at Roll-in −3 s).
-      flightView: { rollDirection: result.geometry.direction.rollDirection, timeSec: dialTimeFromRollIn(result), approach: offsetApproachInBdpFrame(result, HUD_APPROACH_SEC) },
+      flightView: { rollDirection: result.geometry.direction.rollDirection, timeSec: dialTimeFromRollIn(result),
+        ...(popupBdpApproach(number) ?? { approach: offsetApproachInBdpFrame(result, HUD_APPROACH_SEC) }) },
     });
     const hudDial = target.container.querySelector(`[data-time-dial="hud-${number}"]`);
     installTimeDial(hudDial, setOffsetClock, { startSec: () => hudStartClockSec(number), endSec: () => hudEndClockSec(number) });
     mirrorTimeDial(hudDial);
     const threeDDial = target.container.querySelector(`[data-time-dial="3d-${number}"]`);
-    installTimeDial(threeDDial, setOffsetClock, { startSec: () => hudStartClockSec(number), endSec: () => hudEndClockSec(number) });
+    installTimeDial(threeDDial, setOffsetClock, { startSec: () => threeDStartClockSec(number), endSec: () => hudEndClockSec(number) });
     mirrorTimeDial(threeDDial);
   } catch {
     clearBdpDiagrams(target.container);
@@ -1761,6 +1782,7 @@ function factoryFlightDraft(number = 2) {
     driver: "actionRangeNm",
     // POP-UP page: #1's POP-UP BDP Profile defaults (low-level ingress) and an AUTO Popup angle.
     ...(POPUP_MODE ? {
+      rollInAltitudeLinked: false,
       ...Object.fromEntries(POPUP_FOLLOWER_PROFILE_KEYS.map((key) => [key, POPUP_DEFAULT_INPUT_VALUES[key]])),
       ...Object.fromEntries(POPUP_FOLLOWER_VALUE_KEYS.map((key) => [key, ""])), popupDriver: "DEFAULT",
     } : {}),
@@ -3054,4 +3076,3 @@ function install() {
 }
 
 install();
-

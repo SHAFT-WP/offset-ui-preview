@@ -2,7 +2,7 @@ import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./
 import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.11";
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
-import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath, padlockStep } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
+import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath, padlockStep } from "./bdp-flight-path-v0.1.mjs?v=0.1.5";
 import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.8";
 import { BDP_HUD_VIEW_V0_1, padlockTotalDeg, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.5";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
@@ -66,7 +66,8 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.11.2 (2026-10-21, owner: a smoother Play): a progressive clock step (only the time moved, nothing queued) redraws
   // the 3D Profile and HUD at once; 3D Profile 0.1.8 then redraws only its time layers, HUD 0.1.5 creates only the
   // ladder inside its square.
-  version: "0.11.2",
+  // 0.11.3 (2026-10-28): flightView.startSec passes through for the Popup climb window.
+  version: "0.11.3",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -559,7 +560,7 @@ function prepareFlightViews(container, bdpResult, flightView, progressive = fals
   if (!panels) return false;
   const scope = container.dataset.bdpScope || "bdp";
   const state = flightState(container);
-  const pathOptions = { rollDirection: flightView?.rollDirection, approach: flightView?.approach ?? null };
+  const pathOptions = { rollDirection: flightView?.rollDirection, approach: flightView?.approach ?? null, startSec: flightView?.startSec };
   const pathKey = JSON.stringify(pathOptions);
   try {
     if (!progressive || !state.path || state.result !== bdpResult || state.pathKey !== pathKey) {
