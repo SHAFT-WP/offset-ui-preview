@@ -33,7 +33,8 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // the fragment dome at t under the paths (`time-under`), the bomb and the aircraft over them (`time`), the state row
   // last (`time-text`). A call for the same path and view options with another t redraws only those layers; the rest
   // of the scene stays as drawn.
-  version: "0.1.8",
+  // 0.1.9: absorb clock-origin subtraction roundoff at the first approach frame.
+  version: "0.1.9",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
@@ -397,7 +398,7 @@ export function renderBdp3dView(svg, path, options = {}) {
     const bombNow = tNow === null ? null : bombAt(path, tNow);
     const bombPoint = bombNow ? at(P(bombNow)) : null;
     if (bombPoint) put(svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 4.5, fill: C.bomb, stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb" }));
-    const flying = tNow !== null && tNow >= firstT;
+    const flying = tNow !== null && tNow >= firstT - 1e-9;
     let state = null;
     if (flying) {
       state = flightStateAt(path, tNow);

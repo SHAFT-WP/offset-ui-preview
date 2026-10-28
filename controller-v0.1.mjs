@@ -53,7 +53,7 @@ import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-b
 import { popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.0";
 import { popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.11.3";
+import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.11.4";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
