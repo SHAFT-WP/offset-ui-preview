@@ -5,8 +5,8 @@
 // shared set of shown aircraft. This module gives the Offset tabs and what each draws.
 // SEM & Rejoin (2026-10-13): its own module, mounted once into the S&R input tab and the centre
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=d0f0aff7fe94";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=d0f0aff7fe94";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=757f384dd6fa";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=757f384dd6fa";
 import { mountWideWorkspace } from "./shared/wide-workspace-v0.1.mjs?v=0.1.1";
 
 const app = document.getElementById("offset-calculator");

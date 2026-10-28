@@ -3,7 +3,7 @@ import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath, padlockStep } from "./bdp-flight-path-v0.1.mjs?v=0.1.5";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.9";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.10";
 import { BDP_HUD_VIEW_V0_1, padlockTotalDeg, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.5";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
@@ -68,7 +68,8 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // ladder inside its square.
   // 0.11.3 (2026-10-28): flightView.startSec passes through for the Popup climb window.
   // 0.11.4: 3D 0.1.9 keeps the first Popup frame visible across clock conversion.
-  version: "0.11.4",
+  // 0.11.5 (2026-10-29): 3D Profile 0.1.10, approved F-16 polygon aircraft.
+  version: "0.11.5",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 

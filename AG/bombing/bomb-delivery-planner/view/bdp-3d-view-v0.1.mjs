@@ -1,5 +1,6 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { BDP_VIEW_COLORS as C } from "./bdp-view-style-v0.1.mjs";
+import { BDP_F16_MESH_V0_1 as aircraftMesh } from "./bdp-f16-mesh-v0.1.mjs?v=0.1.0";
 import { aircraftAxes, bombAt, flightStateAt, fragmentAt } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
 
 // BDP 3D Profile v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.2 in SVG). A perspective
@@ -34,7 +35,8 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // last (`time-text`). A call for the same path and view options with another t redraws only those layers; the rest
   // of the scene stays as drawn.
   // 0.1.9: absorb clock-origin subtraction roundoff at the first approach frame.
-  version: "0.1.9",
+  // 0.1.10 (2026-10-29, owner): approved F-16 polygon mesh, uniformly scaled; heading/FPA/bank from the path.
+  version: "0.1.10",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
@@ -248,6 +250,8 @@ export function renderBdp3dView(svg, path, options = {}) {
   };
   const cam = makeCamera(orbit);
   const eye = cam.eye;
+  const cameraForward = norm(sub(centre, eye));
+  const aircraftLight = norm([-0.25, 0.35, 0.91]);
   // Fit (0.1.2): from the default orbit, so the scale and the centre's screen point stay put while the orbit turns;
   // a new path or Reset View is the only refit. The ground square's corners, the path and the dome's top fill the
   // canvas below the title rows at the default orbit.
@@ -386,7 +390,7 @@ export function renderBdp3dView(svg, path, options = {}) {
   const legendNotes = bdpSemLegendNotes(path);
   const base = { title: options.title ?? "3D Profile", orbit, zoom, pan, gridStepNm: stepNm, legend, legendNotes, legendColumns: 0, canvas: { width: W, height: H } };
 
-  // The time layers at t: the fragment dome under the paths; the bomb, the aircraft (a delta of its wings and nose,
+  // The time layers at t: the fragment dome under the paths; the bomb, the aircraft (the approved F-16 mesh,
   // with its drop line and shadow) and the state row on top.
   const drawTime = (tNow) => {
     timeUnder.replaceChildren();
@@ -402,15 +406,31 @@ export function renderBdp3dView(svg, path, options = {}) {
     let state = null;
     if (flying) {
       state = flightStateAt(path, tNow);
-      const { v, right: r } = aircraftAxes(state);
-      const size = radius * 0.04;
+      const { v, right: r, up: u } = aircraftAxes(state);
+      // Keep the previous marker's nose-to-tail length (1.6 * radius * .04), with one scale for all axes.
+      // This is a legible scene marker, not a life-size aircraft in the path's feet coordinates.
+      const meshScale = radius * 0.064 / aircraftMesh.lengthM;
       const q = P(state);
-      const off = (a, b) => [q[0] + v[0] * a * size + r[0] * b * size, q[1] + v[1] * a * size + r[1] * b * size, q[2] + v[2] * a * size + r[2] * b * size];
+      const world = ([x, y, z]) => q.map((c, i) => c + meshScale * (r[i] * x + v[i] * y + u[i] * z));
       put(polyline([[state.x, state.y, 0], q], { stroke: "#203a63", "stroke-width": 1, "stroke-dasharray": "2 3" }));
       const shadow = at([state.x, state.y, 0]);
       if (shadow) put(svgNode("circle", { cx: shadow.x.toFixed(1), cy: shadow.y.toFixed(1), r: 3, fill: "#8f9aa6", "data-3d-role": "aircraft-shadow" }));
-      const delta = [off(1, 0), off(-0.6, 0.75), off(-0.35, 0), off(-0.6, -0.75)].map(at);
-      if (delta.every(Boolean)) put(svgNode("polygon", { points: pts(delta), fill: "#203a63", stroke: "#ffffff", "stroke-width": 1, "data-3d-role": "aircraft" }));
+      const aircraft = svgNode("g", { "data-3d-role": "aircraft", "data-aircraft-mesh": aircraftMesh.id });
+      const faces = aircraftMesh.faces.map(({ vertices, color }) => {
+        const points = vertices.map(world);
+        const midpoint = points[0].map((_, i) => points.reduce((sum, p) => sum + p[i], 0) / points.length);
+        const a = sub(points[1], points[0]), b = sub(points[2], points[0]);
+        let normal = norm([a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]);
+        // Wings/fins are two-sided surfaces. Light the side facing the camera; do not cull it after a bank.
+        if (dot(normal, sub(eye, midpoint)) < 0) normal = normal.map((n) => -n);
+        const shade = 0.72 + 0.35 * Math.max(0, dot(normal, aircraftLight));
+        const fill = `rgb(${color.map((c) => Math.min(255, Math.round(c * shade))).join(",")})`;
+        return { points: points.map(at), depth: dot(sub(midpoint, eye), cameraForward), fill };
+      }).sort((a, b) => b.depth - a.depth); // Painter order: far faces before near faces, for this camera and pose.
+      for (const face of faces) {
+        if (face.points.every(Boolean)) aircraft.append(svgNode("polygon", { points: pts(face.points), fill: face.fill }));
+      }
+      if (aircraft.childNodes.length) put(aircraft);
     }
     const putText = (node) => { if (node) timeText.append(node); };
     if (tNow !== null && !flying) putText(text({ x: 16, y: 46 }, `Roll-in in ${(path.samples[0].t - tNow).toFixed(1)} s`, { "data-3d-role": "state" }));
