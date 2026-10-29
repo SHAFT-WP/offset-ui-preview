@@ -36,10 +36,12 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // of the scene stays as drawn.
   // 0.1.9: absorb clock-origin subtraction roundoff at the first approach frame.
   // 0.1.10 (2026-10-29, owner): approved F-16 polygon mesh, uniformly scaled; heading/FPA/bank from the path.
-  version: "0.1.10",
+  // 0.1.11 (2026-10-29, owner): aircraft size Auto or a multiple of the real dimensions, independent of view zoom.
+  version: "0.1.11",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
+  aircraftScaleOptions: Object.freeze([1, 5, 10, 20, 30, 50]),
   // Default eye: 60° from the Attack Heading toward the Roll-in side, 15° up (the dive seen nearly side on).
   defaultOrbit: Object.freeze({ fromAttackHeadingDeg: 60, elevationDeg: 15 }),
   elevationLimitsDeg: Object.freeze([5, 85]),
@@ -53,6 +55,14 @@ const GRID_STEPS_NM = [0.25, 0.5, 1, 2, 5, 10];
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+
+// A multiple of the real aircraft dimensions. null/omitted = the established scene-relative marker size.
+export function bdp3dAircraftScale(radiusFt, requestedScale = null) {
+  const choices = BDP_3D_VIEW_V0_1.aircraftScaleOptions;
+  return Number.isFinite(requestedScale)
+    ? Math.min(choices.at(-1), Math.max(choices[0], requestedScale))
+    : radiusFt * 0.064 * 0.3048 / aircraftMesh.lengthM;
+}
 
 export function bdp3dDefaultOrbit(path) {
   const side = path?.rollDirection === "LEFT" ? -1 : 1;
@@ -232,6 +242,8 @@ export function renderBdp3dView(svg, path, options = {}) {
   // (0.1.2): it projects to the same screen point for every orbit, so a drag turns the picture about it.
   const centre = [(minX + maxX) / 2, (minY + maxY) / 2, maxZ / 3];
   const radius = Math.hypot(maxX - minX, maxY - minY, maxZ) / 2;
+  const aircraftScale = bdp3dAircraftScale(radius, options.aircraftScale);
+  const meshScale = aircraftScale / 0.3048; // Local mesh metres -> world feet, then the chosen size multiplier.
   const makeCamera = ({ azimuthDeg, elevationDeg }) => {
     const az = azimuthDeg * DEG;
     const el = elevationDeg * DEG;
@@ -388,7 +400,7 @@ export function renderBdp3dView(svg, path, options = {}) {
     ...(fragment ? [{ label: "Fragment envelope (max)", color: C.target, dashed: true }] : []),
   ];
   const legendNotes = bdpSemLegendNotes(path);
-  const base = { title: options.title ?? "3D Profile", orbit, zoom, pan, gridStepNm: stepNm, legend, legendNotes, legendColumns: 0, canvas: { width: W, height: H } };
+  const base = { title: options.title ?? "3D Profile", orbit, zoom, pan, aircraftScale, gridStepNm: stepNm, legend, legendNotes, legendColumns: 0, canvas: { width: W, height: H } };
 
   // The time layers at t: the fragment dome under the paths; the bomb, the aircraft (the approved F-16 mesh,
   // with its drop line and shadow) and the state row on top.
@@ -407,15 +419,13 @@ export function renderBdp3dView(svg, path, options = {}) {
     if (flying) {
       state = flightStateAt(path, tNow);
       const { v, right: r, up: u } = aircraftAxes(state);
-      // Keep the previous marker's nose-to-tail length (1.6 * radius * .04), with one scale for all axes.
-      // This is a legible scene marker, not a life-size aircraft in the path's feet coordinates.
-      const meshScale = radius * 0.064 / aircraftMesh.lengthM;
+      // One scale for every axis; Auto keeps the original marker length, manual 1× gives the real dimensions.
       const q = P(state);
       const world = ([x, y, z]) => q.map((c, i) => c + meshScale * (r[i] * x + v[i] * y + u[i] * z));
       put(polyline([[state.x, state.y, 0], q], { stroke: "#203a63", "stroke-width": 1, "stroke-dasharray": "2 3" }));
       const shadow = at([state.x, state.y, 0]);
       if (shadow) put(svgNode("circle", { cx: shadow.x.toFixed(1), cy: shadow.y.toFixed(1), r: 3, fill: "#8f9aa6", "data-3d-role": "aircraft-shadow" }));
-      const aircraft = svgNode("g", { "data-3d-role": "aircraft", "data-aircraft-mesh": aircraftMesh.id });
+      const aircraft = svgNode("g", { "data-3d-role": "aircraft", "data-aircraft-mesh": aircraftMesh.id, "data-aircraft-scale": aircraftScale });
       const faces = aircraftMesh.faces.map(({ vertices, color }) => {
         const points = vertices.map(world);
         const midpoint = points[0].map((_, i) => points.reduce((sum, p) => sum + p[i], 0) / points.length);

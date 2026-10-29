@@ -3,7 +3,7 @@ import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath, padlockStep } from "./bdp-flight-path-v0.1.mjs?v=0.1.5";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.10";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.11";
 import { BDP_HUD_VIEW_V0_1, padlockTotalDeg, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.5";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
@@ -69,7 +69,8 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.11.3 (2026-10-28): flightView.startSec passes through for the Popup climb window.
   // 0.11.4: 3D 0.1.9 keeps the first Popup frame visible across clock conversion.
   // 0.11.5 (2026-10-29): 3D Profile 0.1.10, approved F-16 polygon aircraft.
-  version: "0.11.5",
+  // 0.11.6 (2026-10-29): per-panel Aircraft size selector, Auto or 1–50× actual dimensions; camera zoom independent.
+  version: "0.11.6",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -115,6 +116,7 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
   const { width: wh, height: hh } = BDP_HUD_VIEW_V0_1.canvas;
   const d = BDP_HUD_VIEW_V0_1.defaults;
   const fov = [30, 70, 120].map((value) => `<option value="${value}"${value === d.fovDeg ? " selected" : ""}>${value}°</option>`).join("");
+  const aircraftScales = BDP_3D_VIEW_V0_1.aircraftScaleOptions.map((value) => `<option value="${value}">${value}×</option>`).join("");
   // Title tools (0.9.0, owner handoff §3.2 / §4.4): Reset View and − / % / + beside each title.
   const viewTools = (kind, extra = "") => `<span class="bdp-view-tools" style="margin-left:12px;margin-right:auto;display:inline-flex;flex-wrap:wrap;gap:4px">`
     + `<button class="capture-button" type="button" data-bdp-${kind}="reset" title="Back to the default view (camera, zoom${kind === "3d" ? ", pan" : ", FOV, padlock"})">Reset View</button>`
@@ -125,6 +127,7 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
   // / long-press menu inside it).
   const threeD = `<details class="input-panel bdp-diagram" open data-bdp-diagram="3d"><summary>${t3}${viewTools("3d")}</summary>`
     + `<div class="diagram-actions"><div class="diagram-action-row" data-bdp-3d-controls>`
+    + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Aircraft <select data-bdp-3d="aircraft-scale" style="${CONTROL_STYLE};width:auto" aria-label="Aircraft size (times actual)" title="Aircraft size relative to the real F-16. Auto sizes it to the flight path."><option value="auto" selected>Auto</option>${aircraftScales}</select></label>`
     + `<span class="diagram-control-label">Drag: turn · Hold 0.5 s, then drag: pan · Pinch / wheel: zoom</span></div>${threeDTimeMarkup}</div>`
     + `<div class="bdp-diagram-canvas"><svg class="bdp-3d-svg" viewBox="0 0 ${w3} ${h3}" role="img" aria-label="${t3}" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none"></svg>`
     + `<svg class="diagram-legend-box" data-bdp-legend="3d" role="img" aria-label="${t3} legend" hidden></svg></div></details>`;
@@ -348,7 +351,7 @@ const flightStates = new WeakMap();
 function flightState(container) {
   let state = flightStates.get(container);
   if (!state) {
-    state = { path: null, timeSec: null, orbit: null, zoom3d: 1, pan3d: { x: 0, y: 0 }, panHint: false, resetGesture: null, hudZoom: 1, progressDeg: 0, holding: false, frame: 0, lastFrame: null };
+    state = { path: null, timeSec: null, orbit: null, zoom3d: 1, aircraftScale: null, pan3d: { x: 0, y: 0 }, panHint: false, resetGesture: null, hudZoom: 1, progressDeg: 0, holding: false, frame: 0, lastFrame: null };
     flightStates.set(container, state);
   }
   return state;
@@ -375,12 +378,15 @@ function draw3d(container, scope) {
   const state = flightState(container);
   if (!svg || !state.path) return;
   // Heights are true (0.10.0: no altitude stretch, whatever an older state held).
-  const options = { orbit: state.orbit ?? undefined, zoom: state.zoom3d, pan: state.pan3d, panHint: state.panHint, timeSec: state.timeSec, scope: `${scope}-3d` };
+  const options = { orbit: state.orbit ?? undefined, zoom: state.zoom3d, aircraftScale: state.aircraftScale, pan: state.pan3d, panHint: state.panHint, timeSec: state.timeSec, scope: `${scope}-3d` };
   const draw = () => renderBdp3dView(svg, state.path, options);
   const rendered = state.progressive ? viewCache.draw(svg, state.path, JSON.stringify(options), draw) : draw();
   svg.dataset.orbit = `${Math.round(rendered.orbit.azimuthDeg)}/${Math.round(rendered.orbit.elevationDeg)}`;
   svg.dataset.zoom = String(Math.round(rendered.zoom * 100));
   svg.dataset.pan = `${Math.round(rendered.pan.x)}/${Math.round(rendered.pan.y)}`;
+  svg.dataset.aircraftScale = String(rendered.aircraftScale);
+  const autoScale = container.querySelector('[data-bdp-3d="aircraft-scale"] option[value="auto"]');
+  if (autoScale) autoScale.textContent = state.aircraftScale === null ? `Auto (${rendered.aircraftScale.toFixed(1)}×)` : "Auto";
   const output = container.querySelector('[data-bdp-3d="zoom-reset"]');
   if (output) output.textContent = `${Math.round(rendered.zoom * 100)}%`;
   showLegend(container, "3d", rendered.legend, rendered.legendColumns, rendered.legendNotes);
@@ -500,6 +506,11 @@ function installFlightControls(container, scope) {
     action(event.currentTarget);
   });
   const { width: W3, height: H3 } = BDP_3D_VIEW_V0_1.canvas;
+  container.querySelector('[data-bdp-3d="aircraft-scale"]')?.addEventListener("change", (event) => {
+    const value = Number(event.currentTarget.value);
+    state.aircraftScale = BDP_3D_VIEW_V0_1.aircraftScaleOptions.includes(value) ? value : null;
+    draw3d(container, scope);
+  });
   const zoom3dBy = (step) => {
     const zoomed = zoomAbout({ zoom: state.zoom3d, pan: state.pan3d }, (state.zoom3d + step) / state.zoom3d, W3 / 2, H3 / 2);
     state.zoom3d = zoomed.zoom;

@@ -1,10 +1,10 @@
-@import url("../common-ui-v0.2.css?v=757f384dd6fa");
+@import url("../common-ui-v0.2.css?v=de8db324897b");
 /* Shared parts bring their CSS (bombing app shared FE): input fields, DED, Flight UI, the shared BDP tab; time dial (Common UI). */
-@import url("../shared/input-fields-v0.1.css?v=757f384dd6fa");
-@import url("../shared/ded-v0.1.css?v=757f384dd6fa");
-@import url("../shared/flight-ui-v0.1.css?v=757f384dd6fa");
-@import url("../shared/bdp-tab-v0.1.css?v=757f384dd6fa");
-@import url("../common/ui/time-dial-v0.1.css?v=757f384dd6fa");
+@import url("../shared/input-fields-v0.1.css?v=de8db324897b");
+@import url("../shared/ded-v0.1.css?v=de8db324897b");
+@import url("../shared/flight-ui-v0.1.css?v=de8db324897b");
+@import url("../shared/bdp-tab-v0.1.css?v=de8db324897b");
+@import url("../common/ui/time-dial-v0.1.css?v=de8db324897b");
 
 /* BOX page (owner 2026-10-23 / 25): the Offset page's general rules it shares, then the BOX inputs. */
 :root{color-scheme:dark}
