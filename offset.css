@@ -1,10 +1,10 @@
-@import url("./common-ui-v0.2.css?v=f229edf5ad71");
+@import url("./common-ui-v0.2.css?v=878526da0632");
 /* Parts made common (2026-10-22) bring their CSS: input fields, DED, Flight UI, the shared BDP tab (index, 2026-10-26) (bombing app shared FE), time dial (Common UI). */
-@import url("./shared/input-fields-v0.1.css?v=f229edf5ad71");
-@import url("./shared/ded-v0.1.css?v=f229edf5ad71");
-@import url("./shared/flight-ui-v0.1.css?v=f229edf5ad71");
-@import url("./shared/bdp-tab-v0.1.css?v=f229edf5ad71");
-@import url("./common/ui/time-dial-v0.1.css?v=f229edf5ad71");
+@import url("./shared/input-fields-v0.1.css?v=878526da0632");
+@import url("./shared/ded-v0.1.css?v=878526da0632");
+@import url("./shared/flight-ui-v0.1.css?v=878526da0632");
+@import url("./shared/bdp-tab-v0.1.css?v=878526da0632");
+@import url("./common/ui/time-dial-v0.1.css?v=878526da0632");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -51,3 +51,8 @@ input[data-bdp-result]{cursor:default;border-style:dashed;border-color:var(--mut
 /* SEM / Fragment readout title (owner 2026-10-15): shown with Full BDP, like its fields. */
 .bdp-extra-title{display:none}
 .section.show-full-bdp .bdp-extra-title{display:block}
+
+/* The additional HUD must not consume the 2D map's flexible height (2026-10-30). */
+.bombing-wide .wide-map-section[data-has-offset-hud] { flex:none; }
+.bombing-wide .wide-map-section[data-has-offset-hud] .top-view-shell { flex:none; height:65vh; min-height:400px; max-height:720px; }
+.bombing-wide [data-offset-hud] { flex:none; margin-top:12px; }

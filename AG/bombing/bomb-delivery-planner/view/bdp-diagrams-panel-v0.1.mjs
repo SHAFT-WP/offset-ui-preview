@@ -71,7 +71,7 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.11.5 (2026-10-29): 3D Profile 0.1.10, approved F-16 polygon aircraft.
   // 0.11.6 (2026-10-29): per-panel Aircraft size selector, Auto or 1–50× actual dimensions; camera zoom independent.
   // 0.11.7 (2026-10-29): HUD 0.1.6 overlays the shared 3D scene in its cockpit camera.
-  version: "0.12.1",
+  version: "0.12.2",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -96,13 +96,12 @@ export function bdpDiagramsMarkup({ aircraftNumber, topTitle, topAdvanced = fals
     + `<summary>${escapeText(title)}${orientationButtons(kind)}${advancedButton(kind)}</summary><div class="diagram-actions">${svgViewControlsMarkup({ title })}</div><div class="bdp-diagram-canvas">`
     + `<svg viewBox="0 0 900 700" role="img" aria-label="${escapeText(title)}"></svg>`
     + `<svg class="diagram-legend-box" data-bdp-legend="${kind}" role="img" aria-label="${escapeText(title)} legend" hidden></svg></div></details>`;
-  // Order (0.10.0, owner addendum 2026-10-18 §3): Dive Profile → 3D Profile → Top View → HUD View, in the DOM itself
-  // (reading and focus order follow it). Without the flight views: Dive Profile → Top View.
+  // Owner 2026-10-30: 2D Top View first, then Dive Profile, 3D and HUD; DOM and focus order agree.
   const flight = flightViews ? flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarkup, threeDTimeMarkup }) : { threeD: "", hud: "" };
   return `<div class="bdp-diagrams" data-bdp-diagrams>`
+    + panel("top", topTitle || bdpTopViewTitle({ aircraftNumber }))
     + panel("profile", bdpProfileTitle({ aircraftNumber }))
     + flight.threeD
-    + panel("top", topTitle || bdpTopViewTitle({ aircraftNumber }))
     + flight.hud
     + `</div>`;
 }
@@ -112,7 +111,6 @@ export function renderBdpHudPanel(container, context, scope = "offset-hud") {
   const state = flightState(container);
   const previous = state.hudContext;
   if (previous?.you !== context?.you || previous?.aircraft?.some((a, i) => a.path !== context?.aircraft?.[i]?.path)) state.stopHud?.();
-  if (previous && previous.you === context.you && previous.clockSec === context.clockSec && previous.aircraft.length === context.aircraft.length && previous.aircraft.every((a,i) => a === context.aircraft[i])) return;
   state.hudContext = context;
   state.path = context?.aircraft?.find(a => a.number === context.you)?.path ?? null;
   installFlightControls(container, scope);
@@ -326,6 +324,7 @@ export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraf
     }
   };
   if (progressive) {
+    drawTop();
     profile.redraw();
     // Prepare the small path/state now so Play knows the current start/end even before 3D is drawn.
     const previousPath = flightStates.get(container)?.path ?? null;
@@ -346,11 +345,10 @@ export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraf
       try {
         draw();
         if (!renderQueue.has(container)) container.dataset.bdpDiagramsState = "rendered";
-      } catch { clearBdpDiagrams(container); }
+      } catch (error) { showFlightViewError(container, name, error); }
     });
-    // Match the visible order. All profiles are already ready before any deferred chart runs.
+    // Both 2D charts are ready before any deferred 3D/HUD work.
     if (hasFlight) later("3d", () => draw3d(container, scope));
-    later("top", drawTop);
     if (hasFlight) later("hud", () => drawHud(container, scope));
     return true;
   }
@@ -389,7 +387,24 @@ function hudOptions(container) {
   };
 }
 
+function showFlightViewError(container, kind, error) {
+  const panel = container.querySelector(`[data-bdp-diagram="${kind}"]`);
+  if (!panel) return;
+  if (kind === 'hud') {
+    const state = flightStates.get(container);
+    if (state) { if (state.frame) cancelAnimationFrame(state.frame); Object.assign(state, { frame: 0, holding: false, progressDeg: 0, lockOwner: null, lastFrame: null }); }
+    panel.querySelectorAll('[data-hud-lock]').forEach(b => b.setAttribute('aria-pressed', 'false'));
+  }
+  let note = panel.querySelector('[data-view-error]');
+  if (!note) { note = document.createElement('p'); note.dataset.viewError = ''; note.setAttribute('role', 'status'); panel.append(note); }
+  note.textContent = `${kind.toUpperCase()} view unavailable: ${error?.message ?? 'Render error'}`;
+  panel.querySelector('svg')?.replaceChildren();
+}
 function draw3d(container, scope) {
+  try { draw3dFrame(container, scope); container.querySelector('[data-bdp-diagram="3d"] [data-view-error]')?.remove(); }
+  catch (error) { showFlightViewError(container, '3d', error); }
+}
+function draw3dFrame(container, scope) {
   const svg = container.querySelector('[data-bdp-diagram="3d"] svg.bdp-3d-svg');
   const state = flightState(container);
   if (!svg || !state.path) return;
@@ -457,9 +472,13 @@ function hudFrame(container) {
     gridStepFt: context.gridStepFt, otherAircraft: otherPose ? { number: other.number, state: otherPose } : null };
 }
 function drawHud(container, scope) {
+  try { drawHudFrame(container, scope); container.querySelector('[data-bdp-diagram="hud"] [data-view-error]')?.remove(); }
+  catch (error) { showFlightViewError(container, 'hud', error); }
+}
+function drawHudFrame(container, scope) {
   const svg = container.querySelector('[data-bdp-diagram="hud"] svg.bdp-hud-svg');
   const state = flightState(container);
-  if (!svg) return;
+  if (!svg || !svg.getClientRects().length) return;
   const frame = hudFrame(container);
   container.querySelectorAll('[data-hud-observer]').forEach(b => { b.setAttribute('aria-selected', String(b.dataset.hudObserver === state.observer)); b.setAttribute('aria-pressed', String(b.dataset.hudObserver === state.observer)); });
   const wmButton = container.querySelector('[data-hud-lock="WM"]');
@@ -474,7 +493,9 @@ function drawHud(container, scope) {
   svg.dataset.observer = String(frame.number ?? 'you');
   const options = { ...hudOptions(container), ...frame, gazeProgressDeg: state.holding ? state.progressDeg : 0, scope: `${scope}-hud`, padlockTarget: state.lockTarget,
     lookAt: state.lockTarget === 'WM' ? frame.otherAircraft?.state : undefined };
-  const rendered = renderBdpHudView(svg, frame.path, options);
+  const key = JSON.stringify({ ...hudOptions(container), state: frame.state, timeSec: frame.timeSec, gridStepFt: frame.gridStepFt,
+    otherAircraft: frame.otherAircraft, gazeProgressDeg: options.gazeProgressDeg, padlockTarget: state.lockTarget });
+  const rendered = viewCache.draw(svg, frame.path, key, () => renderBdpHudView(svg, frame.path, options));
   state.progressDeg = rendered.progressDeg;
   svg.dataset.fovDeg = rendered.fovDeg.toFixed(2);
   svg.dataset.zoom = String(Math.round((state.hudZoom || 1) * 100));

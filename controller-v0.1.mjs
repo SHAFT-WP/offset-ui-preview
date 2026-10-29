@@ -53,7 +53,7 @@ import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-b
 import { popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.0";
 import { popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.12.1";
+import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.12.2";
 
 import { buildOffsetHudAircraft, offsetHudGridStep } from "./AG/bombing/offset-bombing/view/offset-hud-scene-v0.1.mjs?v=0.1.1";
 
@@ -1517,6 +1517,7 @@ function bdpDiagramsContainer(number) {
 // One cached world-space flight per result, used by both the Offset HUD and BDP observer tabs.
 const hudWorldPaths = new WeakMap();
 let offsetHudHost = null;
+let offsetHudRefreshPending = false;
 function offsetHudContext(you = 1, clockSec = topViewTimeSec, { profile = false } = {}) {
   const datum = flightResultOf(1)?.profile?.canonicalInputs.targetElevationMslFt;
   const aircraft = [];
@@ -1541,12 +1542,18 @@ function offsetHudWindow() {
   return { startSec: 0, endSec: Math.max(1, ...context.aircraft.map(a => a.endSec)) };
 }
 function refreshOffsetHud() {
+  if (POPUP_MODE || offsetHudRefreshPending) return;
+  offsetHudRefreshPending = true;
+  requestAnimationFrame(() => setTimeout(() => { offsetHudRefreshPending = false; paintOffsetHud(); }, 0));
+}
+function paintOffsetHud() {
   if (POPUP_MODE) return;
   if (!offsetHudHost) {
     const section = document.querySelector('#offset-top-view')?.closest('section');
     if (!section) return;
     offsetHudHost = document.createElement('div');
     offsetHudHost.dataset.offsetHud = '';
+    section.dataset.hasOffsetHud = '';
     offsetHudHost.innerHTML = bdpHudPanelMarkup({ hudTitle: 'Offset HUD View', hudTimeMarkup: timeDialMarkup('offset-hud', 'Offset HUD') });
     section.append(offsetHudHost);
     installTimeDial(offsetHudHost.querySelector('[data-time-dial]'), setOffsetClock, { startSec: () => 0, endSec: () => offsetHudWindow().endSec });

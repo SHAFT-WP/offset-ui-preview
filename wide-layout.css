@@ -2,7 +2,7 @@
    the PC sizes of the shared parts) is the bombing app shared FE's (shared/wide-workspace-v0.1.css, 2026-10-22,
    body.bombing-wide); this file styles the Offset geometry inputs, the Offset Top View panel, the follower notes,
    SEM & Rejoin and the BDP tab groups. Style the SVG boxes, never the tactical paths, labels, metrics or viewBox. */
-@import url("./shared/wide-workspace-v0.1.css?v=f229edf5ad71");
+@import url("./shared/wide-workspace-v0.1.css?v=878526da0632");
 
 .offset-wide .wide-inputs .offset-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 10px; }
 .offset-wide .wide-inputs .offset-card.span2 { grid-column:1/-1; }
