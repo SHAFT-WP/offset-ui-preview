@@ -37,7 +37,8 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // 0.1.9: absorb clock-origin subtraction roundoff at the first approach frame.
   // 0.1.10 (2026-10-29, owner): approved F-16 polygon mesh, uniformly scaled; heading/FPA/bank from the path.
   // 0.1.11 (2026-10-29, owner): aircraft size Auto or a multiple of the real dimensions, independent of view zoom.
-  version: "0.1.11",
+  // 0.1.12 (2026-10-29, owner): the HUD overlays this scene through its own first-person camera.
+  version: "0.1.12",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
@@ -55,6 +56,46 @@ const GRID_STEPS_NM = [0.25, 0.5, 1, 2, 5, 10];
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+
+// First-person projection in world feet. Clip geometry before the perspective divide: simply dropping
+// points behind the eye joins unrelated visible runs and makes long grid lines jump across the HUD.
+// The five half-spaces are the near plane (1 ft) and the viewport sides; there is no far distance cutoff.
+export function bdp3dCameraProjection({ eye, forward, right, up, fovDeg, width, height }) {
+  const focal = height / 2 / Math.tan(fovDeg * DEG / 2);
+  const tx = width / (2 * focal), ty = height / (2 * focal);
+  const planes = [(p) => p[2] - 1, (p) => p[0] + tx * p[2], (p) => tx * p[2] - p[0],
+    (p) => p[1] + ty * p[2], (p) => ty * p[2] - p[1]];
+  const cameraPoint = (q) => { const d = sub(q, eye); return [dot(d, right), dot(d, up), dot(d, forward)]; };
+  const screen = (p) => ({ x: width / 2 + focal * p[0] / p[2], y: height / 2 - focal * p[1] / p[2] });
+  const mix = (a, b, k) => a.map((n, i) => n + k * (b[i] - n));
+  const point = (q) => { const p = cameraPoint(q); return p[2] >= 1 ? screen(p) : null; };
+  const segment = (a, b) => {
+    let p = cameraPoint(a), q = cameraPoint(b);
+    for (const plane of planes) {
+      const dp = plane(p), dq = plane(q);
+      if (dp < 0 && dq < 0) return null;
+      if ((dp < 0) !== (dq < 0)) {
+        const hit = mix(p, q, dp / (dp - dq));
+        if (dp < 0) p = hit; else q = hit;
+      }
+    }
+    return [screen(p), screen(q)];
+  };
+  const polygon = (points) => {
+    let clipped = points.map(cameraPoint);
+    for (const plane of planes) {
+      const out = [];
+      clipped.forEach((a, i) => {
+        const b = clipped[(i + 1) % clipped.length], da = plane(a), db = plane(b);
+        if (da >= 0) out.push(a);
+        if ((da < 0) !== (db < 0)) out.push(mix(a, b, da / (da - db)));
+      });
+      clipped = out;
+    }
+    return clipped.map(screen);
+  };
+  return { point, segment, polygon };
+}
 
 // A multiple of the real aircraft dimensions. null/omitted = the established scene-relative marker size.
 export function bdp3dAircraftScale(radiusFt, requestedScale = null) {
@@ -210,10 +251,11 @@ export function renderBdp3dView(svg, path, options = {}) {
   if (!Array.isArray(path?.samples) || path.samples.length < 2) throw new TypeError("a BDP flight path is required");
   // t: seconds from the Roll-in Point (before it the aircraft is still on the approach and is not drawn).
   const t = Number.isFinite(options.timeSec) ? Math.min(options.timeSec, path.endT) : null;
+  const cockpit = !!options.camera;
   const viewKey = JSON.stringify({ ...options, timeSec: null });
   const scene = drawnScenes.get(svg);
-  if (scene && scene.path === path && scene.viewKey === viewKey && svg.contains(scene.layers.time)) return scene.drawTime(t);
-  const { width: W, height: H } = BDP_3D_VIEW_V0_1.canvas;
+  if (!cockpit && scene && scene.path === path && scene.viewKey === viewKey && svg.contains(scene.layers.time)) return scene.drawTime(t);
+  const { width: W, height: H } = cockpit ? options.camera : BDP_3D_VIEW_V0_1.canvas;
   const orbit = { ...bdp3dDefaultOrbit(path), ...(options.orbit ?? {}) };
   // The aircraft shows from the earliest known state (the host's approach, else the Roll-in Point).
   const firstT = path.approach?.[0]?.t ?? path.samples[0].t;
@@ -261,48 +303,63 @@ export function renderBdp3dView(svg, path, options = {}) {
     };
   };
   const cam = makeCamera(orbit);
-  const eye = cam.eye;
-  const cameraForward = norm(sub(centre, eye));
+  const eye = cockpit ? options.camera.eye : cam.eye;
+  const cameraForward = cockpit ? options.camera.forward : norm(sub(centre, eye));
+  const projection = cockpit ? bdp3dCameraProjection(options.camera) : null;
   const aircraftLight = norm([-0.25, 0.35, 0.91]);
   // Fit (0.1.2): from the default orbit, so the scale and the centre's screen point stay put while the orbit turns;
   // a new path or Reset View is the only refit. The ground square's corners, the path and the dome's top fill the
   // canvas below the title rows at the default orbit.
-  const fitCam = makeCamera(bdp3dDefaultOrbit(path));
-  const fitPoints = [[minX, minY, 0], [maxX, minY, 0], [maxX, maxY, 0], [minX, maxY, 0], ...approach.map(P), ...path.samples.map(P)];
-  if (fragment) fitPoints.push([impact.x, impact.y, fragment.heightAglFt]);
-  const fitted = fitPoints.map((q) => fitCam.project(q)).filter(Boolean);
-  const uMin = Math.min(...fitted.map((p) => p.u));
-  const uMax = Math.max(...fitted.map((p) => p.u));
-  const vMin = Math.min(...fitted.map((p) => p.v));
-  const vMax = Math.max(...fitted.map((p) => p.v));
-  const box = { left: 40, right: W - 24, top: 76, bottom: H - 20 };
-  const scale = Math.min((box.right - box.left) / Math.max(uMax - uMin, 1e-9), (box.bottom - box.top) / Math.max(vMax - vMin, 1e-9));
+  let scale = 1, ox = 0, oy = 0;
+  if (!cockpit) {
+    const fitCam = makeCamera(bdp3dDefaultOrbit(path));
+    const fitPoints = [[minX, minY, 0], [maxX, minY, 0], [maxX, maxY, 0], [minX, maxY, 0], ...approach.map(P), ...path.samples.map(P)];
+    if (fragment) fitPoints.push([impact.x, impact.y, fragment.heightAglFt]);
+    const fitted = fitPoints.map((q) => fitCam.project(q)).filter(Boolean);
+    const uMin = Math.min(...fitted.map((p) => p.u));
+    const uMax = Math.max(...fitted.map((p) => p.u));
+    const vMin = Math.min(...fitted.map((p) => p.v));
+    const vMax = Math.max(...fitted.map((p) => p.v));
+    const box = { left: 40, right: W - 24, top: 76, bottom: H - 20 };
+    scale = Math.min((box.right - box.left) / Math.max(uMax - uMin, 1e-9), (box.bottom - box.top) / Math.max(vMax - vMin, 1e-9));
+    ox = (box.left + box.right) / 2 - (scale * (uMin + uMax)) / 2;
+    oy = (box.top + box.bottom) / 2 + (scale * (vMin + vMax)) / 2;
+  }
   // Then the host's zoom about the canvas centre and pan (canvas px).
   const zoom = Math.min(BDP_3D_VIEW_V0_1.zoomLimits[1], Math.max(BDP_3D_VIEW_V0_1.zoomLimits[0], Number(options.zoom) || 1));
   const pan = { x: Number(options.pan?.x) || 0, y: Number(options.pan?.y) || 0 };
-  const ox = (box.left + box.right) / 2 - (scale * (uMin + uMax)) / 2;
-  const oy = (box.top + box.bottom) / 2 + (scale * (vMin + vMax)) / 2;
   const at = (q) => {
+    if (projection) return projection.point(q);
     const c = cam.project(q);
     return c ? { x: W / 2 + zoom * (ox + scale * c.u - W / 2) + pan.x, y: H / 2 + zoom * (oy - scale * c.v - H / 2) + pan.y } : null;
   };
   const pts = (list) => list.filter(Boolean).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-  const polyline = (list, attrs) => { const q = list.map(at).filter(Boolean); return q.length >= 2 ? svgNode("polyline", { points: pts(q), fill: "none", ...attrs }) : null; };
+  const polyline = (list, attrs) => {
+    if (projection) {
+      const segments = list.slice(1).map((q, i) => projection.segment(list[i], q)).filter(Boolean);
+      return segments.length ? svgNode("path", { d: segments.map(([a, b]) => `M${a.x.toFixed(1)},${a.y.toFixed(1)}L${b.x.toFixed(1)},${b.y.toFixed(1)}`).join(""), fill: "none", ...attrs }) : null;
+    }
+    const q = list.map(at).filter(Boolean);
+    return q.length >= 2 ? svgNode("polyline", { points: pts(q), fill: "none", ...attrs }) : null;
+  };
   const text = (p, value, attrs = {}) => (p ? svgNode("text", { x: p.x.toFixed(1), y: p.y.toFixed(1), fill: "#203a63", "font-size": 13, "font-family": "system-ui, sans-serif", "font-weight": 600, stroke: "#ffffff", "stroke-width": 3, "paint-order": "stroke", ...attrs }, value) : null);
 
   svg.replaceChildren();
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.style.aspectRatio = `${W} / ${H}`;
   svg.setAttribute("aria-label", options.title ?? "3D Profile");
-  const root = svgNode("g", { "data-view": BDP_3D_VIEW_V0_1.id });
+  const root = svgNode("g", { "data-view": BDP_3D_VIEW_V0_1.id, ...(cockpit ? { "data-camera": "cockpit" } : {}) });
   svg.append(root);
   const add = (node) => { if (node) root.append(node); return node; };
-  add(svgNode("rect", { x: 0, y: 0, width: W, height: H, fill: "#ffffff" }));
+  if (!cockpit) add(svgNode("rect", { x: 0, y: 0, width: W, height: H, fill: "#ffffff" }));
 
   // Ground and grid.
-  add(svgNode("polygon", { points: pts([[minX, minY, 0], [maxX, minY, 0], [maxX, maxY, 0], [minX, maxY, 0]].map(at)), fill: "#f1f4ee", stroke: "#b8c2cc", "stroke-width": 1, "data-3d-role": "ground" }));
-  for (let x = minX + stepFt; x < maxX - 1; x += stepFt) add(polyline([[x, minY, 0], [x, maxY, 0]], { stroke: "#d3dae2", "stroke-width": 1, "data-3d-role": "grid" }));
-  for (let y = minY + stepFt; y < maxY - 1; y += stepFt) add(polyline([[minX, y, 0], [maxX, y, 0]], { stroke: "#d3dae2", "stroke-width": 1, "data-3d-role": "grid" }));
+  const groundCorners = [[minX, minY, 0], [maxX, minY, 0], [maxX, maxY, 0], [minX, maxY, 0]];
+  const groundPolygon = projection ? projection.polygon(groundCorners) : groundCorners.map(at);
+  if (groundPolygon.length >= 3) add(svgNode("polygon", { points: pts(groundPolygon), fill: cockpit ? "#394337" : "#f1f4ee", stroke: cockpit ? "#73816c" : "#b8c2cc", "stroke-width": 1, "data-3d-role": "ground" }));
+  const gridColor = cockpit ? "#72816b" : "#d3dae2";
+  for (let x = minX + stepFt; x < maxX - 1; x += stepFt) add(polyline([[x, minY, 0], [x, maxY, 0]], { stroke: gridColor, "stroke-width": 1, "data-3d-role": "grid" }));
+  for (let y = minY + stepFt; y < maxY - 1; y += stepFt) add(polyline([[minX, y, 0], [maxX, y, 0]], { stroke: gridColor, "stroke-width": 1, "data-3d-role": "grid" }));
 
   // Ground shadow of the path and drop lines at the Roll-in Point, Track Point and Release.
   add(polyline([...approach, ...path.samples].map((s) => [s.x, s.y, 0]), { stroke: "#8f9aa6", "stroke-width": 1.4, "stroke-opacity": 0.7, "data-3d-role": "shadow" }));
@@ -315,6 +372,16 @@ export function renderBdp3dView(svg, path, options = {}) {
     if (!(radiusFt > 0 && heightFt > 0)) return;
     const g = parent.appendChild(svgNode("g", { "data-3d-role": role, "data-radius-ft": radiusFt.toFixed(1), "data-height-ft": heightFt.toFixed(1) }));
     const surface = (phiDeg, thetaDeg) => [impact.x + radiusFt * Math.cos(phiDeg * DEG) * Math.cos(thetaDeg * DEG), impact.y + radiusFt * Math.cos(phiDeg * DEG) * Math.sin(thetaDeg * DEG), heightFt * Math.sin(phiDeg * DEG)];
+    if (cockpit) {
+      // In the cockpit use clipped wire rings: a convex hull of only visible points is not a valid
+      // silhouette when the dome crosses the eye plane. The same world R/H and timing still apply.
+      const style = { stroke: C.target, "stroke-width": filled ? 2 : 1.4, ...(filled ? {} : { "stroke-dasharray": "6 5" }) };
+      const put = (points, attrs = {}) => { const node = polyline(points, { ...style, ...attrs }); if (node) g.append(node); };
+      for (const phi of [0, 45]) put(Array.from({ length: 37 }, (_, i) => surface(phi, i * 10)), { "data-3d-role": `${role}-${phi === 0 ? "base" : "mid"}` });
+      const view = Math.atan2(eye[1] - impact.y, eye[0] - impact.x) / DEG;
+      for (const theta of [view, view + 90]) put(Array.from({ length: 25 }, (_, i) => surface(i * 7.5, theta)));
+      return;
+    }
     const cloud = [];
     for (let phi = 0; phi <= 90; phi += 7.5) for (let theta = 0; theta < 360; theta += 10) cloud.push(at(surface(phi, theta)));
     const outline = hull(cloud);
@@ -334,14 +401,14 @@ export function renderBdp3dView(svg, path, options = {}) {
 
   // Target and Aim-off Point.
   const tgt = at(P(path.target));
-  if (tgt) {
+  if (tgt && !cockpit) {
     add(svgNode("circle", { cx: tgt.x.toFixed(1), cy: tgt.y.toFixed(1), r: 6, fill: "none", stroke: C.target, "stroke-width": 2, "data-3d-role": "target" }));
     add(svgNode("path", { d: `M${(tgt.x - 9).toFixed(1)},${tgt.y.toFixed(1)}h18M${tgt.x.toFixed(1)},${(tgt.y - 9).toFixed(1)}v18`, stroke: C.target, "stroke-width": 1.6 }));
     add(text({ x: tgt.x + 10, y: tgt.y + 18 }, "Target", { fill: C.target }));
   }
   if (path.aim) {
     const aim = at(P(path.aim));
-    if (aim) {
+    if (aim && !cockpit) {
       add(svgNode("polygon", { points: `${aim.x},${aim.y - 6} ${aim.x + 6},${aim.y} ${aim.x},${aim.y + 6} ${aim.x - 6},${aim.y}`, fill: C.aimOff, "data-3d-role": "aim-point" }));
       add(text({ x: aim.x + 9, y: aim.y - 8 }, "Aim-off", { fill: C.aimOff }));
     }
@@ -364,12 +431,12 @@ export function renderBdp3dView(svg, path, options = {}) {
     const state = flightStateAt(path, s);
     const { right: r } = aircraftAxes(state);
     const q = P(state);
-    const tick = polyline([[q[0] - r[0] * wingFt, q[1] - r[1] * wingFt, q[2] - r[2] * wingFt], [q[0] + r[0] * wingFt, q[1] + r[1] * wingFt, q[2] + r[2] * wingFt]], { stroke: "#4b5866", "stroke-width": 1.2 });
+    const tick = polyline([[q[0] - r[0] * wingFt, q[1] - r[1] * wingFt, q[2] - r[2] * wingFt], [q[0] + r[0] * wingFt, q[1] + r[1] * wingFt, q[2] + r[2] * wingFt]], { stroke: cockpit ? "#9ca9ad" : "#4b5866", "stroke-width": 1.2 });
     if (tick) ticks.append(tick);
   }
   for (const [p, label] of marks) {
     const q = at(P(p));
-    if (q) {
+    if (q && !cockpit) {
       add(svgNode("circle", { cx: q.x.toFixed(1), cy: q.y.toFixed(1), r: 4, fill: "#ffffff", stroke: "#203a63", "stroke-width": 1.6, "data-3d-role": "mark" }));
       add(text({ x: q.x + 8, y: q.y - 8 }, label));
     }
@@ -382,7 +449,7 @@ export function renderBdp3dView(svg, path, options = {}) {
   const timeTop = add(svgNode("g", { "data-3d-layer": "time" }));
 
   // Title rows: orbit, altitude stretch, grid step; at t the aircraft's state (time layer).
-  add(text({ x: 16, y: 24 }, `Orbit ${Math.round(orbit.azimuthDeg)}° / ${Math.round(orbit.elevationDeg)}° · Zoom ${Math.round(zoom * 100)}% · Grid ${stepNm} NM`, { "data-3d-role": "status" }));
+  if (!cockpit) add(text({ x: 16, y: 24 }, `Orbit ${Math.round(orbit.azimuthDeg)}° / ${Math.round(orbit.elevationDeg)}° · Zoom ${Math.round(zoom * 100)}% · Grid ${stepNm} NM`, { "data-3d-role": "status" }));
   // Pan hint (0.1.2): the host's one-pointer gesture is in its pan phase (held 0.5 s, then drag).
   if (options.panHint) {
     add(svgNode("rect", { x: W - 86, y: 10, width: 72, height: 24, rx: 6, fill: "#203a63", "data-3d-role": "pan-hint" }));
@@ -414,7 +481,7 @@ export function renderBdp3dView(svg, path, options = {}) {
     const bombNow = tNow === null ? null : bombAt(path, tNow);
     const bombPoint = bombNow ? at(P(bombNow)) : null;
     if (bombPoint) put(svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 4.5, fill: C.bomb, stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb" }));
-    const flying = tNow !== null && tNow >= firstT - 1e-9;
+    const flying = !cockpit && tNow !== null && tNow >= firstT - 1e-9;
     let state = null;
     if (flying) {
       state = flightStateAt(path, tNow);
@@ -443,11 +510,11 @@ export function renderBdp3dView(svg, path, options = {}) {
       if (aircraft.childNodes.length) put(aircraft);
     }
     const putText = (node) => { if (node) timeText.append(node); };
-    if (tNow !== null && !flying) putText(text({ x: 16, y: 46 }, `Roll-in in ${(path.samples[0].t - tNow).toFixed(1)} s`, { "data-3d-role": "state" }));
+    if (!cockpit && tNow !== null && !flying) putText(text({ x: 16, y: 46 }, `Roll-in in ${(path.samples[0].t - tNow).toFixed(1)} s`, { "data-3d-role": "state" }));
     if (state) putText(text({ x: 16, y: 46 }, `Roll-in ${tNow < 0 ? "−" : "+"}${Math.abs(tNow).toFixed(1)} s · ${String(state.phase).toUpperCase()} · ${Math.round(state.z)} ft AGL · ${Math.round(state.kcas)} KCAS · Bank ${Math.round(Math.abs(state.bankDeg))}°`, { "data-3d-role": "state" }));
     return { ...base, timeSec: tNow, state };
   };
-  drawnScenes.set(svg, { path, viewKey, layers: { under: timeUnder, time: timeTop, text: timeText }, drawTime });
+  if (!cockpit) drawnScenes.set(svg, { path, viewKey, layers: { under: timeUnder, time: timeTop, text: timeText }, drawTime });
   return drawTime(t);
 }
 

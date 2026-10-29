@@ -1,5 +1,6 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
+import { renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.12";
 
 // BDP HUD view v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.3 in SVG). A first-person
 // view from the aircraft of a BDP flight path at time t: an F-16-style HUD square of `hudSizeDeg` (default 14°,
@@ -18,7 +19,8 @@ export const BDP_HUD_VIEW_V0_1 = Object.freeze({
   // 0.1.4 (2026-10-20): flight path 0.1.4 (its bomb trajectory is the 3D Profile's); the HUD draws as before.
   // 0.1.5 (2026-10-21, owner: a smoother Play): only the ladder rungs, tips and numbers that reach the HUD square are
   // created — the clip hid the others (about 200 elements a frame); a hidden HUD creates none. The picture is unchanged.
-  version: "0.1.5",
+  // 0.1.6 (2026-10-29, owner): the 3D Profile scene in the cockpit camera, with HUD symbology on top.
+  version: "0.1.6",
   fovLimitsDeg: Object.freeze([5, 150]),
   canvas: Object.freeze({ width: 720, height: 540 }),
   ladderStepDeg: 5,
@@ -119,6 +121,14 @@ export function renderBdpHudView(svg, path, options = {}) {
   const rayZ = (p) => focal * forward[2] + (p.x - W / 2) * camRight[2] - (p.y - H / 2) * camUp[2];
   const ground = clipBelowHorizon([{ x: 0, y: 0 }, { x: W, y: 0 }, { x: W, y: H }, { x: 0, y: H }], rayZ);
   if (ground.length >= 3) root.append(svgNode("polygon", { points: ground.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), fill: "#3a2f22", "data-hud-role": "ground" }));
+
+  // One world renderer for the external profile and this cockpit view. Position, bank, AOA, FOV and
+  // padlock use the very same axes as the overlay below; the external marker scale is never passed in.
+  const world = svgNode("svg");
+  renderBdp3dView(world, path, { timeSec: shownT, camera: { eye: pos, forward, right: camRight, up: camUp, fovDeg, width: W, height: H } });
+  const scene = world.firstElementChild;
+  scene.setAttribute("data-hud-role", "scene");
+  root.append(scene);
 
   // HUD square: the glass fixed to the aircraft, projected (a quadrilateral while the padlock turns the view).
   const half = Math.tan((hudSizeDeg / 2) * DEG);
