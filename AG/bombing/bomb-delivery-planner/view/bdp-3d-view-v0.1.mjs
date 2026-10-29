@@ -38,7 +38,7 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // 0.1.10 (2026-10-29, owner): approved F-16 polygon mesh, uniformly scaled; heading/FPA/bank from the path.
   // 0.1.11 (2026-10-29, owner): aircraft size Auto or a multiple of the real dimensions, independent of view zoom.
   // 0.1.12 (2026-10-29, owner): the HUD overlays this scene through its own first-person camera.
-  version: "0.1.13",
+  version: "0.1.14",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
@@ -245,14 +245,19 @@ function hull(points) {
 
 // The drawn scene of an SVG (0.1.8): its path, view key and the time-layer redraw.
 const drawnScenes = new WeakMap();
+const scenePathIds = new WeakMap();
+let nextScenePathId = 0;
+const scenePathId = path => { if (!scenePathIds.has(path)) scenePathIds.set(path, ++nextScenePathId); return scenePathIds.get(path); };
+const fleetColor = number => ({ 1: '#4c5966', 2: '#8a3ab9', 3: '#2f9e6e', 4: '#b5651d' })[number] ?? '#203a63';
 
 export function renderBdp3dView(svg, path, options = {}) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
   if (!Array.isArray(path?.samples) || path.samples.length < 2) throw new TypeError("a BDP flight path is required");
   // t: seconds from the Roll-in Point (before it the aircraft is still on the approach and is not drawn).
-  const t = Number.isFinite(options.timeSec) ? Math.min(options.timeSec, path.endT) : null;
+  const fleet = options.camera ? [] : options.fleet ?? [];
+  const t = Number.isFinite(options.timeSec) ? (fleet.length ? options.timeSec : Math.min(options.timeSec, path.endT)) : null;
   const cockpit = !!options.camera;
-  const viewKey = JSON.stringify({ ...options, timeSec: null });
+  const viewKey = JSON.stringify({ ...options, fleet: fleet.map(a => [a.number, scenePathId(a.path)]), timeSec: null });
   const scene = drawnScenes.get(svg);
   if (!cockpit && scene && scene.path === path && scene.viewKey === viewKey && svg.contains(scene.layers.time)) return scene.drawTime(t);
   const { width: W, height: H } = cockpit ? options.camera : BDP_3D_VIEW_V0_1.canvas;
@@ -265,7 +270,8 @@ export function renderBdp3dView(svg, path, options = {}) {
   const fragment = path.fragment;
   const approach = path.approach ?? [];
   const impact = fragment?.impact ?? path.target;
-  const ground = [...approach, ...path.samples, path.target, ...(path.aim ? [path.aim] : [])];
+  const extraAircraft = fleet.filter(a => a.path !== path);
+  const ground = [...approach, ...path.samples, path.target, ...(path.aim ? [path.aim] : []), ...extraAircraft.flatMap(a => [...(a.path.approach ?? []), ...a.path.samples, a.path.target])];
   const pad = Math.max(0.3 * FT_PER_NM, fragment ? fragment.radiusFt * 1.1 : 0);
   let minX = Math.min(...ground.map((p) => p.x), impact.x - pad);
   let maxX = Math.max(...ground.map((p) => p.x), impact.x + pad);
@@ -278,7 +284,7 @@ export function renderBdp3dView(svg, path, options = {}) {
   maxX = Math.ceil(maxX / stepFt) * stepFt;
   minY = Math.floor(minY / stepFt) * stepFt;
   maxY = Math.ceil(maxY / stepFt) * stepFt;
-  const maxZ = Math.max(...path.samples.map((p) => p.z), fragment ? fragment.heightAglFt : 0);
+  const maxZ = Math.max(...ground.map((p) => p.z), fragment ? fragment.heightAglFt : 0);
 
   // Perspective eye on the orbit around the scene centre, three scene radii away. The centre is fixed for the path
   // (0.1.2): it projects to the same screen point for every orbit, so a drag turns the picture about it.
@@ -313,7 +319,7 @@ export function renderBdp3dView(svg, path, options = {}) {
   let scale = 1, ox = 0, oy = 0;
   if (!cockpit) {
     const fitCam = makeCamera(bdp3dDefaultOrbit(path));
-    const fitPoints = [[minX, minY, 0], [maxX, minY, 0], [maxX, maxY, 0], [minX, maxY, 0], ...approach.map(P), ...path.samples.map(P)];
+    const fitPoints = [[minX, minY, 0], [maxX, minY, 0], [maxX, maxY, 0], [minX, maxY, 0], ...ground.map(P)];
     if (fragment) fitPoints.push([impact.x, impact.y, fragment.heightAglFt]);
     const fitted = fitPoints.map((q) => fitCam.project(q)).filter(Boolean);
     const uMin = Math.min(...fitted.map((p) => p.u));
@@ -445,6 +451,15 @@ export function renderBdp3dView(svg, path, options = {}) {
   });
   for (const run of runs) add(polyline(run.points.map(P), { stroke: BDP_3D_VIEW_V0_1.phaseColors[run.phase] ?? C.flightPath, "stroke-width": 3, "stroke-linejoin": "round", "stroke-linecap": "round", "data-3d-role": `path-${run.phase}` }));
 
+  // Companion paths and targets share the same world frame, camera and clock as the reference path.
+  for (const item of extraAircraft) {
+    const color = fleetColor(item.number), other = item.path;
+    if (other.approach?.length >= 2) add(polyline(other.approach.map(P), { stroke: color, 'stroke-width': 1.8, 'stroke-dasharray': '5 3', 'data-3d-role': 'fleet-approach', 'data-aircraft-number': item.number }));
+    add(polyline(other.samples.map(P), { stroke: color, 'stroke-width': 2.3, 'data-3d-role': 'fleet-path', 'data-aircraft-number': item.number }));
+    const target = at(P(other.target));
+    if (target) { add(svgNode('circle', { cx: target.x, cy: target.y, r: 4, fill: color, 'data-3d-role': 'fleet-target' })); add(text({x: target.x + 7, y: target.y - 7}, `TGT #${item.number}`, {fill: color})); }
+  }
+
   // Wing ticks every 1 s: the wing line at that time (its tilt is the bank).
   const wingFt = radius * 0.035;
   const ticks = cockpit ? null : add(svgNode("g", { "data-3d-role": "bank-ticks" }));
@@ -479,6 +494,7 @@ export function renderBdp3dView(svg, path, options = {}) {
   // Last: the state row at t (0.1.8 time layer).
   const timeText = add(svgNode("g", { "data-3d-layer": "time-text" }));
   const legend = [
+    ...fleet.map(a => ({ label: `Aircraft #${a.number}`, color: fleetColor(a.number) })),
     ...(approach.length >= 2 ? [{ label: "Approach", color: BDP_3D_VIEW_V0_1.phaseColors.approach }] : []),
     { label: "Roll-in", color: BDP_3D_VIEW_V0_1.phaseColors["roll-in"] },
     { label: "Tracking", color: BDP_3D_VIEW_V0_1.phaseColors.tracking },
@@ -503,9 +519,11 @@ export function renderBdp3dView(svg, path, options = {}) {
     const bombPoint = bombNow ? at(P(bombNow)) : null;
     if (bombPoint) put(svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 4.5, fill: C.bomb, stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb" }));
     const flying = cockpit ? !!options.aircraft?.state : tNow !== null && tNow >= firstT - 1e-9;
-    let state = null;
-    if (flying) {
-      state = cockpit ? options.aircraft.state : flightStateAt(path, tNow);
+    const state = fleet.length ? fleet.find(a => a.path === path)?.at(tNow) ?? null : flying ? (cockpit ? options.aircraft.state : flightStateAt(path, tNow)) : null;
+    const visible = fleet.length ? fleet.map(a => ({ number: a.number, state: a.at(tNow) })).filter(a => a.state) : state ? [{ number: options.aircraft?.number, state }] : [];
+    visible.sort((a,b) => dot(sub(P(b.state), eye), cameraForward) - dot(sub(P(a.state), eye), cameraForward));
+    for (const item of visible) {
+      const state = item.state;
       const { v, right: r, up: u } = aircraftAxes(state);
       // One scale for every axis; Auto keeps the original marker length, manual 1× gives the real dimensions.
       const q = P(state);
@@ -513,7 +531,7 @@ export function renderBdp3dView(svg, path, options = {}) {
       if (!cockpit) put(polyline([[state.x, state.y, 0], q], { stroke: "#203a63", "stroke-width": 1, "stroke-dasharray": "2 3" }));
       const shadow = at([state.x, state.y, 0]);
       if (shadow && !cockpit) put(svgNode("circle", { cx: shadow.x.toFixed(1), cy: shadow.y.toFixed(1), r: 3, fill: "#8f9aa6", "data-3d-role": "aircraft-shadow" }));
-      const aircraft = svgNode("g", { "data-3d-role": "aircraft", "data-aircraft-mesh": aircraftMesh.id, "data-aircraft-scale": aircraftScale });
+      const aircraft = svgNode("g", { "data-3d-role": "aircraft", "data-aircraft-mesh": aircraftMesh.id, "data-aircraft-scale": aircraftScale, ...(item.number ? { "data-aircraft-number": item.number, "data-world-position": [state.x, state.y, state.z].join(",") } : {}) });
       const faces = aircraftMesh.faces.map(({ vertices, color }) => {
         const points = vertices.map(world);
         const midpoint = points[0].map((_, i) => points.reduce((sum, p) => sum + p[i], 0) / points.length);
@@ -529,10 +547,11 @@ export function renderBdp3dView(svg, path, options = {}) {
         if (face.points.length >= 3 && face.points.every(Boolean)) aircraft.append(svgNode("polygon", { points: pts(face.points), fill: face.fill }));
       }
       if (aircraft.childNodes.length) put(aircraft);
+      if (fleet.length) { const label = at(q); if (label) put(text({ x: label.x + 10, y: label.y - 10 }, `#${item.number}`, { fill: fleetColor(item.number), 'data-3d-role': 'aircraft-label' })); }
     }
     const putText = (node) => { if (node) timeText.append(node); };
-    if (!cockpit && tNow !== null && !flying) putText(text({ x: 16, y: 46 }, `Roll-in in ${(path.samples[0].t - tNow).toFixed(1)} s`, { "data-3d-role": "state" }));
-    if (state && !cockpit) putText(text({ x: 16, y: 46 }, `Roll-in ${tNow < 0 ? "−" : "+"}${Math.abs(tNow).toFixed(1)} s · ${String(state.phase).toUpperCase()} · ${Math.round(state.z)} ft AGL · ${Math.round(state.kcas)} KCAS · Bank ${Math.round(Math.abs(state.bankDeg))}°`, { "data-3d-role": "state" }));
+    if (!cockpit && !fleet.length && tNow !== null && !flying) putText(text({ x: 16, y: 46 }, `Roll-in in ${(path.samples[0].t - tNow).toFixed(1)} s`, { "data-3d-role": "state" }));
+    if (state && !cockpit) putText(text({ x: 16, y: 46 }, `${path.timeOriginLabel ?? "Roll-in"} ${tNow < 0 ? "−" : "+"}${Math.abs(tNow).toFixed(1)} s · ${String(state.phase).toUpperCase()} · ${Math.round(state.z - path.target.z)} ft AGL · ${Math.round(state.kcas)} KCAS · Bank ${Math.round(Math.abs(state.bankDeg))}°`, { "data-3d-role": "state" }));
     return { ...base, timeSec: tNow, state };
   };
   if (!cockpit) drawnScenes.set(svg, { path, viewKey, layers: { under: timeUnder, time: timeTop, text: timeText }, drawTime });

@@ -1,6 +1,6 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
-import { renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.13";
+import { renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.14";
 
 // BDP HUD view v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.3 in SVG). A first-person
 // view from the aircraft of a BDP flight path at time t: an F-16-style HUD square of `hudSizeDeg` (default 14°,

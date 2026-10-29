@@ -3,7 +3,7 @@ import { buildBdpFlightPath, flightStateAt } from '../../bomb-delivery-planner/v
 import { tasToCas } from '../../../../common/airspeed/airspeed-v0.1.mjs';
 
 // Display adapter only: all aircraft share the existing IP clock and one target-elevation datum.
-export const OFFSET_HUD_SCENE_V0_1 = Object.freeze({ version: '0.1.0' });
+export const OFFSET_HUD_SCENE_V0_1 = Object.freeze({ version: '0.1.1' });
 const FT = 6076.11549;
 export function offsetHudWorldPoint(p, origin, headingDeg, elevationDelta = 0, timeOffset = 0) {
   if (!p) return null;
@@ -14,7 +14,7 @@ export function offsetHudWorldPoint(p, origin, headingDeg, elevationDelta = 0, t
     ...(Number.isFinite(p.headingDeg) ? { headingDeg: ((p.headingDeg + headingDeg) % 360 + 360) % 360 } : {}) };
 }
 export function buildOffsetHudAircraft(result, { number = 1, groundElevationMslFt, approachOverride = null } = {}) {
-  if (!result || result.state === 'INVALID') throw Error('No valid flight path');
+  if (!result?.profile) throw Error('No BDP flight data');
   const timeline = offsetTimeline(result);
   const rollSec = timeline.legs.find(l => l.phase === 'roll-in').startSec;
   const elevation = result.profile.canonicalInputs.targetElevationMslFt;
@@ -31,12 +31,13 @@ export function buildOffsetHudAircraft(result, { number = 1, groundElevationMslF
   // No vertical transition exists in the ordinary Offset BE for independent unequal altitudes.
   const preRollUnavailable = !approachOverride && Math.abs(altitude - result.profile.public.resolvedInitialAltitudeMslFt) > 1;
   const convert = p => offsetHudWorldPoint(p, result.geometry.points.rollStart, result.geometry.offsetHeadingDeg, elevation - datum, rollSec);
-  const path = { ...local, samples: local.samples.map(convert), approach: local.approach.map(convert), bomb: local.bomb.map(convert),
+  const path = { ...local, samples: local.samples.map(convert), approach: preRollUnavailable ? [convert(local.samples[0])] : local.approach.map(convert), bomb: local.bomb.map(convert),
     target: convert(local.target), aim: convert(local.aim), trackPoint: convert(local.trackPoint), release: convert(local.release),
-    startT: 0, endT: local.endT + rollSec, releaseT: local.releaseT + rollSec, trackPointT: local.trackPointT + rollSec,
+    startT: preRollUnavailable ? rollSec : 0, endT: local.endT + rollSec, releaseT: local.releaseT + rollSec, trackPointT: local.trackPointT + rollSec,
     timeOriginLabel: 'IP',
     fragment: local.fragment ? { ...local.fragment, impact: convert(local.fragment.impact), impactT: local.fragment.impactT + rollSec } : null };
-  return { number, path, rollSec, startSec: 0, endSec: path.endT,
+  return { number, path, rollSec, startSec: path.startT, endSec: path.endT,
+    warning: result.state === 'INVALID' ? `#${number} INVALID: ${(result.errors ?? []).join('; ') || 'Check flight results'}` : '',
     at(t) {
       if (!Number.isFinite(t) || t < 0 || t > path.endT) return null;
       if (preRollUnavailable && t < rollSec) return null;

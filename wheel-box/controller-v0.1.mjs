@@ -26,7 +26,7 @@ import { createTimePlayer, timeDialMarkup } from "../common/ui/time-dial-v0.1.mj
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec } from "../common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { WHEEL_BOX_TOP_VIEW_V0_1, renderWheelBoxTopView, wheelRadiusText, wheelTopViewTitle } from "../AG/bombing/wheel-box/view/wheel-box-top-view-v0.1.mjs?v=0.2.0";
 import { renderWheelBoxZDiagramV0_1, wheelAbeamText, wheelZDiagramTitle } from "../AG/bombing/wheel-box/view/wheel-box-z-diagram-v0.1.mjs?v=0.1.2";
-import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.12.0";
+import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.12.1";
 
 // 0.1.0 (2026-10-25, owner): #1–#4 fly #1's BDP and Wheel data; #2–#4 hold only their Formation position, and the Wheel
 // Top View shows each aircraft at its place (BOX's Formation rule).

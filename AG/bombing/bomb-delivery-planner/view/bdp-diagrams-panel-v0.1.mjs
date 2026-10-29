@@ -3,7 +3,7 @@ import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath } from "./bdp-flight-path-v0.1.mjs?v=0.1.5";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.13";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.14";
 import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.7";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
@@ -71,7 +71,7 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.11.5 (2026-10-29): 3D Profile 0.1.10, approved F-16 polygon aircraft.
   // 0.11.6 (2026-10-29): per-panel Aircraft size selector, Auto or 1–50× actual dimensions; camera zoom independent.
   // 0.11.7 (2026-10-29): HUD 0.1.6 overlays the shared 3D scene in its cockpit camera.
-  version: "0.12.0",
+  version: "0.12.1",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -140,6 +140,7 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
   // / long-press menu inside it).
   const threeD = `<details class="input-panel bdp-diagram" open data-bdp-diagram="3d"><summary>${t3}${viewTools("3d")}</summary>`
     + `<div class="diagram-actions"><div class="diagram-action-row" data-bdp-3d-controls>`
+    + `<label data-bdp-fleet-label hidden>Show aircraft <select data-bdp-3d="fleet" aria-label="3D aircraft selection" style="${CONTROL_STYLE};width:auto"><option value="all">All</option></select></label><span data-bdp-fleet-status role="status"></span>`
     + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Aircraft <select data-bdp-3d="aircraft-scale" style="${CONTROL_STYLE};width:auto" aria-label="Aircraft size (times actual)" title="Aircraft size relative to the real F-16. Auto sizes it to the flight path."><option value="auto" selected>Auto</option>${aircraftScales}</select></label>`
     + `<span class="diagram-control-label">Drag: turn · Hold 0.5 s, then drag: pan · Pinch / wheel: zoom</span></div>${threeDTimeMarkup}</div>`
     + `<div class="bdp-diagram-canvas"><svg class="bdp-3d-svg" viewBox="0 0 ${w3} ${h3}" role="img" aria-label="${t3}" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none"></svg>`
@@ -366,7 +367,7 @@ const flightStates = new WeakMap();
 function flightState(container) {
   let state = flightStates.get(container);
   if (!state) {
-    state = { hudContext: null, observer: "you", pair: null, lockTarget: null, lockOwner: null, path: null, timeSec: null, orbit: null, zoom3d: 1, aircraftScale: null, pan3d: { x: 0, y: 0 }, panHint: false, resetGesture: null, hudZoom: 1, progressDeg: 0, holding: false, frame: 0, lastFrame: null };
+    state = { hudContext: null, fleetChoice: "all", observer: "you", pair: null, lockTarget: null, lockOwner: null, path: null, timeSec: null, orbit: null, zoom3d: 1, aircraftScale: null, pan3d: { x: 0, y: 0 }, panHint: false, resetGesture: null, hudZoom: 1, progressDeg: 0, holding: false, frame: 0, lastFrame: null };
     flightStates.set(container, state);
   }
   return state;
@@ -392,10 +393,27 @@ function draw3d(container, scope) {
   const svg = container.querySelector('[data-bdp-diagram="3d"] svg.bdp-3d-svg');
   const state = flightState(container);
   if (!svg || !state.path) return;
+  const context = state.hudContext, entries = context?.aircraft ?? [];
+  const select = container.querySelector('[data-bdp-3d="fleet"]');
+  if (state.fleetChoice !== "all" && !entries.some(a => String(a.number) === state.fleetChoice)) state.fleetChoice = "all";
+  if (select) {
+    const key = entries.map(a => a.number).join(',');
+    if (select.dataset.options !== key) { select.innerHTML = '<option value="all">All</option>' + entries.map(a => `<option value="${a.number}">#${a.number}</option>`).join(''); select.dataset.options = key; }
+    select.value = state.fleetChoice;
+    container.querySelector('[data-bdp-fleet-label]').hidden = !entries.length;
+  }
+  const fleet = entries.filter(a => state.fleetChoice === "all" || String(a.number) === state.fleetChoice);
+  const path = fleet.find(a => a.number === context.you)?.path ?? fleet[0]?.path ?? state.path;
+  state.viewPath = path;
+  const clock = fleet.length ? context.threeDClockSec ?? context.clockSec : state.timeSec;
+  const note = container.querySelector('[data-bdp-fleet-status]');
+  if (note) note.textContent = fleet.flatMap(a => [a.warning, !a.at(clock) ? `#${a.number}: ${a.unavailableReason}` : '']).filter(Boolean).join(' · ');
   // Heights are true (0.10.0: no altitude stretch, whatever an older state held).
-  const options = { orbit: state.orbit ?? undefined, zoom: state.zoom3d, aircraftScale: state.aircraftScale, pan: state.pan3d, panHint: state.panHint, timeSec: state.timeSec, scope: `${scope}-3d` };
-  const draw = () => renderBdp3dView(svg, state.path, options);
-  const rendered = state.progressive ? viewCache.draw(svg, state.path, JSON.stringify(options), draw) : draw();
+  const options = { orbit: state.orbit ?? undefined, zoom: state.zoom3d, aircraftScale: state.aircraftScale, pan: state.pan3d, panHint: state.panHint, timeSec: clock, scope: `${scope}-3d`, ...(fleet.length ? { fleet } : {}) };
+  const draw = () => renderBdp3dView(svg, path, options);
+  const rendered = state.progressive && !fleet.length ? viewCache.draw(svg, path, JSON.stringify(options), draw) : draw();
+  svg.dataset.aircraftSelection = state.fleetChoice;
+  svg.dataset.timeSec = String(clock ?? '');
   svg.dataset.orbit = `${Math.round(rendered.orbit.azimuthDeg)}/${Math.round(rendered.orbit.elevationDeg)}`;
   svg.dataset.zoom = String(Math.round(rendered.zoom * 100));
   svg.dataset.pan = `${Math.round(rendered.pan.x)}/${Math.round(rendered.pan.y)}`;
@@ -434,7 +452,7 @@ function hudFrame(container) {
     container.querySelector('[data-hud-pair-label]').hidden = others.length < 2;
   }
   const note = container.querySelector('[data-hud-availability]');
-  if (note) note.textContent = !pose ? observer?.unavailableReason ?? 'No current flight path' : !wm ? 'No valid wingman' : !otherPose ? 'Wingman outside flight window' : '';
+  if (note) note.textContent = [observer?.warning, other?.warning, !pose ? observer?.unavailableReason ?? 'No current flight path' : !wm ? 'No available wingman' : !otherPose ? `Wingman: ${other?.unavailableReason ?? 'Outside flight window'}` : ''].filter(Boolean).join(' · ');
   return { path: observer?.path, state: pose, unavailable: !pose, number: observer?.number, timeSec: time,
     gridStepFt: context.gridStepFt, otherAircraft: otherPose ? { number: other.number, state: otherPose } : null };
 }
@@ -487,6 +505,7 @@ function installFlightControls(container, scope) {
   if (container.dataset.bdpFlightReady) return;
   container.dataset.bdpFlightReady = "true";
   const state = flightState(container);
+  container.querySelector('[data-bdp-3d="fleet"]')?.addEventListener('change', event => { state.fleetChoice = event.target.value; draw3d(container, scope); });
   const svg3d = container.querySelector('[data-bdp-diagram="3d"] svg.bdp-3d-svg');
   // 3D gestures (0.10.0, owner addendum 2026-10-18 §4–§6; bdp3dGestureStep): drag turns about the fixed scene centre;
   // a 0.5 s hold within 8 CSS px, then drag, pans ("PAN" shows); two pointers only zoom about their starting midpoint;
@@ -499,7 +518,7 @@ function installFlightControls(container, scope) {
     if (frame) return;
     frame = requestAnimationFrame(() => { frame = 0; draw3d(container, scope); });
   };
-  const viewNow = () => ({ orbit: state.orbit ?? bdp3dDefaultOrbit(state.path), zoom: state.zoom3d, pan: state.pan3d });
+  const viewNow = () => ({ orbit: state.orbit ?? bdp3dDefaultOrbit(state.viewPath ?? state.path), zoom: state.zoom3d, pan: state.pan3d });
   const step = (event) => {
     if (!state.path) return;
     const before = viewNow();
