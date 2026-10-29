@@ -26,7 +26,7 @@ import { createTimePlayer, timeDialMarkup } from "../common/ui/time-dial-v0.1.mj
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec } from "../common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { WHEEL_ATTACK_TOP_VIEW_V0_1, renderWheelAttackTopView, wheelAttackTopViewTitle } from "../AG/bombing/wheel-attack/view/wheel-attack-top-view-v0.1.mjs?v=0.1.0";
 import { renderWheelAttackZDiagramV0_1, wheelAttackZDiagramTitle } from "../AG/bombing/wheel-attack/view/wheel-attack-z-diagram-v0.1.mjs?v=0.1.0";
-import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.11.7";
+import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.12.0";
 
 // 0.1.0 (2026-10-27, owner): #1–#4 fly #1's BDP and Wheel data; #2–#4 take their slots on the Wheel in the attack order
 // (no Formation position); the Angle-Off and the Wheel Radius are the BE's (shown solved, never typed).

@@ -1,7 +1,7 @@
 /* Wheel content of the PC Wide page. The workspace itself is the bombing app shared FE's (shared/wide-workspace-v0.1.css,
    body.bombing-wide); this file styles the Wheel inputs and the Top View panel. Style the SVG boxes, never the paths,
    labels or viewBox. */
-@import url("../shared/wide-workspace-v0.1.css?v=34c5eab97191");
+@import url("../shared/wide-workspace-v0.1.css?v=8b9340c5f1c9");
 
 .wide-center-panel[data-center-panel="topview"] { flex:1 0 100%; }
 .wheel-wide .wide-map-section .flight-draft-note { flex:none; font-size:11px; }

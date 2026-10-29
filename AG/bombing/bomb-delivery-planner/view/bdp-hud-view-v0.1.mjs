@@ -1,6 +1,6 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
-import { renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.12";
+import { renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.13";
 
 // BDP HUD view v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.3 in SVG). A first-person
 // view from the aircraft of a BDP flight path at time t: an F-16-style HUD square of `hudSizeDeg` (default 14°,
@@ -20,7 +20,7 @@ export const BDP_HUD_VIEW_V0_1 = Object.freeze({
   // 0.1.5 (2026-10-21, owner: a smoother Play): only the ladder rungs, tips and numbers that reach the HUD square are
   // created — the clip hid the others (about 200 elements a frame); a hidden HUD creates none. The picture is unchanged.
   // 0.1.6 (2026-10-29, owner): the 3D Profile scene in the cockpit camera, with HUD symbology on top.
-  version: "0.1.6",
+  version: "0.1.7",
   fovLimitsDeg: Object.freeze([5, 150]),
   canvas: Object.freeze({ width: 720, height: 540 }),
   ladderStepDeg: 5,
@@ -39,11 +39,16 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
 const dir = (headingDeg, elevationDeg) => [Math.sin(headingDeg * DEG) * Math.cos(elevationDeg * DEG), Math.cos(headingDeg * DEG) * Math.cos(elevationDeg * DEG), Math.sin(elevationDeg * DEG)];
 const angleBetween = (a, b) => Math.acos(Math.max(-1, Math.min(1, dot(norm(a), norm(b))))) / DEG;
-function slerp(a, b, k) {
-  const omega = Math.acos(Math.max(-1, Math.min(1, dot(a, b))));
-  if (omega < 1e-9) return a;
-  const s = Math.sin(omega);
-  return norm(add(mul(a, Math.sin((1 - k) * omega) / s), mul(b, Math.sin(k * omega) / s)));
+// Rotate forward and up together, including the antipodal/vertical cases; no projected-up singularity.
+export function hudCameraAxes(axes, direction, progressDeg) {
+  const angle = angleBetween(axes.centre, direction);
+  let axis = cross(axes.centre, direction);
+  if (Math.hypot(...axis) < 1e-8) axis = axes.centreUp;
+  axis = norm(axis);
+  const theta = Math.min(angle, Math.max(0, progressDeg)) * DEG;
+  const rotate = v => add(add(mul(v, Math.cos(theta)), mul(cross(axis, v), Math.sin(theta))), mul(axis, dot(axis, v) * (1 - Math.cos(theta))));
+  const forward = norm(rotate(axes.centre)), up = norm(rotate(axes.centreUp));
+  return { forward, up, right: norm(cross(forward, up)) };
 }
 
 // The part of a convex screen polygon whose rays look below the horizon (rayZ < 0); rayZ is linear on screen.
@@ -76,9 +81,10 @@ export function hudAxes(state, { aoa = true, hudSizeDeg = 14 } = {}) {
 
 // The angle from the HUD centre to the Target at time t (the padlock's full travel).
 export function padlockTotalDeg(path, t, options = {}) {
-  const state = flightStateAt(path, t);
+  const state = options.state ?? flightStateAt(path, t);
   const axes = hudAxes(state, options);
-  return angleBetween(axes.centre, sub([path.target.x, path.target.y, path.target.z], [state.x, state.y, state.z]));
+  const target = options.lookAt ?? path.target;
+  return angleBetween(axes.centre, sub([target.x, target.y, target.z], [state.x, state.y, state.z]));
 }
 
 export function renderBdpHudView(svg, path, options = {}) {
@@ -89,18 +95,19 @@ export function renderBdpHudView(svg, path, options = {}) {
   const [fovLow, fovHigh] = BDP_HUD_VIEW_V0_1.fovLimitsDeg;
   const fovDeg = Number.isFinite(Number(o.fovDeg)) && Number(o.fovDeg) > 0 ? Math.min(fovHigh, Math.max(fovLow, Number(o.fovDeg))) : 70;
   const t = Number.isFinite(o.timeSec) ? o.timeSec : BDP_FLIGHT_PATH_V0_1.hudStartSec;
-  const state = flightStateAt(path, t);
+  const state = options.state ?? flightStateAt(path, t);
   // The time shown is the state's, inside the window (0.1.3).
   const shownT = Number.isFinite(state.t) ? state.t : t;
   const axes = hudAxes(state, { aoa: o.aoa, hudSizeDeg });
   const pos = [state.x, state.y, state.z];
   const toTarget = norm(sub([path.target.x, path.target.y, path.target.z], pos));
-  const totalDeg = angleBetween(axes.centre, toTarget);
+  const gazeTarget = o.lookAt ?? path.target;
+  const toGaze = norm(sub([gazeTarget.x, gazeTarget.y, gazeTarget.z], pos));
+  const totalDeg = angleBetween(axes.centre, toGaze);
   const progress = Math.min(totalDeg, Math.max(0, Number(o.gazeProgressDeg) || 0));
   // Camera: the HUD centre, turned toward the Target by the padlock progress; roll stays the aircraft's.
-  const forward = totalDeg > 1e-6 ? slerp(axes.centre, toTarget, progress / totalDeg) : axes.centre;
-  const camUp = norm(sub(axes.centreUp, mul(forward, dot(axes.centreUp, forward))));
-  const camRight = cross(forward, camUp);
+  const camera = hudCameraAxes(axes, toGaze, progress);
+  const { forward, up: camUp, right: camRight } = camera;
   const focal = (H / 2) / Math.tan((fovDeg / 2) * DEG);
   const project = (d) => {
     const cz = dot(d, forward);
@@ -120,15 +127,22 @@ export function renderBdpHudView(svg, path, options = {}) {
   root.append(svgNode("rect", { x: 0, y: 0, width: W, height: H, fill: "#0c1a2b" }));
   const rayZ = (p) => focal * forward[2] + (p.x - W / 2) * camRight[2] - (p.y - H / 2) * camUp[2];
   const ground = clipBelowHorizon([{ x: 0, y: 0 }, { x: W, y: 0 }, { x: W, y: H }, { x: 0, y: H }], rayZ);
-  if (ground.length >= 3) root.append(svgNode("polygon", { points: ground.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), fill: "#3a2f22", "data-hud-role": "ground" }));
+  if (ground.length >= 3) root.append(svgNode("polygon", { points: ground.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), fill: "#394337", "data-hud-role": "ground" }));
 
   // One world renderer for the external profile and this cockpit view. Position, bank, AOA, FOV and
   // padlock use the very same axes as the overlay below; the external marker scale is never passed in.
   const world = svgNode("svg");
-  renderBdp3dView(world, path, { timeSec: shownT, camera: { eye: pos, forward, right: camRight, up: camUp, fovDeg, width: W, height: H } });
+  renderBdp3dView(world, path, { timeSec: shownT, aircraft: o.otherAircraft, gridStepFt: o.gridStepFt, camera: { eye: pos, forward, right: camRight, up: camUp, fovDeg, width: W, height: H } });
   const scene = world.firstElementChild;
   scene.setAttribute("data-hud-role", "scene");
   root.append(scene);
+  if (o.otherAircraft?.state) {
+    const other = o.otherAircraft.state, q = at([other.x, other.y, other.z]);
+    if (q && q.x >= 0 && q.x <= W && q.y >= 0 && q.y <= H) {
+      root.append(svgNode("circle", { cx: q.x, cy: q.y, r: 5, fill: "none", stroke: "#8ad9ff", "data-hud-role": "wingman" }));
+      root.append(svgNode("text", { x: q.x + 8, y: q.y - 8, fill: "#8ad9ff", "font-size": 13, "font-family": "system-ui", "data-hud-role": "wingman-label" }, `#${o.otherAircraft.number}`));
+    }
+  }
 
   // HUD square: the glass fixed to the aircraft, projected (a quadrilateral while the padlock turns the view).
   const half = Math.tan((hudSizeDeg / 2) * DEG);
@@ -219,7 +233,7 @@ export function renderBdpHudView(svg, path, options = {}) {
       if (s.t <= t || s.t > path.trackPointT + 1e-9) continue;
       const v = dir(s.headingDeg, s.fpaDeg);
       const p = [s.x, s.y, s.z];
-      const ground = v[2] < -1e-3 ? add(p, mul(v, s.z / -v[2])) : add(p, mul(v, 30000));
+      const ground = v[2] < -1e-3 ? add(p, mul(v, (s.z - path.target.z) / -v[2])) : add(p, mul(v, 30000));
       pts.push(at(ground));
     }
     const predicted = line(pts, { stroke: "#7cf29a", "stroke-width": 1.4, "stroke-dasharray": "2 4", "data-hud-role": "fpm-path" });
@@ -244,7 +258,7 @@ export function renderBdpHudView(svg, path, options = {}) {
   }
 
   // Readouts (screen-fixed).
-  const altFt = state.z;
+  const altFt = state.z - path.target.z;
   const tgtRangeNm = Math.hypot(path.target.x - state.x, path.target.y - state.y) / 6076.11549;
   const lookDownDeg = Math.atan2(state.z - path.target.z, Math.hypot(path.target.x - state.x, path.target.y - state.y)) / DEG;
   const rows = [
@@ -252,12 +266,12 @@ export function renderBdpHudView(svg, path, options = {}) {
     [`DIVE ${Math.round(-state.fpaDeg)}°`, `G ${state.loadFactor.toFixed(1)}`],
     [`AOA ${axes.alphaDeg.toFixed(1)}°`, `BANK ${Math.round(Math.abs(state.bankDeg))}°${state.bankDeg > 0.5 ? "R" : state.bankDeg < -0.5 ? "L" : ""}`],
     [`HDG ${state.headingDeg >= 0 ? "+" : ""}${Math.round(state.headingDeg)}°`, `TGT ${tgtRangeNm.toFixed(1)} NM`],
-    [`IAA ${(lookDownDeg + state.fpaDeg).toFixed(1)}°`, `${String(state.phase).toUpperCase()} · Roll-in ${shownT < 0 ? "−" : "+"}${Math.abs(shownT).toFixed(1)} s`],
+    [`IAA ${(lookDownDeg + state.fpaDeg).toFixed(1)}°`, `${String(state.phase).toUpperCase()} · ${path.timeOriginLabel ?? "Roll-in"} ${shownT < 0 ? "−" : "+"}${Math.abs(shownT).toFixed(1)} s`],
   ];
   rows.forEach(([left, right], index) => {
     root.append(text(12, 22 + index * 19, left, { "data-hud-readout": index }));
     root.append(text(W - 12, 22 + index * 19, right, { "text-anchor": "end" }));
   });
-  if (progress > 0) root.append(text(W / 2, H - 12, progress >= totalDeg - 1e-6 ? "PADLOCK · LOCKED" : `PADLOCK · ${Math.round(progress)}° / ${Math.round(totalDeg)}°`, { "text-anchor": "middle", fill: "#ffd166", "data-hud-role": "padlock" }));
+  if (progress > 0) root.append(text(W / 2, H - 12, progress >= totalDeg - 1e-6 ? `PAD LOCK · ${o.padlockTarget ?? "TGT"} · LOCKED` : `PAD LOCK · ${o.padlockTarget ?? "TGT"} · ${Math.round(progress)}° / ${Math.round(totalDeg)}°`, { "text-anchor": "middle", fill: "#ffd166", "data-hud-role": "padlock" }));
   return { title: options.title ?? "HUD View", fovDeg, timeSec: t, totalDeg, progressDeg: progress, locked: progress > 0 && progress >= totalDeg - 1e-6, state, canvas: { width: W, height: H } };
 }

@@ -2,9 +2,9 @@ import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./
 import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.11";
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
-import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath, padlockStep } from "./bdp-flight-path-v0.1.mjs?v=0.1.5";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.12";
-import { BDP_HUD_VIEW_V0_1, padlockTotalDeg, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.6";
+import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath } from "./bdp-flight-path-v0.1.mjs?v=0.1.5";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.13";
+import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.7";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
 // Full BDP diagrams panel — BDP-owned presentation reused by every BE that embeds a BDP input tab
@@ -71,7 +71,7 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.11.5 (2026-10-29): 3D Profile 0.1.10, approved F-16 polygon aircraft.
   // 0.11.6 (2026-10-29): per-panel Aircraft size selector, Auto or 1–50× actual dimensions; camera zoom independent.
   // 0.11.7 (2026-10-29): HUD 0.1.6 overlays the shared 3D scene in its cockpit camera.
-  version: "0.11.7",
+  version: "0.12.0",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -107,6 +107,18 @@ export function bdpDiagramsMarkup({ aircraftNumber, topTitle, topAdvanced = fals
     + `</div>`;
 }
 
+export function bdpHudPanelMarkup(options = {}) { return flightViewsMarkup(options).hud; }
+export function renderBdpHudPanel(container, context, scope = "offset-hud") {
+  const state = flightState(container);
+  const previous = state.hudContext;
+  if (previous?.you !== context?.you || previous?.aircraft?.some((a, i) => a.path !== context?.aircraft?.[i]?.path)) state.stopHud?.();
+  if (previous && previous.you === context.you && previous.clockSec === context.clockSec && previous.aircraft.length === context.aircraft.length && previous.aircraft.every((a,i) => a === context.aircraft[i])) return;
+  state.hudContext = context;
+  state.path = context?.aircraft?.find(a => a.number === context.you)?.path ?? null;
+  installFlightControls(container, scope);
+  drawHud(container, scope);
+}
+
 const CONTROL_STYLE = "min-height:32px;padding:4px 6px;font-size:12px;border-radius:9px";
 
 // 3D Profile and HUD View panels (0.8.0). The HUD inputs are only the HUD's own (BDP values are not repeated).
@@ -133,13 +145,14 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
     + `<div class="bdp-diagram-canvas"><svg class="bdp-3d-svg" viewBox="0 0 ${w3} ${h3}" role="img" aria-label="${t3}" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none"></svg>`
     + `<svg class="diagram-legend-box" data-bdp-legend="3d" role="img" aria-label="${t3} legend" hidden></svg></div></details>`;
   const hud = `<details class="input-panel bdp-diagram" open data-bdp-diagram="hud"><summary>${th}${viewTools("hud")}</summary>`
+    + `<div class="diagram-actions"><div class="diagram-action-row" role="tablist" aria-label="HUD observer"><button class="capture-button" type="button" role="tab" data-hud-observer="you" aria-selected="true">You</button><button class="capture-button" type="button" role="tab" data-hud-observer="wingman" aria-selected="false" disabled>Wingman</button><label data-hud-pair-label hidden>Wingman <select data-hud-pair aria-label="Wingman aircraft" style="${CONTROL_STYLE};width:auto"></select></label><span data-hud-availability role="status"></span></div></div>`
     + `<div class="bdp-diagram-canvas"><svg class="bdp-hud-svg" viewBox="0 0 ${wh} ${hh}" role="img" aria-label="${th}"></svg></div>`
     + `<div class="diagram-actions bdp-hud-controls" data-bdp-hud-controls><div class="diagram-action-row">`
     + `<span class="diagram-control-label">HUD</span><input type="number" data-bdp-hud="size" min="4" max="40" step="1" value="${d.hudSizeDeg}" inputmode="numeric" style="${CONTROL_STYLE};width:4.2em" aria-label="HUD size (degrees, square)"><span class="diagram-control-label">°</span>`
     + `<span class="diagram-control-label">FOV</span><select data-bdp-hud="fov" style="${CONTROL_STYLE};width:auto" aria-label="Screen vertical field of view">${fov}</select>`
     + `<button class="capture-button view-toggle" type="button" data-bdp-hud="aoa" aria-pressed="${d.aoa}">AOA: ${d.aoa ? "On" : "Off"}</button>`
     + `<button class="capture-button view-toggle" type="button" data-bdp-hud="fpm-path" aria-pressed="${d.fpmPath}">FPM path: ${d.fpmPath ? "On" : "Off"}</button>`
-    + `<button class="capture-button view-toggle" type="button" data-bdp-hud="padlock" aria-pressed="false" style="touch-action:none;user-select:none;-webkit-user-select:none" title="Hold: the view turns to the Target at 60°/s; release: it returns">Padlock</button>`
+    + `<span class="diagram-control-label">PAD LOCK :</span><button class="capture-button view-toggle" type="button" data-bdp-hud="padlock" data-hud-lock="TGT" aria-pressed="false" style="touch-action:none;user-select:none">TGT</button><button class="capture-button view-toggle" type="button" data-hud-lock="WM" aria-pressed="false" disabled style="touch-action:none;user-select:none">WM</button>`
     + `</div>${hudTimeMarkup}</div></details>`;
   return { threeD, hud };
 }
@@ -237,6 +250,7 @@ const viewCache = createBdpViewCache();
 export function cancelBdpDiagramRender(container) {
   if (!container) return;
   renderQueue.cancel(container);
+  flightStates.get(container)?.stopHud?.();
   container.dataset.bdpDiagramsState = "paused";
 }
 
@@ -352,7 +366,7 @@ const flightStates = new WeakMap();
 function flightState(container) {
   let state = flightStates.get(container);
   if (!state) {
-    state = { path: null, timeSec: null, orbit: null, zoom3d: 1, aircraftScale: null, pan3d: { x: 0, y: 0 }, panHint: false, resetGesture: null, hudZoom: 1, progressDeg: 0, holding: false, frame: 0, lastFrame: null };
+    state = { hudContext: null, observer: "you", pair: null, lockTarget: null, lockOwner: null, path: null, timeSec: null, orbit: null, zoom3d: 1, aircraftScale: null, pan3d: { x: 0, y: 0 }, panHint: false, resetGesture: null, hudZoom: 1, progressDeg: 0, holding: false, frame: 0, lastFrame: null };
     flightStates.set(container, state);
   }
   return state;
@@ -393,13 +407,56 @@ function draw3d(container, scope) {
   showLegend(container, "3d", rendered.legend, rendered.legendColumns, rendered.legendNotes);
 }
 
+function hudFrame(container) {
+  const state = flightState(container), context = state.hudContext;
+  if (!context) return { path: state.path, timeSec: hudTime(state), otherAircraft: null, number: null };
+  const entries = context.aircraft ?? [];
+  const you = entries.find(a => a.number === context.you);
+  const others = entries.filter(a => a.number !== context.you);
+  if (!others.some(a => a.number === state.pair)) {
+    const pair = others.find(a => a.number === (context.you % 2 ? context.you + 1 : context.you - 1))?.number ?? others[0]?.number ?? null;
+    if (pair !== state.pair) { state.pair = pair; state.holding = false; state.progressDeg = 0; state.lockOwner = null; }
+  }
+  if (!others.length) state.observer = "you";
+  const wm = others.find(a => a.number === state.pair);
+  const observer = state.observer === "wingman" ? wm : you;
+  const other = state.observer === "wingman" ? you : wm;
+  const time = Number.isFinite(context.clockSec) ? context.clockSec : context.defaultTimeSec ?? 0;
+  const pose = observer?.at(time), otherPose = other?.at(time);
+  const tab = name => container.querySelector(`[data-hud-observer="${name}"]`);
+  if (tab("you")) tab("you").textContent = `You #${context.you}`;
+  if (tab("wingman")) { tab("wingman").textContent = wm ? `Wingman #${wm.number}` : "Wingman"; tab("wingman").disabled = !wm; }
+  const select = container.querySelector('[data-hud-pair]');
+  if (select) {
+    const key = others.map(a => a.number).join(',');
+    if (select.dataset.options !== key) { select.innerHTML = others.map(a => `<option value="${a.number}">#${a.number}</option>`).join(''); select.dataset.options = key; }
+    select.value = String(state.pair);
+    container.querySelector('[data-hud-pair-label]').hidden = others.length < 2;
+  }
+  const note = container.querySelector('[data-hud-availability]');
+  if (note) note.textContent = !pose ? observer?.unavailableReason ?? 'No current flight path' : !wm ? 'No valid wingman' : !otherPose ? 'Wingman outside flight window' : '';
+  return { path: observer?.path, state: pose, unavailable: !pose, number: observer?.number, timeSec: time,
+    gridStepFt: context.gridStepFt, otherAircraft: otherPose ? { number: other.number, state: otherPose } : null };
+}
 function drawHud(container, scope) {
   const svg = container.querySelector('[data-bdp-diagram="hud"] svg.bdp-hud-svg');
   const state = flightState(container);
-  if (!svg || !state.path) return;
-  const options = { ...hudOptions(container), timeSec: hudTime(state), gazeProgressDeg: state.progressDeg, scope: `${scope}-hud` };
-  const draw = () => renderBdpHudView(svg, state.path, options);
-  const rendered = state.progressive ? viewCache.draw(svg, state.path, JSON.stringify(options), draw) : draw();
+  if (!svg) return;
+  const frame = hudFrame(container);
+  container.querySelectorAll('[data-hud-observer]').forEach(b => { b.setAttribute('aria-selected', String(b.dataset.hudObserver === state.observer)); b.setAttribute('aria-pressed', String(b.dataset.hudObserver === state.observer)); });
+  const wmButton = container.querySelector('[data-hud-lock="WM"]');
+  const separation = frame.otherAircraft && frame.state ? Math.hypot(frame.otherAircraft.state.x-frame.state.x, frame.otherAircraft.state.y-frame.state.y, frame.otherAircraft.state.z-frame.state.z) : 0;
+  if (wmButton) wmButton.disabled = !frame.path || frame.unavailable || separation < 1e-6;
+  const tgtButton = container.querySelector('[data-hud-lock="TGT"]');
+  if (tgtButton) tgtButton.disabled = !frame.path || frame.unavailable;
+  if (frame.unavailable || !frame.path || (state.lockTarget === 'WM' && wmButton?.disabled)) { state.holding = false; state.progressDeg = 0; state.lockOwner = null; }
+  container.querySelectorAll('[data-hud-lock]').forEach(b => b.setAttribute('aria-pressed', String(state.holding && b.dataset.hudLock === state.lockTarget)));
+  if (!frame.path || frame.unavailable) { svg.replaceChildren(); svg.dataset.available = 'false'; return; }
+  svg.dataset.available = 'true';
+  svg.dataset.observer = String(frame.number ?? 'you');
+  const options = { ...hudOptions(container), ...frame, gazeProgressDeg: state.holding ? state.progressDeg : 0, scope: `${scope}-hud`, padlockTarget: state.lockTarget,
+    lookAt: state.lockTarget === 'WM' ? frame.otherAircraft?.state : undefined };
+  const rendered = renderBdpHudView(svg, frame.path, options);
   state.progressDeg = rendered.progressDeg;
   svg.dataset.fovDeg = rendered.fovDeg.toFixed(2);
   svg.dataset.zoom = String(Math.round((state.hudZoom || 1) * 100));
@@ -408,24 +465,22 @@ function drawHud(container, scope) {
   svg.dataset.padlockDeg = rendered.progressDeg.toFixed(1);
   svg.dataset.padlockTotalDeg = rendered.totalDeg.toFixed(1);
   svg.dataset.padlockLocked = String(rendered.locked);
+  svg.dataset.timeSec = String(frame.timeSec);
 }
 
 // The HUD's time: the clock's, else its start, Roll-in −3 s (owner handoff §3.1).
 const hudTime = (state) => (Number.isFinite(state.timeSec) ? state.timeSec : BDP_FLIGHT_PATH_V0_1.hudStartSec);
 
-// Padlock (owner 2026-10-15, plan §0.1 / §4.6): while held the gaze angle grows at 60°/s up to the Target and
-// stays locked on it; released, it shrinks at the same rate; held again on the way back, it grows from there.
-// One animation frame loop per container runs while held or until the gaze is back at the HUD centre.
+// While held, gaze approaches the selected target at 60°/s. Release immediately restores forward view.
+// One animation frame loop per container runs only while held.
 function padlockFrame(container, scope, now) {
   const state = flightState(container);
-  if (!state.path) { state.frame = 0; state.lastFrame = null; return; }
-  const dtSec = state.lastFrame === null ? 0 : Math.min(0.1, (now - state.lastFrame) / 1000);
+  if (!state.holding || !container.isConnected || !container.querySelector("svg.bdp-hud-svg")?.getClientRects().length) { state.holding = false; state.progressDeg = 0; state.lockOwner = null; state.frame = 0; container.querySelectorAll('[data-hud-lock]').forEach(b => b.setAttribute('aria-pressed', 'false')); return; }
+  const dt = state.lastFrame === null ? 0 : Math.min(.1, (now - state.lastFrame) / 1000);
   state.lastFrame = now;
-  const timeSec = hudTime(state);
-  state.progressDeg = padlockStep(state.progressDeg, { holding: state.holding, dtSec, totalDeg: padlockTotalDeg(state.path, timeSec, hudOptions(container)) });
+  state.progressDeg += 60 * dt;
   drawHud(container, scope);
-  if (state.holding || state.progressDeg > 0) state.frame = requestAnimationFrame((time) => padlockFrame(container, scope, time));
-  else { state.frame = 0; state.lastFrame = null; }
+  state.frame = state.holding ? requestAnimationFrame(time => padlockFrame(container, scope, time)) : 0;
 }
 
 function installFlightControls(container, scope) {
@@ -552,21 +607,39 @@ function installFlightControls(container, scope) {
       drawHud(container, scope);
     });
   });
-  const padlock = container.querySelector('[data-bdp-hud="padlock"]');
-  const hold = (on) => {
-    if (on && !state.path) return;
-    state.holding = on;
-    padlock?.setAttribute("aria-pressed", String(on));
-    if (on && !state.frame) state.frame = requestAnimationFrame((time) => padlockFrame(container, scope, time));
+  const stop = () => {
+    state.holding = false; state.progressDeg = 0; state.lockOwner = null; state.lastFrame = null;
+    if (state.frame) cancelAnimationFrame(state.frame);
+    state.frame = 0;
+    drawHud(container, scope);
   };
-  padlock?.addEventListener("pointerdown", (event) => {
-    try { padlock.setPointerCapture(event.pointerId); } catch { /* synthetic or ended pointer */ }
-    hold(true);
-  });
-  ["pointerup", "pointercancel", "lostpointercapture"].forEach((name) => padlock?.addEventListener(name, () => hold(false)));
-  padlock?.addEventListener("keydown", (event) => { if ((event.key === " " || event.key === "Enter") && !event.repeat) { event.preventDefault(); hold(true); } });
-  padlock?.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") hold(false); });
-  padlock?.addEventListener("contextmenu", (event) => event.preventDefault());
+  state.stopHud = stop;
+  for (const button of container.querySelectorAll('[data-hud-lock]')) {
+    const begin = owner => {
+      if (button.disabled) return;
+      stop(); state.lockTarget = button.dataset.hudLock; state.lockOwner = owner; state.holding = true;
+      drawHud(container, scope);
+      state.frame = requestAnimationFrame(time => padlockFrame(container, scope, time));
+    };
+    button.addEventListener('pointerdown', event => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      try { button.setPointerCapture(event.pointerId); } catch {}
+      begin(`p:${event.pointerId}`);
+    });
+    for (const name of ['pointerup','pointercancel','lostpointercapture']) button.addEventListener(name, event => { if (state.lockOwner === `p:${event.pointerId}`) stop(); });
+    button.addEventListener('keydown', event => { if ([' ','Enter'].includes(event.key)) { event.preventDefault(); if (!event.repeat) begin(`k:${button.dataset.hudLock}:${event.key}`); } });
+    button.addEventListener('keyup', event => { if (state.lockOwner === `k:${button.dataset.hudLock}:${event.key}`) { event.preventDefault(); stop(); } });
+    button.addEventListener('blur', () => { if (state.lockOwner?.startsWith('k:')) stop(); });
+    button.addEventListener('contextmenu', event => event.preventDefault());
+  }
+  container.querySelectorAll('[data-hud-observer]').forEach(button => button.addEventListener('click', () => { stop(); state.observer = button.dataset.hudObserver; drawHud(container, scope); }));
+  container.querySelector('[data-hud-pair]')?.addEventListener('change', event => { const number = Number(event.target.value); stop(); state.pair = number; drawHud(container, scope); });
+  container.querySelector('[data-bdp-diagram="hud"]')?.addEventListener('toggle', event => { if (!event.currentTarget.open) stop(); });
+  window.addEventListener('blur', stop);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); });
+  container.addEventListener('toggle', event => { if (event.target instanceof HTMLDetailsElement && !event.target.open) stop(); }, true);
+
 }
 
 function prepareFlightViews(container, bdpResult, flightView, progressive = false) {
@@ -586,6 +659,9 @@ function prepareFlightViews(container, bdpResult, flightView, progressive = fals
     clearFlightViews(container);
     return false;
   }
+  const nextContext = flightView?.hudContext ?? null;
+  if (state.hudContext?.you !== nextContext?.you || state.hudContext?.aircraft?.some((a,i) => a.path !== nextContext?.aircraft?.[i]?.path)) state.stopHud?.();
+  state.hudContext = nextContext;
   state.progressive = progressive;
   state.timeSec = Number.isFinite(flightView?.timeSec) ? flightView.timeSec : null;
   installFlightControls(container, scope);
@@ -608,6 +684,7 @@ export function bdpFlightViewWindow(container) {
 function clearFlightViews(container) {
   const state = flightStates.get(container);
   if (state) {
+    state.hudContext = null;
     if (state.frame) cancelAnimationFrame(state.frame);
     Object.assign(state, { path: null, frame: 0, lastFrame: null, holding: false, progressDeg: 0 });
   }
