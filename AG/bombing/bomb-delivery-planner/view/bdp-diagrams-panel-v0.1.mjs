@@ -3,8 +3,8 @@ import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath } from "./bdp-flight-path-v0.1.mjs?v=0.1.5";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.19";
-import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.12";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.20";
+import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.13";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
 // Full BDP diagrams panel — BDP-owned presentation reused by every BE that embeds a BDP input tab
@@ -76,7 +76,9 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // moves the clock there (Play then runs from it). The host's dial keeps its own range; the marks follow its end.
   // 0.13.1: 3D 0.1.18 (bomb at the F-16 scale, no minimum size).
   // 0.13.2: 3D 0.1.19 (one screen winding for the merged aircraft faces: no unpainted wings).
-  version: "0.13.2",
+  // 0.13.3: 3D 0.1.20 (black bomb, no upper zoom limit); the 3D − / + buttons zoom by ×1.25 / ÷1.25 (from 100%:
+  // 125%, as before), so they keep working at any zoom.
+  version: "0.13.3",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -655,8 +657,8 @@ function installFlightControls(container, scope) {
     state.bankLineScale = Number.isFinite(value) && value >= 0 ? value : 1;
     draw3d(container, scope);
   });
-  const zoom3dBy = (step) => {
-    const zoomed = zoomAbout({ zoom: state.zoom3d, pan: state.pan3d }, (state.zoom3d + step) / state.zoom3d, W3 / 2, H3 / 2);
+  const zoom3dBy = (factor) => {
+    const zoomed = zoomAbout({ zoom: state.zoom3d, pan: state.pan3d }, factor, W3 / 2, H3 / 2);
     state.zoom3d = zoomed.zoom;
     state.pan3d = zoomed.pan;
     draw3d(container, scope);
@@ -668,8 +670,8 @@ function installFlightControls(container, scope) {
     state.pan3d = { x: 0, y: 0 };
     draw3d(container, scope);
   });
-  tool('[data-bdp-3d="zoom-in"]', () => zoom3dBy(ZOOM_STEP));
-  tool('[data-bdp-3d="zoom-out"]', () => zoom3dBy(-ZOOM_STEP));
+  tool('[data-bdp-3d="zoom-in"]', () => zoom3dBy(1 + ZOOM_STEP));
+  tool('[data-bdp-3d="zoom-out"]', () => zoom3dBy(1 / (1 + ZOOM_STEP)));
   tool('[data-bdp-3d="zoom-reset"]', () => { state.zoom3d = 1; state.pan3d = { x: 0, y: 0 }; draw3d(container, scope); });
   const hudZoomTo = (zoom) => { state.hudZoom = Math.min(HUD_ZOOM_LIMITS[1], Math.max(HUD_ZOOM_LIMITS[0], Math.round(zoom * 100) / 100)); drawHud(container, scope); };
   tool('[data-bdp-hud="zoom-in"]', () => hudZoomTo(state.hudZoom + ZOOM_STEP));

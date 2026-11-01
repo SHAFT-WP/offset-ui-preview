@@ -46,10 +46,12 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // 0.1.19 (2026-11-01, owner screenshot: the wings turned white in the POP-UP climb): every face goes into the merged
   // fill paths with the same screen winding. Two faces of one fill wound opposite ways (a wing's upper and lower
   // skins, lit alike when seen wings-level) cancelled under the nonzero rule and left the wing unpainted.
-  version: "0.1.19",
+  // 0.1.20 (2026-11-01, owner): the bomb at t is black (white edge kept); zoom in has no upper limit (zoomLimits
+  // [0.5, ∞]), so a 1× (real-size) aircraft can be enlarged on screen.
+  version: "0.1.20",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
-  zoomLimits: Object.freeze([0.5, 4]),
+  zoomLimits: Object.freeze([0.5, Infinity]),
   aircraftScaleOptions: Object.freeze([1, 5, 10, 20, 30, 50]),
   // Default eye: 60° from the Attack Heading toward the Roll-in side, 15° up (the dive seen nearly side on).
   defaultOrbit: Object.freeze({ fromAttackHeadingDeg: 60, elevationDeg: 15 }),
@@ -741,8 +743,8 @@ export function renderBdp3dView(svg, path, options = {}) {
     if (bombPoint) {
       const outline = bombOutline(path, tNow, bombNow, eye, meshScale, at, P);
       put(outline
-        ? svgNode("path", { d: outline, fill: "#4d5a2c", stroke: "#ffffff", "stroke-width": 0.6, "stroke-linejoin": "round", "data-3d-role": "bomb", "data-bomb-shape": "outline" })
-        : svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 4.5, fill: C.bomb, stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb" }));
+        ? svgNode("path", { d: outline, fill: "#000000", stroke: "#ffffff", "stroke-width": 0.6, "stroke-linejoin": "round", "data-3d-role": "bomb", "data-bomb-shape": "outline" })
+        : svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 4.5, fill: "#000000", stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb" }));
     }
     const flying = cockpit ? !!options.aircraft?.state : tNow !== null && tNow >= firstT - 1e-9;
     const state = fleet.length ? fleet.find(a => a.path === path)?.at(tNow) ?? null : flying ? (cockpit ? options.aircraft.state : flightStateAt(path, tNow)) : null;

@@ -1,6 +1,6 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
-import { bdpCanvasLayer, renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.19";
+import { bdpCanvasLayer, renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.20";
 
 // BDP HUD view v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.3 in SVG). A first-person
 // view from the aircraft of a BDP flight path at time t: an F-16-style HUD square of `hudSizeDeg` (default 14°,
@@ -25,7 +25,8 @@ export const BDP_HUD_VIEW_V0_1 = Object.freeze({
   // 0.1.10 (2026-11-01): the 3D scene 0.1.17 (bomb outline).
   // 0.1.11: the 3D scene 0.1.18.
   // 0.1.12: the 3D scene 0.1.19.
-  version: "0.1.12",
+  // 0.1.13: the 3D scene 0.1.20.
+  version: "0.1.13",
   fovLimitsDeg: Object.freeze([5, 150]),
   canvas: Object.freeze({ width: 720, height: 540 }),
   ladderStepDeg: 5,
