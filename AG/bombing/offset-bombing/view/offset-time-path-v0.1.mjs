@@ -20,7 +20,10 @@ export const OFFSET_TIME_PATH_V0_1 = Object.freeze({
   // 0.1.2 (2026-10-18, owner handoff §3.1): offsetApproachInBdpFrame — the flown path just before the Roll-in Point
   // (the approach leg, or the onset Offset Turn when the approach is short) in the BDP flight path frame, for the
   // BDP HUD's Roll-in −3 s start. Bank and G from the BE's turn samples (geometry 0.2.8). Display only.
-  version: "0.1.2",
+  // 0.1.3 (2026-11-01, owner: POP-UP 3D from IP): a POP-UP result (POP-UP Flight 0.1.2: timing.popupHoldDownSec /
+  // popupClimbSec and geometry.points.popPoint) flies its approach leg as the Hold-Down to the Pop Point, then the climb's
+  // ground track to Roll-in Start, in the POP-UP Flight's own times. Offset results are unchanged.
+  version: "0.1.3",
   phases: Object.freeze(["ingress", "turn", "approach", "roll-in", "tracking", "bomb"]),
 });
 
@@ -81,7 +84,13 @@ export function offsetTimeline(result) {
     legs.push(straightLeg("turn", points.realActionPoint, points.turnEnd, 0));
   }
 
-  legs.push(straightLeg("approach", points.turnEnd, points.rollStart, timing.approachSec));
+  const holdDownSec = timing.popupHoldDownSec;
+  const climbSec = timing.popupClimbSec;
+  if (finitePoint(points.popPoint) && Number.isFinite(holdDownSec) && Number.isFinite(climbSec)) {
+    legs.push(polylineLeg("approach", [points.turnEnd, points.popPoint, points.rollStart], [0, nonNegative(holdDownSec), nonNegative(holdDownSec) + nonNegative(climbSec)]));
+  } else {
+    legs.push(straightLeg("approach", points.turnEnd, points.rollStart, timing.approachSec));
+  }
 
   const rollSec = nonNegative(profile.rollInTimeSec);
   const samples = (geometry.rollInTrajectorySamples ?? []).filter(finitePoint);

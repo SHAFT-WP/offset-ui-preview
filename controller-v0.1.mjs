@@ -17,8 +17,8 @@ const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-fli
 // with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
 // climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
 const POPUP_MODE = document.body.classList.contains("popup-page");
-const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.1", import.meta.url);
-const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.1", import.meta.url);
+const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.2", import.meta.url);
+const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.2", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -47,7 +47,7 @@ import { BDP_TAB_KEYS, bdpTabMarkup } from "./shared/bdp-tab-v0.1.mjs?v=0.1.1";
 // controller only wires their toolbars, legend and titles.
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.10";
 import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.10";
-import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.2";
+import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.3";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // POP-UP Z-Diagram (POP-UP SPEC §13.8 / §13.8a; the POP-UP page only): a BE-owned view of the POP-UP Flight result.
 import { popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.0";
@@ -55,7 +55,7 @@ import { popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-appro
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.13.3";
 
-import { buildOffsetHudAircraft, offsetHudGridStep } from "./AG/bombing/offset-bombing/view/offset-hud-scene-v0.1.mjs?v=0.1.2";
+import { buildOffsetHudAircraft, offsetHudGridStep } from "./AG/bombing/offset-bombing/view/offset-hud-scene-v0.1.mjs?v=0.1.3";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -1011,7 +1011,20 @@ function renderLead(entry) {
 }
 
 // POP-UP results (#1): the BE's popup record of the Flight entry; nothing is computed here.
-const POPUP_DRIVER_TEXT = Object.freeze({ DEFAULT: "AUTO · Dive ≤ 15° → +5°, else +10°", ANGLE: "Popup Angle", GROUND_DISTANCE: "Ground Distance", EXPOSURE_TIME: "Exposure Time" });
+const POPUP_DRIVER_TEXT = Object.freeze({ DEFAULT: "AUTO · Dive ≤ 15° → +5°, else +10°", ANGLE: "Popup Angle (typed)", GROUND_DISTANCE: "Ground Distance (typed)", EXPOSURE_TIME: "Exposure Time (typed)", LEAD_POP_TIME: "Pop with #1 (angle solved)" });
+// The field each driver comes from (the other two are results).
+const POPUP_DRIVER_KEY = Object.freeze({ ANGLE: "popupAngleDeg", GROUND_DISTANCE: "popupGroundDistanceNm", EXPOSURE_TIME: "popupExposureTimeSec" });
+// Marks the three POP-UP fields "Driver" or "result" for the current driver (fields: key -> its inputs).
+function markPopupDriverFields(driverName, inputsOf) {
+  Object.values(POPUP_DRIVER_KEY).forEach((key) => inputsOf(key).forEach((input) => {
+    const unit = input.closest(".field")?.querySelector(".unit");
+    if (!unit) return;
+    unit.dataset.base ??= unit.textContent;
+    const driving = POPUP_DRIVER_KEY[driverName] === key;
+    unit.textContent = `${unit.dataset.base} · ${driving ? "DRIVER" : "result"}`;
+    input.closest(".field").classList.toggle("popup-driver-field", driving);
+  }));
+}
 const POPUP_EVENT_TEXT = Object.freeze({ POP: "Pop Point", PULL_UP_END: "Pull-up End", ROLL_IN_START: "Roll-in Start", PULL_DOWN: "Pull Down", APEX: "Apex", TRACK_POINT: "Track Point", RELEASE: "Release" });
 // keyed: #1's rows carry result keys (result-change states); a follower's are plain.
 function popupResultRows(p, { keyed = true } = {}) {
@@ -1029,6 +1042,9 @@ function popupResultRows(p, { keyed = true } = {}) {
     r("Ground Distance", `${Number.isFinite(p.groundDistanceNm) ? p.groundDistanceNm.toFixed(2) : "-"} NM`, "popupGroundDistanceNm", true),
     r("Exposure (Pop → Apex)", `${one(p.exposureTimeSec)} s`, "popupExposureTimeSec", true),
     r("Hold-Down", `${Number.isFinite(p.holdDownNm) ? p.holdDownNm.toFixed(2) : "-"} NM${Number.isFinite(p.holdDownSec) ? ` / ${one(p.holdDownSec)} s` : ""}`, "popupHoldDownNm", true),
+    // At the Pop Point (owner 2026-11-01): range and angle-off to the Target, and the time after IP.
+    r("Pop → Target", `${Number.isFinite(p.popToTargetNm) ? p.popToTargetNm.toFixed(2) : "-"} NM · Angle Off ${Number.isFinite(p.popAngleOffDeg) ? `${Math.abs(p.popAngleOffDeg).toFixed(0)}° ${p.popAngleOffDeg >= 0 ? "R" : "L"}` : "-"}`, "popupPopTarget", true),
+    r("Pop time", `IP +${one(p.popTimeSec)} s${Number.isFinite(p.leadPopSec) ? ` (#1 IP +${one(p.leadPopSec)} s)` : ""}`, "popupPopTime", true),
     r("Apex", `${ft(p.events?.find((e) => e.name === "APEX")?.altitudeMslFt)} · ${kt(p.apexKcas)}`, "popupApex", true),
     r("Roll-in Speed check", speedText, "popupSpeedCheck", true),
     r("Popup G", `${formatG(p.popupG)} G${p.climb?.pullUp && !p.climb.pullUp.reachesPopupG ? ` (peak ${formatG(p.climb.pullUp.peakG)} G)` : ""}`, "popupG"),
@@ -1042,6 +1058,7 @@ function renderPopup(entry) {
   if (body) body.innerHTML = p && Number.isFinite(p.groundDistanceNm) ? popupResultRows(truncateBeOutput(p)).join("") : "";
   const driverOut = $("#popup-driver-out");
   if (driverOut) driverOut.textContent = `DRIVER · ${POPUP_DRIVER_TEXT[popupDriver] ?? popupDriver}`;
+  markPopupDriverFields(popupDriver, (key) => fields(key));
   const out = $("#popup-min-exposure-out");
   const apply = $("#popup-min-apply");
   if (out) {
@@ -1070,11 +1087,13 @@ function installPopupControls() {
   });
   // #2–#4: the same three controls in each follower's POP-UP group.
   document.addEventListener("click", (event) => {
-    const button = event.target.closest?.("[data-popup-auto], [data-popup-min], [data-popup-min-apply]");
+    const button = event.target.closest?.("[data-popup-auto], [data-popup-lead], [data-popup-min], [data-popup-min-apply]");
     const number = Number(button?.closest(".flight-slot")?.dataset.aircraft);
     if (!button || !(number >= 2 && number <= 4)) return;
     if (button.hasAttribute("data-popup-auto")) {
       calculate({ aircraft: number, kind: "set", key: "popupDriver", value: "DEFAULT", commit: true });
+    } else if (button.hasAttribute("data-popup-lead")) {
+      calculate({ aircraft: number, kind: "set", key: "popupDriver", value: "LEAD_POP_TIME", commit: true });
     } else if (button.hasAttribute("data-popup-min")) {
       popupRequest = { minimumExposure: number };
       const out = button.closest(".flight-slot").querySelector("[data-popup-min-out]");
@@ -1624,6 +1643,8 @@ function popupBdpApproach(number) {
   return popupBdpApproaches.get(popup);
 }
 function threeDStartClockSec(number) {
+  // POP-UP (owner 2026-11-01): the 3D Play runs from the IP; every aircraft flies its path from its IP (POP-UP clock).
+  if (POPUP_MODE) return 0;
   const approach = popupBdpApproach(number);
   if (!approach) return hudStartClockSec(number);
   try {
@@ -1827,11 +1848,13 @@ function resetFollowerTab(number, tab, section = null) {
 // placeholder; the BE resolves it (AG SPEC "Flight entrypoint").
 // Target Elevation joined them on 2026-10-26 (owner 2026-10-25; Offset Flight 0.1.8): index only has its field.
 const FOLLOWER_BDP_EXTRA_KEYS = ["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg", "targetElevationMslFt"];
+// The driver line of every POP-UP group (owner 2026-11-01: what the driver is).
+const POPUP_DRIVER_NOTE = "Popup Angle · Ground Distance · Exposure Time 중 마지막에 입력한 값이 Driver (나머지 둘은 결과) · AUTO = 다이브 ≤15° +5°, 그 외 +10°";
 // POP-UP page (owner 2026-10-27): each follower's own POP-UP inputs (Offset tab, POP-UP group) and angle driver
 // (AUTO by default). A blank Popup G follows #1's, shown like the BDP extras.
 const POPUP_FOLLOWER_VALUE_KEYS = POPUP_MODE ? ["popupAngleDeg", "popupGroundDistanceNm", "popupExposureTimeSec", "popupG"] : [];
 const POPUP_FOLLOWER_PROFILE_KEYS = ["initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "diveAngleDeg", "releaseAltitudeMslFt"];
-const POPUP_DRIVERS = ["DEFAULT", "ANGLE", "GROUND_DISTANCE", "EXPOSURE_TIME"];
+const POPUP_DRIVERS = ["DEFAULT", "ANGLE", "GROUND_DISTANCE", "EXPOSURE_TIME", "LEAD_POP_TIME"];
 const followsLeadWhenBlank = (key) => FOLLOWER_BDP_EXTRA_KEYS.includes(key) || (POPUP_MODE && key === "popupG");
 // Follower selections stored as text: blank SEM End / SEM Turn follow the element lead; a blank Turn Direction is
 // this aircraft's own Roll-in side (owner 2026-10-19).
@@ -2058,13 +2081,13 @@ function followerCalculatingMarkup(number) {
   // index (handoff 2026-10-06 §4): the frequently edited profile sits with the Offset geometry; the
   // BDP tab is the shared BDP tab (owner composition 2026-10-25), whose BDP Profile and Roll-in Turn are copies of
   // the Offset tab's (one value). Standard keeps the earlier grouping. Same draft keys either way.
-  // POP-UP page: this aircraft's POP-UP inputs (same fields and controls as #1's group).
-  const popupGroup = !POPUP_MODE ? "" : `<details class="input-group-panel" open><summary class="input-group-title">POP-UP</summary><div class="driver"><span>마지막 입력한 값이 Driver · AUTO = 다이브 ≤15° +5°, 그 외 +10°</span><output data-popup-driver-out>DRIVER · AUTO</output></div><div class="input-grid">`
+  // POP-UP page: this aircraft's POP-UP inputs (same fields and controls as #1's group, plus Pop with #1).
+  const popupGroup = !POPUP_MODE ? "" : `<details class="input-group-panel" open><summary class="input-group-title">POP-UP</summary><div class="driver"><span>${POPUP_DRIVER_NOTE}</span><output data-popup-driver-out>DRIVER · AUTO</output></div><div class="input-grid">`
     + `<label class="field"><span>Popup Angle (deg)</span><input data-flight-field="popupAngleDeg" type="text" inputmode="decimal"><span class="unit">Climb angle · 0–55° (exclusive)</span></label>`
     + `<label class="field"><span>Ground Distance (NM)</span><input data-flight-field="popupGroundDistanceNm" type="text" inputmode="decimal"><span class="unit">Pop Point → Roll-in Start</span></label>`
     + `<label class="field"><span>Exposure Time (sec)</span><input data-flight-field="popupExposureTimeSec" type="text" inputmode="decimal"><span class="unit">Pop Point → Apex · MIL</span></label>`
     + `<label class="field"><span>Popup G (G)</span><input data-flight-field="popupG" type="text" inputmode="decimal"><span class="unit" data-follow-note></span></label>`
-    + `<div class="field"><span>Angle driver</span><button class="btn" type="button" data-popup-auto>AUTO</button><span class="unit">Automatic angle rule</span></div>`
+    + `<div class="field"><span>Driver</span><span class="compound"><button class="btn" type="button" data-popup-auto>AUTO</button><button class="btn" type="button" data-popup-lead aria-pressed="false">Pop with #1</button></span><span class="unit">AUTO: the angle rule · Pop with #1: #1's Pop time (angle solved)</span></div>`
     + `<div class="field"><span>Minimum exposure</span><span class="compound"><button class="btn" type="button" data-popup-min>Calculate</button><output class="readout" data-popup-min-out>-</output><button class="btn" type="button" data-popup-min-apply hidden>Apply</button></span><span class="unit">Popup angle with the shortest Pop → Apex</span></div>`
     + `</div></details>`;
   const inputSections = INDEX_LAYOUT ? [
@@ -2631,6 +2654,8 @@ function renderFollowerPopupControls(number, slot, entry) {
   const draft = flightDraft(number);
   const driverOut = slot.querySelector("[data-popup-driver-out]");
   if (driverOut) driverOut.textContent = `DRIVER · ${POPUP_DRIVER_TEXT[draft.popupDriver] ?? draft.popupDriver}`;
+  markPopupDriverFields(draft.popupDriver, (key) => followerFields(slot, key));
+  slot.querySelectorAll("[data-popup-lead]").forEach((button) => syncToggleButton(button, draft.popupDriver === "LEAD_POP_TIME", { activeClass: true }));
   const out = slot.querySelector("[data-popup-min-out]");
   if (out) renderPopupMinimumExposure(popupMinimumExposure.get(number), out, slot.querySelector("[data-popup-min-apply]"));
   const g = entry.popup?.popupG;

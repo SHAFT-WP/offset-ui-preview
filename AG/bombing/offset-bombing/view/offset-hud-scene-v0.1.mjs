@@ -1,9 +1,10 @@
-import { offsetTimeline, offsetApproachInBdpFrame } from './offset-time-path-v0.1.mjs?v=0.1.2';
+import { offsetTimeline, offsetApproachInBdpFrame } from './offset-time-path-v0.1.mjs?v=0.1.3';
 import { buildBdpFlightPath, flightStateAt } from '../../bomb-delivery-planner/view/bdp-flight-path-v0.1.mjs?v=0.1.5';
 import { tasToCas } from '../../../../common/airspeed/airspeed-v0.1.mjs';
 
 // Display adapter only: all aircraft share the existing IP clock and one target-elevation datum.
-export const OFFSET_HUD_SCENE_V0_1 = Object.freeze({ version: '0.1.2' });
+// 0.1.3: the time path 0.1.3 (POP-UP approach: Hold-Down, then the climb).
+export const OFFSET_HUD_SCENE_V0_1 = Object.freeze({ version: '0.1.3' });
 const FT = 6076.11549;
 export function offsetHudWorldPoint(p, origin, headingDeg, elevationDelta = 0, timeOffset = 0) {
   if (!p) return null;

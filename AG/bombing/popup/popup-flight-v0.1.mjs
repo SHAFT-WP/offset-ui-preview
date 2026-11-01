@@ -3,6 +3,8 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 import { OFFSET_FLIGHT_V0_1, calculateOffsetFlightFull, createOffsetFlightSession } from "../offset-bombing/offset-flight-v0.1.mjs";
 import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs";
 import { calculatePopupClimbFull } from "./popup-climb-v0.2.mjs";
+import { computeDropOrderDeltaFull } from "../offset-bombing/offset-formation-v0.1.mjs";
+import { dropOrderTiming } from "../../../flight/flight-bombing-tactics/flight-composition-v0.1.mjs";
 
 // POP-UP Flight v0.1 (owner 2026-10-27, POP-UP SPEC §13.1, step 3b): the Offset Flight (as is) with each aircraft's
 // Roll-in flown from its Popup angle at MIL (BDP v0.4.5 POP-UP option), and the POP-UP climb in front of it.
@@ -10,18 +12,24 @@ import { calculatePopupClimbFull } from "./popup-climb-v0.2.mjs";
 //   before Roll-in Start; Hold-Down = Approach Range − ground distance, which must be ≥ 0 (an error, never clipped).
 //   The Pop Point state is the Offset leg's: Offset Altitude and Offset Speed (§13.5).
 // Per aircraft (values / state of the Offset record; blank follows #1, then the defaults):
-//   state.popupDriver "DEFAULT" (automatic rule) | "ANGLE" | "GROUND_DISTANCE" | "EXPOSURE_TIME";
+//   state.popupDriver "DEFAULT" (automatic rule) | "ANGLE" | "GROUND_DISTANCE" | "EXPOSURE_TIME" | "LEAD_POP_TIME"
+//   (#2–#4: Pop at #1's Pop time; the ground distance for it is Approach Range − (#1's Pop time − this aircraft's
+//   Turn End time) × its Offset speed, and the angle is solved for that distance; #1 takes it as "DEFAULT");
 //   values.popupAngleDeg / popupGroundDistanceNm / popupExposureTimeSec (the driver's value); values.popupG (3 G).
 // The angle for a distance or a time is solved on the aircraft's BDP input from an Offset Flight at the previous
 // angle, repeated until the angle settles (the Offset solve moves the Roll-in a little with the angle).
 export const POPUP_FLIGHT_V0_1 = Object.freeze({
   id: "popup-flight-v0.1",
-  version: "0.1.1",
+  // 0.1.2 (owner 2026-11-01): the POP-UP clock — each result's timing has its Approach as the Hold-Down (level, Offset
+  // speed) then the climb, IP → Release and the drop-order timing follow it, and geometry.points.popPoint is set; the
+  // Pop Point's range and angle-off to the Target and its time after IP; the follower driver "LEAD_POP_TIME" (pop at
+  // #1's Pop time, the angle solved for it).
+  version: "0.1.2",
   status: "work",
   offsetFlight: `${OFFSET_FLIGHT_V0_1.id} ${OFFSET_FLIGHT_V0_1.version}`,
   popupBe: `${POPUP_BE_V0_2.id} ${POPUP_BE_V0_2.version}`,
   defaultPopupG: 3,
-  angleIterations: 4,
+  angleIterations: 8,
   angleSettleDeg: 0.01,
 });
 
@@ -67,7 +75,8 @@ function popupSettings(input, number, edited, cleared) {
   const valueOf = (record, n, key) => cleared[n]?.[key] ?? record.values?.[key];
   const sourceValue = (key) => valueOf(source, ownInputs ? number : "1", key);
   const pick = (key) => (blank(valueOf(own, number, key)) ? valueOf(lead, "1", key) : valueOf(own, number, key));
-  const driver = edited[number] ?? source.state?.popupDriver ?? (number === "1" ? undefined : edited["1"]) ?? "DEFAULT";
+  const asked = edited[number] ?? source.state?.popupDriver ?? (number === "1" ? undefined : edited["1"]) ?? "DEFAULT";
+  const driver = asked === "LEAD_POP_TIME" && (number === "1" || !ownInputs) ? "DEFAULT" : asked;
   return {
     driver,
     popupG: blank(pick("popupG")) ? POPUP_FLIGHT_V0_1.defaultPopupG : Number(pick("popupG")),
@@ -103,6 +112,16 @@ function popState(resolved) {
   return { popAltitudeMslFt: altitudeMslFt, popSpeedKcas: tasToCas(tasKt, altitudeMslFt) };
 }
 
+// Seconds after IP at the Pop Point at this angle: IP → Turn End on the Offset clock, then the Hold-Down at the
+// Offset speed (the Approach Range less the climb's ground distance).
+function popTimeAt(r, angleDeg, popupG) {
+  const bdp = r.profile;
+  const climb = calculatePopupClimbFull({ ...popState(r.resolved), rollInAltitudeMslFt: bdp.public.resolvedInitialAltitudeMslFt, popupAngleDeg: angleDeg, popupG, gOnsetRateGSec: bdp.canonicalInputs.gOnsetRateGSec });
+  const speed = approachSpeedNmSec(r);
+  return r.timing.ingressSec + r.timing.offsetTurnSec + (r.resolved.approachRangeNm - climb.groundDistanceNm) / speed;
+}
+const approachSpeedNmSec = (r) => r.resolved.offsetTasKt / 3600;
+
 function flownAircraft(output) {
   return Object.entries(output.aircraftResults).filter(([, r]) => r.result?.profile?.canonicalInputs && (r.status === "VALID" || r.status === "WARNING"));
 }
@@ -130,7 +149,8 @@ function popupFlight(input, offsetFlight) {
   const angleErrors = {};
   const solved = {};
   let output = offsetFlight(withAngles(input, angles));
-  const needsSolve = numbers.filter((n) => settings[n].driver === "GROUND_DISTANCE" || settings[n].driver === "EXPOSURE_TIME");
+  const needsSolve = numbers.filter((n) => ["GROUND_DISTANCE", "EXPOSURE_TIME", "LEAD_POP_TIME"].includes(settings[n].driver));
+  const leadPop = {};
   for (let iteration = 0; needsSolve.length && iteration < POPUP_FLIGHT_V0_1.angleIterations; iteration += 1) {
     let moved = false;
     for (const n of needsSolve) {
@@ -138,14 +158,25 @@ function popupFlight(input, offsetFlight) {
       if (!r?.result?.profile?.canonicalInputs) continue;
       const s = settings[n];
       try {
-        const p = normalizePopupInput({ bdp: bdpInputOf(r.result.profile), popup: { ...popState(r.result.resolved), popupG: s.popupG, driver: s.driver, groundDistanceNm: Number(s.groundDistanceNm), exposureTimeSec: Number(s.exposureTimeSec) } });
+        let groundDistanceNm = Number(s.groundDistanceNm);
+        if (s.driver === "LEAD_POP_TIME") {
+          const lead = output.aircraftResults[1]?.result;
+          if (!lead?.profile?.canonicalInputs) throw new Error("Pop with #1: #1 has no result");
+          const leadPopSec = popTimeAt(lead, angles["1"], settings["1"].popupG);
+          const turnEndSec = r.result.timing.ingressSec + r.result.timing.offsetTurnSec;
+          groundDistanceNm = r.result.resolved.approachRangeNm - (leadPopSec - turnEndSec) * approachSpeedNmSec(r.result);
+          leadPop[n] = { leadPopSec, groundDistanceNm };
+          if (!(groundDistanceNm > 0)) throw new RangeError(`Pop with #1: #1 pops at IP +${leadPopSec.toFixed(1)} s, after this aircraft's Roll-in Start would be reached (needed ground distance ${groundDistanceNm.toFixed(2)} NM)`);
+        }
+        const solveDriver = s.driver === "LEAD_POP_TIME" ? "GROUND_DISTANCE" : s.driver;
+        const p = normalizePopupInput({ bdp: bdpInputOf(r.result.profile), popup: { ...popState(r.result.resolved), popupG: s.popupG, driver: solveDriver, groundDistanceNm, exposureTimeSec: Number(s.exposureTimeSec) } });
         const resolved = resolvePopupAngle(p);
         solved[n] = resolved;
         delete angleErrors[n];
         if (Math.abs(resolved.angleDeg - angles[n]) > POPUP_FLIGHT_V0_1.angleSettleDeg) moved = true;
         angles[n] = resolved.angleDeg;
       } catch (error) {
-        angleErrors[n] = error.message;
+        angleErrors[n] = s.driver === "LEAD_POP_TIME" && !/^Pop with #1/.test(error.message) ? `Pop with #1: ${error.message}` : error.message;
       }
     }
     if (!moved) break;
@@ -190,10 +221,26 @@ function popupFlight(input, offsetFlight) {
     const rollStart = r.geometry.points.rollStart;
     const popPoint = { x: rollStart.x - climb.groundDistanceNm * Math.sin(heading), y: rollStart.y - climb.groundDistanceNm * Math.cos(heading) };
     // Timing: the Offset clock with its Approach replaced by the Hold-Down (Offset ground speed) and the climb.
-    const approachGroundSpeedNmSec = r.timing.approachSec > 0 ? approachRangeNm / r.timing.approachSec : null;
-    const holdDownSec = approachGroundSpeedNmSec ? Math.max(0, holdDownNm) / approachGroundSpeedNmSec : null;
+    const holdDownSec = Math.max(0, holdDownNm) / approachSpeedNmSec(r);
+    const popTimeSec = r.timing.ingressSec + r.timing.offsetTurnSec + holdDownSec;
+    // At the Pop Point (heading = the Approaching Heading): range to the Target and the angle-off, the Target's
+    // bearing from the Pop Point relative to the heading (right +).
+    const target = r.geometry.points.target;
+    const popToTargetNm = Math.hypot(target.x - popPoint.x, target.y - popPoint.y);
+    let popAngleOffDeg = (Math.atan2(target.x - popPoint.x, target.y - popPoint.y) / DEG) - r.geometry.offsetHeadingDeg;
+    popAngleOffDeg -= 360 * Math.round(popAngleOffDeg / 360);
+    if (leadPop[n]) {
+      const offSec = popTimeSec - leadPop[n].leadPopSec;
+      if (Math.abs(offSec) > 0.05) warnings.push(`Pop with #1: ${Math.abs(offSec).toFixed(1)} s ${offSec > 0 ? "after" : "before"} #1's Pop`);
+    }
+    // The POP-UP clock (0.1.2): the Approach is the Hold-Down then the climb; IP → Release follows it.
+    const climbSec = climb.climbTimeSec;
+    const approachSec = holdDownSec + climbSec;
+    const timing = { ...r.timing, offsetApproachLevelSec: r.timing.approachSec, popupHoldDownSec: holdDownSec, popupClimbSec: climbSec, popupPopSec: popTimeSec,
+      approachSec, offsetIpToReleaseSec: r.timing.offsetIpToReleaseSec - r.timing.approachSec + approachSec };
+    const popupResult = { ...r, timing, geometry: { ...r.geometry, points: { ...r.geometry.points, popPoint } } };
     const { status, errors: attackErrors, warnings: attackWarnings, bdp: _bdp, ...popup } = attack;
-    aircraftResults[n] = merge({ ...popup, popPoint, approachRangeNm, holdDownNm, holdDownSec }, errors, warnings);
+    aircraftResults[n] = { ...merge({ ...popup, popPoint, approachRangeNm, holdDownNm, holdDownSec, popTimeSec, popToTargetNm, popAngleOffDeg, ...(leadPop[n] ? { leadPopSec: leadPop[n].leadPopSec } : {}) }, errors, warnings), result: popupResult };
   }
   // Written back for the page: each aircraft's flown angle and the two results of its driver.
   const nextInput = structuredClone(output.nextInput ?? input);
@@ -208,7 +255,9 @@ function popupFlight(input, offsetFlight) {
     if (Number.isFinite(a.exposureTimeSec)) values.popupExposureTimeSec = a.exposureTimeSec;
     nextInput.aircraft[n].state = { ...nextInput.aircraft[n].state, popupDriver: settings[n].driver };
   }
-  const result = { ...output, model: { ...POPUP_FLIGHT_V0_1, offsetModel: output.model }, aircraftResults, nextInput };
+  // Drop-order timing on the POP-UP clock.
+  const flightTiming = dropOrderTiming(output.flightSize, aircraftResults, computeDropOrderDeltaFull);
+  const result = { ...output, model: { ...POPUP_FLIGHT_V0_1, offsetModel: output.model }, aircraftResults, flightTiming, nextInput };
   // The page's on-demand request: the minimum-exposure angle of one aircraft (an Apply result, §13.5).
   const requested = input.popupRequest?.minimumExposure;
   if (requested !== undefined && requested !== null) {
