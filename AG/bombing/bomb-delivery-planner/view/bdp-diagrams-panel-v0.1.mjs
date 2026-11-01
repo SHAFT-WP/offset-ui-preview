@@ -3,8 +3,8 @@ import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath } from "./bdp-flight-path-v0.1.mjs?v=0.1.5";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.14";
-import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.7";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.16";
+import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.9";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
 // Full BDP diagrams panel — BDP-owned presentation reused by every BE that embeds a BDP input tab
@@ -71,7 +71,7 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.11.5 (2026-10-29): 3D Profile 0.1.10, approved F-16 polygon aircraft.
   // 0.11.6 (2026-10-29): per-panel Aircraft size selector, Auto or 1–50× actual dimensions; camera zoom independent.
   // 0.11.7 (2026-10-29): HUD 0.1.6 overlays the shared 3D scene in its cockpit camera.
-  version: "0.12.2",
+  version: "0.12.4",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -158,6 +158,16 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
 
 // One toolbar per panel svg, installed on its first render; each redraw draws the panel's latest
 // arguments at the panel's own Text scale.
+
+// 0.12.3 (Play speed): Play redraws these panels every frame; a control or data attribute is written only when its
+// value changes, so an unchanged frame does not invalidate the page's style.
+const setAttr = (el, name, value) => { if (el && el.getAttribute(name) !== value) el.setAttribute(name, value); };
+const setText = (el, value) => { if (el && el.textContent !== value) el.textContent = value; };
+const setValue = (el, value) => { if (el && el.value !== value) el.value = value; };
+const setHidden = (el, value) => { if (el && el.hidden !== value) el.hidden = value; };
+const setDisabled = (el, value) => { if (el && el.disabled !== value) el.disabled = value; };
+const setData = (el, name, value) => { const text = String(value); if (el.dataset[name] !== text) el.dataset[name] = text; };
+
 const panelControls = new WeakMap();
 function panelView(container, kind, draw) {
   const panel = container.querySelector(`[data-bdp-diagram="${kind}"]`);
@@ -335,8 +345,12 @@ export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraf
     const drawnTop = drawnTopViews.get(container);
     if (hasFlight && container.dataset.bdpDiagramsState === "rendered" && !renderQueue.has(container)
       && flightStates.get(container).path === previousPath && drawnTop?.result === bdpResult && drawnTop.key === topKey) {
-      draw3d(container, scope);
-      drawHud(container, scope);
+      // 0.12.3 (Play speed): a Play frame (flightView.playing) draws only the 3D Profile / HUD that is on screen; one
+      // scrolled away is drawn when it comes back into view (a phone shows one of them at a time). A set clock draws both.
+      // A test page that renders off screen (the FE oracles) sets globalThis.BDP_DRAW_OFFSCREEN to draw every frame.
+      const draw = flightView?.playing && globalThis.BDP_DRAW_OFFSCREEN !== true ? drawIfOnScreen : (c, kind, run) => run();
+      draw(container, "3d", () => draw3d(container, scope));
+      draw(container, "hud", () => drawHud(container, scope));
       return true;
     }
     container.dataset.bdpDiagramsState = "profile-ready";
@@ -358,6 +372,28 @@ export function renderBdpDiagrams(container, bdpResult, { scope = "bdp", aircraf
   renderFlightViews(container, bdpResult, flightView);
   container.dataset.bdpDiagramsState = "rendered";
   return true;
+}
+
+// Which flight-view canvases are in the viewport (IntersectionObserver; unknown counts as on screen). A canvas that
+// missed clock steps while away is drawn once when it returns.
+const onScreen = new WeakMap();
+const missed = new WeakMap();
+let screenObserver = null;
+function drawIfOnScreen(container, kind, draw) {
+  const svg = container.querySelector(`[data-bdp-diagram="${kind}"] svg`);
+  if (!svg) return;
+  if (typeof IntersectionObserver === "function" && !onScreen.has(svg)) {
+    screenObserver ??= new IntersectionObserver((entries) => entries.forEach((entry) => {
+      onScreen.set(entry.target, entry.isIntersecting);
+      const later = missed.get(entry.target);
+      if (entry.isIntersecting && later) { missed.delete(entry.target); later(); }
+    }));
+    onScreen.set(svg, true);
+    screenObserver.observe(svg);
+  }
+  if (onScreen.get(svg) === false) { missed.set(svg, draw); return; }
+  missed.delete(svg);
+  draw();
 }
 
 // 3D Profile and HUD View state of one container: the flight path, its clock, the orbit and the padlock.
@@ -414,29 +450,29 @@ function draw3dFrame(container, scope) {
   if (select) {
     const key = entries.map(a => a.number).join(',');
     if (select.dataset.options !== key) { select.innerHTML = '<option value="all">All</option>' + entries.map(a => `<option value="${a.number}">#${a.number}</option>`).join(''); select.dataset.options = key; }
-    select.value = state.fleetChoice;
-    container.querySelector('[data-bdp-fleet-label]').hidden = !entries.length;
+    setValue(select, state.fleetChoice);
+    setHidden(container.querySelector('[data-bdp-fleet-label]'), !entries.length);
   }
   const fleet = entries.filter(a => state.fleetChoice === "all" || String(a.number) === state.fleetChoice);
   const path = fleet.find(a => a.number === context.you)?.path ?? fleet[0]?.path ?? state.path;
   state.viewPath = path;
   const clock = fleet.length ? context.threeDClockSec ?? context.clockSec : state.timeSec;
   const note = container.querySelector('[data-bdp-fleet-status]');
-  if (note) note.textContent = fleet.flatMap(a => [a.warning, !a.at(clock) ? `#${a.number}: ${a.unavailableReason}` : '']).filter(Boolean).join(' · ');
+  setText(note, fleet.flatMap(a => [a.warning, !a.at(clock) ? `#${a.number}: ${a.unavailableReason}` : '']).filter(Boolean).join(' · '));
   // Heights are true (0.10.0: no altitude stretch, whatever an older state held).
   const options = { orbit: state.orbit ?? undefined, zoom: state.zoom3d, aircraftScale: state.aircraftScale, pan: state.pan3d, panHint: state.panHint, timeSec: clock, scope: `${scope}-3d`, ...(fleet.length ? { fleet } : {}) };
   const draw = () => renderBdp3dView(svg, path, options);
   const rendered = state.progressive && !fleet.length ? viewCache.draw(svg, path, JSON.stringify(options), draw) : draw();
-  svg.dataset.aircraftSelection = state.fleetChoice;
-  svg.dataset.timeSec = String(clock ?? '');
-  svg.dataset.orbit = `${Math.round(rendered.orbit.azimuthDeg)}/${Math.round(rendered.orbit.elevationDeg)}`;
-  svg.dataset.zoom = String(Math.round(rendered.zoom * 100));
-  svg.dataset.pan = `${Math.round(rendered.pan.x)}/${Math.round(rendered.pan.y)}`;
-  svg.dataset.aircraftScale = String(rendered.aircraftScale);
+  setData(svg, 'aircraftSelection', state.fleetChoice);
+  setData(svg, 'timeSec', String(clock ?? ''));
+  setData(svg, 'orbit', `${Math.round(rendered.orbit.azimuthDeg)}/${Math.round(rendered.orbit.elevationDeg)}`);
+  setData(svg, 'zoom', String(Math.round(rendered.zoom * 100)));
+  setData(svg, 'pan', `${Math.round(rendered.pan.x)}/${Math.round(rendered.pan.y)}`);
+  setData(svg, 'aircraftScale', String(rendered.aircraftScale));
   const autoScale = container.querySelector('[data-bdp-3d="aircraft-scale"] option[value="auto"]');
-  if (autoScale) autoScale.textContent = state.aircraftScale === null ? `Auto (${rendered.aircraftScale.toFixed(1)}×)` : "Auto";
+  setText(autoScale, state.aircraftScale === null ? `Auto (${rendered.aircraftScale.toFixed(1)}×)` : "Auto");
   const output = container.querySelector('[data-bdp-3d="zoom-reset"]');
-  if (output) output.textContent = `${Math.round(rendered.zoom * 100)}%`;
+  setText(output, `${Math.round(rendered.zoom * 100)}%`);
   showLegend(container, "3d", rendered.legend, rendered.legendColumns, rendered.legendNotes);
 }
 
@@ -457,17 +493,17 @@ function hudFrame(container) {
   const time = Number.isFinite(context.clockSec) ? context.clockSec : context.defaultTimeSec ?? 0;
   const pose = observer?.at(time), otherPose = other?.at(time);
   const tab = name => container.querySelector(`[data-hud-observer="${name}"]`);
-  if (tab("you")) tab("you").textContent = `You #${context.you}`;
-  if (tab("wingman")) { tab("wingman").textContent = wm ? `Wingman #${wm.number}` : "Wingman"; tab("wingman").disabled = !wm; }
+  setText(tab("you"), `You #${context.you}`);
+  setText(tab("wingman"), wm ? `Wingman #${wm.number}` : "Wingman"); setDisabled(tab("wingman"), !wm);
   const select = container.querySelector('[data-hud-pair]');
   if (select) {
     const key = others.map(a => a.number).join(',');
     if (select.dataset.options !== key) { select.innerHTML = others.map(a => `<option value="${a.number}">#${a.number}</option>`).join(''); select.dataset.options = key; }
-    select.value = String(state.pair);
-    container.querySelector('[data-hud-pair-label]').hidden = others.length < 2;
+    setValue(select, String(state.pair));
+    setHidden(container.querySelector('[data-hud-pair-label]'), others.length < 2);
   }
   const note = container.querySelector('[data-hud-availability]');
-  if (note) note.textContent = [observer?.warning, other?.warning, !pose ? observer?.unavailableReason ?? 'No current flight path' : !wm ? 'No available wingman' : !otherPose ? `Wingman: ${other?.unavailableReason ?? 'Outside flight window'}` : ''].filter(Boolean).join(' · ');
+  setText(note, [observer?.warning, other?.warning, !pose ? observer?.unavailableReason ?? 'No current flight path' : !wm ? 'No available wingman' : !otherPose ? `Wingman: ${other?.unavailableReason ?? 'Outside flight window'}` : ''].filter(Boolean).join(' · '));
   return { path: observer?.path, state: pose, unavailable: !pose, number: observer?.number, timeSec: time,
     gridStepFt: context.gridStepFt, otherAircraft: otherPose ? { number: other.number, state: otherPose } : null };
 }
@@ -478,33 +514,34 @@ function drawHud(container, scope) {
 function drawHudFrame(container, scope) {
   const svg = container.querySelector('[data-bdp-diagram="hud"] svg.bdp-hud-svg');
   const state = flightState(container);
-  if (!svg || !svg.getClientRects().length) return;
+  // On screen (IntersectionObserver) means displayed: no forced layout for the check then.
+  if (!svg || (onScreen.get(svg) !== true && !svg.getClientRects().length)) return;
   const frame = hudFrame(container);
-  container.querySelectorAll('[data-hud-observer]').forEach(b => { b.setAttribute('aria-selected', String(b.dataset.hudObserver === state.observer)); b.setAttribute('aria-pressed', String(b.dataset.hudObserver === state.observer)); });
+  container.querySelectorAll('[data-hud-observer]').forEach(b => { setAttr(b, 'aria-selected', String(b.dataset.hudObserver === state.observer)); setAttr(b, 'aria-pressed', String(b.dataset.hudObserver === state.observer)); });
   const wmButton = container.querySelector('[data-hud-lock="WM"]');
   const separation = frame.otherAircraft && frame.state ? Math.hypot(frame.otherAircraft.state.x-frame.state.x, frame.otherAircraft.state.y-frame.state.y, frame.otherAircraft.state.z-frame.state.z) : 0;
-  if (wmButton) wmButton.disabled = !frame.path || frame.unavailable || separation < 1e-6;
+  setDisabled(wmButton, !frame.path || frame.unavailable || separation < 1e-6);
   const tgtButton = container.querySelector('[data-hud-lock="TGT"]');
-  if (tgtButton) tgtButton.disabled = !frame.path || frame.unavailable;
+  setDisabled(tgtButton, !frame.path || frame.unavailable);
   if (frame.unavailable || !frame.path || (state.lockTarget === 'WM' && wmButton?.disabled)) { state.holding = false; state.progressDeg = 0; state.lockOwner = null; }
-  container.querySelectorAll('[data-hud-lock]').forEach(b => b.setAttribute('aria-pressed', String(state.holding && b.dataset.hudLock === state.lockTarget)));
-  if (!frame.path || frame.unavailable) { svg.replaceChildren(); svg.dataset.available = 'false'; return; }
-  svg.dataset.available = 'true';
-  svg.dataset.observer = String(frame.number ?? 'you');
+  container.querySelectorAll('[data-hud-lock]').forEach(b => setAttr(b, 'aria-pressed', String(state.holding && b.dataset.hudLock === state.lockTarget)));
+  if (!frame.path || frame.unavailable) { svg.replaceChildren(); setData(svg, 'available', 'false'); return; }
+  setData(svg, 'available', 'true');
+  setData(svg, 'observer', String(frame.number ?? 'you'));
   const options = { ...hudOptions(container), ...frame, gazeProgressDeg: state.holding ? state.progressDeg : 0, scope: `${scope}-hud`, padlockTarget: state.lockTarget,
     lookAt: state.lockTarget === 'WM' ? frame.otherAircraft?.state : undefined };
   const key = JSON.stringify({ ...hudOptions(container), state: frame.state, timeSec: frame.timeSec, gridStepFt: frame.gridStepFt,
     otherAircraft: frame.otherAircraft, gazeProgressDeg: options.gazeProgressDeg, padlockTarget: state.lockTarget });
   const rendered = viewCache.draw(svg, frame.path, key, () => renderBdpHudView(svg, frame.path, options));
   state.progressDeg = rendered.progressDeg;
-  svg.dataset.fovDeg = rendered.fovDeg.toFixed(2);
-  svg.dataset.zoom = String(Math.round((state.hudZoom || 1) * 100));
+  setData(svg, 'fovDeg', rendered.fovDeg.toFixed(2));
+  setData(svg, 'zoom', String(Math.round((state.hudZoom || 1) * 100)));
   const output = container.querySelector('[data-bdp-hud="zoom-reset"]');
-  if (output) output.textContent = `${Math.round((state.hudZoom || 1) * 100)}%`;
-  svg.dataset.padlockDeg = rendered.progressDeg.toFixed(1);
-  svg.dataset.padlockTotalDeg = rendered.totalDeg.toFixed(1);
-  svg.dataset.padlockLocked = String(rendered.locked);
-  svg.dataset.timeSec = String(frame.timeSec);
+  setText(output, `${Math.round((state.hudZoom || 1) * 100)}%`);
+  setData(svg, 'padlockDeg', rendered.progressDeg.toFixed(1));
+  setData(svg, 'padlockTotalDeg', rendered.totalDeg.toFixed(1));
+  setData(svg, 'padlockLocked', String(rendered.locked));
+  setData(svg, 'timeSec', String(frame.timeSec));
 }
 
 // The HUD's time: the clock's, else its start, Roll-in −3 s (owner handoff §3.1).
@@ -688,7 +725,11 @@ function prepareFlightViews(container, bdpResult, flightView, progressive = fals
   const scope = container.dataset.bdpScope || "bdp";
   const state = flightState(container);
   const pathOptions = { rollDirection: flightView?.rollDirection, approach: flightView?.approach ?? null, startSec: flightView?.startSec };
-  const pathKey = JSON.stringify(pathOptions);
+  // 0.12.3 (Play speed): the same approach array as last time is not stringified again (hundreds of points a frame).
+  const sameApproach = state.pathOptions && state.pathOptions.approach === pathOptions.approach
+    && state.pathOptions.rollDirection === pathOptions.rollDirection && state.pathOptions.startSec === pathOptions.startSec;
+  const pathKey = sameApproach ? state.pathKey : JSON.stringify(pathOptions);
+  state.pathOptions = pathOptions;
   try {
     if (!progressive || !state.path || state.result !== bdpResult || state.pathKey !== pathKey) {
       state.path = buildBdpFlightPath(bdpResult, pathOptions);

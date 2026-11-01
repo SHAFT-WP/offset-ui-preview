@@ -22,11 +22,11 @@ import { saveSvgAsPng } from "../common/diagram/svg-png-export-v0.1.mjs";
 import { svgNode } from "../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { installSvgViewport } from "../common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { installSmartLabelDrag } from "../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
-import { createTimePlayer, timeDialMarkup } from "../common/ui/time-dial-v0.1.mjs?v=0.1.0";
+import { createTimePlayer, timeDialMarkup } from "../common/ui/time-dial-v0.1.mjs?v=0.1.1";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec } from "../common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { WHEEL_ATTACK_TOP_VIEW_V0_1, renderWheelAttackTopView, wheelAttackTopViewTitle } from "../AG/bombing/wheel-attack/view/wheel-attack-top-view-v0.1.mjs?v=0.1.0";
 import { renderWheelAttackZDiagramV0_1, wheelAttackZDiagramTitle } from "../AG/bombing/wheel-attack/view/wheel-attack-z-diagram-v0.1.mjs?v=0.1.0";
-import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.12.2";
+import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.12.4";
 
 // 0.1.0 (2026-10-27, owner): #1–#4 fly #1's BDP and Wheel data; #2–#4 take their slots on the Wheel in the attack order
 // (no Formation position); the Angle-Off and the Wheel Radius are the BE's (shown solved, never typed).

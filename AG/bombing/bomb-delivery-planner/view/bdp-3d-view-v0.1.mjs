@@ -38,7 +38,7 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // 0.1.10 (2026-10-29, owner): approved F-16 polygon mesh, uniformly scaled; heading/FPA/bank from the path.
   // 0.1.11 (2026-10-29, owner): aircraft size Auto or a multiple of the real dimensions, independent of view zoom.
   // 0.1.12 (2026-10-29, owner): the HUD overlays this scene through its own first-person camera.
-  version: "0.1.14",
+  version: "0.1.16",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
@@ -244,6 +244,146 @@ function hull(points) {
 }
 
 // The drawn scene of an SVG (0.1.8): its path, view key and the time-layer redraw.
+
+// 0.1.16 (Play speed): the F-16 mesh as flat arrays, built once: vertex xyz, each face's first vertex, its colour.
+const MESH = (() => {
+  const faces = aircraftMesh.faces;
+  const start = new Int32Array(faces.length + 1);
+  let n = 0;
+  faces.forEach((face, i) => { start[i] = n; n += face.vertices.length; });
+  start[faces.length] = n;
+  const xyz = new Float64Array(n * 3);
+  faces.forEach((face, i) => face.vertices.forEach((p, k) => xyz.set(p, (start[i] + k) * 3)));
+  return { start, xyz, colors: faces.map((face) => face.color), count: faces.length, vertexCount: n };
+})();
+
+// One aircraft's faces on the screen for the external camera: the same shading and painter depth as the SVG faces
+// (two-sided, lit from aircraftLight, shade in 0.05 steps), faces under 0.2 px² or behind the eye left out.
+const MESH_LIGHT = norm([-0.25, 0.35, 0.91]);
+function projectMesh(q, r, v, u, meshScale, eye, cameraForward, toScreen) {
+  const { start, xyz, colors, count, vertexCount } = MESH;
+  const wx = new Float64Array(vertexCount * 3), sx = new Float64Array(vertexCount), sy = new Float64Array(vertexCount), ok = new Uint8Array(vertexCount);
+  for (let k = 0; k < vertexCount; k++) {
+    const x = xyz[3 * k] * meshScale, y = xyz[3 * k + 1] * meshScale, z = xyz[3 * k + 2] * meshScale;
+    const X = q[0] + r[0] * x + v[0] * y + u[0] * z, Y = q[1] + r[1] * x + v[1] * y + u[1] * z, Z = q[2] + r[2] * x + v[2] * y + u[2] * z;
+    wx[3 * k] = X; wx[3 * k + 1] = Y; wx[3 * k + 2] = Z;
+    const screen = toScreen.length === 3 ? toScreen(X, Y, Z) : toScreen([X, Y, Z]);
+    if (screen) { sx[k] = screen.x; sy[k] = screen.y; ok[k] = 1; }
+  }
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const a = start[i], b = start[i + 1];
+    let visible = true, area = 0, mx = 0, my = 0, mz = 0;
+    for (let k = a; k < b; k++) {
+      if (!ok[k]) { visible = false; break; }
+      const k2 = k + 1 < b ? k + 1 : a;
+      area += sx[k] * sy[k2] - sx[k2] * sy[k];
+      mx += wx[3 * k]; my += wx[3 * k + 1]; mz += wx[3 * k + 2];
+    }
+    if (!visible || Math.abs(area) / 2 < 0.2) continue;
+    const m = b - a; mx /= m; my /= m; mz /= m;
+    const e1 = [wx[3 * (a + 1)] - wx[3 * a], wx[3 * (a + 1) + 1] - wx[3 * a + 1], wx[3 * (a + 1) + 2] - wx[3 * a + 2]];
+    const e2 = [wx[3 * (a + 2)] - wx[3 * a], wx[3 * (a + 2) + 1] - wx[3 * a + 1], wx[3 * (a + 2) + 2] - wx[3 * a + 2]];
+    let normal = norm([e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]);
+    if (dot(normal, [eye[0] - mx, eye[1] - my, eye[2] - mz]) < 0) normal = normal.map((n) => -n);
+    const shade = Math.round((0.72 + 0.35 * Math.max(0, dot(normal, MESH_LIGHT))) * 20) / 20;
+    const fill = `rgb(${colors[i].map((c) => Math.min(255, Math.round(c * shade))).join(",")})`;
+    const points = [];
+    for (let k = a; k < b; k++) points.push(sx[k], sy[k]);
+    out.push({ points, fill, depth: (mx - eye[0]) * cameraForward[0] + (my - eye[1]) * cameraForward[1] + (mz - eye[2]) * cameraForward[2] });
+  }
+  return out;
+}
+
+// 0.1.16: a canvas inside a foreignObject covering the view box, so it scales and is removed with the SVG. Its
+// pixels follow the SVG's on-screen width (ResizeObserver) times the device pixel ratio.
+const svgCssWidth = new WeakMap();
+let svgResize = null;
+function canvasScale(svg, W) {
+  if (typeof ResizeObserver === "function" && svg?.isConnected && !svgCssWidth.has(svg)) {
+    svgResize ??= new ResizeObserver((entries) => entries.forEach((entry) => { if (entry.contentRect.width > 0) svgCssWidth.set(entry.target, entry.contentRect.width); }));
+    svgCssWidth.set(svg, svg.getBoundingClientRect().width); // first draw: measure once, then the observer keeps it
+    svgResize.observe(svg);
+  }
+  const cssWidth = svgCssWidth.get(svg) || W;
+  return Math.min(4, Math.max(1, (globalThis.devicePixelRatio || 1) * cssWidth / W));
+}
+// keep: one layer per SVG, re-attached on each full redraw (a new canvas and context every frame is slow).
+const keptLayers = new WeakMap();
+// under: the canvas is an HTML sibling just before the SVG, filling the SVG's box beneath it (the SVG is drawn on top
+// with a transparent background); it stays in the page while the SVG is rebuilt. Else it sits in a foreignObject.
+export function bdpCanvasLayer(sizeSvg, W, H, attrs = {}, { keep = false, under = false } = {}) {
+  const kept = keep ? keptLayers.get(sizeSvg) : null;
+  if (kept && kept.W === W && kept.H === H && (!under || kept.canvas.isConnected)) return kept;
+  const host = under ? sizeSvg.parentElement : null;
+  const foreign = host ? null : svgNode("foreignObject", { x: 0, y: 0, width: W, height: H, "pointer-events": "none", ...attrs });
+  const canvas = document.createElementNS("http://www.w3.org/1999/xhtml", "canvas");
+  if (host) {
+    if (getComputedStyle(host).position === "static") host.style.position = "relative";
+    // SVG elements have no offset* metrics: the canvas fills the host, which holds only this SVG.
+    sizeSvg.style.position = "relative";
+    sizeSvg.style.background = "transparent";
+    canvas.setAttribute("style", "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none");
+    Object.entries(attrs).forEach(([key, value]) => canvas.setAttribute(key, value));
+    host.insertBefore(canvas, sizeSvg);
+  } else foreign.append(canvas);
+  if (!host) canvas.setAttribute("style", "display:block;width:100%;height:100%;pointer-events:none");
+  const layer = { foreign, canvas, ctx: canvas.getContext("2d"), k: 0,
+    // Clear and size the canvas for the SVG's current on-screen width; drawing is in view-box units.
+    begin() {
+      const k = canvasScale(sizeSvg, W);
+      const width = Math.round(W * k), height = Math.round(H * k);
+      if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+      layer.k = k;
+      layer.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      layer.ctx.clearRect(0, 0, width, height);
+      layer.ctx.setTransform(k, 0, 0, k, 0, 0);
+      return layer.ctx;
+    }, W, H };
+  if (keep) keptLayers.set(sizeSvg, layer);
+  return layer;
+}
+// Painter order (far first); consecutive faces of one fill are filled as one path.
+function paintFaces(ctx, faces) {
+  faces.sort((a, b) => b.depth - a.depth);
+  let fill = null;
+  for (const face of faces) {
+    if (face.fill !== fill) { if (fill) ctx.fill(); fill = face.fill; ctx.fillStyle = fill; ctx.beginPath(); }
+    const p = face.points;
+    ctx.moveTo(p[0], p[1]);
+    for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]);
+    ctx.closePath();
+  }
+  if (fill) ctx.fill();
+}
+// An SVG stroke's attributes on a canvas path already built.
+function strokeLike(ctx, attrs) {
+  ctx.strokeStyle = attrs.stroke ?? "#000";
+  ctx.lineWidth = Number(attrs["stroke-width"] ?? 1);
+  ctx.globalAlpha = Number(attrs["stroke-opacity"] ?? 1);
+  ctx.setLineDash(attrs["stroke-dasharray"] ? String(attrs["stroke-dasharray"]).split(/[ ,]+/).map(Number) : []);
+  ctx.lineCap = attrs["stroke-linecap"] ?? "butt";
+  ctx.lineJoin = attrs["stroke-linejoin"] ?? "miter";
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+const groundExtents = new WeakMap();
+function groundExtent(path, extraAircraft, ground) {
+  const key = extraAircraft.map((a) => scenePathId(a.path)).join();
+  const kept = groundExtents.get(path);
+  if (kept?.key === key) return kept.extent;
+  const extent = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, maxZ: -Infinity };
+  for (const p of ground()) {
+    if (p.x < extent.minX) extent.minX = p.x;
+    if (p.x > extent.maxX) extent.maxX = p.x;
+    if (p.y < extent.minY) extent.minY = p.y;
+    if (p.y > extent.maxY) extent.maxY = p.y;
+    if (p.z > extent.maxZ) extent.maxZ = p.z;
+  }
+  groundExtents.set(path, { key, extent });
+  return extent;
+}
 const drawnScenes = new WeakMap();
 const scenePathIds = new WeakMap();
 let nextScenePathId = 0;
@@ -257,7 +397,8 @@ export function renderBdp3dView(svg, path, options = {}) {
   const fleet = options.camera ? [] : options.fleet ?? [];
   const t = Number.isFinite(options.timeSec) ? (fleet.length ? options.timeSec : Math.min(options.timeSec, path.endT)) : null;
   const cockpit = !!options.camera;
-  const viewKey = JSON.stringify({ ...options, fleet: fleet.map(a => [a.number, scenePathId(a.path)]), timeSec: null });
+  // The cockpit (HUD) redraws its whole picture every frame and never reuses a scene: no key.
+  const viewKey = cockpit ? null : JSON.stringify({ ...options, fleet: fleet.map(a => [a.number, scenePathId(a.path)]), timeSec: null });
   const scene = drawnScenes.get(svg);
   if (!cockpit && scene && scene.path === path && scene.viewKey === viewKey && svg.contains(scene.layers.time)) return scene.drawTime(t);
   const { width: W, height: H } = cockpit ? options.camera : BDP_3D_VIEW_V0_1.canvas;
@@ -271,12 +412,15 @@ export function renderBdp3dView(svg, path, options = {}) {
   const approach = path.approach ?? [];
   const impact = fragment?.impact ?? path.target;
   const extraAircraft = fleet.filter(a => a.path !== path);
-  const ground = [...approach, ...path.samples, path.target, ...(path.aim ? [path.aim] : []), ...extraAircraft.flatMap(a => [...(a.path.approach ?? []), ...a.path.samples, a.path.target])];
+  let groundList = null;
+  const ground = () => (groundList ??= [...approach, ...path.samples, path.target, ...(path.aim ? [path.aim] : []), ...extraAircraft.flatMap(a => [...(a.path.approach ?? []), ...a.path.samples, a.path.target])]);
   const pad = Math.max(0.3 * FT_PER_NM, fragment ? fragment.radiusFt * 1.1 : 0);
-  let minX = Math.min(...ground.map((p) => p.x), impact.x - pad);
-  let maxX = Math.max(...ground.map((p) => p.x), impact.x + pad);
-  let minY = Math.min(...ground.map((p) => p.y), impact.y - pad);
-  let maxY = Math.max(...ground.map((p) => p.y), impact.y + pad);
+  // 0.1.16: the extents in one pass, kept per path (the HUD asks every frame for the same path).
+  const extent = groundExtent(path, extraAircraft, ground);
+  let minX = Math.min(extent.minX, impact.x - pad);
+  let maxX = Math.max(extent.maxX, impact.x + pad);
+  let minY = Math.min(extent.minY, impact.y - pad);
+  let maxY = Math.max(extent.maxY, impact.y + pad);
   const spanNm = Math.max(maxX - minX, maxY - minY) / FT_PER_NM;
   const stepNm = GRID_STEPS_NM.find((step) => spanNm / step <= 10) ?? GRID_STEPS_NM.at(-1);
   const stepFt = stepNm * FT_PER_NM;
@@ -284,7 +428,7 @@ export function renderBdp3dView(svg, path, options = {}) {
   maxX = Math.ceil(maxX / stepFt) * stepFt;
   minY = Math.floor(minY / stepFt) * stepFt;
   maxY = Math.ceil(maxY / stepFt) * stepFt;
-  const maxZ = Math.max(...ground.map((p) => p.z), fragment ? fragment.heightAglFt : 0);
+  const maxZ = Math.max(extent.maxZ, fragment ? fragment.heightAglFt : 0);
 
   // Perspective eye on the orbit around the scene centre, three scene radii away. The centre is fixed for the path
   // (0.1.2): it projects to the same screen point for every orbit, so a drag turns the picture about it.
@@ -300,7 +444,7 @@ export function renderBdp3dView(svg, path, options = {}) {
     const right = norm([forward[1], -forward[0], 0]);
     const up = [right[1] * forward[2] - right[2] * forward[1], right[2] * forward[0] - right[0] * forward[2], right[0] * forward[1] - right[1] * forward[0]];
     return {
-      eye: eyeAt,
+      eye: eyeAt, forward, right, up,
       project(q) {
         const d = sub(q, eyeAt);
         const depth = dot(d, forward);
@@ -319,7 +463,7 @@ export function renderBdp3dView(svg, path, options = {}) {
   let scale = 1, ox = 0, oy = 0;
   if (!cockpit) {
     const fitCam = makeCamera(bdp3dDefaultOrbit(path));
-    const fitPoints = [[minX, minY, 0], [maxX, minY, 0], [maxX, maxY, 0], [minX, maxY, 0], ...ground.map(P)];
+    const fitPoints = [[minX, minY, 0], [maxX, minY, 0], [maxX, maxY, 0], [minX, maxY, 0], ...ground().map(P)];
     if (fragment) fitPoints.push([impact.x, impact.y, fragment.heightAglFt]);
     const fitted = fitPoints.map((q) => fitCam.project(q)).filter(Boolean);
     const uMin = Math.min(...fitted.map((p) => p.u));
@@ -339,10 +483,31 @@ export function renderBdp3dView(svg, path, options = {}) {
     const c = cam.project(q);
     return c ? { x: W / 2 + zoom * (ox + scale * c.u - W / 2) + pan.x, y: H / 2 + zoom * (oy - scale * c.v - H / 2) + pan.y } : null;
   };
+  // 0.1.16: the cockpit camera can draw its world on the host's canvas (options.ctx, view-box units): lines and the
+  // aircraft mesh are painted there instead of becoming SVG elements (the HUD redraws its world every frame).
+  const ink = cockpit ? options.ctx ?? null : null;
+  // at() for the external camera without allocations (one reused result), for the aircraft mesh's vertices.
+  const fastScreen = { x: 0, y: 0 };
+  const fastAt = projection ? null : (X, Y, Z) => {
+    const dx = X - cam.eye[0], dy = Y - cam.eye[1], dz = Z - cam.eye[2];
+    const depth = dx * cam.forward[0] + dy * cam.forward[1] + dz * cam.forward[2];
+    if (!(depth > 1)) return null;
+    const u = (dx * cam.right[0] + dy * cam.right[1] + dz * cam.right[2]) / depth, v = (dx * cam.up[0] + dy * cam.up[1] + dz * cam.up[2]) / depth;
+    fastScreen.x = W / 2 + zoom * (ox + scale * u - W / 2) + pan.x;
+    fastScreen.y = H / 2 + zoom * (oy - scale * v - H / 2) + pan.y;
+    return fastScreen;
+  };
   const pts = (list) => list.filter(Boolean).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
   const polyline = (list, attrs) => {
     if (projection) {
       const segments = list.slice(1).map((q, i) => projection.segment(list[i], q)).filter(Boolean);
+      if (ink) {
+        if (!segments.length) return null;
+        ink.beginPath();
+        for (const [a, b] of segments) { ink.moveTo(a.x, a.y); ink.lineTo(b.x, b.y); }
+        strokeLike(ink, attrs);
+        return null;
+      }
       return segments.length ? svgNode("path", { d: segments.map(([a, b]) => `M${a.x.toFixed(1)},${a.y.toFixed(1)}L${b.x.toFixed(1)},${b.y.toFixed(1)}`).join(""), fill: "none", ...attrs }) : null;
     }
     const q = list.map(at).filter(Boolean);
@@ -369,6 +534,8 @@ export function renderBdp3dView(svg, path, options = {}) {
     const cy = Math.round(eye[1] / gridStep) * gridStep;
     const count = Math.min(100, Math.ceil(reach / gridStep));
     const extent = count * gridStep;
+    // 0.1.15 (Play speed): the grid's segments go into one <path> per opacity step (0.05) instead of one element each.
+    const gridRuns = new Map();
     for (let k = -count; k <= count; k++) {
       for (const vertical of [true, false]) {
         const offset = k * gridStep;
@@ -377,10 +544,22 @@ export function renderBdp3dView(svg, path, options = {}) {
           const a = j * extent / 4, b = (j + 1) * extent / 4;
           const fade = 1 - (Math.max(Math.abs(a), Math.abs(b)) / extent) ** 2;
           const points = vertical ? [[cx + offset, cy + a, 0], [cx + offset, cy + b, 0]] : [[cx + a, cy + offset, 0], [cx + b, cy + offset, 0]];
-          if (alpha * fade > 0.01) add(polyline(points, { stroke: "#72816b", "stroke-width": 1, "stroke-opacity": alpha * fade, "data-3d-role": "grid" }));
+          if (alpha * fade <= 0.01) continue;
+          const seg = projection.segment(points[0], points[1]);
+          if (!seg) continue;
+          const level = Math.max(1, Math.round(alpha * fade * 20));
+          if (ink) { (gridRuns.get(level) ?? gridRuns.set(level, []).get(level)).push(seg); continue; }
+          if (!gridRuns.has(level)) gridRuns.set(level, []);
+          gridRuns.get(level).push(`M${seg[0].x.toFixed(1)},${seg[0].y.toFixed(1)}L${seg[1].x.toFixed(1)},${seg[1].y.toFixed(1)}`);
         }
       }
     }
+    if (ink) for (const [level, segs] of [...gridRuns].sort((a, b) => a[0] - b[0])) {
+      ink.beginPath();
+      for (const [a, b] of segs) { ink.moveTo(a.x, a.y); ink.lineTo(b.x, b.y); }
+      strokeLike(ink, { stroke: "#72816b", "stroke-width": 1, "stroke-opacity": level / 20 });
+    }
+    else for (const [level, d] of [...gridRuns].sort((a, b) => a[0] - b[0])) add(svgNode("path", { d: d.join(""), fill: "none", stroke: "#72816b", "stroke-width": 1, "stroke-opacity": level / 20, "data-3d-role": "grid" }));
   } else {
     const corners = [[minX, minY, 0], [maxX, minY, 0], [maxX, maxY, 0], [minX, maxY, 0]];
     add(svgNode("polygon", { points: pts(corners.map(at)), fill: "#f1f4ee", stroke: "#b8c2cc", "stroke-width": 1, "data-3d-role": "ground" }));
@@ -483,6 +662,10 @@ export function renderBdp3dView(svg, path, options = {}) {
   if (bomb.length >= 2) add(polyline(bomb.map(P), { stroke: C.bomb, "stroke-width": 2.4, "stroke-linejoin": "round", "stroke-linecap": "round", "data-3d-role": "path-bomb" }));
   // Over the paths: the bomb and the aircraft at t (0.1.8 time layer).
   const timeTop = add(svgNode("g", { "data-3d-layer": "time" }));
+  // 0.1.16 (Play speed): the external view paints the aircraft meshes on one canvas (in a foreignObject, so it scales
+  // and is cleared with the SVG); each aircraft keeps an empty <g data-3d-role="aircraft"> carrying its data.
+  const meshLayer = cockpit ? null : bdpCanvasLayer(svg, W, H, { "data-3d-layer": "aircraft-mesh" });
+  if (meshLayer) add(meshLayer.foreign);
 
   // Title rows: orbit, altitude stretch, grid step; at t the aircraft's state (time layer).
   if (!cockpit) add(text({ x: 16, y: 24 }, `Orbit ${Math.round(orbit.azimuthDeg)}° / ${Math.round(orbit.elevationDeg)}° · Zoom ${Math.round(zoom * 100)}% · Grid ${stepNm} NM`, { "data-3d-role": "status" }));
@@ -522,6 +705,7 @@ export function renderBdp3dView(svg, path, options = {}) {
     const state = fleet.length ? fleet.find(a => a.path === path)?.at(tNow) ?? null : flying ? (cockpit ? options.aircraft.state : flightStateAt(path, tNow)) : null;
     const visible = fleet.length ? fleet.map(a => ({ number: a.number, state: a.at(tNow) })).filter(a => a.state) : state ? [{ number: options.aircraft?.number, state }] : [];
     visible.sort((a,b) => dot(sub(P(b.state), eye), cameraForward) - dot(sub(P(a.state), eye), cameraForward));
+    const meshFaces = [];
     for (const item of visible) {
       const state = item.state;
       const { v, right: r, up: u } = aircraftAxes(state);
@@ -532,6 +716,13 @@ export function renderBdp3dView(svg, path, options = {}) {
       const shadow = at([state.x, state.y, 0]);
       if (shadow && !cockpit) put(svgNode("circle", { cx: shadow.x.toFixed(1), cy: shadow.y.toFixed(1), r: 3, fill: "#8f9aa6", "data-3d-role": "aircraft-shadow" }));
       const aircraft = svgNode("g", { "data-3d-role": "aircraft", "data-aircraft-mesh": aircraftMesh.id, "data-aircraft-scale": aircraftScale, ...(item.number ? { "data-aircraft-number": item.number, "data-world-position": [state.x, state.y, state.z].join(",") } : {}) });
+      if (meshLayer || ink) {
+        aircraft.setAttribute("data-render", "canvas");
+        put(aircraft);
+        meshFaces.push(...projectMesh(q, r, v, u, meshScale, eye, cameraForward, projection ? at : fastAt));
+        if (fleet.length) { const label = at(q); if (label) put(text({ x: label.x + 10, y: label.y - 10 }, `#${item.number}`, { fill: fleetColor(item.number), 'data-3d-role': 'aircraft-label' })); }
+        continue;
+      }
       const faces = aircraftMesh.faces.map(({ vertices, color }) => {
         const points = vertices.map(world);
         const midpoint = points[0].map((_, i) => points.reduce((sum, p) => sum + p[i], 0) / points.length);
@@ -539,16 +730,30 @@ export function renderBdp3dView(svg, path, options = {}) {
         let normal = norm([a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]);
         // Wings/fins are two-sided surfaces. Light the side facing the camera; do not cull it after a bank.
         if (dot(normal, sub(eye, midpoint)) < 0) normal = normal.map((n) => -n);
-        const shade = 0.72 + 0.35 * Math.max(0, dot(normal, aircraftLight));
+        // 0.1.15: the shade in steps of 0.05, so neighbouring faces share a fill and merge into one path below.
+        const shade = Math.round((0.72 + 0.35 * Math.max(0, dot(normal, aircraftLight))) * 20) / 20;
         const fill = `rgb(${color.map((c) => Math.min(255, Math.round(c * shade))).join(",")})`;
         return { points: projection ? projection.polygon(points) : points.map(at), depth: dot(sub(midpoint, eye), cameraForward), fill };
       }).sort((a, b) => b.depth - a.depth); // Painter order: far faces before near faces, for this camera and pose.
+      // 0.1.15 (Play speed): consecutive faces of one fill are one <path> (painter order kept), about 30 elements
+      // per aircraft instead of 241.
+      let run = null;
+      const flush = () => { if (run) aircraft.append(svgNode("path", { d: run.d.join(""), fill: run.fill })); run = null; };
       for (const face of faces) {
-        if (face.points.length >= 3 && face.points.every(Boolean)) aircraft.append(svgNode("polygon", { points: pts(face.points), fill: face.fill }));
+        if (!(face.points.length >= 3 && face.points.every(Boolean))) continue;
+        // Faces under 0.2 px² on screen (a small, far aircraft) cannot be seen; they are skipped.
+        let area = 0;
+        face.points.forEach((p, i) => { const q = face.points[(i + 1) % face.points.length]; area += p.x * q.y - q.x * p.y; });
+        if (Math.abs(area) / 2 < 0.2) continue;
+        if (run?.fill !== face.fill) { flush(); run = { fill: face.fill, d: [] }; }
+        run.d.push(`M${face.points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("L")}Z`);
       }
+      flush();
       if (aircraft.childNodes.length) put(aircraft);
       if (fleet.length) { const label = at(q); if (label) put(text({ x: label.x + 10, y: label.y - 10 }, `#${item.number}`, { fill: fleetColor(item.number), 'data-3d-role': 'aircraft-label' })); }
     }
+    if (meshLayer) paintFaces(meshLayer.begin(), meshFaces);
+    else if (ink) paintFaces(ink, meshFaces);
     const putText = (node) => { if (node) timeText.append(node); };
     if (!cockpit && !fleet.length && tNow !== null && !flying) putText(text({ x: 16, y: 46 }, `Roll-in in ${(path.samples[0].t - tNow).toFixed(1)} s`, { "data-3d-role": "state" }));
     if (state && !cockpit) putText(text({ x: 16, y: 46 }, `${path.timeOriginLabel ?? "Roll-in"} ${tNow < 0 ? "−" : "+"}${Math.abs(tNow).toFixed(1)} s · ${String(state.phase).toUpperCase()} · ${Math.round(state.z - path.target.z)} ft AGL · ${Math.round(state.kcas)} KCAS · Bank ${Math.round(Math.abs(state.bankDeg))}°`, { "data-3d-role": "state" }));

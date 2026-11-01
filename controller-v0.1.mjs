@@ -26,7 +26,7 @@ import { installSmartLabelDrag } from "./common/diagram/svg-smart-label-v0.1.mjs
 import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
-import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.0";
+import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.1";
 // DED boxes, texts and PNG: bombing app shared FE (2026-10-22); the DED record is the Flight BE's.
 import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.0";
 // BDP Result rows and Fragment Data readouts: bombing app shared FE (2026-10-22).
@@ -53,9 +53,9 @@ import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-b
 import { popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.0";
 import { popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.12.2";
+import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.12.4";
 
-import { buildOffsetHudAircraft, offsetHudGridStep } from "./AG/bombing/offset-bombing/view/offset-hud-scene-v0.1.mjs?v=0.1.1";
+import { buildOffsetHudAircraft, offsetHudGridStep } from "./AG/bombing/offset-bombing/view/offset-hud-scene-v0.1.mjs?v=0.1.2";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -706,9 +706,12 @@ function setOffsetClock(timeSec, { playing = false } = {}) {
     topViewStale = true;
     syncClockDials();
   }
-  [1, 2, 3, 4].forEach((number) => refreshBdpDiagrams(number));
+  // A Play frame may skip a 3D Profile / HUD scrolled off screen (diagrams panel 0.12.3); a set clock draws them all.
+  clockPlaying = playing;
+  try { [1, 2, 3, 4].forEach((number) => refreshBdpDiagrams(number)); } finally { clockPlaying = false; }
   refreshOffsetHud();
 }
+let clockPlaying = false;
 // Every dial (the Top View's and each HUD View's copy, owner R6) shows the one clock; one Play runs it.
 function syncTimeDials(svg, results, timeSec, phase) {
   syncTimeDial($("#top-view-time-dial"), svg, results, timeSec, ...(phase === undefined ? [] : [phase]));
@@ -724,13 +727,31 @@ function syncClockDials() {
   syncTimeDials(null, results, topViewTimeSec, phase);
 }
 // Each aircraft's 3D/HUD dial uses the same clock. Popup 3D starts at Pop −3 s; HUD and other pages at Roll-in −3 s.
+// Play mirrors every dial each frame; a window depends only on the solved results, so it is kept per result (a
+// window not known yet, before the BDP views are prepared, is not kept). Play speed, 2026-11-01.
+const dialWindows = new WeakMap();
+let offsetHudWindowKept = null;
 function flightDialWindow(dial) {
-  if (dial?.dataset.timeDial === "offset-hud") return offsetHudWindow();
+  if (dial?.dataset.timeDial === "offset-hud") {
+    const results = [1, 2, 3, 4].map((number) => flightResultOf(number) ?? null);
+    const first = shownAircraft.visible()[0] ?? 1;
+    if (!offsetHudWindowKept || offsetHudWindowKept.first !== first || offsetHudWindowKept.results.some((r, i) => r !== results[i])) {
+      offsetHudWindowKept = { first, results, window: offsetHudWindow() };
+    }
+    return offsetHudWindowKept.window;
+  }
   const number = Number(/^(?:3d|hud)-(\d)$/.exec(dial?.dataset.timeDial ?? "")?.[1]);
   if (!number) return null;
-  const startSec = dial.dataset.timeDial.startsWith("3d-") ? threeDStartClockSec(number) : hudStartClockSec(number);
+  const result = flightResultOf(number);
+  const kind = dial.dataset.timeDial.startsWith("3d-") ? "3d" : "hud";
+  const popup = POPUP_MODE ? popupFull.get(number) ?? null : null;
+  const kept = result ? dialWindows.get(result)?.[kind] : undefined;
+  if (kept && kept.popup === popup) return kept.window;
+  const startSec = kind === "3d" ? threeDStartClockSec(number) : hudStartClockSec(number);
   const endSec = hudEndClockSec(number);
-  return Number.isFinite(endSec) && endSec > startSec ? { startSec, endSec } : null;
+  const window = Number.isFinite(endSec) && endSec > startSec ? { startSec, endSec } : null;
+  if (result && window) dialWindows.set(result, { ...dialWindows.get(result), [kind]: { popup, window } });
+  return window;
 }
 function mirrorTimeDial(dial) {
   timePlayer.mirrorDial(dial, $("#top-view-time-dial"), { window: flightDialWindow(dial), clockSec: topViewTimeSec });
@@ -1509,9 +1530,15 @@ const offsetBdpDiagramsMarkup = (number) => bdpDiagramsMarkup({
   // 2026-10-19 (owner): the 3D Profile gets the same dial copy (its Play runs the same window as the HUD's).
   threeDTimeMarkup: timeDialMarkup(`3d-${number}`, `BDP #${number} 3D Profile`),
 });
+// Kept while connected: Play asks for it several times a frame (Play speed, 2026-11-01).
+const bdpContainers = new Map();
 function bdpDiagramsContainer(number) {
+  const kept = bdpContainers.get(number);
+  if (kept?.section.isConnected && kept.container?.isConnected && kept.section.contains(kept.container)) return kept;
   const section = document.querySelector(`[data-bdp-views="${number}"]`);
-  return section ? { section, container: section.querySelector("[data-bdp-diagrams]") } : null;
+  const found = section ? { section, container: section.querySelector("[data-bdp-diagrams]") } : null;
+  if (found?.container) bdpContainers.set(number, found); else bdpContainers.delete(number);
+  return found;
 }
 
 // One cached world-space flight per result, used by both the Offset HUD and BDP observer tabs.
@@ -1578,6 +1605,12 @@ function dialTimeFromRollIn(result) {
 // The HUD starts at Roll-in −3 s (owner handoff §3.1): the real Offset path before it, a little longer (the BDP flight
 // path cuts it at −3 s, 0.1.3).
 const HUD_APPROACH_SEC = 3.5;
+// One approach array per solved result: the clock refreshes the BDP views every Play frame (Play speed, 2026-11-01).
+const hudApproaches = new WeakMap();
+function hudApproachOf(result) {
+  if (!hudApproaches.has(result)) hudApproaches.set(result, offsetApproachInBdpFrame(result, HUD_APPROACH_SEC));
+  return hudApproaches.get(result);
+}
 // Popup's view adapter places the BE's climb samples in the BDP frame, once per solved result.
 const popupBdpApproaches = new WeakMap();
 function popupBdpApproach(number) {
@@ -1651,8 +1684,8 @@ function refreshBdpDiagrams(number) {
       profileView: { timeAfterReleaseSec: dialTimeAfterRelease(result) },
       // 2026-10-15 (owner R6): 3D Profile and HUD View on the same clock (seconds from the Roll-in Point).
       // 2026-10-18 (owner handoff §3.1): the real approach before the Roll-in Point (the HUD starts at Roll-in −3 s).
-      flightView: { hudContext: offsetHudContext(number, topViewTimeSec, { profile: true }), rollDirection: result.geometry.direction.rollDirection, timeSec: dialTimeFromRollIn(result),
-        ...(popupBdpApproach(number) ?? { approach: offsetApproachInBdpFrame(result, HUD_APPROACH_SEC) }) },
+      flightView: { playing: clockPlaying, hudContext: offsetHudContext(number, topViewTimeSec, { profile: true }), rollDirection: result.geometry.direction.rollDirection, timeSec: dialTimeFromRollIn(result),
+        ...(popupBdpApproach(number) ?? { approach: hudApproachOf(result) }) },
     });
     const hudDial = target.container.querySelector(`[data-time-dial="hud-${number}"]`);
     installTimeDial(hudDial, setOffsetClock, { startSec: () => hudStartClockSec(number), endSec: () => hudEndClockSec(number) });

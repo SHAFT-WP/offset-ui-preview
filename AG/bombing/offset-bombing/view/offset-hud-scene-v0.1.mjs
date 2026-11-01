@@ -3,7 +3,7 @@ import { buildBdpFlightPath, flightStateAt } from '../../bomb-delivery-planner/v
 import { tasToCas } from '../../../../common/airspeed/airspeed-v0.1.mjs';
 
 // Display adapter only: all aircraft share the existing IP clock and one target-elevation datum.
-export const OFFSET_HUD_SCENE_V0_1 = Object.freeze({ version: '0.1.1' });
+export const OFFSET_HUD_SCENE_V0_1 = Object.freeze({ version: '0.1.2' });
 const FT = 6076.11549;
 export function offsetHudWorldPoint(p, origin, headingDeg, elevationDelta = 0, timeOffset = 0) {
   if (!p) return null;
@@ -45,9 +45,20 @@ export function buildOffsetHudAircraft(result, { number = 1, groundElevationMslF
     },
     unavailableReason: preRollUnavailable ? 'Offset / Roll-in altitude transition unavailable' : 'Outside flight window' };
 }
+// 0.1.2 (Play speed): each path's ground extent is kept per path object; the clock asks for the step every frame.
+const pathExtents = new WeakMap();
+function pathExtent(path) {
+  let e = pathExtents.get(path);
+  if (!e) {
+    e = [Infinity, -Infinity, Infinity, -Infinity];
+    for (const p of [...path.approach, ...path.samples]) { e[0] = Math.min(e[0], p.x); e[1] = Math.max(e[1], p.x); e[2] = Math.min(e[2], p.y); e[3] = Math.max(e[3], p.y); }
+    pathExtents.set(path, e);
+  }
+  return e;
+}
 export function offsetHudGridStep(aircraft) {
-  const points = aircraft.flatMap(a => [...a.path.approach, ...a.path.samples]);
-  if (!points.length) return FT;
-  const span = Math.max(Math.max(...points.map(p => p.x)) - Math.min(...points.map(p => p.x)), Math.max(...points.map(p => p.y)) - Math.min(...points.map(p => p.y))) / FT;
+  const extents = aircraft.map(a => pathExtent(a.path)).filter(e => Number.isFinite(e[0]));
+  if (!extents.length) return FT;
+  const span = Math.max(Math.max(...extents.map(e => e[1])) - Math.min(...extents.map(e => e[0])), Math.max(...extents.map(e => e[3])) - Math.min(...extents.map(e => e[2]))) / FT;
   return ([.25, .5, 1, 2, 5, 10].find(n => span / n <= 10) ?? 10) * FT;
 }

@@ -12,7 +12,13 @@
 //   nearest step at or below it, never above the last. A change during Play keeps the clock where it is. Every
 //   dial shows the one speed.
 
-export const TIME_DIAL_V0_1 = Object.freeze({ id: "common-time-dial-v0.1", version: "0.1.0" });
+export const TIME_DIAL_V0_1 = Object.freeze({ id: "common-time-dial-v0.1", version: "0.1.1" });
+// 0.1.1 (2026-11-01, Play speed): a dial writes an attribute or text only when it changes. Play mirrors every dial
+// each frame; rewriting the same values still invalidated the page's style and made each frame's layout slower.
+const setAttr = (el, name, value) => { if (el && el.getAttribute(name) !== value) el.setAttribute(name, value); };
+const setText = (el, value) => { if (el && el.textContent !== value) el.textContent = value; };
+const setProp = (el, name, value) => { if (el && el[name] !== value) el[name] = value; };
+
 export const TIME_PLAY_SPEEDS_DEFAULT = Object.freeze([1, 2]);
 export const TIME_PLAY_FRAME_MS_DEFAULT = 1000 / 30;
 
@@ -37,8 +43,8 @@ export function createTimePlayer({
 
   function setPlayButtons(on) {
     root.querySelectorAll("[data-time-dial] [data-time-play]").forEach((button) => {
-      button.setAttribute("aria-pressed", String(on));
-      button.textContent = on ? "Pause" : "Play";
+      setAttr(button, "aria-pressed", String(on));
+      setText(button, on ? "Pause" : "Play");
     });
   }
 
@@ -108,12 +114,12 @@ export function createTimePlayer({
     if (!dial) return;
     const range = dial.querySelector("[data-time-range]");
     const output = dial.querySelector("[data-time-output]");
-    range.max = String(maxSec);
-    range.value = String(Math.min(timeSec ?? 0, maxSec));
+    setProp(range, "max", String(maxSec));
+    setProp(range, "value", String(Math.min(timeSec ?? 0, maxSec)));
     const on = Number.isFinite(timeSec);
-    dial.classList.toggle("active", on);
-    output.textContent = on ? `${Math.round(Math.min(timeSec, maxSec))} s${phaseLabel ? ` · ${phaseLabel}` : ""}` : "Off";
-    output.setAttribute("aria-pressed", String(on));
+    if (dial.classList.contains("active") !== on) dial.classList.toggle("active", on);
+    setText(output, on ? `${Math.round(Math.min(timeSec, maxSec))} s${phaseLabel ? ` · ${phaseLabel}` : ""}` : "Off");
+    setAttr(output, "aria-pressed", String(on));
   }
 
   // A copy of the source dial. window = { startSec, endSec }: the copy covers only that span of the one clock (its
@@ -126,21 +132,22 @@ export function createTimePlayer({
     const sourceOutput = source.querySelector("[data-time-output]");
     if (span) {
       const endSec = Math.min(span.endSec, Number(sourceRange.max) || span.endSec);
-      range.min = String(span.startSec);
-      range.max = String(Math.max(span.startSec, endSec));
-      range.step = "any";
+      setProp(range, "min", String(span.startSec));
+      setProp(range, "max", String(Math.max(span.startSec, endSec)));
+      setProp(range, "step", "any");
       const clock = Number.isFinite(clockSec) ? clockSec : span.startSec;
-      range.value = String(Math.min(Math.max(clock, span.startSec), endSec));
+      setProp(range, "value", String(Math.min(Math.max(clock, span.startSec), endSec)));
     } else {
-      range.max = sourceRange.max;
-      range.value = sourceRange.value;
+      setProp(range, "max", sourceRange.max);
+      setProp(range, "value", sourceRange.value);
     }
-    dial.classList.toggle("active", source.classList.contains("active"));
-    output.textContent = sourceOutput.textContent;
-    output.setAttribute("aria-pressed", sourceOutput.getAttribute("aria-pressed"));
+    const active = source.classList.contains("active");
+    if (dial.classList.contains("active") !== active) dial.classList.toggle("active", active);
+    setText(output, sourceOutput.textContent);
+    setAttr(output, "aria-pressed", sourceOutput.getAttribute("aria-pressed"));
     const play = dial.querySelector("[data-time-play]");
-    play?.setAttribute("aria-pressed", String(Boolean(playing)));
-    if (play) play.textContent = playing ? "Pause" : "Play";
+    setAttr(play, "aria-pressed", String(Boolean(playing)));
+    setText(play, playing ? "Pause" : "Play");
   }
 
   return {

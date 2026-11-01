@@ -1,6 +1,6 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
-import { renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.14";
+import { bdpCanvasLayer, renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.16";
 
 // BDP HUD view v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.3 in SVG). A first-person
 // view from the aircraft of a BDP flight path at time t: an F-16-style HUD square of `hudSizeDeg` (default 14°,
@@ -20,7 +20,9 @@ export const BDP_HUD_VIEW_V0_1 = Object.freeze({
   // 0.1.5 (2026-10-21, owner: a smoother Play): only the ladder rungs, tips and numbers that reach the HUD square are
   // created — the clip hid the others (about 200 elements a frame); a hidden HUD creates none. The picture is unchanged.
   // 0.1.6 (2026-10-29, owner): the 3D Profile scene in the cockpit camera, with HUD symbology on top.
-  version: "0.1.7",
+  // 0.1.8 (2026-11-01, owner): white sky; the 3D scene draws its aircraft and grid in fewer elements (3D view 0.1.15).
+  // 0.1.9 (2026-11-01): the cockpit world (grid, paths, envelope, wingman) on a canvas (3D view 0.1.16).
+  version: "0.1.9",
   fovLimitsDeg: Object.freeze([5, 150]),
   canvas: Object.freeze({ width: 720, height: 540 }),
   ladderStepDeg: 5,
@@ -124,15 +126,29 @@ export function renderBdpHudView(svg, path, options = {}) {
   svg.append(root);
   // Sky / ground: the screen rectangle cut by the horizon. A screen point's ray is
   // focal·forward + (x − W/2)·camRight − (y − H/2)·camUp; it looks below the horizon where its z < 0.
-  root.append(svgNode("rect", { x: 0, y: 0, width: W, height: H, fill: "#0c1a2b" }));
+  // 0.1.9: sky, ground and the world are painted on a canvas beneath this SVG (kept across frames); the SVG keeps
+  // transparent sky / ground outlines and draws the HUD symbols on top.
+  const worldLayer = bdpCanvasLayer(svg, W, H, { "data-hud-role": "world-canvas" }, { keep: true, under: !!svg.parentElement });
+  const ink = worldLayer.begin();
+  ink.fillStyle = "#ffffff";
+  ink.fillRect(0, 0, W, H);
+  root.append(svgNode("rect", { x: 0, y: 0, width: W, height: H, fill: worldLayer.foreign ? "#ffffff" : "none", "data-hud-role": "sky" }));
   const rayZ = (p) => focal * forward[2] + (p.x - W / 2) * camRight[2] - (p.y - H / 2) * camUp[2];
   const ground = clipBelowHorizon([{ x: 0, y: 0 }, { x: W, y: 0 }, { x: W, y: H }, { x: 0, y: H }], rayZ);
-  if (ground.length >= 3) root.append(svgNode("polygon", { points: ground.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), fill: "#394337", "data-hud-role": "ground" }));
+  if (ground.length >= 3) {
+    ink.fillStyle = "#394337";
+    ink.beginPath();
+    ground.forEach((p, i) => (i ? ink.lineTo(p.x, p.y) : ink.moveTo(p.x, p.y)));
+    ink.closePath();
+    ink.fill();
+    root.append(svgNode("polygon", { points: ground.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), fill: worldLayer.foreign ? "#394337" : "none", "data-hud-role": "ground" }));
+  }
 
   // One world renderer for the external profile and this cockpit view. Position, bank, AOA, FOV and
   // padlock use the very same axes as the overlay below; the external marker scale is never passed in.
+  if (worldLayer.foreign) root.append(worldLayer.foreign);
   const world = svgNode("svg");
-  renderBdp3dView(world, path, { timeSec: shownT, aircraft: o.otherAircraft, gridStepFt: o.gridStepFt, camera: { eye: pos, forward, right: camRight, up: camUp, fovDeg, width: W, height: H } });
+  renderBdp3dView(world, path, { timeSec: shownT, aircraft: o.otherAircraft, gridStepFt: o.gridStepFt, ctx: ink, camera: { eye: pos, forward, right: camRight, up: camUp, fovDeg, width: W, height: H } });
   const scene = world.firstElementChild;
   scene.setAttribute("data-hud-role", "scene");
   root.append(scene);
