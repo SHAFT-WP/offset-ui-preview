@@ -3,8 +3,8 @@ import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath } from "./bdp-flight-path-v0.1.mjs?v=0.1.5";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.17";
-import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.10";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.19";
+import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.12";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
 // Full BDP diagrams panel — BDP-owned presentation reused by every BE that embeds a BDP input tab
@@ -74,7 +74,9 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.13.0 (2026-11-01, owner): 3D "Bank line" length (Off, 0.5×–3×; 3D 0.1.17), and the key points of the flight
   // (Roll-in −3 s, Roll-in, Track, Release, Impact, SEM End) marked on the 3D and HUD play bars, each a button that
   // moves the clock there (Play then runs from it). The host's dial keeps its own range; the marks follow its end.
-  version: "0.13.0",
+  // 0.13.1: 3D 0.1.18 (bomb at the F-16 scale, no minimum size).
+  // 0.13.2: 3D 0.1.19 (one screen winding for the merged aircraft faces: no unpainted wings).
+  version: "0.13.2",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 

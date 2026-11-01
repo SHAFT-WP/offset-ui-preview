@@ -41,7 +41,12 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // 0.1.17 (2026-11-01, owner): options.bankLineScale sets the 1 s bank (wing) line length (0: off; default 1); the bomb
   // at t is a 2D bomb outline (Mk-82 LD size) along its flight direction, at the F-16's scale, at least 28 view units long; olive with a white edge, so
   // it shows on its green trajectory.
-  version: "0.1.17",
+  // 0.1.18 (2026-11-01, owner "폭탄의 배율은 f16 모형이랑 같게"): the bomb outline has no minimum size; it is drawn
+  // at the F-16 mesh's scale in every Aircraft size mode.
+  // 0.1.19 (2026-11-01, owner screenshot: the wings turned white in the POP-UP climb): every face goes into the merged
+  // fill paths with the same screen winding. Two faces of one fill wound opposite ways (a wing's upper and lower
+  // skins, lit alike when seen wings-level) cancelled under the nonzero rule and left the wing unpainted.
+  version: "0.1.19",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
@@ -291,8 +296,10 @@ function projectMesh(q, r, v, u, meshScale, eye, cameraForward, toScreen) {
     if (dot(normal, [eye[0] - mx, eye[1] - my, eye[2] - mz]) < 0) normal = normal.map((n) => -n);
     const shade = Math.round((0.72 + 0.35 * Math.max(0, dot(normal, MESH_LIGHT))) * 20) / 20;
     const fill = `rgb(${colors[i].map((c) => Math.min(255, Math.round(c * shade))).join(",")})`;
+    // One screen winding for every face (0.1.19): faces merged into one fill path never cancel under nonzero.
     const points = [];
-    for (let k = a; k < b; k++) points.push(sx[k], sy[k]);
+    if (area > 0) for (let k = a; k < b; k++) points.push(sx[k], sy[k]);
+    else for (let k = b - 1; k >= a; k--) points.push(sx[k], sy[k]);
     out.push({ points, fill, depth: (mx - eye[0]) * cameraForward[0] + (my - eye[1]) * cameraForward[1] + (mz - eye[2]) * cameraForward[2] });
   }
   return out;
@@ -378,7 +385,6 @@ const BOMB_OUTLINE_M = (() => {
 })();
 // The bomb at t drawn as its outline facing the camera along its flight direction, at the aircraft mesh's scale.
 // Null (draw a dot) only when its direction is unknown.
-const BOMB_MIN_SCREEN_LENGTH = 28;
 function bombOutline(path, t, bomb, eye, meshScale, at, P) {
   const bombs = path.bomb ?? [];
   const lastT = bombs.at(-1)?.t;
@@ -394,16 +400,8 @@ function bombOutline(path, t, bomb, eye, meshScale, at, P) {
   side = norm(side);
   const points = BOMB_OUTLINE_M.map(([a, b]) => at([0, 1, 2].map((i) => q[i] + meshScale * (dir[i] * a + side[i] * b))));
   if (!points.every(Boolean)) return null;
-  // Same scale as the F-16; a bomb under 28 units long on screen (Mk-82 is 1/7 of the F-16) is enlarged to 28 about
-  // its centre, so it still reads as a bomb and not a dot.
-  const length = Math.hypot(points[0].x - points[9].x, points[0].y - points[9].y);
-  if (!(length > 0.01)) return null;
-  const grow = Math.max(1, BOMB_MIN_SCREEN_LENGTH / length);
-  if (grow > 1) {
-    const centre = at(q);
-    if (!centre) return null;
-    points.forEach((p) => { p.x = centre.x + (p.x - centre.x) * grow; p.y = centre.y + (p.y - centre.y) * grow; });
-  }
+  // 0.1.18 (owner): exactly the F-16 mesh's scale (Auto or N×), no minimum size: the bomb keeps its real
+  // proportion to the aircraft drawn (a Mk-82 is about 1/7 of the F-16's length).
   return `M${points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("L")}Z`;
 }
 
@@ -791,7 +789,9 @@ export function renderBdp3dView(svg, path, options = {}) {
         face.points.forEach((p, i) => { const q = face.points[(i + 1) % face.points.length]; area += p.x * q.y - q.x * p.y; });
         if (Math.abs(area) / 2 < 0.2) continue;
         if (run?.fill !== face.fill) { flush(); run = { fill: face.fill, d: [] }; }
-        run.d.push(`M${face.points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("L")}Z`);
+        // One screen winding for every face (0.1.19), as on the canvas.
+        const ordered = area > 0 ? face.points : [...face.points].reverse();
+        run.d.push(`M${ordered.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("L")}Z`);
       }
       flush();
       if (aircraft.childNodes.length) put(aircraft);
