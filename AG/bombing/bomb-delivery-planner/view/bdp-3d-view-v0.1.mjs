@@ -38,7 +38,10 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // 0.1.10 (2026-10-29, owner): approved F-16 polygon mesh, uniformly scaled; heading/FPA/bank from the path.
   // 0.1.11 (2026-10-29, owner): aircraft size Auto or a multiple of the real dimensions, independent of view zoom.
   // 0.1.12 (2026-10-29, owner): the HUD overlays this scene through its own first-person camera.
-  version: "0.1.16",
+  // 0.1.17 (2026-11-01, owner): options.bankLineScale sets the 1 s bank (wing) line length (0: off; default 1); the bomb
+  // at t is a 2D bomb outline (Mk-82 LD size) along its flight direction, at the F-16's scale, at least 28 view units long; olive with a white edge, so
+  // it shows on its green trajectory.
+  version: "0.1.17",
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, 4]),
@@ -368,6 +371,42 @@ function strokeLike(ctx, attrs) {
   ctx.globalAlpha = 1;
 }
 
+// 0.1.17: a Mk-82 LD side outline in metres (along the body, across it): 2.22 m long, 0.274 m body, tail fins.
+const BOMB_OUTLINE_M = (() => {
+  const upper = [[1.11, 0], [0.98, 0.06], [0.75, 0.115], [0.45, 0.137], [-0.55, 0.137], [-0.78, 0.1], [-0.82, 0.1], [-1.06, 0.2], [-1.11, 0.2], [-1.11, 0.04]];
+  return [...upper, ...upper.slice(1, -1).reverse().map(([a, b]) => [a, -b])];
+})();
+// The bomb at t drawn as its outline facing the camera along its flight direction, at the aircraft mesh's scale.
+// Null (draw a dot) only when its direction is unknown.
+const BOMB_MIN_SCREEN_LENGTH = 28;
+function bombOutline(path, t, bomb, eye, meshScale, at, P) {
+  const bombs = path.bomb ?? [];
+  const lastT = bombs.at(-1)?.t;
+  const step = 0.05;
+  const ahead = Number.isFinite(lastT) && t + step <= lastT ? bombAt(path, t + step) : null;
+  const behind = ahead ? null : bombAt(path, t - step);
+  const q = P(bomb);
+  const dir = ahead ? norm(sub(P(ahead), q)) : behind ? norm(sub(q, P(behind))) : null;
+  if (!dir || !(Math.hypot(...dir) > 0.5)) return null;
+  const view = sub(q, eye);
+  let side = [dir[1] * view[2] - dir[2] * view[1], dir[2] * view[0] - dir[0] * view[2], dir[0] * view[1] - dir[1] * view[0]];
+  if (Math.hypot(...side) < 1e-6) side = Math.abs(dir[2]) < 0.9 ? [dir[1], -dir[0], 0] : [1, 0, 0];
+  side = norm(side);
+  const points = BOMB_OUTLINE_M.map(([a, b]) => at([0, 1, 2].map((i) => q[i] + meshScale * (dir[i] * a + side[i] * b))));
+  if (!points.every(Boolean)) return null;
+  // Same scale as the F-16; a bomb under 28 units long on screen (Mk-82 is 1/7 of the F-16) is enlarged to 28 about
+  // its centre, so it still reads as a bomb and not a dot.
+  const length = Math.hypot(points[0].x - points[9].x, points[0].y - points[9].y);
+  if (!(length > 0.01)) return null;
+  const grow = Math.max(1, BOMB_MIN_SCREEN_LENGTH / length);
+  if (grow > 1) {
+    const centre = at(q);
+    if (!centre) return null;
+    points.forEach((p) => { p.x = centre.x + (p.x - centre.x) * grow; p.y = centre.y + (p.y - centre.y) * grow; });
+  }
+  return `M${points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("L")}Z`;
+}
+
 const groundExtents = new WeakMap();
 function groundExtent(path, extraAircraft, ground) {
   const key = extraAircraft.map((a) => scenePathId(a.path)).join();
@@ -639,10 +678,11 @@ export function renderBdp3dView(svg, path, options = {}) {
     if (target) { add(svgNode('circle', { cx: target.x, cy: target.y, r: 4, fill: color, 'data-3d-role': 'fleet-target' })); add(text({x: target.x + 7, y: target.y - 7}, `TGT #${item.number}`, {fill: color})); }
   }
 
-  // Wing ticks every 1 s: the wing line at that time (its tilt is the bank).
-  const wingFt = radius * 0.035;
-  const ticks = cockpit ? null : add(svgNode("g", { "data-3d-role": "bank-ticks" }));
-  for (let s = Math.ceil(path.samples[0].t); !cockpit && s <= path.endT && s <= path.samples[0].t + 240; s += 1) {
+  // Wing ticks every 1 s: the wing line at that time (its tilt is the bank). 0.1.17: length × bankLineScale, 0 = off.
+  const bankLineScale = Number.isFinite(options.bankLineScale) ? Math.max(0, options.bankLineScale) : 1;
+  const wingFt = radius * 0.035 * bankLineScale;
+  const ticks = cockpit || !(wingFt > 0) ? null : add(svgNode("g", { "data-3d-role": "bank-ticks", "data-bank-line-scale": bankLineScale }));
+  for (let s = Math.ceil(path.samples[0].t); ticks && s <= path.endT && s <= path.samples[0].t + 240; s += 1) {
     const state = flightStateAt(path, s);
     const { right: r } = aircraftAxes(state);
     const q = P(state);
@@ -700,7 +740,12 @@ export function renderBdp3dView(svg, path, options = {}) {
     if (fragmentNow) dome(fragmentNow.radiusFt, fragmentNow.heightFt, true, "fragment-now", timeUnder);
     const bombNow = tNow === null ? null : bombAt(path, tNow);
     const bombPoint = bombNow ? at(P(bombNow)) : null;
-    if (bombPoint) put(svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 4.5, fill: C.bomb, stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb" }));
+    if (bombPoint) {
+      const outline = bombOutline(path, tNow, bombNow, eye, meshScale, at, P);
+      put(outline
+        ? svgNode("path", { d: outline, fill: "#4d5a2c", stroke: "#ffffff", "stroke-width": 0.6, "stroke-linejoin": "round", "data-3d-role": "bomb", "data-bomb-shape": "outline" })
+        : svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 4.5, fill: C.bomb, stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb" }));
+    }
     const flying = cockpit ? !!options.aircraft?.state : tNow !== null && tNow >= firstT - 1e-9;
     const state = fleet.length ? fleet.find(a => a.path === path)?.at(tNow) ?? null : flying ? (cockpit ? options.aircraft.state : flightStateAt(path, tNow)) : null;
     const visible = fleet.length ? fleet.map(a => ({ number: a.number, state: a.at(tNow) })).filter(a => a.state) : state ? [{ number: options.aircraft?.number, state }] : [];

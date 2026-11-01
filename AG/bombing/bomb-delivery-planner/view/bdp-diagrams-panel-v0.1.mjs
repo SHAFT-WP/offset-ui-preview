@@ -3,8 +3,8 @@ import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath } from "./bdp-flight-path-v0.1.mjs?v=0.1.5";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.16";
-import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.9";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.17";
+import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.10";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
 // Full BDP diagrams panel — BDP-owned presentation reused by every BE that embeds a BDP input tab
@@ -71,7 +71,10 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.11.5 (2026-10-29): 3D Profile 0.1.10, approved F-16 polygon aircraft.
   // 0.11.6 (2026-10-29): per-panel Aircraft size selector, Auto or 1–50× actual dimensions; camera zoom independent.
   // 0.11.7 (2026-10-29): HUD 0.1.6 overlays the shared 3D scene in its cockpit camera.
-  version: "0.12.4",
+  // 0.13.0 (2026-11-01, owner): 3D "Bank line" length (Off, 0.5×–3×; 3D 0.1.17), and the key points of the flight
+  // (Roll-in −3 s, Roll-in, Track, Release, Impact, SEM End) marked on the 3D and HUD play bars, each a button that
+  // moves the clock there (Play then runs from it). The host's dial keeps its own range; the marks follow its end.
+  version: "0.13.0",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -140,6 +143,7 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
     + `<div class="diagram-actions"><div class="diagram-action-row" data-bdp-3d-controls>`
     + `<label data-bdp-fleet-label hidden>Show aircraft <select data-bdp-3d="fleet" aria-label="3D aircraft selection" style="${CONTROL_STYLE};width:auto"><option value="all">All</option></select></label><span data-bdp-fleet-status role="status"></span>`
     + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Aircraft <select data-bdp-3d="aircraft-scale" style="${CONTROL_STYLE};width:auto" aria-label="Aircraft size (times actual)" title="Aircraft size relative to the real F-16. Auto sizes it to the flight path."><option value="auto" selected>Auto</option>${aircraftScales}</select></label>`
+    + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Bank line <select data-bdp-3d="bank-line" style="${CONTROL_STYLE};width:auto" aria-label="Bank line length (the wing line every 1 s)" title="The wing line drawn every 1 s along the path; its tilt is the bank."><option value="0">Off</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="3">3×</option></select></label>`
     + `<span class="diagram-control-label">Drag: turn · Hold 0.5 s, then drag: pan · Pinch / wheel: zoom</span></div>${threeDTimeMarkup}</div>`
     + `<div class="bdp-diagram-canvas"><svg class="bdp-3d-svg" viewBox="0 0 ${w3} ${h3}" role="img" aria-label="${t3}" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none"></svg>`
     + `<svg class="diagram-legend-box" data-bdp-legend="3d" role="img" aria-label="${t3} legend" hidden></svg></div></details>`;
@@ -401,7 +405,7 @@ const flightStates = new WeakMap();
 function flightState(container) {
   let state = flightStates.get(container);
   if (!state) {
-    state = { hudContext: null, fleetChoice: "all", observer: "you", pair: null, lockTarget: null, lockOwner: null, path: null, timeSec: null, orbit: null, zoom3d: 1, aircraftScale: null, pan3d: { x: 0, y: 0 }, panHint: false, resetGesture: null, hudZoom: 1, progressDeg: 0, holding: false, frame: 0, lastFrame: null };
+    state = { hudContext: null, fleetChoice: "all", observer: "you", pair: null, lockTarget: null, lockOwner: null, path: null, timeSec: null, orbit: null, zoom3d: 1, aircraftScale: null, bankLineScale: 1, pan3d: { x: 0, y: 0 }, panHint: false, resetGesture: null, hudZoom: 1, progressDeg: 0, holding: false, frame: 0, lastFrame: null };
     flightStates.set(container, state);
   }
   return state;
@@ -460,7 +464,7 @@ function draw3dFrame(container, scope) {
   const note = container.querySelector('[data-bdp-fleet-status]');
   setText(note, fleet.flatMap(a => [a.warning, !a.at(clock) ? `#${a.number}: ${a.unavailableReason}` : '']).filter(Boolean).join(' · '));
   // Heights are true (0.10.0: no altitude stretch, whatever an older state held).
-  const options = { orbit: state.orbit ?? undefined, zoom: state.zoom3d, aircraftScale: state.aircraftScale, pan: state.pan3d, panHint: state.panHint, timeSec: clock, scope: `${scope}-3d`, ...(fleet.length ? { fleet } : {}) };
+  const options = { orbit: state.orbit ?? undefined, zoom: state.zoom3d, aircraftScale: state.aircraftScale, bankLineScale: state.bankLineScale, pan: state.pan3d, panHint: state.panHint, timeSec: clock, scope: `${scope}-3d`, ...(fleet.length ? { fleet } : {}) };
   const draw = () => renderBdp3dView(svg, path, options);
   const rendered = state.progressive && !fleet.length ? viewCache.draw(svg, path, JSON.stringify(options), draw) : draw();
   setData(svg, 'aircraftSelection', state.fleetChoice);
@@ -644,6 +648,11 @@ function installFlightControls(container, scope) {
     state.aircraftScale = BDP_3D_VIEW_V0_1.aircraftScaleOptions.includes(value) ? value : null;
     draw3d(container, scope);
   });
+  container.querySelector('[data-bdp-3d="bank-line"]')?.addEventListener("change", (event) => {
+    const value = Number(event.currentTarget.value);
+    state.bankLineScale = Number.isFinite(value) && value >= 0 ? value : 1;
+    draw3d(container, scope);
+  });
   const zoom3dBy = (step) => {
     const zoomed = zoomAbout({ zoom: state.zoom3d, pan: state.pan3d }, (state.zoom3d + step) / state.zoom3d, W3 / 2, H3 / 2);
     state.zoom3d = zoomed.zoom;
@@ -746,6 +755,7 @@ function prepareFlightViews(container, bdpResult, flightView, progressive = fals
   state.progressive = progressive;
   state.timeSec = Number.isFinite(flightView?.timeSec) ? flightView.timeSec : null;
   installFlightControls(container, scope);
+  syncKeyPoints(container, state.path);
   return true;
 }
 
@@ -754,6 +764,91 @@ function renderFlightViews(container, bdpResult, flightView) {
   const scope = container.dataset.bdpScope || "bdp";
   draw3d(container, scope);
   drawHud(container, scope);
+}
+
+// Key points of a flight path (seconds from the Roll-in Point) for the play bars (0.13.0).
+const KEY_POINT_COLORS = { start: "#7d8b99", rollIn: "#c247c2", track: "#176dac", release: "#087b4c", impact: "#d64545", semEnd: "#7048b6" };
+export function bdpFlightKeyPoints(path) {
+  if (!path?.samples?.length) return [];
+  const sem = path.samples.filter((s) => s.phase === "sem");
+  const impactT = path.fragment?.impactT ?? path.bomb?.at(-1)?.t;
+  return [
+    { key: "start", label: "Roll-in −3 s", t: path.startT },
+    { key: "rollIn", label: "Roll-in", t: path.samples[0].t },
+    { key: "track", label: "Track", t: path.trackPointT },
+    { key: "release", label: "Release", t: path.releaseT },
+    { key: "impact", label: "Impact", t: impactT },
+    { key: "semEnd", label: "SEM End", t: sem.length ? sem.at(-1).t : null },
+  ].filter((p) => Number.isFinite(p.t) && p.t >= path.startT - 1e-6 && p.t <= path.endT + 1e-6)
+    .sort((a, b) => a.t - b.t)
+    .map((p) => ({ ...p, label: p.key === "start" ? `Roll-in ${p.t < 0 ? "−" : "+"}${Math.abs(Math.round(p.t * 10) / 10)} s` : p.label, color: KEY_POINT_COLORS[p.key] }));
+}
+// Marks on each 3D / HUD dial's bar and a button row under it. The host's clock may differ from the path's (the Offset
+// clock counts from the IP): the dial's end is the path's end, so a point's dial value is t + (range.max − path.endT).
+const keyPointObservers = new WeakMap();
+function syncKeyPoints(container, path) {
+  container.querySelectorAll('[data-bdp-diagram="3d"] [data-time-dial], [data-bdp-diagram="hud"] [data-time-dial]').forEach((dial) => {
+    const range = dial.querySelector("[data-time-range]");
+    if (!range) return;
+    let kept = keyPointObservers.get(dial);
+    if (kept?.path === path) return;
+    if (!kept) {
+      const track = document.createElement("span");
+      track.className = "time-dial-track";
+      track.setAttribute("style", "position:relative;display:inline-flex;align-items:center;align-self:center;height:24px");
+      range.before(track);
+      track.append(range);
+      const marks = document.createElement("span");
+      marks.dataset.timeMarks = "";
+      marks.setAttribute("style", "position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none");
+      track.append(marks);
+      const row = document.createElement("div");
+      row.className = "diagram-action-row time-dial-points";
+      row.dataset.timePoints = "";
+      row.setAttribute("role", "group");
+      row.setAttribute("aria-label", "Key points: move the time there");
+      row.setAttribute("style", "display:flex;flex-wrap:wrap;width:auto;max-width:100%;gap:4px;margin-top:4px");
+      dial.after(row);
+      kept = { marks, row, path: null, points: [] };
+      keyPointObservers.set(dial, kept);
+      const place = () => placeKeyPoints(range, kept);
+      if (typeof MutationObserver === "function") new MutationObserver(place).observe(range, { attributes: true, attributeFilter: ["min", "max"] });
+      row.addEventListener("click", (event) => {
+        const button = event.target.closest?.("[data-time-point]");
+        if (!button || !kept.path) return;
+        const point = kept.points.find((p) => p.key === button.dataset.timePoint);
+        if (!point) return;
+        range.value = String(point.t + (Number(range.max) - kept.path.endT));
+        range.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    }
+    kept.path = path;
+    kept.points = bdpFlightKeyPoints(path);
+    kept.row.replaceChildren(...kept.points.map((p) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "capture-button";
+      button.dataset.timePoint = p.key;
+      button.title = `Move the time to ${p.label}`;
+      button.setAttribute("style", `min-height:26px;padding:2px 8px;font-size:11px;border-left:4px solid ${p.color}`);
+      button.textContent = p.label;
+      return button;
+    }));
+    placeKeyPoints(range, kept);
+  });
+}
+function placeKeyPoints(range, kept) {
+  const min = Number(range.min), max = Number(range.max);
+  const ticks = kept.path && max > min ? kept.points.map((p) => {
+    const frac = (p.t + (max - kept.path.endT) - min) / (max - min);
+    if (!(frac >= -1e-6 && frac <= 1 + 1e-6)) return null;
+    const tick = document.createElement("span");
+    tick.dataset.timeMark = p.key;
+    tick.title = p.label;
+    tick.setAttribute("style", `position:absolute;top:0;bottom:0;width:3px;margin-left:-1.5px;border-radius:2px;left:calc(8px + ${(Math.min(1, Math.max(0, frac)) * 100).toFixed(2)}% - ${(Math.min(1, Math.max(0, frac)) * 16).toFixed(2)}px);background:${p.color};opacity:.9`);
+    return tick;
+  }).filter(Boolean) : [];
+  kept.marks.replaceChildren(...ticks);
 }
 
 // The 3D Profile / HUD window of the path last drawn in this container (seconds from the Roll-in Point), or null.
