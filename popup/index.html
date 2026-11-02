@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>POP-UP Tactics · V2 WORK</title>
-<link rel="stylesheet" href="../offset.css?v=44371ee97ce9">
-  <link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=44371ee97ce9">
-<link rel="stylesheet" href="../wide-layout.css?v=44371ee97ce9">
+<link rel="stylesheet" href="../offset.css?v=232ea427cb96">
+  <link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=232ea427cb96">
+<link rel="stylesheet" href="../wide-layout.css?v=232ea427cb96">
 </head>
 <!-- POP-UP page (owner 2026-10-27, POP-UP SPEC §13.1: the Offset taken as is and modified). The Offset index
      markup with the POP-UP input group and Result group; the Offset controller runs in POP-UP mode (body.popup-page):
@@ -95,22 +95,6 @@
       </div>
     </details>
 
-    <!-- POP-UP (POP-UP SPEC §13.2c, §13.5): the last of Popup Angle / Ground Distance / Exposure Time typed drives; AUTO
-         returns to the automatic angle rule. The Pop Point state is the Offset Turn Condition's Altitude and Speed. -->
-    <details class="input-group-panel" open>
-      <summary class="input-group-title" id="popup-input-title">POP-UP</summary>
-      <div class="driver"><span>Popup Angle · Ground Distance · Exposure Time 중 마지막에 입력한 값이 Driver (나머지 둘은 결과) · AUTO = 다이브 ≤15° +5°, 그 외 +10°</span><output id="popup-driver-out">DRIVER · AUTO</output></div>
-      <div class="input-grid">
-        <label class="field"><span>Popup Angle (deg)</span><input data-key="popupAngleDeg" type="text" inputmode="decimal" value=""><span class="unit">Climb angle · 0–55° (exclusive)</span></label>
-        <label class="field"><span>Ground Distance (NM)</span><input data-key="popupGroundDistanceNm" type="text" inputmode="decimal" value=""><span class="unit">Pop Point → Roll-in Start</span></label>
-        <label class="field"><span>Exposure Time (sec)</span><input data-key="popupExposureTimeSec" type="text" inputmode="decimal" value=""><span class="unit">Pop Point → Apex · MIL</span></label>
-        <label class="field"><span>Popup G (G)</span><input data-key="popupG" type="text" inputmode="decimal" value="3"><span class="unit">Pull-up G · BDP G onset rate</span></label>
-        <div class="field"><span>Driver</span><button class="btn" id="popup-auto" type="button">AUTO</button><span class="unit">Back to the automatic angle rule</span></div>
-        <div class="field"><span>Minimum exposure</span><span class="compound"><button class="btn" id="popup-min-exposure" type="button">Calculate</button><output id="popup-min-exposure-out" class="readout">-</output><button class="btn" id="popup-min-apply" type="button" hidden>Apply</button></span><span class="unit">Popup angle with the shortest Pop → Apex</span></div>
-      </div>
-      <div class="constraint-note">Pop Point = Offset Turn Condition Altitude / Speed. Initial Speed is the Roll-in Speed (the Roll-in starts at it; MIL arrival is checked against it).</div>
-    </details>
-
     <details class="input-group-panel" open>
       <summary class="input-group-title">Offset Geometry</summary>
       <div class="offset-grid">
@@ -122,6 +106,23 @@
         <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">6</b>Approach Range</span><button class="lock-button" type="button" data-lock-key="approachRangeNm" aria-pressed="false">LOCK</button></span><input data-key="approachRangeNm" type="text" inputmode="decimal" value="1.0"><span class="unit">Offset Turn End → Roll-in Start · NM</span></label>
         <div class="offset-card"><span class="offset-title"><b class="step">7</b>Approaching Heading</span><output id="offset-heading-out" class="readout offset-heading">-</output><span class="unit">Offset Turn completion → Roll-in Start</span></div>
       </div>
+    </details>
+
+    <!-- POP-UP under Offset Geometry (owner 2026-11-02) (POP-UP SPEC §13.2c, §13.5): the last of Popup Angle / Ground Distance / Exposure Time typed drives; AUTO
+         returns to the automatic angle rule. The Pop Point state is the Offset Turn Condition's Altitude and Speed. -->
+    <details class="input-group-panel" open>
+      <summary class="input-group-title" id="popup-input-title">POP-UP</summary>
+      <div class="driver"><span>Popup Angle · Ground Distance · Exposure Time 중 마지막에 입력한 값이 Driver (나머지 둘은 결과) · AUTO = 다이브 ≤15° +5°, 그 외 +10°</span><output id="popup-driver-out">DRIVER · AUTO</output></div>
+      <div class="input-grid">
+        <label class="field"><span>Popup Angle (deg)</span><input data-key="popupAngleDeg" type="text" inputmode="decimal" value=""><span class="unit">Climb angle · 0–55° (exclusive)</span></label>
+        <label class="field"><span>Ground Distance (NM)</span><input data-key="popupGroundDistanceNm" type="text" inputmode="decimal" value=""><span class="unit">Pop Point → Roll-in Start</span></label>
+        <div class="field"><span>Pop-up Range (NM)</span><output id="popup-range-out" class="readout">-</output><span class="unit">Pop-up Point → Target · result</span></div>
+        <label class="field"><span>Exposure Time (sec)</span><input data-key="popupExposureTimeSec" type="text" inputmode="decimal" value=""><span class="unit">Pop Point → Apex · MIL</span></label>
+        <label class="field"><span>Popup G (G)</span><input data-key="popupG" type="text" inputmode="decimal" value="3"><span class="unit">Pull-up G · BDP G onset rate</span></label>
+        <div class="field"><span>Driver</span><button class="btn" id="popup-auto" type="button">AUTO</button><span class="unit">Back to the automatic angle rule</span></div>
+        <div class="field"><span>Minimum exposure</span><span class="compound"><button class="btn" id="popup-min-exposure" type="button">Calculate</button><output id="popup-min-exposure-out" class="readout">-</output><button class="btn" id="popup-min-apply" type="button" hidden>Apply</button></span><span class="unit">Popup angle with the shortest Pop → Apex</span></div>
+      </div>
+      <div class="constraint-note">Pop Point = Offset Turn Condition Altitude / Speed. Initial Speed is the Roll-in Speed (the Roll-in starts at it; MIL arrival is checked against it).</div>
     </details>
 
     <details class="input-group-panel">
@@ -220,7 +221,7 @@
     <div class="z-diagram-shell"><svg id="offset-z-svg" viewBox="0 0 650 770" role="img" aria-label="POP-UP #1 Z-Diagram"><g data-z-root></g></svg></div>
   </section>
 
-  <section class="section compact-results" id="result-section" data-result-panel data-output-aircraft="1" data-aircraft-output="result"><div class="result-panel-head"><h2>Result #1</h2><div data-result-controls aria-label="Result display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>POP-UP</h3><table><tbody class="result-rows" id="popup-result-body"></tbody></table></div><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" id="offset-result-body"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" id="profile-result-body"></tbody></table></div><p data-result-empty>No available summary results.</p></div></section>
+  <section class="section compact-results" id="result-section" data-result-panel data-output-aircraft="1" data-aircraft-output="result"><div class="result-panel-head"><h2>Result #1</h2><div data-result-controls aria-label="Result display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" id="offset-result-body"></tbody></table></div><div data-result-group><h3>POP-UP</h3><table><tbody class="result-rows" id="popup-result-body"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" id="profile-result-body"></tbody></table></div><p data-result-empty>No available summary results.</p></div></section>
 
   <section class="section ded-section" data-output-aircraft="1" data-aircraft-output="ded" aria-labelledby="ded-title">
     <div class="section-head"><h2 id="ded-title">DED #1</h2><button class="btn ded-png-button" type="button" data-ded-png="1">PNG</button></div>
@@ -249,7 +250,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="../wide-layout.mjs?v=44371ee97ce9"></script>
+<script type="module" src="../wide-layout.mjs?v=232ea427cb96"></script>
 
 </body>
 </html>

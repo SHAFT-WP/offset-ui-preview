@@ -1016,6 +1016,8 @@ function renderLead(entry) {
 
 // POP-UP results (#1): the BE's popup record of the Flight entry; nothing is computed here.
 const POPUP_DRIVER_TEXT = Object.freeze({ DEFAULT: "AUTO · Dive ≤ 15° → +5°, else +10°", ANGLE: "Popup Angle (typed)", GROUND_DISTANCE: "Ground Distance (typed)", EXPOSURE_TIME: "Exposure Time (typed)", LEAD_POP_TIME: "Pop with #1 (angle solved)" });
+// The Pop-up Range readout of a POP-UP group (Pop-up Point → Target, NM).
+const popupRangeText = (p) => (Number.isFinite(p?.popToTargetNm) ? p.popToTargetNm.toFixed(2) : "-");
 // The field each driver comes from (the other two are results).
 const POPUP_DRIVER_KEY = Object.freeze({ ANGLE: "popupAngleDeg", GROUND_DISTANCE: "popupGroundDistanceNm", EXPOSURE_TIME: "popupExposureTimeSec" });
 // Marks the three POP-UP fields "Driver" or "result" for the current driver (fields: key -> its inputs).
@@ -1047,7 +1049,9 @@ function popupResultRows(p, { keyed = true } = {}) {
     r("Exposure (Pop → Apex)", `${one(p.exposureTimeSec)} s`, "popupExposureTimeSec", true),
     r("Hold-Down", `${Number.isFinite(p.holdDownNm) ? p.holdDownNm.toFixed(2) : "-"} NM${Number.isFinite(p.holdDownSec) ? ` / ${one(p.holdDownSec)} s` : ""}`, "popupHoldDownNm", true),
     // At the Pop Point (owner 2026-11-01): range and angle-off to the Target, and the time after IP.
-    r("Pop → Target", `${Number.isFinite(p.popToTargetNm) ? p.popToTargetNm.toFixed(2) : "-"} NM · Angle Off ${Number.isFinite(p.popAngleOffDeg) ? `${Math.abs(p.popAngleOffDeg).toFixed(0)}° ${p.popAngleOffDeg >= 0 ? "R" : "L"}` : "-"}`, "popupPopTarget", true),
+    // Pop-up Range (owner 2026-11-02): the Pop-up Point → Target distance.
+    r("Pop-up Range", `${Number.isFinite(p.popToTargetNm) ? p.popToTargetNm.toFixed(2) : "-"} NM`, "popupRange", true),
+    r("Pop-up Angle Off", Number.isFinite(p.popAngleOffDeg) ? `${Math.abs(p.popAngleOffDeg).toFixed(0)}° ${p.popAngleOffDeg >= 0 ? "R" : "L"}` : "-", "popupAngleOff", true),
     r("Pop time", `IP +${one(p.popTimeSec)} s${Number.isFinite(p.leadPopSec) ? ` (#1 IP +${one(p.leadPopSec)} s)` : ""}`, "popupPopTime", true),
     r("Apex", `${ft(p.events?.find((e) => e.name === "APEX")?.altitudeMslFt)} · ${kt(p.apexKcas)}`, "popupApex", true),
     r("Roll-in Speed check", speedText, "popupSpeedCheck", true),
@@ -1063,6 +1067,8 @@ function renderPopup(entry) {
   const driverOut = $("#popup-driver-out");
   if (driverOut) driverOut.textContent = `DRIVER · ${POPUP_DRIVER_TEXT[popupDriver] ?? popupDriver}`;
   markPopupDriverFields(popupDriver, (key) => fields(key));
+  const range = $("#popup-range-out");
+  if (range) range.textContent = popupRangeText(p);
   const out = $("#popup-min-exposure-out");
   const apply = $("#popup-min-apply");
   if (out) {
@@ -2089,6 +2095,7 @@ function followerCalculatingMarkup(number) {
   const popupGroup = !POPUP_MODE ? "" : `<details class="input-group-panel" open><summary class="input-group-title">POP-UP</summary><div class="driver"><span>${POPUP_DRIVER_NOTE}</span><output data-popup-driver-out>DRIVER · AUTO</output></div><div class="input-grid">`
     + `<label class="field"><span>Popup Angle (deg)</span><input data-flight-field="popupAngleDeg" type="text" inputmode="decimal"><span class="unit">Climb angle · 0–55° (exclusive)</span></label>`
     + `<label class="field"><span>Ground Distance (NM)</span><input data-flight-field="popupGroundDistanceNm" type="text" inputmode="decimal"><span class="unit">Pop Point → Roll-in Start</span></label>`
+    + `<div class="field"><span>Pop-up Range (NM)</span><output class="readout" data-popup-range-out>-</output><span class="unit">Pop-up Point → Target · result</span></div>`
     + `<label class="field"><span>Exposure Time (sec)</span><input data-flight-field="popupExposureTimeSec" type="text" inputmode="decimal"><span class="unit">Pop Point → Apex · MIL</span></label>`
     + `<label class="field"><span>Popup G (G)</span><input data-flight-field="popupG" type="text" inputmode="decimal"><span class="unit" data-follow-note></span></label>`
     + `<div class="field"><span>Driver</span><span class="compound"><button class="btn" type="button" data-popup-auto>AUTO</button><button class="btn" type="button" data-popup-lead aria-pressed="false">Pop with #1</button></span><span class="unit">AUTO: the angle rule · Pop with #1: #1's Pop time (angle solved)</span></div>`
@@ -2096,7 +2103,7 @@ function followerCalculatingMarkup(number) {
     + `</div></details>`;
   const inputSections = INDEX_LAYOUT ? [
     followerBdpTabMarkup(number),
-    flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${field.initialSpeed}${field.initialAltitude}${rollInLocked}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${foldGroup("Roll-in Condition", `${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${popupGroup}${statusLine}`, { calculating: true, tab: "offset" }),
+    flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${field.initialSpeed}${field.initialAltitude}${rollInLocked}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${popupGroup}${foldGroup("Roll-in Condition", `${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${statusLine}`, { calculating: true, tab: "offset" }),
   ] : [
     flightSection(number, "BDP", `<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}${ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label)).join("")}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerSemFields(number)}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerSemTurnFields(number)}</div><div data-sem-readouts></div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target).</p>`, { calculating: true, tab: "bdp" }),
     flightSection(number, "Offset", `${statusHead}<div class="input-grid">${field.runIn}${field.ipRange}${field.attack}${field.angleOff}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}</div>${popupGroup}${statusLine}`, { calculating: true, tab: "offset" }),
@@ -2109,7 +2116,7 @@ function followerCalculatingMarkup(number) {
     `<div class="bdp-views" data-bdp-views="${number}" data-output-aircraft="${number}" data-aircraft-output="bdp">${offsetBdpDiagramsMarkup(number)}</div>`,
     flightSection(number, "Z-Diagram", `<div class="diagram-actions"><div class="diagram-action-row"><button class="capture-button" type="button" data-flight-z-png>PNG</button>${zAdvancedMarkup(number)}</div></div><div class="z-diagram-shell"><svg data-flight-z viewBox="0 0 650 710" role="img" aria-label="${zDiagramTitle(number)}"><g data-z-root></g></svg></div>`, { calculating: true, heading: zDiagramTitle(number), output: "z" }),
     // Same variables as Result #1 first (same groups and order), then what only this aircraft has.
-    flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body">${POPUP_MODE ? `<div data-result-group><h3>POP-UP</h3><table><tbody class="result-rows" data-flight-result="popup"></tbody></table></div>` : ""}<div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${predecessor}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true, output: "result" }),
+    flightSection(number, "Result", `<div class="compact-results" data-flight-result-panel><div class="result-panel-head"><span></span><div data-result-controls aria-label="Result #${number} display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" data-flight-result="offset"></tbody></table></div>${POPUP_MODE ? `<div data-result-group><h3>POP-UP</h3><table><tbody class="result-rows" data-flight-result="popup"></tbody></table></div>` : ""}<div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" data-flight-result="profile"></tbody></table></div><div data-result-group><h3>#${number} vs #${predecessor}</h3><table><tbody class="result-rows" data-flight-result="flight"></tbody></table></div><p data-result-empty>No available summary results.</p></div></div>`, { calculating: true, output: "result" }),
     FLIGHT_DED_AIRCRAFT.has(number)
       ? flightSection(number, "DED", followerDedMarkup(), { calculating: true, output: "ded", tools: `<button class="btn ded-png-button" type="button" data-ded-png="${number}">PNG</button>` })
       : flightSection(number, "DED", `<p class="flight-draft-note">Aircraft #${number} DED is pending its profile result.</p>`, { output: "ded" }),
@@ -2661,6 +2668,7 @@ function renderFollowerPopupControls(number, slot, entry) {
   const driverOut = slot.querySelector("[data-popup-driver-out]");
   if (driverOut) driverOut.textContent = `DRIVER · ${POPUP_DRIVER_TEXT[draft.popupDriver] ?? draft.popupDriver}`;
   markPopupDriverFields(draft.popupDriver, (key) => followerFields(slot, key));
+  slot.querySelectorAll("[data-popup-range-out]").forEach((out) => { out.textContent = popupRangeText(entry.result ? entry.popup : null); });
   slot.querySelectorAll("[data-popup-lead]").forEach((button) => syncToggleButton(button, draft.popupDriver === "LEAD_POP_TIME", { activeClass: true }));
   const out = slot.querySelector("[data-popup-min-out]");
   if (out) renderPopupMinimumExposure(popupMinimumExposure.get(number), out, slot.querySelector("[data-popup-min-apply]"));
