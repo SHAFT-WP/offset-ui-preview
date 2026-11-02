@@ -32,7 +32,10 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // 0.1.5 (owner 2026-11-02, "Pop-up ded는 pop-up 포인트가 추가되고, oa2는 oa1과 같으나 타겟 고도이다"): each aircraft's
   // DED adds OA2 = its Pop Point, read like OA1 (RNG / TBRG from the same reference: the Target, or the Flight's VIP in
   // VIP mode) with ELEV = its Target Elevation.
-  version: "0.1.5",
+  // 0.1.6 (owner 2026-11-03, confirming the reading offered): OA2 is OA1's point (the Roll-in Start, same RNG / TBRG)
+  // with ELEV = the Target Elevation; the Pop Point is its own DED page `popUp` (TBRG / RNG from the same reference,
+  // ELEV = Target Elevation), no longer OA2.
+  version: "0.1.6",
   status: "work",
   offsetFlight: `${OFFSET_FLIGHT_V0_1.id} ${OFFSET_FLIGHT_V0_1.version}`,
   popupBe: `${POPUP_BE_V0_2.id} ${POPUP_BE_V0_2.version}`,
@@ -45,8 +48,8 @@ const DEG = Math.PI / 180;
 const FT_PER_NM = 6076.11549;
 const norm360 = (deg) => ((deg % 360) + 360) % 360;
 
-// OA2 (0.1.5): the Pop Point as an offset aimpoint, read like the Offset Flight's OA1 — true bearing and range from
-// OA1's reference (the Target; the Flight's VIP when #1 is in VIP mode) — with ELEV = the aircraft's Target Elevation.
+// The Pop-up Point page (0.1.6; OA2 in 0.1.5): true bearing and range from OA1's reference (the Target; the Flight's VIP
+// when #1 is in VIP mode), as the Offset Flight reads OA1, with ELEV = the aircraft's Target Elevation.
 function popPointDedPage(base, popPoint, targetElevationMslFt) {
   const rangeNm = Math.hypot(popPoint.x - base.x, popPoint.y - base.y);
   return { point: "POP", bearingDeg: norm360(Math.atan2(popPoint.x - base.x, popPoint.y - base.y) / DEG), rangeNm, rangeFt: rangeNm * FT_PER_NM, elevationFt: targetElevationMslFt };
@@ -257,11 +260,20 @@ function popupFlight(input, offsetFlight) {
       approachSec, offsetIpToReleaseSec: r.timing.offsetIpToReleaseSec - r.timing.approachSec + approachSec };
     const popupResult = { ...r, timing, geometry: { ...r.geometry, points: { ...r.geometry.points, popPoint } } };
     const { status, errors: attackErrors, warnings: attackWarnings, bdp: _bdp, ...popup } = attack;
-    // DED OA2 = the Pop Point (0.1.5), from OA1's reference: the Flight's VIP (#1's) in VIP mode, else the Target.
+    // DED (0.1.6): the Pop-up Point page from OA1's reference (the Flight's VIP, #1's, in VIP mode, else the Target);
+    // OA2 = OA1's point at the Target Elevation.
     const flightLead = output.aircraftResults[1]?.result;
     const dedBase = flightLead?.referenceMode === "VIP" ? flightLead.geometry.points.vip : target;
-    const ded = offset.ded ? { ...offset.ded, oa2: popPointDedPage(dedBase, popPoint, bdp.canonicalInputs.targetElevationMslFt) } : offset.ded;
+    const ded = offset.ded ? { ...offset.ded, popUp: popPointDedPage(dedBase, popPoint, bdp.canonicalInputs.targetElevationMslFt) } : offset.ded;
     aircraftResults[n] = { ...merge({ ...popup, popPoint, approachRangeNm, holdDownNm, holdDownSec, popTimeSec, popToTargetNm, popAngleOffDeg, ...(leadPop[n] ? { leadPopSec: leadPop[n].leadPopSec } : {}) }, errors, warnings), result: popupResult, ded };
+  }
+  // DED OA2 (0.1.6, owner): OA1's point (same RNG / TBRG) with ELEV = the aircraft's Target Elevation, wherever the
+  // aircraft has an OA1 (with or without a Pop Point).
+  for (const n of numbers) {
+    const entry = aircraftResults[n];
+    const targetElevationMslFt = entry?.result?.profile?.canonicalInputs?.targetElevationMslFt;
+    if (!entry?.ded?.oa1 || typeof targetElevationMslFt !== "number") continue;
+    entry.ded = { ...entry.ded, oa2: { ...entry.ded.oa1, elevationFt: targetElevationMslFt } };
   }
   // Written back for the page: each aircraft's flown angle and the two results of its driver.
   const nextInput = structuredClone(output.nextInput ?? input);
