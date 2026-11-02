@@ -20,8 +20,8 @@ const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-fli
 // with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
 // climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
 const POPUP_MODE = document.body.classList.contains("popup-page");
-const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.4", import.meta.url);
-const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.4", import.meta.url);
+const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.5", import.meta.url);
+const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.5", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -31,7 +31,7 @@ import { createValueStateController } from "./common/ui/value-state-controller-v
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.1";
 // DED boxes, texts and PNG: bombing app shared FE (2026-10-22); the DED record is the Flight BE's.
-import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.0";
+import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.2";
 // BDP Result rows and Fragment Data readouts: bombing app shared FE (2026-10-22).
 import { bdpResultRows, fragmentReadoutsMarkup, resultRow, semTurnAutoBankText, writeFragmentReadouts } from "./shared/bdp-result-v0.1.mjs?v=0.2.0";
 // Input field mechanics (solved values, bearings, LOCK / LINK, Enter commit, section collapse and tools): bombing app shared FE (2026-10-22).
@@ -531,7 +531,8 @@ function markInvalidFields(number, messages) {
 // DED pages come from the BE (aircraftResults[n].ded: bearing, range in NM and ft, elevation);
 // the FE only formats them.
 // #1's DED outputs (static markup, by id).
-const LEAD_DED_IDS = Object.freeze({ "reference-bearing": "ded-bearing", "reference-range": "ded-range", "reference-elevation": "ded-elevation", "oa1-bearing": "ded-oa1-bearing", "oa1-range": "ded-oa1-range", "oa1-elevation": "ded-oa1-elevation" });
+// OA2 (POP-UP page, owner 2026-11-02): the Pop Point; its outputs exist on the POP-UP page only.
+const LEAD_DED_IDS = Object.freeze({ "reference-bearing": "ded-bearing", "reference-range": "ded-range", "reference-elevation": "ded-elevation", "oa1-bearing": "ded-oa1-bearing", "oa1-range": "ded-oa1-range", "oa1-elevation": "ded-oa1-elevation", "oa2-bearing": "ded-oa2-bearing", "oa2-range": "ded-oa2-range", "oa2-elevation": "ded-oa2-elevation" });
 const leadDedOutput = (key) => document.getElementById(LEAD_DED_IDS[key]);
 function renderDed(ded) {
   $("#ded-page-title").textContent = ded.page;
@@ -2223,7 +2224,8 @@ function followerCalculatingMarkup(number) {
 // mode) and OA1.
 // OA1 reads RNG, TBRG, ELEV (user 2026-10-02); the VRP / VIP page keeps TBRG, RNG, ELEV (shared DED markup).
 function followerDedMarkup() {
-  return dedBoxesMarkup("data-flight-ded");
+  // POP-UP: OA2 = the Pop Point (POP-UP Flight 0.1.5).
+  return dedBoxesMarkup("data-flight-ded", { oa2: POPUP_MODE });
 }
 
 // Follower LOCK / ANGLE #n / TIME #n buttons share #1's LOCK button format: pressed state via

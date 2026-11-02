@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>POP-UP Tactics · V2 WORK</title>
-<link rel="stylesheet" href="../offset.css?v=5802a719111a">
-  <link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=5802a719111a">
-<link rel="stylesheet" href="../wide-layout.css?v=5802a719111a">
+<link rel="stylesheet" href="../offset.css?v=e8b568282a2a">
+  <link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=e8b568282a2a">
+<link rel="stylesheet" href="../wide-layout.css?v=e8b568282a2a">
 </head>
 <!-- POP-UP page (owner 2026-10-27, POP-UP SPEC §13.1: the Offset taken as is and modified). The Offset index
      markup with the POP-UP input group and Result group; the Offset controller runs in POP-UP mode (body.popup-page):
@@ -244,13 +244,20 @@
         <div class="ded-row"><span>TBRG</span><output id="ded-oa1-bearing">-</output></div>
         <div class="ded-row"><span>ELEV</span><output id="ded-oa1-elevation">-</output></div>
       </div>
+      <!-- OA2 = the Pop Point (owner 2026-11-02): read like OA1, ELEV = Target Elevation (POP-UP Flight 0.1.5). -->
+      <div class="ded-screen" id="ded-oa2-screen" aria-live="polite">
+        <div class="ded-page-title">OA2</div>
+        <div class="ded-row"><span>RNG</span><output id="ded-oa2-range">-</output></div>
+        <div class="ded-row"><span>TBRG</span><output id="ded-oa2-bearing">-</output></div>
+        <div class="ded-row"><span>ELEV</span><output id="ded-oa2-elevation">-</output></div>
+      </div>
     </div>
   </section>
 
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="../wide-layout.mjs?v=5802a719111a"></script>
+<script type="module" src="../wide-layout.mjs?v=e8b568282a2a"></script>
 
 </body>
 </html>

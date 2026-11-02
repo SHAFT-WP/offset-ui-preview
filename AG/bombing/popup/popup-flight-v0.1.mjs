@@ -29,7 +29,10 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // Release on the POP-UP clock. Metadata only.
   // 0.1.4 (owner 2026-11-02): Offset Flight 0.1.12 — #3's linked Longitudinal / Lateral Range edits, the Flight's Form
   // template edit and flightName.formation.places reach the POP-UP page through it. No POP-UP rule changes.
-  version: "0.1.4",
+  // 0.1.5 (owner 2026-11-02, "Pop-up ded는 pop-up 포인트가 추가되고, oa2는 oa1과 같으나 타겟 고도이다"): each aircraft's
+  // DED adds OA2 = its Pop Point, read like OA1 (RNG / TBRG from the same reference: the Target, or the Flight's VIP in
+  // VIP mode) with ELEV = its Target Elevation.
+  version: "0.1.5",
   status: "work",
   offsetFlight: `${OFFSET_FLIGHT_V0_1.id} ${OFFSET_FLIGHT_V0_1.version}`,
   popupBe: `${POPUP_BE_V0_2.id} ${POPUP_BE_V0_2.version}`,
@@ -39,6 +42,15 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
 });
 
 const DEG = Math.PI / 180;
+const FT_PER_NM = 6076.11549;
+const norm360 = (deg) => ((deg % 360) + 360) % 360;
+
+// OA2 (0.1.5): the Pop Point as an offset aimpoint, read like the Offset Flight's OA1 — true bearing and range from
+// OA1's reference (the Target; the Flight's VIP when #1 is in VIP mode) — with ELEV = the aircraft's Target Elevation.
+function popPointDedPage(base, popPoint, targetElevationMslFt) {
+  const rangeNm = Math.hypot(popPoint.x - base.x, popPoint.y - base.y);
+  return { point: "POP", bearingDeg: norm360(Math.atan2(popPoint.x - base.x, popPoint.y - base.y) / DEG), rangeNm, rangeFt: rangeNm * FT_PER_NM, elevationFt: targetElevationMslFt };
+}
 const blank = (value) => value === null || value === undefined || value === "";
 
 // The page's POP-UP edits (FE edit events, as Offset's, for any aircraft): a typed angle / distance / time becomes
@@ -245,7 +257,11 @@ function popupFlight(input, offsetFlight) {
       approachSec, offsetIpToReleaseSec: r.timing.offsetIpToReleaseSec - r.timing.approachSec + approachSec };
     const popupResult = { ...r, timing, geometry: { ...r.geometry, points: { ...r.geometry.points, popPoint } } };
     const { status, errors: attackErrors, warnings: attackWarnings, bdp: _bdp, ...popup } = attack;
-    aircraftResults[n] = { ...merge({ ...popup, popPoint, approachRangeNm, holdDownNm, holdDownSec, popTimeSec, popToTargetNm, popAngleOffDeg, ...(leadPop[n] ? { leadPopSec: leadPop[n].leadPopSec } : {}) }, errors, warnings), result: popupResult };
+    // DED OA2 = the Pop Point (0.1.5), from OA1's reference: the Flight's VIP (#1's) in VIP mode, else the Target.
+    const flightLead = output.aircraftResults[1]?.result;
+    const dedBase = flightLead?.referenceMode === "VIP" ? flightLead.geometry.points.vip : target;
+    const ded = offset.ded ? { ...offset.ded, oa2: popPointDedPage(dedBase, popPoint, bdp.canonicalInputs.targetElevationMslFt) } : offset.ded;
+    aircraftResults[n] = { ...merge({ ...popup, popPoint, approachRangeNm, holdDownNm, holdDownSec, popTimeSec, popToTargetNm, popAngleOffDeg, ...(leadPop[n] ? { leadPopSec: leadPop[n].leadPopSec } : {}) }, errors, warnings), result: popupResult, ded };
   }
   // Written back for the page: each aircraft's flown angle and the two results of its driver.
   const nextInput = structuredClone(output.nextInput ?? input);

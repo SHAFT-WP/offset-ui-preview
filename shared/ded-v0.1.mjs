@@ -9,9 +9,12 @@ import { saveSvgAsPng } from "../common/diagram/svg-png-export-v0.1.mjs";
 
 // 0.1.1 (2026-10-25, BOX page): a page list of OA boxes (dedPagesMarkup / writeDedPages / clearDedPages) beside the
 // reference + OA1 pair; the pair is unchanged.
-export const DED_V0_1 = Object.freeze({ id: "bombing-ded-v0.1", version: "0.1.1" });
-// The value outputs of the two boxes; the reference box's title is "reference-title".
-export const DED_VALUE_KEYS = Object.freeze(["reference-bearing", "reference-range", "reference-elevation", "oa1-bearing", "oa1-range", "oa1-elevation"]);
+// 0.1.2 (2026-11-02, POP-UP page, owner): an optional third box OA2 after the pair (dedBoxesMarkup { oa2: true }; the
+// POP-UP Pop Point), written from the record's `oa2`; a DED card (PNG) holds every box shown.
+export const DED_V0_1 = Object.freeze({ id: "bombing-ded-v0.1", version: "0.1.2" });
+// The value outputs of the boxes; the reference box's title is "reference-title". The oa2 outputs exist only where the
+// page asked for the OA2 box.
+export const DED_VALUE_KEYS = Object.freeze(["reference-bearing", "reference-range", "reference-elevation", "oa1-bearing", "oa1-range", "oa1-elevation", "oa2-bearing", "oa2-range", "oa2-elevation"]);
 
 export function dedRangeText(page) {
   return `${Math.round(page.rangeFt)} ft (${formatNm(page.rangeNm)} NM)`;
@@ -26,13 +29,14 @@ export function dedBearingText(bearingDeg) {
 }
 
 // The two boxes, outputs named by `attribute` ("reference-title", "reference-bearing", …). OA1 reads RNG, TBRG, ELEV
-// (user 2026-10-02); the VRP / VIP page keeps TBRG, RNG, ELEV.
-export function dedBoxesMarkup(attribute = "data-flight-ded") {
-  const rows = (page) => (page === "oa1" ? ["range:RNG", "bearing:TBRG", "elevation:ELEV"] : ["bearing:TBRG", "range:RNG", "elevation:ELEV"]).map((item) => {
+// (user 2026-10-02); the VRP / VIP page keeps TBRG, RNG, ELEV. `oa2` (0.1.2) adds an OA2 box read like OA1.
+export function dedBoxesMarkup(attribute = "data-flight-ded", { oa2 = false } = {}) {
+  const rows = (page) => (page === "reference" ? ["bearing:TBRG", "range:RNG", "elevation:ELEV"] : ["range:RNG", "bearing:TBRG", "elevation:ELEV"]).map((item) => {
     const [key, label] = item.split(":");
     return `<div class="ded-row"><span>${label}</span><output ${attribute}="${page}-${key}">-</output></div>`;
   }).join("");
-  return `<div class="ded-boxes"><div class="ded-screen" aria-live="polite"><div class="ded-page-title" ${attribute}="reference-title">VRP</div>${rows("reference")}</div><div class="ded-screen" aria-live="polite"><div class="ded-page-title">OA1</div>${rows("oa1")}</div></div>`;
+  const oa2Box = oa2 ? `<div class="ded-screen" aria-live="polite"><div class="ded-page-title">OA2</div>${rows("oa2")}</div>` : "";
+  return `<div class="ded-boxes"><div class="ded-screen" aria-live="polite"><div class="ded-page-title" ${attribute}="reference-title">VRP</div>${rows("reference")}</div><div class="ded-screen" aria-live="polite"><div class="ded-page-title">OA1</div>${rows("oa1")}</div>${oa2Box}</div>`;
 }
 
 // out(key) gives the output of a key in DED_VALUE_KEYS (a missing one is skipped).
@@ -44,6 +48,10 @@ export function writeDedValues(out, ded) {
     "oa1-bearing": dedBearingText(ded.oa1.bearingDeg),
     "oa1-range": dedRangeText(ded.oa1),
     "oa1-elevation": dedElevationText(ded.oa1.elevationFt),
+    // OA2 (0.1.2): shown where the page has the box; "-" when the record has none.
+    "oa2-bearing": ded.oa2 ? dedBearingText(ded.oa2.bearingDeg) : "-",
+    "oa2-range": ded.oa2 ? dedRangeText(ded.oa2) : "-",
+    "oa2-elevation": ded.oa2 ? dedElevationText(ded.oa2.elevationFt) : "-",
   };
   for (const key of DED_VALUE_KEYS) {
     const node = out(key);
@@ -97,14 +105,16 @@ export function readDedCard(section, number) {
     title: screen.querySelector(".ded-page-title")?.textContent.trim() ?? "",
     rows: [...screen.querySelectorAll(".ded-row")].map((row) => [row.querySelector("span")?.textContent.trim() ?? "", row.querySelector("output")?.textContent.trim() ?? ""]),
   }));
-  if (boxes.length !== 2 || boxes.some((box) => box.rows.some(([, text]) => !text || text === "-"))) return null;
+  if (boxes.length < 2 || boxes.some((box) => box.rows.some(([, text]) => !text || text === "-"))) return null;
   return { number, mode: boxes[0].title, boxes };
 }
 
 // The PNG picture: aircraft after aircraft, "DED #n · mode" in the aircraft's colour (colorOf), then the two boxes.
 export function dedExportSvg(cards, { colorOf }) {
   const pad = 20, boxWidth = 330, gap = 16, headerHeight = 38, boxHeight = 150, cardGap = 18;
-  const width = pad * 2 + boxWidth * 2 + gap;
+  // Two boxes a card on every page; three on the POP-UP page (OA2, 0.1.2).
+  const columns = Math.max(2, ...cards.map((card) => card.boxes.length));
+  const width = pad * 2 + boxWidth * columns + gap * (columns - 1);
   const cardHeight = headerHeight + boxHeight;
   const height = pad * 2 + cards.length * cardHeight + (cards.length - 1) * cardGap;
   const svg = svgNode("svg", { xmlns: "http://www.w3.org/2000/svg", viewBox: `0 0 ${width} ${height}`, "data-ded-export": cards.map((card) => card.number).join(",") });
