@@ -2,7 +2,7 @@ import { POPUP_STORAGE_KEYS, readOffsetWorkSave, writeOffsetWorkSave } from "./w
 import { convertOffsetDraftsFromTail } from "./shared/formation-save-v0.1.mjs?v=0.1.0";
 import { formatDeg, formatG, formatKt, formatNm, formatSec, formatSignedSec, truncateBeOutput } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
-import { formationPositionMarkup, installFormationSideSelects } from "./common/ui/formation-position-v0.1.mjs?v=0.1.1";
+import { formationPositionMarkup, installFormationPositionRows } from "./common/ui/formation-position-v0.1.mjs?v=0.1.2";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // One BE call per request (AG SPEC "Flight entrypoint", 2026-10-12): the Flight entrypoint owns every
 // solve, inheritance, position, drop-order timing and the next input state. This controller collects
@@ -11,15 +11,17 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // The BE runs in a Worker (offset-flight-worker-v0.1.mjs); Common calculation-client-v0.1.mjs decides when a
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
-import { OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.11";
+import { FORMATION_TEMPLATES, OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.12";
+// Flight Formation top view (Flight Bombing Tactics view, owner 2026-11-02): draws the BE's flightName.formation.
+import { formationTopViewSvg } from "./flight/flight-bombing-tactics/view/formation-top-view-v0.1.mjs?v=0.1.0";
 import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
-const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.7", import.meta.url);
+const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.8", import.meta.url);
 // POP-UP page (owner 2026-10-27, POP-UP SPEC §13.1 "Offset as is, modified"): popup/index.html runs this controller
 // with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
 // climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
 const POPUP_MODE = document.body.classList.contains("popup-page");
-const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.3", import.meta.url);
-const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.3", import.meta.url);
+const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.4", import.meta.url);
+const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.4", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -306,8 +308,11 @@ const LEAD_VALUE_KEYS = Object.keys(DEFAULT_INPUT_VALUES);
 // one decimal, Tracking Time one decimal (user 2026-10-12; entered in 0.1 s); the Full value stays
 // behind the text (solvedInputValues / draft.solved).
 const FIELD_DISPLAY_DIGITS = Object.freeze({ popupAngleDeg: 1, popupGroundDistanceNm: 2, popupExposureTimeSec: 1, attackHeadingDeg: 0, angleOffDeg: 0, offsetAngleDeg: 0, actionRangeNm: 1, approachRangeNm: 1, ipRangeNm: 1, vrpRangeNm: 1, offsetG: 1, offsetBankDeg: 0, offsetRadiusNm: 1, trackingTimeSec: 1, rollInAltitudeMslFt: 0, initialAltitudeMslFt: 0, releaseAltitudeMslFt: 0, rollInBankAngleDeg: 0, rollInG: 1 });
+// Formation places written back (a Form template, the linked ranges): short text, the Full value behind it.
+const FORMATION_DISPLAY_DIGITS = Object.freeze({ bearingDeg: 1, distanceNm: 2, longitudinalNm: 2, lateralNm: 2 });
 function fieldDisplayText(key, value) {
   if (key === "runInHeadingDeg") return formatBearingInput(value);
+  if (Object.hasOwn(FORMATION_DISPLAY_DIGITS, key)) return String(Number(value.toFixed(FORMATION_DISPLAY_DIGITS[key])));
   // A written-back Attack Heading reads like the entered one: integer, three digits ("030"; a Run-In turn rewrites it).
   if (key === "attackHeadingDeg") return String(((Math.round(value) % 360) + 360) % 360).padStart(3, "0");
   return Object.hasOwn(FIELD_DISPLAY_DIGITS, key) ? value.toFixed(FIELD_DISPLAY_DIGITS[key]) : String(value);
@@ -503,6 +508,7 @@ const INVALID_FIELD_NAMES = {
   initialAltitudeMslFt: ["initial altitude"], rollInAltitudeMslFt: ["roll-in altitude"], diveAngleDeg: ["dive angle"],
   trackingTimeSec: ["tracking time"], releaseAltitudeMslFt: ["release altitude"], releaseSpeedKcas: ["release speed"],
   distanceNm: ["distancenm"], bearingDeg: ["relativebearingdeg"],
+  longitudinalNm: ["longitudinal range"], lateralNm: ["lateral range"],
 };
 const lastEditedField = new Map();
 function markInvalidFields(number, messages) {
@@ -930,8 +936,9 @@ function applyCalculationAnswer(message, sent) {
   }
   // Z #1 after the followers: its ΔTime row is #2's (#1 Impact − #2 Release).
   if (lastResultFull) $("#capture-z").disabled = !renderZDiagramOf(1, $("#offset-z-svg"), lastResultFull);
-  // The Flight Top View once every aircraft has its current result.
+  // The Flight Top View once every aircraft has its current result; the Flight Formation from the BE's flightName.
   renderTopView();
+  renderFlightFormation(output.flightName);
   // Fleet 3D/HUD panels depend on the other aircraft too. Refresh after the whole answer is installed.
   topViewAvailableAircraft().forEach(refreshBdpDiagrams);
   syncDedPngButtons();
@@ -1772,7 +1779,8 @@ document.addEventListener("click", (event) => {
 });
 
 function installSectionTools(root = document) {
-  installSectionToolsOn(root.querySelectorAll(".section[data-tab]"), {
+  // The Flight-wide Formation sections (2026-11-02) are no aircraft's tab: no Tab Default / Save of their own.
+  installSectionToolsOn(root.querySelectorAll(".section[data-tab]:not([data-flight-wide])"), {
     // index (2026-10-12, user): the Save/Load tab is the one Save, so tabs drop their own Save and
     // their Default reads "Tab Default" (it resets only that tab). Standard keeps both as before.
     // A tab without hidden BDP extras gets no Full BDP toggle (index BDP tabs, owner 2026-10-15, R1: basic =
@@ -2062,6 +2070,91 @@ function followerFormationMarkup(leadNumber) {
   return formationPositionMarkup({ attribute: "data-flight-field", keys: { side: "side", bearing: "bearingDeg", range: "distanceNm" }, referenceLabel: `#${leadNumber}` });
 }
 
+// #3's Longitudinal / Lateral Range (owner sketch 2026-11-02): the same place as its Bearing / Range, linked by the BE
+// (Offset Flight 0.1.12); never negative.
+function formationComponentFieldsMarkup(leadNumber) {
+  const field = (key, label, unit) => `<label class="field"><span>${label}</span><input data-flight-field="${key}" type="text" inputmode="decimal" data-nonnegative><span class="unit">${unit}</span></label>`;
+  return `<div class="input-grid formation-components">${field("longitudinalNm", "Longitudinal Range (NM)", `Behind #${leadNumber} · linked to Bearing / Range`)}${field("lateralNm", "Lateral Range (NM)", `Across from #${leadNumber} to the Side`)}</div>`;
+}
+
+// ---- Flight Formation (owner sketch 2026-11-02) -----------------------------------------------------------------
+// The Flight's Form template (full names of this Flight size) and #2's side fill #2–#4 through the BE (Flight edit
+// "formationTemplate"); the name, attack type and #1 Impact − #2 Release are the BE's flightName; the top view draws
+// its places. A template only fills the places: the Form shown is always the one the places give ("Custom" otherwise).
+function flightFormationMarkup() {
+  return `<div class="section-head"><h2 id="flight-formation-title">Flight Formation</h2></div>`
+    + `<div class="input-grid flight-form-controls">`
+    + `<label class="field"><span>Form</span><select data-flight-form aria-label="Formation template"></select><span class="unit">Fills #2–#4 · the name follows the places</span></label>`
+    + `<label class="field"><span>Side (#2)</span><select data-flight-form-side aria-label="Side of #2 in the template"><option value="LEFT">L · Left</option><option value="RIGHT">R · Right</option></select><span class="unit">L / R of the name</span></label>`
+    + `</div><div class="flight-formation-readouts">`
+    + `<div class="field"><span>Formation</span><output data-flight-formation-name>-</output><span class="unit" data-flight-formation-reason></span></div>`
+    + `<div class="field"><span>Attack type</span><output data-flight-attack-type>-</output><span class="unit">ech · pin · mix</span></div>`
+    + `<div class="field"><span>#1 Impact − #2 Release</span><output data-flight-impact-release>-</output><span class="unit">sec</span></div>`
+    + `</div>`;
+}
+function flightFormationViewMarkup() {
+  return `<div class="section-head"><h2>Formation Top View</h2><button class="capture-button" type="button" data-formation-png>PNG</button></div>`
+    + `<div class="formation-top-view-shell" data-formation-top-view></div>`;
+}
+let lastFlightName = null;
+function installFlightFormationSections() {
+  const followers = $("#flight-followers");
+  const make = (className, html, placement) => {
+    const section = document.createElement("section");
+    section.className = `section ${className}`;
+    section.dataset.tab = "formation";
+    section.setAttribute("data-flight-wide", placement);
+    section.innerHTML = html;
+    followers.before(section);
+    return section;
+  };
+  const form = make("flight-formation-section", flightFormationMarkup(), "");
+  form.setAttribute("aria-labelledby", "flight-formation-title");
+  const view = make("flight-formation-view-section", flightFormationViewMarkup(), "after");
+  const apply = () => {
+    const name = form.querySelector("[data-flight-form]").value;
+    if (!name) return;
+    calculate({ aircraft: 1, kind: "formationTemplate", name, side: form.querySelector("[data-flight-form-side]").value });
+  };
+  form.querySelector("[data-flight-form]").addEventListener("change", apply);
+  form.querySelector("[data-flight-form-side]").addEventListener("change", apply);
+  view.querySelector("[data-formation-png]").addEventListener("click", () => {
+    const svg = view.querySelector("[data-formation-top-view] svg");
+    if (svg) saveSvgAsPng(svg, `Formation_${(lastFlightName?.formation?.text ?? "top_view").replace(/[^A-Za-z0-9-]+/g, "_")}.png`, { scale: 2, background: "#ffffff" });
+  });
+}
+// The Form list of this Flight size ("Custom" = as placed); the standard page hides the sections for one aircraft (the
+// wide workspace shows them in the Formation tab of #2–#4).
+function syncFlightFormationOptions() {
+  const select = document.querySelector("[data-flight-form]");
+  if (!select) return;
+  const templates = FORMATION_TEMPLATES[flightLayout.size] ?? [];
+  const wanted = ["", ...templates.map((template) => template.name)].join();
+  if ([...select.options].map((option) => option.value).join() !== wanted) {
+    select.replaceChildren(new Option("Custom (as placed)", ""), ...templates.map((template) => new Option(template.label, template.name)));
+  }
+  if (!INDEX_LAYOUT) document.querySelectorAll(".flight-formation-section, .flight-formation-view-section").forEach((section) => { section.hidden = flightLayout.size < 2; });
+}
+function renderFlightFormation(flightName) {
+  lastFlightName = flightName ?? null;
+  syncFlightFormationOptions();
+  const formation = flightName?.formation ?? null;
+  const section = document.querySelector(".flight-formation-section");
+  if (!section) return;
+  const select = section.querySelector("[data-flight-form]");
+  const templates = FORMATION_TEMPLATES[flightLayout.size] ?? [];
+  if (document.activeElement !== select) select.value = templates.some((template) => template.name === formation?.name) ? formation.name : "";
+  const sideSelect = section.querySelector("[data-flight-form-side]");
+  if (document.activeElement !== sideSelect && (formation?.side === "L" || formation?.side === "R")) sideSelect.value = formation.side === "R" ? "RIGHT" : "LEFT";
+  section.querySelector("[data-flight-formation-name]").textContent = formation?.text ?? "-";
+  section.querySelector("[data-flight-formation-reason]").textContent = formation?.reason ?? "";
+  section.querySelector("[data-flight-attack-type]").textContent = flightName?.attackType?.value ?? "-";
+  const delta = flightName?.leadImpactToWingmanReleaseSec?.value;
+  section.querySelector("[data-flight-impact-release]").textContent = Number.isFinite(delta) ? formatSignedSec(delta) : "-";
+  const shell = document.querySelector("[data-formation-top-view]");
+  if (shell) shell.innerHTML = formation && flightLayout.size >= 2 ? formationTopViewSvg({ formation, idPrefix: "flight-formation-top-view", title: `Formation top view ${formation.text ?? ""}`.trim() }) : "";
+}
+
 function followerCalculatingMarkup(number) {
   const leadNumber = elementLeadNumber(number);
   const predecessor = number - 1;
@@ -2112,7 +2205,7 @@ function followerCalculatingMarkup(number) {
     flightSection(number, "Offset", `${statusHead}<div class="input-grid">${field.runIn}${field.ipRange}${field.attack}${field.angleOff}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}</div>${popupGroup}${statusLine}`, { calculating: true, tab: "offset" }),
   ];
   return [
-    flightSection(number, "Formation", `<p class="flight-draft-note">Start point relative to #${leadNumber}'s own IP; feeds this aircraft's Run-In line.</p>${followerFormationMarkup(leadNumber)}`, { calculating: true, tab: "formation" }),
+    flightSection(number, "Formation", `<p class="flight-draft-note">Start point relative to #${leadNumber}'s own IP; feeds this aircraft's Run-In line.</p>${followerFormationMarkup(leadNumber)}${number === 3 ? formationComponentFieldsMarkup(leadNumber) : ""}`, { calculating: true, tab: "formation" }),
     ...inputSections,
     // View order (user 2026-10-02): BDP Top View, BDP Profile, Z-Diagram; the Offset Top View is the
     // one Flight view under #1 (user 2026-10-05). The two BDP views show only while its Full is on.
@@ -2175,7 +2268,8 @@ function renderFlightLayout({ fresh = false } = {}) {
     host.append(slot);
     initializeFlightSlotFields(slot, number);
   }
-  installFormationSideSelects(host);
+  installFormationPositionRows(host);
+  syncFlightFormationOptions();
   installSectionDisclosure();
   installSectionTools(host);
   host.querySelectorAll(".flight-slot").forEach((slot) => installFollowerTopViewControls(Number(slot.dataset.aircraft), slot));
@@ -2399,7 +2493,11 @@ function collectFollowerRecord(number) {
   const entered = Number.parseFloat(draft.enteredTrackingTimeSec);
   return {
     values,
-    formation: { side: text("side") === "RIGHT" ? "RIGHT" : "LEFT", bearingDeg: read("bearingDeg"), distanceNm: read("distanceNm") },
+    // #3's Longitudinal / Lateral Range (only where the fields are): an edit of one is turned into the place by the BE.
+    formation: {
+      side: text("side") === "RIGHT" ? "RIGHT" : "LEFT", bearingDeg: read("bearingDeg"), distanceNm: read("distanceNm"),
+      ...(slot && followerField(slot, "longitudinalNm") ? { longitudinalNm: read("longitudinalNm"), lateralNm: read("lateralNm") } : {}),
+    },
     options: Object.fromEntries(FOLLOWER_LOCK_OPTIONS.map((key) => [key, draft[key] === true])),
     state: { driver: draft.driver, solveMode: draft.solveMode, enteredTrackingTimeSec: Number.isFinite(entered) ? entered : null, rollInAltitudeLinked: draft.rollInAltitudeLinked !== false, ...(POPUP_MODE ? { popupDriver: draft.popupDriver || "DEFAULT" } : {}) },
   };
@@ -2431,7 +2529,14 @@ function applyFollowerState(number, record, sent, activeKey, commit) {
     }
     write(key, value);
   });
-  ["bearingDeg", "distanceNm"].forEach((key) => { if (!sameStateValue(record.formation[key], sent.formation[key])) write(key, record.formation[key]); });
+  // The place (a Form template, a linked range) and #3's ranges shown from it; the Side a template set.
+  ["bearingDeg", "distanceNm", "longitudinalNm", "lateralNm"].forEach((key) => {
+    if (typeof record.formation[key] === "number" && !sameStateValue(record.formation[key], sent.formation[key]) && (key in sent.formation || key === "bearingDeg" || key === "distanceNm")) write(key, record.formation[key]);
+  });
+  if (record.formation.side !== sent.formation.side && (record.formation.side === "LEFT" || record.formation.side === "RIGHT")) {
+    draft.side = record.formation.side;
+    (slot ? followerFields(slot, "side") : []).forEach((select) => { select.value = record.formation.side; });
+  }
   Object.entries(record.options).forEach(([key, on]) => { draft[key] = on; });
   draft.driver = record.state.driver;
   draft.solveMode = record.state.solveMode;
@@ -3118,6 +3223,7 @@ function install() {
   installValueStateBindings();
   try { restoredWorkSave = POPUP_MODE ? readOffsetWorkSave(localStorage, POPUP_STORAGE_KEYS) : readOffsetWorkSave(localStorage); }
   catch { restoredWorkSave = { lead: null, flight: null, notice: "Saved conditions unavailable · browser storage could not be read" }; }
+  installFlightFormationSections();
   installFlightLayout();
   const leadDiagramsHost = document.querySelector('[data-bdp-diagrams-host="1"]');
   if (leadDiagramsHost) leadDiagramsHost.outerHTML = offsetBdpDiagramsMarkup(1);

@@ -4,7 +4,7 @@
 // Wheel values stay in Wheel: nothing here reads or writes the Offset or BOX page's state.
 import {
   WHEEL_BOX_FLIGHT_DEFAULT_STATE, WHEEL_BOX_FLIGHT_DEFAULT_VALUES, WHEEL_BOX_FLIGHT_FORMATION_REFERENCE, WHEEL_BOX_FLIGHT_V0_1, wheelBoxFlightDefaultFollower, wheelBoxFlightDefaultLead,
-} from "../AG/bombing/wheel-box/wheel-box-flight-v0.1.mjs?v=0.3.1";
+} from "../AG/bombing/wheel-box/wheel-box-flight-v0.1.mjs?v=0.3.2";
 import { createCalculationScheduler, createWorkerTransport } from "../common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
 import { WEAPON_DATABASE_V0_1 } from "../AG/bombing/bomb-delivery-planner/weapon-data-v0.1.mjs";
 import {
@@ -18,7 +18,7 @@ import { createSaveRun, isRecordObject, readWorkRecord, savedTimeText, writeWork
 import { FORMATION_ANGLE_CONVENTION, convertFollowerFormationsFromTail } from "../shared/formation-save-v0.1.mjs?v=0.1.0";
 import { AIRCRAFT_COLORS, createShownAircraft, installShownAircraftClicks } from "../shared/flight-ui-v0.1.mjs?v=0.1.0";
 import { installResultPanel } from "../common/ui/result-panel-v0.1.mjs";
-import { formationPositionMarkup, installFormationSideSelects } from "../common/ui/formation-position-v0.1.mjs?v=0.1.1";
+import { formationPositionMarkup, installFormationPositionRows } from "../common/ui/formation-position-v0.1.mjs?v=0.1.2";
 import { installSvgLegend } from "../common/diagram/svg-legend-v0.1.mjs";
 import { saveSvgAsPng } from "../common/diagram/svg-png-export-v0.1.mjs";
 import { svgNode } from "../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -40,7 +40,7 @@ import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBd
 // at Abeam) and the circuit; OA2 = the Base Turn start in the Abeam row.
 export const WHEEL_BOX_PAGE_CONTROLLER_V0_1 = Object.freeze({ id: "wheel-box-page-controller-v0.1", version: "0.3.0", flight: WHEEL_BOX_FLIGHT_V0_1.version });
 
-const WORKER_URL = new URL("../AG/bombing/wheel-box/wheel-box-flight-worker-v0.1.mjs?v=0.1.4", import.meta.url);
+const WORKER_URL = new URL("../AG/bombing/wheel-box/wheel-box-flight-worker-v0.1.mjs?v=0.1.5", import.meta.url);
 const SAVE_KEY = "bombing-v2-wheel-work";
 // 2 (2026-11-02, owner): follower Formation bearings from abeam (0 abeam, 90 behind, negative ahead); a version 1
 // record holds tail bearings (0 behind, 90 abeam) and is converted once when read.
@@ -780,7 +780,7 @@ function renderFollowerSlots() {
     slot.innerHTML = followerSlotMarkup(number);
     return slot;
   }));
-  installFormationSideSelects(host);
+  installFormationPositionRows(host);
   installSectionDisclosureOn(host.querySelectorAll(".section[data-tab]"), { idPrefix: "wheel-follower-body" });
   installTabs(host);
   writeFormationFields();

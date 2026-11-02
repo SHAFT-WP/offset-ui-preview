@@ -1,6 +1,6 @@
 import { casToTas, machToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
-import { OFFSET_FLIGHT_V0_1, calculateOffsetFlightFull, createOffsetFlightSession } from "../offset-bombing/offset-flight-v0.1.mjs";
+import { OFFSET_FLIGHT_V0_1, calculateOffsetFlightFull, createOffsetFlightSession } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.12";
 import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs";
 import { calculatePopupClimbFull } from "./popup-climb-v0.2.mjs";
 import { computeDropOrderDeltaFull } from "../offset-bombing/offset-formation-v0.1.mjs";
@@ -27,7 +27,9 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // #1's Pop time, the angle solved for it).
   // 0.1.3 (owner 2026-11-02): flightName (Offset Flight 0.1.11's formation name, attack type) with #1 Impact − #2
   // Release on the POP-UP clock. Metadata only.
-  version: "0.1.3",
+  // 0.1.4 (owner 2026-11-02): Offset Flight 0.1.12 — #3's linked Longitudinal / Lateral Range edits, the Flight's Form
+  // template edit and flightName.formation.places reach the POP-UP page through it. No POP-UP rule changes.
+  version: "0.1.4",
   status: "work",
   offsetFlight: `${OFFSET_FLIGHT_V0_1.id} ${OFFSET_FLIGHT_V0_1.version}`,
   popupBe: `${POPUP_BE_V0_2.id} ${POPUP_BE_V0_2.version}`,

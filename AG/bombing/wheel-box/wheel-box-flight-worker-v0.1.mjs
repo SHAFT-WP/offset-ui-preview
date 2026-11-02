@@ -1,5 +1,5 @@
 // Same cache token as the page controller (one module instance in the in-thread fallback).
-import { WHEEL_BOX_FLIGHT_V0_1, createWheelBoxFlightSession } from "./wheel-box-flight-v0.1.mjs?v=0.3.1";
+import { WHEEL_BOX_FLIGHT_V0_1, createWheelBoxFlightSession } from "./wheel-box-flight-v0.1.mjs?v=0.3.2";
 // The host itself is Flight Bombing Tactics': this module gives it the Wheel-BOX Flight session.
 import { createFlightHost, serveFlightWorker } from "../../../flight/flight-bombing-tactics/flight-worker-host-v0.1.mjs";
 

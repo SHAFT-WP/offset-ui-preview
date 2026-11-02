@@ -1251,7 +1251,7 @@ function evaluateFormation(plan, states, upstream, timeSec) {
     if (!isFiniteNumber(slot?.rangeNm)) out.missing.push("Formation Range");
     if (out.missing.length) { formation[number] = out; continue; }
     if (!(slot.bearingDeg >= FORMATION_BEARING_MIN_DEG && slot.bearingDeg <= FORMATION_BEARING_MAX_DEG) || !(slot.rangeNm >= 0)) {
-      formation[number] = { ...out, judgement: "INVALID", missing: [], reason: "Formation Bearing must be -90–90° (0 abeam, 90 behind) and Range at least 0 NM" };
+      formation[number] = { ...out, judgement: "INVALID", missing: [], reason: "Formation Bearing must be 0–90° (0 abeam, 90 behind; none ahead) and Range at least 0 NM" };
       continue;
     }
     if (!refAt?.available || refAt.partial || !s) {

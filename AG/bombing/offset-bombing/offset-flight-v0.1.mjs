@@ -7,7 +7,7 @@ import {
   solveElementSameTimeActionRange,
 } from "./offset-formation-v0.1.mjs";
 import { add, candidateFailureCause, directionRule } from "./offset-geometry-v0.2.mjs";
-import { FLIGHT_FORMATION_V0_1, flightNameMetadata } from "../../../flight/flight-bombing-tactics/formation-v0.1.mjs";
+import { FLIGHT_FORMATION_V0_1, FORMATION_TEMPLATES, flightNameMetadata, formationComponentsNm, formationFromComponentsNm, formationTemplatePositions } from "../../../flight/flight-bombing-tactics/formation-v0.1.mjs";
 import { BOMB_DELIVERY_PLANNER_MODEL_V0_4, FRAGMENT_MARGIN_MODES, ROLL_IN_ONSET_DEFAULTS, calculateBombDeliveryV0_4Full } from "../bomb-delivery-planner/bomb-delivery-planner-v0.4.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import { calculationKey, createCalculationCache, withCalculationCache } from "../../../common/calculation/calculation-cache-v0.1.mjs";
@@ -55,7 +55,13 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // 0.2.0: 2S_<code>, 3S_ARW, 4S_TRA / BOX / WED / LAB / FLD / OBX, else NA; L / R = #2's side), the attack type
   // (ech / pin / mix from each aircraft's attack side) and #1 Impact − #2 Release, for the HTML file name. Metadata
   // only: every aircraft result is unchanged.
-  version: "0.1.11",
+  // 0.1.12 (2026-11-02, owner sketch): a follower's Formation also has its Longitudinal / Lateral Range (NM behind the
+  // reference aircraft / across to the Side), linked to its bearing / distance: a set of longitudinalNm / lateralNm
+  // turns into the bearing and distance (the other range kept; a clear keeps the place), and nextInput carries both
+  // ranges for display. The Flight edit "formationTemplate" { name, side } places #2–#4 from a Form template (the
+  // name stays the one the places give); flightName.formation.places gives each aircraft's place in #1's frame for the
+  // Formation top view. No bearing ahead of abeam and no negative range (Flight Bombing Tactics formation-v0.1 0.3.0).
+  version: "0.1.12",
   status: "work",
   schemaVersion: 2,
   components: Object.freeze({
@@ -150,7 +156,10 @@ export const OFFSET_FLIGHT_RELEASE_SOLVE = Object.freeze({
   profileIterations: 40,
   geometryPasses: 4,
 });
-const FORMATION_KEYS = new Set(["side", "bearingDeg", "distanceNm"]);
+const FORMATION_KEYS = new Set(["side", "bearingDeg", "distanceNm", "longitudinalNm", "lateralNm"]);
+// Edit-only keys (0.1.12): typed into the record for the one edit, turned into the bearing / distance, never solved on.
+const FORMATION_COMPONENT_KEYS = new Set(["longitudinalNm", "lateralNm"]);
+const FORMATION_COMPONENT_LABELS = Object.freeze({ longitudinalNm: "Longitudinal Range", lateralNm: "Lateral Range" });
 
 const norm = (deg) => ((deg % 360) + 360) % 360;
 const isNumber = (value) => typeof value === "number" && Number.isFinite(value);
@@ -236,7 +245,10 @@ function normalizeFollower(record = {}) {
   const optionValues = Object.fromEntries(FOLLOWER_OPTIONS.map((key) => [key, options[key] === true]));
   return {
     values: { ...(record.values ?? {}) },
-    formation: { side: formation.side === "RIGHT" ? "RIGHT" : "LEFT", bearingDeg: formation.bearingDeg ?? null, distanceNm: formation.distanceNm ?? null },
+    formation: {
+      side: formation.side === "RIGHT" ? "RIGHT" : "LEFT", bearingDeg: formation.bearingDeg ?? null, distanceNm: formation.distanceNm ?? null,
+      longitudinalNm: formation.longitudinalNm ?? null, lateralNm: formation.lateralNm ?? null,
+    },
     options: optionValues,
     state: {
       driver: enumOr("driver", state.driver, FOLLOWER_DRIVERS, "actionRangeNm"),
@@ -377,6 +389,8 @@ function applyFollowerEdit(follower, edit, number) {
     return;
   }
   const target = FORMATION_KEYS.has(key) ? formation : v;
+  // A cleared Longitudinal / Lateral Range keeps the place: the blank field refills from the bearing / distance.
+  if (edit.kind === "clear" && FORMATION_COMPONENT_KEYS.has(key)) return;
   if (edit.kind === "clear") {
     const before = edit.before ?? {};
     if (FOLLOWER_DRIVERS.has(before.driver)) s.driver = before.driver;
@@ -389,6 +403,10 @@ function applyFollowerEdit(follower, edit, number) {
     return;
   }
   if (edit.kind !== "set") throw new TypeError(`edit kind "${edit.kind}" is not supported`);
+  if (FORMATION_COMPONENT_KEYS.has(key)) {
+    applyFormationComponentEdit(formation, key, number);
+    return;
+  }
   const value = target[key];
   if (key === "initialAltitudeMslFt" && s.rollInAltitudeLinked) {
     v.rollInAltitudeMslFt = value;
@@ -407,6 +425,38 @@ function applyFollowerEdit(follower, edit, number) {
   }
   if (WINGMEN.has(number)) applyTypedOverElementLead(options, key);
   if (FOLLOWER_DRIVERS.has(key)) s.driver = key;
+}
+
+// A Longitudinal / Lateral Range set (0.1.12): the typed range with the other one as the current place gives the new
+// bearing and distance (Flight Bombing Tactics formationFromComponentsNm). A blank, non-numeric or negative range fails
+// this aircraft's edit with the reason; the place is not changed.
+function applyFormationComponentEdit(formation, key, number) {
+  const label = FORMATION_COMPONENT_LABELS[key];
+  const typed = formation[key];
+  if (!isNumber(typed)) throw new TypeError(`#${number} Formation ${label} must be numeric`);
+  if (typed < 0) throw new RangeError(`#${number} Formation ${label} must be 0 NM or more (no minus)`);
+  const current = formationComponentsNm({ bearingDeg: requireNumber("bearingDeg", formation.bearingDeg), distanceNm: requireNumber("distanceNm", formation.distanceNm) });
+  const next = formationFromComponentsNm({ ...current, [key]: typed });
+  formation.bearingDeg = next.bearingDeg;
+  formation.distanceNm = next.distanceNm;
+}
+
+// After the edits, the records keep the bearing / distance only (the ranges are shown from them in nextInput).
+function dropFormationComponents(aircraft) {
+  for (const number of FOLLOWERS) {
+    const formation = aircraft[number]?.formation;
+    if (!formation) continue;
+    delete formation.longitudinalNm;
+    delete formation.lateralNm;
+  }
+}
+
+// The Formation in nextInput: the bearing / distance and, for display, the Longitudinal / Lateral Range they give
+// (null when the place cannot be read; that aircraft's error says why).
+function formationOutput(formation) {
+  let components = { longitudinalNm: null, lateralNm: null };
+  try { components = formationComponentsNm({ bearingDeg: formation.bearingDeg, distanceNm: formation.distanceNm }); } catch { /* unreadable place */ }
+  return { side: formation.side, bearingDeg: formation.bearingDeg, distanceNm: formation.distanceNm, ...components };
 }
 
 // A typed tactical value and the element-lead buttons (2026-10-12, user: followers like #1):
@@ -1206,7 +1256,7 @@ function offsetFlightName(flightSize, aircraft, results, timing) {
 function outputRecord(number, record) {
   if (record.raw) return structuredClone(record.raw);
   if (number === 1) return { values: record.values, locks: record.locks, state: record.state };
-  return { values: record.values, formation: record.formation, options: record.options, state: record.state };
+  return { values: record.values, formation: formationOutput(record.formation), options: record.options, state: record.state };
 }
 
 // Applies the one-shot edit events in the order they happened. `edit` (one event) and `edits` (the
@@ -1253,9 +1303,28 @@ function turnWithRunIn(aircraft, edit, runInBefore) {
   }
 }
 
-function applyEdits(aircraft, edits) {
+// The Form templates the page offers (Flight Bombing Tactics formation-v0.1): one list per Flight size.
+export { FORMATION_TEMPLATES };
+
+// A Form template (owner sketch 2026-11-02, Flight edit sent as #1's): every follower takes the template's Side,
+// bearing and distance. A name that is not a template of this Flight size fails #1's edit with the reason.
+function applyFormationTemplate(aircraft, edit, flightSize) {
+  const places = formationTemplatePositions({ flightSize, name: edit.name, side: edit.side });
+  for (const [number, place] of Object.entries(places)) {
+    const follower = aircraft[number];
+    if (!follower || follower.raw) continue;
+    follower.formation.side = place.side;
+    follower.formation.bearingDeg = place.bearingDeg;
+    follower.formation.distanceNm = place.distanceNm;
+  }
+}
+
+function applyEdits(aircraft, edits, flightSize) {
   return applyFlightEdits(aircraft, edits, (number, edit) => {
-    if (number === 1) {
+    if (edit?.kind === "formationTemplate") {
+      if (number !== 1) throw new TypeError("a Form template is a Flight edit (sent as #1's)");
+      applyFormationTemplate(aircraft, edit, flightSize);
+    } else if (number === 1) {
       const runInBefore = aircraft[1].values.runInHeadingDeg;
       applyLeadEdit(aircraft[1], edit);
       if (RUN_IN_EDIT_KEYS.has(edit.key) && (edit.kind === "set" || edit.kind === "clear")) turnWithRunIn(aircraft, edit, runInBefore);
@@ -1349,7 +1418,8 @@ function typedNotKeptWarning(number, follower, entry, typed) {
 function calculateFlight(input, session) {
   const { flightSize, aircraft, stateErrors } = normalizeFlightInput(input);
   const edits = flightEdits(input);
-  const editErrors = applyEdits(aircraft, edits);
+  const editErrors = applyEdits(aircraft, edits, flightSize);
+  dropFormationComponents(aircraft);
   const typed = typedEntries(aircraft, edits);
 
   const results = {};

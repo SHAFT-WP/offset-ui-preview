@@ -7,7 +7,10 @@
 import { AIRCRAFT_COLORS, AIRCRAFT_NUMBERS, showAircraftRow } from "./flight-ui-v0.1.mjs?v=0.1.0";
 
 // 0.1.1 (2026-10-25, BOX page): fullBdpOnEditLine false keeps the Full BDP toggle in the BDP tab head (shared BDP tab).
-export const WIDE_WORKSPACE_V0_1 = Object.freeze({ id: "bombing-wide-workspace-v0.1", version: "0.1.1" });
+// 0.1.2 (2026-11-02, Offset Flight Formation): a page section marked data-flight-wide is the Flight's, not one
+// aircraft's: it shows in its tab whichever aircraft is edited; data-flight-wide="after" places it after the followers'
+// sections (the Formation top view under the edited aircraft's own Formation fields).
+export const WIDE_WORKSPACE_V0_1 = Object.freeze({ id: "bombing-wide-workspace-v0.1", version: "0.1.2" });
 
 const make = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -123,10 +126,13 @@ export function mountWideWorkspace(options) {
   const inputScroll = make("div", "wide-input-scroll");
   const leadInputHost = make("div", "wide-lead-inputs");
   leadInputHost.dataset.editAircraftHost = "1";
-  leadInputHost.append(...leadInputs);
+  const afterFollowers = leadInputs.filter((node) => node.dataset.flightWide === "after");
+  leadInputHost.append(...leadInputs.filter((node) => !afterFollowers.includes(node)));
+  const trailingInputHost = make("div", "wide-lead-inputs wide-flight-after");
+  trailingInputHost.append(...afterFollowers);
   // An input pane tab (S&R): one section showing the edited aircraft, filled by the page.
   const paneSections = new Map(inputPanes.map((key) => [key, make("section")]));
-  inputScroll.append(leadInputHost, followers, ...paneSections.values());
+  inputScroll.append(leadInputHost, followers, ...(afterFollowers.length ? [trailingInputHost] : []), ...paneSections.values());
   if (saveSection) {
     inputScroll.append(saveSection);
     paneSections.set("save", saveSection);
@@ -290,7 +296,8 @@ export function mountWideWorkspace(options) {
     const shownKey = shownInputKey(inputTab, editAircraft);
     pressed(inputNav, "data-wide-input", shownKey);
     for (const section of aircraftSections()) {
-      section.hidden = paneSections.has(shownKey) || sectionAircraft(section) !== editAircraft || sectionTab(section, sectionAircraft(section)) !== shownKey;
+      const ownAircraft = section.hasAttribute("data-flight-wide") || sectionAircraft(section) === editAircraft;
+      section.hidden = paneSections.has(shownKey) || !ownAircraft || sectionTab(section, sectionAircraft(section)) !== shownKey;
     }
     for (const [key, node] of paneSections) node.hidden = shownKey !== key;
   }

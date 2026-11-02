@@ -1,10 +1,10 @@
-@import url("./common-ui-v0.2.css?v=f5456ab175a7");
+@import url("./common-ui-v0.2.css?v=aff05823c2f4");
 /* Parts made common (2026-10-22) bring their CSS: input fields, DED, Flight UI, the shared BDP tab (index, 2026-10-26) (bombing app shared FE), time dial (Common UI). */
-@import url("./shared/input-fields-v0.1.css?v=f5456ab175a7");
-@import url("./shared/ded-v0.1.css?v=f5456ab175a7");
-@import url("./shared/flight-ui-v0.1.css?v=f5456ab175a7");
-@import url("./shared/bdp-tab-v0.1.css?v=f5456ab175a7");
-@import url("./common/ui/time-dial-v0.1.css?v=f5456ab175a7");
+@import url("./shared/input-fields-v0.1.css?v=aff05823c2f4");
+@import url("./shared/ded-v0.1.css?v=aff05823c2f4");
+@import url("./shared/flight-ui-v0.1.css?v=aff05823c2f4");
+@import url("./shared/bdp-tab-v0.1.css?v=aff05823c2f4");
+@import url("./common/ui/time-dial-v0.1.css?v=aff05823c2f4");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -56,3 +56,10 @@ input[data-bdp-result]{cursor:default;border-style:dashed;border-color:var(--mut
 .bombing-wide .wide-map-section[data-has-offset-hud] { flex:none; }
 .bombing-wide .wide-map-section[data-has-offset-hud] .top-view-shell { flex:none; height:65vh; min-height:400px; max-height:720px; }
 .bombing-wide [data-offset-hud] { flex:none; margin-top:12px; }
+
+/* Flight Formation (owner sketch 2026-11-02): Form / Side, the BE's name readouts, the Formation top view. */
+.flight-formation-readouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:10px}
+.flight-formation-readouts output{color:var(--value-result,var(--text));font-weight:900;font-size:15px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.formation-components{margin-top:10px}
+.formation-top-view-shell{box-sizing:border-box;width:100%;max-width:560px;justify-self:center;border:1px solid #dfe6ee;border-radius:12px;background:#fff;overflow:hidden}
+.formation-top-view-shell svg{display:block;width:100%;height:auto}

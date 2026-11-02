@@ -32,9 +32,11 @@ import { formationTrueBearingDeg } from "../../../flight/flight-bombing-tactics/
 // 0.3.1 (2026-11-02, owner): the Formation bearing is measured from the reference aircraft's abeam line, aft positive
 // (Flight Bombing Tactics formation-v0.1): 0° abeam, 90° behind, -90° ahead; default 0° (abeam, the same place as the
 // earlier 90°). Input schemaVersion 2; the page converts a record saved with tail bearings once (90 - bearing).
+// 0.3.2 (2026-11-02, owner, later the same day): no follower is ahead of its reference aircraft's abeam line ("1번기 보다
+// 앞으로 나가는 편대기는 없으므로 음수 값은 기각"): the bearing is 0…90°; a negative one fails that aircraft with the reason.
 export const WHEEL_BOX_FLIGHT_V0_1 = Object.freeze({
   id: "wheel-box-flight-v0.1",
-  version: "0.3.1",
+  version: "0.3.2",
   status: "work",
   schemaVersion: 2,
   components: Object.freeze({ wheelComposition: WHEEL_BOX_BE_MODEL_V0_10.version }),
@@ -471,7 +473,7 @@ function leadPosition(result) {
 }
 
 // A follower's place (the Flight Formation rule, flight-bombing-tactics formation-v0.1 formationTrueBearingDeg): the
-// bearing is measured from the reference aircraft's abeam line, 0° abeam, 90° behind, -90° ahead; the vector is
+// bearing is measured from the reference aircraft's abeam line, 0° abeam, 90° behind (0…90°, none ahead); the vector is
 // laid off from the reference aircraft's place on the Downwind heading. Every aircraft flies that heading. The side
 // axis is the pattern side (sideSign + 1 RIGHT / − 1 LEFT).
 function followerPosition(number, follower, reference, attackHeadingDeg) {
@@ -479,7 +481,7 @@ function followerPosition(number, follower, reference, attackHeadingDeg) {
   if (side !== "LEFT" && side !== "RIGHT") throw new TypeError(`#${number} Formation side must be LEFT or RIGHT`);
   requireNumber(`#${number} Formation bearingDeg`, bearingDeg);
   requireNumber(`#${number} Formation distanceNm`, distanceNm);
-  if (!(bearingDeg >= -90 && bearingDeg <= 90)) throw new RangeError(`#${number} Formation bearing must be between -90 and 90 deg (0 abeam, 90 behind)`);
+  if (!(bearingDeg >= 0 && bearingDeg <= 90)) throw new RangeError(`#${number} Formation bearing must be between 0 and 90 deg (0 abeam, 90 behind; no place ahead of abeam)`);
   if (!(distanceNm >= 0)) throw new RangeError(`#${number} Formation range must be 0 NM or more`);
   const trueBearingDeg = formationTrueBearingDeg({ referenceHeadingDeg: reference.headingDeg, bearingDeg, side });
   const relative = ((trueBearingDeg - attackHeadingDeg) * Math.PI) / 180;

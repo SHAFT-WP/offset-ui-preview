@@ -20,6 +20,7 @@ import {
 import { renderSemRejoinTopView, semRejoinPalette, semRejoinTopViewLegend } from "./AG/bombing/offset-bombing/sem-rejoin/view/sem-rejoin-top-view-v0.1.mjs?v=0.1.0";
 import { installSvgViewControls, svgViewControlsMarkup } from "./common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
+import { installNonNegativeInputs } from "./common/ui/formation-position-v0.1.mjs?v=0.1.2";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSecTenths } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 
@@ -355,10 +356,11 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
         <div class="input-grid">
           <label class="field"><span>Formation</span><select data-sr-formation="preset"><option value="">-</option><option value="COMBAT_SPREAD">Combat Spread (abeam)</option><option value="WEDGE">Wedge</option><option value="CUSTOM">Custom</option></select><span class="unit">Combat Spread fixes 0° (abeam); Wedge / Custom take the bearing</span></label>
           <label class="field"><span>Side</span><select data-sr-formation="side"><option value="">-</option><option value="LEFT">Left</option><option value="RIGHT">Right</option></select><span class="unit">Of #${reference}, on the Egress Heading</span></label>
-          <label class="field"><span>Bearing (°)</span><input data-sr-formation="bearingDeg" type="text" inputmode="decimal"><span class="unit">From #${reference}'s abeam: 0° abeam, 90° behind, − ahead</span></label>
-          <label class="field"><span>Range (NM)</span><input data-sr-formation="rangeNm" type="text" inputmode="decimal"><span class="unit">No preset range: enter it</span></label>
+          <label class="field"><span>Bearing (°)</span><input data-sr-formation="bearingDeg" type="text" inputmode="decimal" data-nonnegative><span class="unit">From #${reference}'s abeam: 0° abeam, 90° behind</span></label>
+          <label class="field"><span>Range (NM)</span><input data-sr-formation="rangeNm" type="text" inputmode="decimal" data-nonnegative><span class="unit">No preset range: enter it</span></label>
         </div>`;
       host.dataset.built = String(number);
+      installNonNegativeInputs(host);
     }
     for (const field of host.querySelectorAll("[data-sr-formation]")) {
       const key = field.dataset.srFormation;

@@ -20,8 +20,8 @@ function finite(name, value) {
 
 // Formation position of a wingman relative to its reference aircraft (AG SPEC "Formation
 // position"). Since 2026-11-02 (owner) the bearing is measured from the reference aircraft's ABEAM
-// line, aft positive: 0 = abeam, +90 = directly behind, -90 = directly ahead, on the Left or Right
-// side (flight/flight-bombing-tactics/formation-v0.1.mjs; before: from the tail, 0 behind / 90 abeam).
+// line, aft positive: 0 = abeam, +90 = directly behind, on the Left or Right side; 0…90 (no wingman ahead of
+// abeam, owner 2026-11-02) (flight/flight-bombing-tactics/formation-v0.1.mjs; before: from the tail, 0 behind / 90 abeam).
 // The follower's own IP is the reference aircraft's IP displaced by this vector.
 // Public entrypoint: truncated output; the Full variant is used for composition (IP sums).
 export function computeFormationOffsetVector(input) {
