@@ -4,7 +4,7 @@
 // Wheel values stay in Wheel: nothing here reads or writes the Offset or BOX page's state.
 import {
   WHEEL_BOX_FLIGHT_DEFAULT_STATE, WHEEL_BOX_FLIGHT_DEFAULT_VALUES, WHEEL_BOX_FLIGHT_FORMATION_REFERENCE, WHEEL_BOX_FLIGHT_V0_1, wheelBoxFlightDefaultFollower, wheelBoxFlightDefaultLead,
-} from "../AG/bombing/wheel-box/wheel-box-flight-v0.1.mjs?v=0.3.0";
+} from "../AG/bombing/wheel-box/wheel-box-flight-v0.1.mjs?v=0.3.1";
 import { createCalculationScheduler, createWorkerTransport } from "../common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
 import { WEAPON_DATABASE_V0_1 } from "../AG/bombing/bomb-delivery-planner/weapon-data-v0.1.mjs";
 import {
@@ -15,9 +15,10 @@ import { createEnterCommit, headingText, installSectionDisclosure as installSect
 import { bdpResultRows, resultRow, semTurnAutoBankText } from "../shared/bdp-result-v0.1.mjs?v=0.2.0";
 import { clearDedPages, dedPagesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedPages } from "../shared/ded-v0.1.mjs?v=0.1.1";
 import { createSaveRun, isRecordObject, readWorkRecord, savedTimeText, writeWorkRecord } from "../shared/save-store-v0.1.mjs?v=0.1.1";
+import { FORMATION_ANGLE_CONVENTION, convertFollowerFormationsFromTail } from "../shared/formation-save-v0.1.mjs?v=0.1.0";
 import { AIRCRAFT_COLORS, createShownAircraft, installShownAircraftClicks } from "../shared/flight-ui-v0.1.mjs?v=0.1.0";
 import { installResultPanel } from "../common/ui/result-panel-v0.1.mjs";
-import { formationPositionMarkup, installFormationSideSelects } from "../common/ui/formation-position-v0.1.mjs";
+import { formationPositionMarkup, installFormationSideSelects } from "../common/ui/formation-position-v0.1.mjs?v=0.1.1";
 import { installSvgLegend } from "../common/diagram/svg-legend-v0.1.mjs";
 import { saveSvgAsPng } from "../common/diagram/svg-png-export-v0.1.mjs";
 import { svgNode } from "../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -39,9 +40,12 @@ import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBd
 // at Abeam) and the circuit; OA2 = the Base Turn start in the Abeam row.
 export const WHEEL_BOX_PAGE_CONTROLLER_V0_1 = Object.freeze({ id: "wheel-box-page-controller-v0.1", version: "0.3.0", flight: WHEEL_BOX_FLIGHT_V0_1.version });
 
-const WORKER_URL = new URL("../AG/bombing/wheel-box/wheel-box-flight-worker-v0.1.mjs?v=0.1.3", import.meta.url);
+const WORKER_URL = new URL("../AG/bombing/wheel-box/wheel-box-flight-worker-v0.1.mjs?v=0.1.4", import.meta.url);
 const SAVE_KEY = "bombing-v2-wheel-work";
-const SAVE_SCHEMA = 1;
+// 2 (2026-11-02, owner): follower Formation bearings from abeam (0 abeam, 90 behind, negative ahead); a version 1
+// record holds tail bearings (0 behind, 90 abeam) and is converted once when read.
+const SAVE_SCHEMA = 2;
+const TAIL_BEARING_SAVE_SCHEMA = 1;
 // The Wheel tab's fields besides its BDP Profile / Roll-in / Turn Onset copies (its Tab Default restores all of them).
 const WHEEL_KEYS = Object.freeze(["attackHeadingDeg", "direction", "wheelRadiusNm", "baseTurnG", "wheelSpeedKcas", "wheelAltitudeMslFt", "orbitRadiusNm", "orbitSpeedKcas", "orbitAltitudeMslFt", "returnTurnG"]);
 const WHEEL_TAB_COPY_KEYS = Object.freeze(["initialSpeedValue", "initialSpeedMode", "initialAltitudeMslFt", "rollInAltitudeMslFt", "diveAngleDeg", "trackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"]);
@@ -650,7 +654,12 @@ const validSave = (record) => isRecordObject(record?.aircraft?.[1]) && isRecordO
 
 function readSave() {
   try {
-    return readWorkRecord(localStorage, SAVE_KEY, { schemaVersion: SAVE_SCHEMA, valid: validSave }).record;
+    const { record, parsed } = readWorkRecord(localStorage, SAVE_KEY, { schemaVersion: SAVE_SCHEMA, valid: validSave });
+    if (record) return record;
+    if (isRecordObject(parsed) && parsed.schemaVersion === TAIL_BEARING_SAVE_SCHEMA && validSave(parsed)) {
+      return { ...parsed, schemaVersion: SAVE_SCHEMA, angleConvention: FORMATION_ANGLE_CONVENTION, aircraft: convertFollowerFormationsFromTail(parsed.aircraft), formationConverted: true };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -670,7 +679,7 @@ function installSaveTab() {
     save: () => writeWorkRecord(localStorage, SAVE_KEY, {
       schemaVersion: SAVE_SCHEMA,
       build: () => ({
-        schemaVersion: SAVE_SCHEMA, savedAt: new Date().toISOString(), flightSize,
+        schemaVersion: SAVE_SCHEMA, angleConvention: FORMATION_ANGLE_CONVENTION, savedAt: new Date().toISOString(), flightSize,
         aircraft: { 1: structuredClone(lead), ...Object.fromEntries(Object.entries(followers).map(([number, record]) => [number, structuredClone(record)])) },
         editAircraft: editAircraftOf(), shown: shownAircraft.saved(),
       }),
@@ -738,7 +747,7 @@ function followerSlotMarkup(number) {
   const section = (tab, title, body, head = "") => `<section class="section" data-tab="${tab}" data-aircraft-tab="${number}"><div class="section-head"><h2>${title} #${number}</h2>${head}</div>${body}</section>`;
   const sameData = followerNote(number, `#${number} flies #1's BDP and Wheel data: the Flight has one data set. Edit it on #1.`);
   return section("formation", "Formation",
-    followerNote(number, `Position from #${reference}'s tail, laid off at #1's Abeam on the Downwind heading. The Wheel Top View shows each aircraft there. The Spacer Turn will set the spacing from this Formation (later step).`)
+    followerNote(number, `Position from #${reference}'s abeam line (0° abeam, 90° behind), laid off at #1's Abeam on the Downwind heading. The Wheel Top View shows each aircraft there. The Spacer Turn will set the spacing from this Formation (later step).`)
       + formationPositionMarkup({ attribute: "data-formation-field", keys: { side: "side", bearing: "bearingDeg", range: "distanceNm" }, referenceLabel: `#${reference}` })
       + `<div id="flight-status-${number}" class="status-message valid">-</div>`,
     `<div class="wheel-head-status"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div>`)
@@ -841,7 +850,8 @@ if (loadedSave) {
   // An angle saved before Wheel-BOX v0.9 is now 0° (Wheel-BOX Flight drops it with a warning on the first solve).
   const savedAngle = loadedSave.aircraft[1].values.downwindAngleDeg;
   const angleNote = typeof savedAngle === "number" && savedAngle !== 0 ? ` · saved Downwind Angle ${formatDeg(savedAngle)}° is now fixed at 0°` : "";
-  setSaveStatus(`Loaded · saved ${savedTimeText(new Date(loadedSave.savedAt))}${angleNote}`, angleNote ? "warning" : "valid");
+  const formationNote = loadedSave.formationConverted ? " · Formation bearings converted to the abeam rule (0° abeam, 90° behind); Save to keep them" : "";
+  setSaveStatus(`Loaded · saved ${savedTimeText(new Date(loadedSave.savedAt))}${angleNote}${formationNote}`, angleNote || formationNote ? "warning" : "valid");
 } else {
   setSaveStatus("Default conditions · not saved yet", "warning");
 }

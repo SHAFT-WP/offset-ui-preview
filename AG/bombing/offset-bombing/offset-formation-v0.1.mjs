@@ -1,16 +1,17 @@
 import { vecHeading } from "./offset-geometry-v0.2.mjs";
+import { formationTrueBearingDeg } from "../../../flight/flight-bombing-tactics/formation-v0.1.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 
 export const OFFSET_FORMATION_V0_1 = Object.freeze({
   id: "offset-formation-v0.1",
   // 0.1.4 (2026-10-12): computeFormationOffsetVectorFull / computeDropOrderDeltaFull for composition
   // (offset-flight-v0.1.mjs); the public functions stay the truncated wrappers.
-  version: "0.1.4",
+  // 0.1.5 (2026-11-02, owner): the Formation bearing is measured from the reference aircraft's abeam line, aft
+  // positive (Flight Bombing Tactics formation-v0.1); the argument is `bearingDeg` (was `relativeBearingDeg`, tail 0).
+  version: "0.1.5",
   status: "work",
   purpose: "Flight-of-4 composition: Formation display offset, element-pair Offset Angle / Action Range options, and drop-order timing deltas, over independently solved offset-be-v0.2 results",
 });
-
-const norm = (deg) => ((deg % 360) + 360) % 360;
 
 function finite(name, value) {
   if (typeof value !== "number" || !Number.isFinite(value)) throw new TypeError(`${name} must be finite`);
@@ -18,26 +19,22 @@ function finite(name, value) {
 }
 
 // Formation position of a wingman relative to its reference aircraft (AG SPEC "Formation
-// position"). The relative bearing is measured from the reference aircraft's TAIL (user rule,
-// 2026-09-28): 0 = directly behind, 90 = abeam, 180 = directly ahead, on the Left or Right side.
+// position"). Since 2026-11-02 (owner) the bearing is measured from the reference aircraft's ABEAM
+// line, aft positive: 0 = abeam, +90 = directly behind, -90 = directly ahead, on the Left or Right
+// side (flight/flight-bombing-tactics/formation-v0.1.mjs; before: from the tail, 0 behind / 90 abeam).
 // The follower's own IP is the reference aircraft's IP displaced by this vector.
 // Public entrypoint: truncated output; the Full variant is used for composition (IP sums).
 export function computeFormationOffsetVector(input) {
   return truncateBeOutput(computeFormationOffsetVectorFull(input));
 }
 
-export function computeFormationOffsetVectorFull({ runInHeadingDeg, relativeBearingDeg, side, distanceNm }) {
+export function computeFormationOffsetVectorFull({ runInHeadingDeg, bearingDeg, side, distanceNm }) {
   finite("runInHeadingDeg", runInHeadingDeg);
-  finite("relativeBearingDeg", relativeBearingDeg);
+  finite("bearingDeg", bearingDeg);
   finite("distanceNm", distanceNm);
-  if (!(relativeBearingDeg >= 0 && relativeBearingDeg <= 180)) {
-    throw new RangeError("relativeBearingDeg must be between 0 and 180 deg");
-  }
-  if (side !== "LEFT" && side !== "RIGHT") throw new TypeError('side must be "LEFT" or "RIGHT"');
   if (!(distanceNm >= 0)) throw new RangeError("distanceNm must be >= 0 NM");
 
-  // Tail = reciprocal of the Run-In; Left of the tail line is further clockwise from the tail.
-  const trueBearingDeg = norm(runInHeadingDeg + 180 + (side === "LEFT" ? relativeBearingDeg : -relativeBearingDeg));
+  const trueBearingDeg = formationTrueBearingDeg({ referenceHeadingDeg: runInHeadingDeg, bearingDeg, side });
   const heading = vecHeading(trueBearingDeg);
   return { trueBearingDeg, vector: { x: heading.x * distanceNm, y: heading.y * distanceNm } };
 }

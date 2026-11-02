@@ -4,7 +4,7 @@
 // 2026-10-25): nothing here reads or writes the Offset page's state.
 import {
   BOX_FLIGHT_DEFAULT_STATE, BOX_FLIGHT_DEFAULT_VALUES, BOX_FLIGHT_FORMATION_REFERENCE, BOX_FLIGHT_V0_1, boxFlightDefaultFollower, boxFlightDefaultLead,
-} from "../AG/bombing/box-pattern/box-flight-v0.1.mjs?v=0.3.0";
+} from "../AG/bombing/box-pattern/box-flight-v0.1.mjs?v=0.3.1";
 import { createCalculationScheduler, createWorkerTransport } from "../common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
 import { WEAPON_DATABASE_V0_1 } from "../AG/bombing/bomb-delivery-planner/weapon-data-v0.1.mjs";
 import {
@@ -15,9 +15,10 @@ import { createEnterCommit, headingText, installSectionDisclosure as installSect
 import { bdpResultRows, resultRow, semTurnAutoBankText } from "../shared/bdp-result-v0.1.mjs?v=0.2.0";
 import { clearDedPages, dedPagesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedPages } from "../shared/ded-v0.1.mjs?v=0.1.1";
 import { createSaveRun, isRecordObject, readWorkRecord, savedTimeText, writeWorkRecord } from "../shared/save-store-v0.1.mjs?v=0.1.1";
+import { FORMATION_ANGLE_CONVENTION, convertFollowerFormationsFromTail } from "../shared/formation-save-v0.1.mjs?v=0.1.0";
 import { AIRCRAFT_COLORS, createShownAircraft, installShownAircraftClicks } from "../shared/flight-ui-v0.1.mjs?v=0.1.0";
 import { installResultPanel } from "../common/ui/result-panel-v0.1.mjs";
-import { formationPositionMarkup, installFormationSideSelects } from "../common/ui/formation-position-v0.1.mjs";
+import { formationPositionMarkup, installFormationSideSelects } from "../common/ui/formation-position-v0.1.mjs?v=0.1.1";
 import { installSvgLegend } from "../common/diagram/svg-legend-v0.1.mjs";
 import { saveSvgAsPng } from "../common/diagram/svg-png-export-v0.1.mjs";
 import { svgNode } from "../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -33,9 +34,12 @@ import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBd
 // the BOX Top View shows each aircraft at its place. The spacing between them is the Spacer Turn's (a later step).
 export const BOX_PAGE_CONTROLLER_V0_1 = Object.freeze({ id: "box-page-controller-v0.1", version: "0.2.0", flight: BOX_FLIGHT_V0_1.version });
 
-const WORKER_URL = new URL("../AG/bombing/box-pattern/box-flight-worker-v0.1.mjs?v=0.1.3", import.meta.url);
+const WORKER_URL = new URL("../AG/bombing/box-pattern/box-flight-worker-v0.1.mjs?v=0.1.4", import.meta.url);
 const SAVE_KEY = "bombing-v2-box-work";
-const SAVE_SCHEMA = 1;
+// 2 (2026-11-02, owner): follower Formation bearings from abeam (0 abeam, 90 behind, negative ahead); a version 1
+// record holds tail bearings (0 behind, 90 abeam) and is converted once when read.
+const SAVE_SCHEMA = 2;
+const TAIL_BEARING_SAVE_SCHEMA = 1;
 // The BOX tab's fields besides its BDP Profile / Roll-in / Turn Onset copies (its Tab Default restores all of them).
 const BOX_KEYS = Object.freeze(["attackHeadingDeg", "baseTurnG", "crossTurnG", "crossLegExtensionNm", "outSpeedKcas", "outRecoveryG", "outClimbPitchDeg", "outClimbG", "outTurnSpeedKcas", "outTurnBankDeg", "outTurnG", "outMinimumSpeedKcas"]);
 const BOX_TAB_COPY_KEYS = Object.freeze(["initialSpeedValue", "initialSpeedMode", "initialAltitudeMslFt", "rollInAltitudeMslFt", "diveAngleDeg", "trackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec"]);
@@ -611,7 +615,12 @@ const validSave = (record) => isRecordObject(record?.aircraft?.[1]) && isRecordO
 
 function readSave() {
   try {
-    return readWorkRecord(localStorage, SAVE_KEY, { schemaVersion: SAVE_SCHEMA, valid: validSave }).record;
+    const { record, parsed } = readWorkRecord(localStorage, SAVE_KEY, { schemaVersion: SAVE_SCHEMA, valid: validSave });
+    if (record) return record;
+    if (isRecordObject(parsed) && parsed.schemaVersion === TAIL_BEARING_SAVE_SCHEMA && validSave(parsed)) {
+      return { ...parsed, schemaVersion: SAVE_SCHEMA, angleConvention: FORMATION_ANGLE_CONVENTION, aircraft: convertFollowerFormationsFromTail(parsed.aircraft), formationConverted: true };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -631,7 +640,7 @@ function installSaveTab() {
     save: () => writeWorkRecord(localStorage, SAVE_KEY, {
       schemaVersion: SAVE_SCHEMA,
       build: () => ({
-        schemaVersion: SAVE_SCHEMA, savedAt: new Date().toISOString(), flightSize,
+        schemaVersion: SAVE_SCHEMA, angleConvention: FORMATION_ANGLE_CONVENTION, savedAt: new Date().toISOString(), flightSize,
         aircraft: { 1: structuredClone(lead), ...Object.fromEntries(Object.entries(followers).map(([number, record]) => [number, structuredClone(record)])) },
         editAircraft: editAircraftOf(), shown: shownAircraft.saved(),
       }),
@@ -696,7 +705,7 @@ function followerSlotMarkup(number) {
   const section = (tab, title, body, head = "") => `<section class="section" data-tab="${tab}" data-aircraft-tab="${number}"><div class="section-head"><h2>${title} #${number}</h2>${head}</div>${body}</section>`;
   const sameData = followerNote(number, `#${number} flies #1's BDP and BOX data: the Flight has one data set. Edit it on #1.`);
   return section("formation", "Formation",
-    followerNote(number, `Position from #${reference}'s tail, laid off at #1's Abeam on the Downwind heading. The BOX Top View shows each aircraft there. The Spacer Turn will set the spacing from this Formation (later step).`)
+    followerNote(number, `Position from #${reference}'s abeam line (0° abeam, 90° behind), laid off at #1's Abeam on the Downwind heading. The BOX Top View shows each aircraft there. The Spacer Turn will set the spacing from this Formation (later step).`)
       + formationPositionMarkup({ attribute: "data-formation-field", keys: { side: "side", bearing: "bearingDeg", range: "distanceNm" }, referenceLabel: `#${reference}` })
       + `<div id="flight-status-${number}" class="status-message valid">-</div>`,
     `<div class="box-head-status"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div>`)
@@ -796,7 +805,8 @@ if (loadedSave) {
   [2, 3, 4].forEach((number) => { if (isRecordObject(loadedSave.aircraft[number]?.formation)) followers[number] = structuredClone({ formation: loadedSave.aircraft[number].formation }); });
   setFlightSize(loadedSave.flightSize ?? 1, { calculate: false });
   if (Array.isArray(loadedSave.shown)) shownAircraft.replace(loadedSave.shown.filter((number) => number <= flightSize));
-  setSaveStatus(`Loaded · saved ${savedTimeText(new Date(loadedSave.savedAt))}`);
+  const formationNote = loadedSave.formationConverted ? " · Formation bearings converted to the abeam rule (0° abeam, 90° behind); Save to keep them" : "";
+  setSaveStatus(`Loaded · saved ${savedTimeText(new Date(loadedSave.savedAt))}${formationNote}`, formationNote ? "warning" : "valid");
 } else {
   setSaveStatus("Default conditions · not saved yet", "warning");
 }

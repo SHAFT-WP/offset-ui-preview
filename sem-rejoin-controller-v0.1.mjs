@@ -15,14 +15,15 @@ import {
   normalizeSemRejoinPlan,
   previewSemRejoinManeuver,
   semRejoinUpstreamView,
-} from "./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-be-v0.1.mjs?v=0.3.3";
+  SEM_REJOIN_COMBAT_SPREAD_BEARING_DEG,
+} from "./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-be-v0.1.mjs?v=0.3.4";
 import { renderSemRejoinTopView, semRejoinPalette, semRejoinTopViewLegend } from "./AG/bombing/offset-bombing/sem-rejoin/view/sem-rejoin-top-view-v0.1.mjs?v=0.1.0";
 import { installSvgViewControls, svgViewControlsMarkup } from "./common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSecTenths } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 
-const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-worker-v0.1.mjs?v=0.3.3", import.meta.url);
+const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-worker-v0.1.mjs?v=0.3.4", import.meta.url);
 export const SEM_REJOIN_FE_V0_1 = Object.freeze({ id: "sem-rejoin-controller-v0.1", version: "0.2.0" });
 // SEM End labels (owner 2026-10-13: the SEM ends level by default; the +30° CLIMB SEM stays selectable).
 // 2026-10-18 (owner handoff §6.5): the SEM End is the BDP tab's (Full BDP · SEM / Recovery); S&R shows it.
@@ -352,9 +353,9 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
       host.innerHTML = `
         <h3 class="input-group-title sr-subtitle">#${number} Egress Slot (from #${reference})</h3>
         <div class="input-grid">
-          <label class="field"><span>Formation</span><select data-sr-formation="preset"><option value="">-</option><option value="COMBAT_SPREAD">Combat Spread (abeam)</option><option value="WEDGE">Wedge</option><option value="CUSTOM">Custom</option></select><span class="unit">Combat Spread fixes 90°; Wedge / Custom take the bearing</span></label>
+          <label class="field"><span>Formation</span><select data-sr-formation="preset"><option value="">-</option><option value="COMBAT_SPREAD">Combat Spread (abeam)</option><option value="WEDGE">Wedge</option><option value="CUSTOM">Custom</option></select><span class="unit">Combat Spread fixes 0° (abeam); Wedge / Custom take the bearing</span></label>
           <label class="field"><span>Side</span><select data-sr-formation="side"><option value="">-</option><option value="LEFT">Left</option><option value="RIGHT">Right</option></select><span class="unit">Of #${reference}, on the Egress Heading</span></label>
-          <label class="field"><span>Bearing (°)</span><input data-sr-formation="bearingDeg" type="text" inputmode="decimal"><span class="unit">From #${reference}'s tail: 0° behind, 90° abeam</span></label>
+          <label class="field"><span>Bearing (°)</span><input data-sr-formation="bearingDeg" type="text" inputmode="decimal"><span class="unit">From #${reference}'s abeam: 0° abeam, 90° behind, − ahead</span></label>
           <label class="field"><span>Range (NM)</span><input data-sr-formation="rangeNm" type="text" inputmode="decimal"><span class="unit">No preset range: enter it</span></label>
         </div>`;
       host.dataset.built = String(number);
@@ -363,7 +364,7 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
       const key = field.dataset.srFormation;
       if (key === focused) continue;
       if (field.tagName === "SELECT") field.value = slot[key] ?? "";
-      else field.value = key === "bearingDeg" && slot.preset === "COMBAT_SPREAD" ? "90" : fieldText(slot[key], 1);
+      else field.value = key === "bearingDeg" && slot.preset === "COMBAT_SPREAD" ? String(SEM_REJOIN_COMBAT_SPREAD_BEARING_DEG) : fieldText(slot[key], 1);
       if (key === "bearingDeg") field.disabled = slot.preset === "COMBAT_SPREAD";
     }
   }

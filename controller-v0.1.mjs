@@ -1,7 +1,8 @@
-import { POPUP_STORAGE_KEYS, readOffsetWorkSave, writeOffsetWorkSave } from "./work-save-v0.1.mjs?v=0.1.1";
+import { POPUP_STORAGE_KEYS, readOffsetWorkSave, writeOffsetWorkSave } from "./work-save-v0.1.mjs?v=0.1.2";
+import { convertOffsetDraftsFromTail } from "./shared/formation-save-v0.1.mjs?v=0.1.0";
 import { formatDeg, formatG, formatKt, formatNm, formatSec, formatSignedSec, truncateBeOutput } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
-import { formationPositionMarkup, installFormationSideSelects } from "./common/ui/formation-position-v0.1.mjs";
+import { formationPositionMarkup, installFormationSideSelects } from "./common/ui/formation-position-v0.1.mjs?v=0.1.1";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // One BE call per request (AG SPEC "Flight entrypoint", 2026-10-12): the Flight entrypoint owns every
 // solve, inheritance, position, drop-order timing and the next input state. This controller collects
@@ -10,9 +11,9 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // The BE runs in a Worker (offset-flight-worker-v0.1.mjs); Common calculation-client-v0.1.mjs decides when a
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
-import { OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.9";
+import { OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.10";
 import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
-const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.5", import.meta.url);
+const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.6", import.meta.url);
 // POP-UP page (owner 2026-10-27, POP-UP SPEC §13.1 "Offset as is, modified"): popup/index.html runs this controller
 // with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
 // climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
@@ -75,7 +76,9 @@ const FLIGHT_DED_AIRCRAFT = new Set([2, 3, 4]);
 // Developer default preset (index UI handoff 2026-10-06 §3): replaces the built-in defaults in this
 // browser only. The work save is one complete Flight snapshot (work-save-v0.1.mjs).
 const PRESET_KEY = POPUP_MODE ? "flight-sim-tools.popup.v2.default-preset.v1" : "flight-sim-tools.offset.v2.default-preset.v1";
-const PRESET_SCHEMA_VERSION = 1;
+// 2 (2026-11-02, owner): follower Formation bearings from abeam (0 abeam, 90 behind); a version 1 preset holds tail
+// bearings and is converted once when read (validDefaultPreset).
+const PRESET_SCHEMA_VERSION = 2;
 // index.html (body.offset-wide) groups the inputs as Offset (profile + geometry) / BDP (settings);
 // index-standard.html keeps the earlier BDP / Offset grouping. Same keys and state either way.
 const INDEX_LAYOUT = document.body.classList.contains("offset-wide");
@@ -1893,7 +1896,7 @@ function defaultFlightDraft(number = 2) {
 function factoryFlightDraft(number = 2) {
   const position = FLIGHT_DEFAULT_POSITIONS[number] ?? FLIGHT_DEFAULT_POSITIONS[2];
   return {
-    weaponId: "M82", semEnd: "", semTurnType: "", semTurnDirection: "", side: position.side, bearingDeg: "90", distanceNm: position.distanceNm,
+    weaponId: "M82", semEnd: "", semTurnType: "", semTurnDirection: "", side: position.side, bearingDeg: "0", distanceNm: position.distanceNm,
     initialSpeedValue: "350", initialAltitudeMslFt: "16000", diveAngleDeg: "45",
     rollInAltitudeMslFt: "16000", rollInAltitudeLinked: true,
     trackingTimeSec: "18.0", solveMode: "height", enteredTrackingTimeSec: "18", releaseAltitudeMslFt: "6800", releaseSpeedKcas: "450",
@@ -2054,7 +2057,7 @@ function followerDraftMarkup(number) {
   ].join("");
 }
 
-// Common Formation row (L/R + Bearing from the reference aircraft's tail, Range) on one line.
+// Common Formation row (L/R + Bearing from the reference aircraft's abeam line, aft positive, Range) on one line.
 function followerFormationMarkup(leadNumber) {
   return formationPositionMarkup({ attribute: "data-flight-field", keys: { side: "side", bearing: "bearingDeg", range: "distanceNm" }, referenceLabel: `#${leadNumber}` });
 }
@@ -2832,8 +2835,12 @@ const NON_NUMERIC_INPUTS = new Set(["weaponId", "initialSpeedMode", "offsetSpeed
 const PRESET_OPTIONAL_KEYS = new Set(["semEnd", "csemTargetFpaDeg", "semTurnType", "semTurnDirection", "semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg"]);
 // Numbers whose blank is a value (Turn G: Recovery G, Turn Speed: the level-off speed).
 const PRESET_BLANK_KEYS = new Set(["semTurnG", "semTurnSpeedKcas"]);
-function validDefaultPreset(record) {
-  if (!record || typeof record !== "object" || record.schemaVersion !== PRESET_SCHEMA_VERSION) return null;
+function validDefaultPreset(stored) {
+  if (!stored || typeof stored !== "object") return null;
+  const record = stored.schemaVersion === 1
+    ? { ...stored, schemaVersion: PRESET_SCHEMA_VERSION, flight: convertOffsetDraftsFromTail(stored.flight) }
+    : stored;
+  if (record.schemaVersion !== PRESET_SCHEMA_VERSION) return null;
   const { lead, flight } = record;
   if (!lead || typeof lead !== "object" || !lead.inputs || typeof lead.inputs !== "object") return null;
   for (const key of Object.keys(DEFAULT_INPUT_VALUES)) {

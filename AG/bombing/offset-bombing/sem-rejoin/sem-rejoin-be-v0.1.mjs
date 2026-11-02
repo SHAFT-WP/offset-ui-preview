@@ -26,6 +26,7 @@ import { RECOVERY_PULL_MODEL } from "../../../../common/maneuvers/recovery-pull/
 import { truncateBeOutput } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { CLIMB_SEM_MODEL_V0_2 } from "../../../../flight/maneuvers/safe-escape/work/v0.2/climb-sem-core-v0.2.mjs";
 import { computeFormationOffsetVectorFull } from "../offset-formation-v0.1.mjs";
+import { FORMATION_BEARING_MAX_DEG, FORMATION_BEARING_MIN_DEG, formationBearingFromTailDeg } from "../../../../flight/flight-bombing-tactics/formation-v0.1.mjs";
 import { add, dot, len, mul, signedHeadingDelta, sub, vecHeading } from "../offset-geometry-v0.2.mjs";
 import { OFFSET_TIME_PATH_V0_1, offsetTimeline } from "../view/offset-time-path-v0.1.mjs";
 
@@ -49,7 +50,10 @@ export const SEM_REJOIN_V0_1 = Object.freeze({
   // Arc END_RADIAL, the draw heading, the Egress heading) turn by the Flight's runInTurnDeg change; the wind stays.
   // 0.3.3 (2026-10-27, owner, POP-UP SPEC §13.6): BDP v0.4.4 flies a SEM at every Dive above 0°, so below 10° is
   // supported; only Dive 0° (level delivery, no recovery) has no SEM and is UNSUPPORTED.
-  version: "0.3.3",
+  // 0.3.4 (2026-11-02, owner): the egress Formation bearing is measured from the reference aircraft's abeam line, aft
+  // positive (Flight Bombing Tactics formation-v0.1): Combat Spread is 0°, the range -90…90°. Plan schemaVersion 2;
+  // a stored schemaVersion 1 plan (tail 0°: behind 0, abeam 90) is converted once by 90 - bearing.
+  version: "0.3.4",
   model: Object.freeze({ id: "sr-energy-neutral-point-mass-v0.1", version: "0.1.0", integrationStepSec: 0.01 }),
   components: Object.freeze({
     sem: `${CLIMB_SEM_MODEL_V0_2.id} ${CLIMB_SEM_MODEL_V0_2.version}`,
@@ -105,11 +109,15 @@ function defaultFormation() {
 }
 
 // The default S&R input state: no rows, nothing set (SPEC "Defaults"). Only Save stores it.
+// Plan schemaVersion 2 (2026-11-02): Formation bearings from abeam (aft +). Version 1 stored tail bearings.
+export const SEM_REJOIN_PLAN_SCHEMA_VERSION = 2;
+export const SEM_REJOIN_COMBAT_SPREAD_BEARING_DEG = 0;
+
 export function createDefaultSemRejoinPlan() {
   const aircraft = {};
   for (const number of AIRCRAFT) aircraft[number] = { rows: [], settings: defaultSettings() };
   return {
-    schemaVersion: 1,
+    schemaVersion: SEM_REJOIN_PLAN_SCHEMA_VERSION,
     nextRowId: 1,
     aircraft,
     egress: { headingDeg: null, speedKcas: null, altitudeMslFt: null },
@@ -192,12 +200,15 @@ export function normalizeSemRejoinPlan(raw) {
     speedKcas: numberOrNull(raw.egress?.speedKcas ?? null),
     altitudeMslFt: numberOrNull(raw.egress?.altitudeMslFt ?? null),
   };
+  // A plan stored as schemaVersion 1 holds tail bearings (0 behind, 90 abeam): converted once here, by its version.
+  const tailBearings = raw.schemaVersion === 1;
   for (const number of [2, 3, 4]) {
     const slot = raw.formation?.[number];
+    const bearing = numberOrNull(slot?.bearingDeg ?? null);
     plan.formation[number] = {
       preset: oneOf(slot?.preset, PRESETS, null),
       side: oneOf(slot?.side, DIRECTIONS, null),
-      bearingDeg: numberOrNull(slot?.bearingDeg ?? null),
+      bearingDeg: tailBearings && isFiniteNumber(bearing) ? formationBearingFromTailDeg(bearing) : bearing,
       rangeNm: numberOrNull(slot?.rangeNm ?? null),
     };
   }
@@ -1209,7 +1220,7 @@ function evaluationTime(evaluation, aircraftResults, editAircraft) {
 function formationSlot(plan, number) {
   const slot = plan.formation[number];
   if (!slot) return null;
-  const bearing = slot.preset === "COMBAT_SPREAD" ? 90 : slot.bearingDeg;
+  const bearing = slot.preset === "COMBAT_SPREAD" ? SEM_REJOIN_COMBAT_SPREAD_BEARING_DEG : slot.bearingDeg;
   return { ...slot, bearingDeg: bearing };
 }
 
@@ -1239,8 +1250,8 @@ function evaluateFormation(plan, states, upstream, timeSec) {
     if (!isFiniteNumber(slot?.bearingDeg)) out.missing.push("Formation Bearing");
     if (!isFiniteNumber(slot?.rangeNm)) out.missing.push("Formation Range");
     if (out.missing.length) { formation[number] = out; continue; }
-    if (!(slot.bearingDeg >= 0 && slot.bearingDeg <= 180) || !(slot.rangeNm >= 0)) {
-      formation[number] = { ...out, judgement: "INVALID", missing: [], reason: "Formation Bearing must be 0–180° and Range at least 0 NM" };
+    if (!(slot.bearingDeg >= FORMATION_BEARING_MIN_DEG && slot.bearingDeg <= FORMATION_BEARING_MAX_DEG) || !(slot.rangeNm >= 0)) {
+      formation[number] = { ...out, judgement: "INVALID", missing: [], reason: "Formation Bearing must be -90–90° (0 abeam, 90 behind) and Range at least 0 NM" };
       continue;
     }
     if (!refAt?.available || refAt.partial || !s) {
@@ -1248,7 +1259,7 @@ function evaluateFormation(plan, states, upstream, timeSec) {
       continue;
     }
     const ref = refAt.state;
-    const vector = computeFormationOffsetVectorFull({ runInHeadingDeg: egress.headingDeg, relativeBearingDeg: slot.bearingDeg, side: slot.side, distanceNm: slot.rangeNm }).vector;
+    const vector = computeFormationOffsetVectorFull({ runInHeadingDeg: egress.headingDeg, bearingDeg: slot.bearingDeg, side: slot.side, distanceNm: slot.rangeNm }).vector;
     const slotPoint = add(ref, vector);
     const forward = vecHeading(egress.headingDeg);
     const rightUnit = { x: forward.y, y: -forward.x };

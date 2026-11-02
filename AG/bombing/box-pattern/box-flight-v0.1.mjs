@@ -7,6 +7,7 @@ import { createCalculationCache, withCalculationCache } from "../../../common/ca
 import {
   aircraftSolveKey as flightSolveKey, applyFlightEdits, createFlightSession, flightEditEvents, readFlightRecords, reusedSolve,
 } from "../../../flight/flight-bombing-tactics/flight-composition-v0.1.mjs";
+import { formationTrueBearingDeg } from "../../../flight/flight-bombing-tactics/formation-v0.1.mjs";
 
 // BOX Flight entrypoint (BOX SPEC "BOX Flight entrypoint", 2026-10-25). One call takes the whole Flight input state
 // and returns every aircraft's Full BOX v0.4 result, its DED pages (OA1, OA2) and the next input state. It has the
@@ -17,7 +18,7 @@ import {
 // Roll-in Altitude LOCK a Tracking Time entry moves the Release Altitude ("release"); Initial Altitude may be LINKED
 // to the Roll-in Altitude. BOX's turn conditions and Roll-in values stay in BOX (owner 2026-10-25).
 // Formation (0.2.0, owner 2026-10-25): #1–#4 fly the same BOX data, #1's, so a follower record holds only its Formation
-// position (Offset's rule: bearing from the reference aircraft's tail, Left / Right, range; #2 and #3 off #1, #4 off
+// position (Offset's rule: bearing from the reference aircraft's abeam line since 0.3.1, Left / Right, range; #2 and #3 off #1, #4 off
 // #3). The BE places each aircraft in the pattern for the Top View: #1 at its Abeam on the Downwind, the others
 // displaced by their Formation vectors on the Downwind heading. The spacing between aircraft is the Spacer Turn's
 // (a later step, which reads this Formation).
@@ -27,11 +28,14 @@ import {
 // leg (USER) replaces it. OUT Mode and Level-off Speed are retired with the Rev1.5 OUT; a record that still holds them
 // drops them.
 // Pure: no DOM, window, storage or FE import; the input is never mutated; the same input gives the same output.
+// 0.3.1 (2026-11-02, owner): the Formation bearing is measured from the reference aircraft's abeam line, aft positive
+// (Flight Bombing Tactics formation-v0.1): 0° abeam, 90° behind, -90° ahead; default 0° (abeam, the same place as the
+// earlier 90°). Input schemaVersion 2; the page converts a record saved with tail bearings once (90 - bearing).
 export const BOX_FLIGHT_V0_1 = Object.freeze({
   id: "box-flight-v0.1",
-  version: "0.3.0",
+  version: "0.3.1",
   status: "work",
-  schemaVersion: 1,
+  schemaVersion: 2,
   components: Object.freeze({ boxComposition: BOX_V2_COMPOSITION_MODEL_V0_4.version }),
 });
 
@@ -98,9 +102,9 @@ export function boxFlightDefaultLead() {
 // Formation (Offset's Flight structure): the reference aircraft and the default (fingertip) position of each follower.
 export const BOX_FLIGHT_FORMATION_REFERENCE = Object.freeze({ 2: 1, 3: 1, 4: 3 });
 export const BOX_FLIGHT_FORMATION_DEFAULTS = Object.freeze({
-  2: Object.freeze({ side: "LEFT", bearingDeg: 90, distanceNm: 1 }),
-  3: Object.freeze({ side: "RIGHT", bearingDeg: 90, distanceNm: 2 }),
-  4: Object.freeze({ side: "RIGHT", bearingDeg: 90, distanceNm: 1 }),
+  2: Object.freeze({ side: "LEFT", bearingDeg: 0, distanceNm: 1 }),
+  3: Object.freeze({ side: "RIGHT", bearingDeg: 0, distanceNm: 2 }),
+  4: Object.freeze({ side: "RIGHT", bearingDeg: 0, distanceNm: 1 }),
 });
 export function boxFlightDefaultFollower(number) {
   const formation = BOX_FLIGHT_FORMATION_DEFAULTS[number];
@@ -446,17 +450,17 @@ function leadPosition(result) {
   return { alongNm: abeam.alongNm, sideNm: abeam.sideNm, headingDeg: norm(result.attackHeadingDeg + 180) };
 }
 
-// A follower's place (Offset's Formation rule, offset-formation-v0.1 computeFormationOffsetVector): the bearing is
-// measured from the reference aircraft's tail, 0° behind, 90° abeam, 180° ahead, clockwise on the Left; the vector is
+// A follower's place (the Flight Formation rule, flight-bombing-tactics formation-v0.1 formationTrueBearingDeg): the
+// bearing is measured from the reference aircraft's abeam line, 0° abeam, 90° behind, -90° ahead; the vector is
 // laid off from the reference aircraft's place on the Downwind heading. Every aircraft flies that heading.
 function followerPosition(number, follower, reference, attackHeadingDeg) {
   const { side, bearingDeg, distanceNm } = follower.formation;
   if (side !== "LEFT" && side !== "RIGHT") throw new TypeError(`#${number} Formation side must be LEFT or RIGHT`);
   requireNumber(`#${number} Formation bearingDeg`, bearingDeg);
   requireNumber(`#${number} Formation distanceNm`, distanceNm);
-  if (!(bearingDeg >= 0 && bearingDeg <= 180)) throw new RangeError(`#${number} Formation bearing must be between 0 and 180 deg`);
+  if (!(bearingDeg >= -90 && bearingDeg <= 90)) throw new RangeError(`#${number} Formation bearing must be between -90 and 90 deg (0 abeam, 90 behind)`);
   if (!(distanceNm >= 0)) throw new RangeError(`#${number} Formation range must be 0 NM or more`);
-  const trueBearingDeg = norm(reference.headingDeg + 180 + (side === "LEFT" ? bearingDeg : -bearingDeg));
+  const trueBearingDeg = formationTrueBearingDeg({ referenceHeadingDeg: reference.headingDeg, bearingDeg, side });
   const relative = ((trueBearingDeg - attackHeadingDeg) * Math.PI) / 180;
   return {
     alongNm: reference.alongNm + distanceNm * Math.cos(relative),

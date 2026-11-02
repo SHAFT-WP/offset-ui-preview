@@ -47,9 +47,12 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // 0.1.7 (#1's Target Elevation for every aircraft).
   // 0.1.9 (2026-10-27, owner, POP-UP step 3b): the POP-UP Roll-in option passes through each aircraft's profile
   // (values rollInStartFpaDeg / rollInSpeedModel, BDP v0.4.5); absent (Offset) nothing changes.
-  version: "0.1.9",
+  // 0.1.10 (2026-11-02, owner): a follower's formation.bearingDeg is measured from the reference aircraft's abeam line,
+  // aft positive (Flight Bombing Tactics formation-v0.1; -90…90°, 0 abeam). Input schemaVersion 2; the page converts a
+  // record saved with tail bearings once (90 - bearing). Every place the tail rule allowed is the same place.
+  version: "0.1.10",
   status: "work",
-  schemaVersion: 1,
+  schemaVersion: 2,
   components: Object.freeze({
     offsetBe: OFFSET_BE_V0_2.version,
     offsetFormationGeometry: OFFSET_FORMATION_GEOMETRY_V0_1.version,
@@ -781,7 +784,7 @@ function followerOffsetInput({ number, follower, leaderResult, leadNumber, fligh
   const runInHeadingDeg = leaderResult.resolved.runInHeadingDeg;
   const { vector } = computeFormationOffsetVectorFull({
     runInHeadingDeg,
-    relativeBearingDeg: requireNumber("bearingDeg", formation.bearingDeg),
+    bearingDeg: requireNumber("bearingDeg", formation.bearingDeg),
     side: formation.side,
     distanceNm: requireNumber("distanceNm", formation.distanceNm),
   });

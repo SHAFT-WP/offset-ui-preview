@@ -3,16 +3,17 @@
 // One line per wingman: the Bearing field carries its Left/Right side as a compact select in front
 // of the number, and the Range field sits beside it. The side select shows the full words (Left /
 // Right) only while it is being chosen and the short form (L / R) otherwise. Bearing is measured
-// from the reference aircraft's tail: 0 = directly behind, 90 = abeam, 180 = directly ahead.
+// from the reference aircraft's abeam line, aft positive (owner 2026-11-02): 0 = abeam, 90 = directly
+// behind, negative = ahead (-90 = directly ahead); before 0.1.1 it was from the tail (0 behind, 90 abeam).
 //
 // Presentation only: the consumer owns the bound keys, persistence and the formation geometry
-// (for Offset, AG/bombing/offset-bombing/offset-formation-v0.1.mjs computeFormationOffsetVector).
+// (Flight Bombing Tactics flight/flight-bombing-tactics/formation-v0.1.mjs formationTrueBearingDeg).
 // Reusable by any Flight tab (Offset, BOX, Wheel, Wheel-BOX).
 
 export const FORMATION_POSITION_V0_1 = Object.freeze({
   id: "formation-position-v0.1",
-  version: "0.1.0",
-  bearingReference: "tail",
+  version: "0.1.1",
+  bearingReference: "abeam",
 });
 
 export const FORMATION_SIDE_LABELS = Object.freeze({
@@ -38,8 +39,8 @@ export function formationPositionMarkup({ attribute = "data-key", keys = {}, ref
   return `<div class="formation-position" data-formation-position>`
     + `<label class="field formation-bearing"><span>Bearing (°)</span><span class="formation-bearing-control">`
     + `<select ${bind(names.side)} data-formation-side aria-label="Side of ${reference}">${options}</select>`
-    + `<input ${bind(names.bearing)} type="text" inputmode="decimal" aria-label="Bearing from ${reference} tail">`
-    + `</span><span class="unit">From ${reference} tail · 0° behind · 90° abeam</span></label>`
+    + `<input ${bind(names.bearing)} type="text" inputmode="decimal" aria-label="Bearing from ${reference} abeam, aft positive">`
+    + `</span><span class="unit">From ${reference} abeam · 0° abeam · 90° behind · − ahead</span></label>`
     + `<label class="field formation-range"><span>Range (NM)</span><input ${bind(names.range)} type="text" inputmode="decimal"><span class="unit">From ${reference}</span></label>`
     + `</div>`;
 }

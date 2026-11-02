@@ -7,6 +7,7 @@ import { createCalculationCache, withCalculationCache } from "../../../common/ca
 import {
   aircraftSolveKey as flightSolveKey, applyFlightEdits, createFlightSession, flightEditEvents, readFlightRecords, reusedSolve,
 } from "../../../flight/flight-bombing-tactics/flight-composition-v0.1.mjs";
+import { formationTrueBearingDeg } from "../../../flight/flight-bombing-tactics/formation-v0.1.mjs";
 
 // Wheel-BOX Flight entrypoint (Wheel SPEC "Wheel-BOX Flight entrypoint and the Wheel page BE", owner 2026-10-25: the Wheel page
 // as BOX's). One call takes the whole Flight input state and returns every aircraft's Full Wheel-BOX v0.10 result, its
@@ -28,11 +29,14 @@ import {
 // the Join G and the Extension are the result's, never written back); a new aircraft's SEM End is CLIMB (CSEM), as the
 // Return starts at the CSEM End. A saved record keeps its SEM End; a blank Return Turn G is the BE default. A new
 // aircraft's Initial Speed is 300 KCAS (owner: "휠박스의 디폴트 속도는 300이 적당할 듯"); DED OA2 is the Base Turn start.
+// 0.3.1 (2026-11-02, owner): the Formation bearing is measured from the reference aircraft's abeam line, aft positive
+// (Flight Bombing Tactics formation-v0.1): 0° abeam, 90° behind, -90° ahead; default 0° (abeam, the same place as the
+// earlier 90°). Input schemaVersion 2; the page converts a record saved with tail bearings once (90 - bearing).
 export const WHEEL_BOX_FLIGHT_V0_1 = Object.freeze({
   id: "wheel-box-flight-v0.1",
-  version: "0.3.0",
+  version: "0.3.1",
   status: "work",
-  schemaVersion: 1,
+  schemaVersion: 2,
   components: Object.freeze({ wheelComposition: WHEEL_BOX_BE_MODEL_V0_10.version }),
 });
 
@@ -97,9 +101,9 @@ export function wheelBoxFlightDefaultLead() {
 // Formation (Offset's Flight structure): the reference aircraft and the default (fingertip) position of each follower.
 export const WHEEL_BOX_FLIGHT_FORMATION_REFERENCE = Object.freeze({ 2: 1, 3: 1, 4: 3 });
 export const WHEEL_BOX_FLIGHT_FORMATION_DEFAULTS = Object.freeze({
-  2: Object.freeze({ side: "LEFT", bearingDeg: 90, distanceNm: 1 }),
-  3: Object.freeze({ side: "RIGHT", bearingDeg: 90, distanceNm: 2 }),
-  4: Object.freeze({ side: "RIGHT", bearingDeg: 90, distanceNm: 1 }),
+  2: Object.freeze({ side: "LEFT", bearingDeg: 0, distanceNm: 1 }),
+  3: Object.freeze({ side: "RIGHT", bearingDeg: 0, distanceNm: 2 }),
+  4: Object.freeze({ side: "RIGHT", bearingDeg: 0, distanceNm: 1 }),
 });
 export function wheelBoxFlightDefaultFollower(number) {
   const formation = WHEEL_BOX_FLIGHT_FORMATION_DEFAULTS[number];
@@ -466,8 +470,8 @@ function leadPosition(result) {
   return { alongNm: abeam.alongNm, sideNm: abeam.sideNm, headingDeg: result.downwindHeadingDeg, sideSign: result.turnSideSign };
 }
 
-// A follower's place (Offset's Formation rule, offset-formation-v0.1 computeFormationOffsetVector): the bearing is
-// measured from the reference aircraft's tail, 0° behind, 90° abeam, 180° ahead, clockwise on the Left; the vector is
+// A follower's place (the Flight Formation rule, flight-bombing-tactics formation-v0.1 formationTrueBearingDeg): the
+// bearing is measured from the reference aircraft's abeam line, 0° abeam, 90° behind, -90° ahead; the vector is
 // laid off from the reference aircraft's place on the Downwind heading. Every aircraft flies that heading. The side
 // axis is the pattern side (sideSign + 1 RIGHT / − 1 LEFT).
 function followerPosition(number, follower, reference, attackHeadingDeg) {
@@ -475,9 +479,9 @@ function followerPosition(number, follower, reference, attackHeadingDeg) {
   if (side !== "LEFT" && side !== "RIGHT") throw new TypeError(`#${number} Formation side must be LEFT or RIGHT`);
   requireNumber(`#${number} Formation bearingDeg`, bearingDeg);
   requireNumber(`#${number} Formation distanceNm`, distanceNm);
-  if (!(bearingDeg >= 0 && bearingDeg <= 180)) throw new RangeError(`#${number} Formation bearing must be between 0 and 180 deg`);
+  if (!(bearingDeg >= -90 && bearingDeg <= 90)) throw new RangeError(`#${number} Formation bearing must be between -90 and 90 deg (0 abeam, 90 behind)`);
   if (!(distanceNm >= 0)) throw new RangeError(`#${number} Formation range must be 0 NM or more`);
-  const trueBearingDeg = norm(reference.headingDeg + 180 + (side === "LEFT" ? bearingDeg : -bearingDeg));
+  const trueBearingDeg = formationTrueBearingDeg({ referenceHeadingDeg: reference.headingDeg, bearingDeg, side });
   const relative = ((trueBearingDeg - attackHeadingDeg) * Math.PI) / 180;
   return {
     alongNm: reference.alongNm + distanceNm * Math.cos(relative),
