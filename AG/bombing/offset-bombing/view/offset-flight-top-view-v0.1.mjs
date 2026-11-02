@@ -33,7 +33,10 @@ export const OFFSET_FLIGHT_TOP_VIEW_V0_1 = Object.freeze({
   // 0.1.9 (2026-10-15): Top View 0.1.10 token (onset Offset turn path).
   // 0.1.10 (2026-10-27, owner, POP-UP step 4): options.markers [{ x, y, label, color }] on the combined view (the
   // POP-UP page's Pop Points), included in the fit; absent, nothing changes.
-  version: "0.1.10",
+  // 0.1.11 (2026-11-02, owner): a marker's optional `value` is written after its label ("Pop Up : 3.9 NM"); a marker
+  // whose one-line text would overlap another marker or label is written on two lines (label, then value): on the right,
+  // else on the left, else lower on the right with a leader line.
+  version: "0.1.11",
   layers: Object.freeze(["offset-plot-lead-<n>", "offset-plot-companion-<k>", "offset-plot-<n>"]),
   combinedLayers: Object.freeze(["offset-plot-aircraft-<n>"]),
 });
@@ -82,14 +85,45 @@ export function renderOffsetCombinedTopView(svg, aircraft, options = {}) {
   layers.filter(({ item }) => item === base || item === top).forEach(({ layer }) => layer.placeLabels());
   if (markers.length) {
     const group = svgNode("g", { "data-top-view-role": "markers" });
-    for (const marker of markers) {
+    const size = frame.detailSize;
+    const k = frame.fontScale;
+    const widthOf = (text) => text.length * size * 0.62; // bold text, about 0.62 em per character
+    const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    const taken = markers.map((marker) => { const at = frame.project({ x: marker.x, y: marker.y }); return { left: at.x - 8 * k, right: at.x + 8 * k, top: at.y - 8 * k, bottom: at.y + 8 * k }; });
+    // Markers whose one-line texts (on the right) would overlap each other or another marker are all written on two lines.
+    const oneLineBox = (marker) => {
+      const at = frame.project({ x: marker.x, y: marker.y });
+      const text = marker.value ? `${marker.label} : ${marker.value}` : marker.label;
+      return { left: at.x - 8 * k, right: at.x + 11 * k + widthOf(text), top: at.y - size, bottom: at.y + size * 0.5 };
+    };
+    const crowded = markers.map((marker, i) => !!marker.value && markers.some((other, j) => j !== i && (overlaps(oneLineBox(marker), oneLineBox(other)) || overlaps(oneLineBox(marker), taken[j]))));
+    markers.forEach((marker, index) => {
       const at = frame.project({ x: marker.x, y: marker.y });
       const color = marker.color ?? "#c2185b";
-      group.append(
-        svgNode("circle", { cx: at.x, cy: at.y, r: 7 * frame.fontScale, fill: "#ffffff", stroke: color, "stroke-width": 3 * frame.fontScale, "data-marker": marker.label }),
-        svgNode("text", { x: at.x + 11 * frame.fontScale, y: at.y + 4 * frame.fontScale, "font-size": frame.detailSize, "font-weight": 700, fill: color }, marker.label),
-      );
-    }
+      const one = marker.value ? `${marker.label} : ${marker.value}` : marker.label;
+      // Places in order: one line on the right; two lines (label, value) on the right, then on the left, then lower
+      // on the right; the first that overlaps no other label or marker.
+      const twoWidth = Math.max(widthOf(marker.label), widthOf(marker.value ?? ""));
+      const places = crowded[index] ? [] : [{ lines: 1, side: 1, dy: 0, width: widthOf(one) }];
+      if (marker.value) {
+        places.push({ lines: 2, side: 1, dy: 0, width: twoWidth }, { lines: 2, side: -1, dy: 0, width: twoWidth });
+        for (let step = 1; step <= 4; step += 1) places.push({ lines: 2, side: 1, dy: step * 2.3 * size, width: twoWidth });
+      }
+      const boxOf = ({ lines, side, dy, width }) => {
+        const x0 = at.x + side * 11 * k;
+        const top = at.y + dy - size;
+        return { left: side > 0 ? x0 : x0 - width, right: side > 0 ? x0 + width : x0, top, bottom: top + size * (lines === 2 ? 2.3 : 1.5) };
+      };
+      const place = places.find((candidate) => !taken.some((box) => overlaps(boxOf(candidate), box))) ?? places[places.length - 1];
+      const box = boxOf(place);
+      taken.push(box);
+      const x = place.side > 0 ? box.left : box.right;
+      const attrs = { x, "font-size": size, "font-weight": 700, fill: color, "text-anchor": place.side > 0 ? "start" : "end", "data-marker-text": marker.label, "data-marker-lines": place.lines };
+      const label = svgNode("text", { ...attrs, y: at.y + place.dy + (place.lines === 2 ? -2 * k : 4 * k) }, place.lines === 2 ? undefined : one);
+      if (place.lines === 2) label.append(svgNode("tspan", { x }, marker.label), svgNode("tspan", { x, dy: size * 1.1 }, marker.value));
+      group.append(svgNode("circle", { cx: at.x, cy: at.y, r: 7 * k, fill: "#ffffff", stroke: color, "stroke-width": 3 * k, "data-marker": marker.label }), label);
+      if (place.dy) group.append(svgNode("line", { x1: at.x + 6 * k, y1: at.y + 6 * k, x2: x, y2: at.y + place.dy - size * 0.9, stroke: color, "stroke-width": 1 * k }));
+    });
     frame.root.append(group);
   }
   finishOffsetTopViewFrame(frame, { scope: "offset-top" });

@@ -46,7 +46,7 @@ import { BDP_TAB_KEYS, bdpTabMarkup } from "./shared/bdp-tab-v0.1.mjs?v=0.1.1";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.10";
-import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.10";
+import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.11";
 import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.3";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // POP-UP Z-Diagram (POP-UP SPEC §13.8 / §13.8a; the POP-UP page only): a BE-owned view of the POP-UP Flight result.
@@ -837,7 +837,7 @@ function renderTopView() {
     northArrow: !topViewIpBottom,
     timeSec: topViewTimeSec ?? undefined,
     // POP-UP: each drawn aircraft's Pop Point (the BE's popPoint) on its Approach leg.
-    ...(POPUP_MODE ? { markers: aircraft.map((item) => ({ item, pop: popupFull.get(item.number)?.popPoint })).filter(({ pop }) => pop).map(({ item, pop }) => ({ x: pop.x, y: pop.y, label: item.number === 1 ? "Pop" : `Pop #${item.number}` })) } : {}),
+    ...(POPUP_MODE ? { markers: aircraft.map((item) => ({ item, popup: popupFull.get(item.number) })).filter(({ popup }) => popup?.popPoint).map(({ item, popup }) => ({ x: popup.popPoint.x, y: popup.popPoint.y, label: item.number === 1 ? "Pop Up" : `Pop Up #${item.number}`, value: Number.isFinite(popup.popToTargetNm) ? `${popup.popToTargetNm.toFixed(1)} NM` : null })) } : {}),
   });
   syncTopViewViewport(svg, rendered, aircraft.map((item) => `${item.number}:${topViewResultId(item.result)}`).join(","));
   syncTimeDials(svg, aircraft.map((item) => item.result), topViewTimeSec);
