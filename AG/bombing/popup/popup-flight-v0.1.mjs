@@ -5,6 +5,7 @@ import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, 
 import { calculatePopupClimbFull } from "./popup-climb-v0.2.mjs";
 import { computeDropOrderDeltaFull } from "../offset-bombing/offset-formation-v0.1.mjs";
 import { dropOrderTiming } from "../../../flight/flight-bombing-tactics/flight-composition-v0.1.mjs";
+import { leadImpactToWingmanReleaseSec } from "../../../flight/flight-bombing-tactics/formation-v0.1.mjs";
 
 // POP-UP Flight v0.1 (owner 2026-10-27, POP-UP SPEC §13.1, step 3b): the Offset Flight (as is) with each aircraft's
 // Roll-in flown from its Popup angle at MIL (BDP v0.4.5 POP-UP option), and the POP-UP climb in front of it.
@@ -24,7 +25,9 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // speed) then the climb, IP → Release and the drop-order timing follow it, and geometry.points.popPoint is set; the
   // Pop Point's range and angle-off to the Target and its time after IP; the follower driver "LEAD_POP_TIME" (pop at
   // #1's Pop time, the angle solved for it).
-  version: "0.1.2",
+  // 0.1.3 (owner 2026-11-02): flightName (Offset Flight 0.1.11's formation name, attack type) with #1 Impact − #2
+  // Release on the POP-UP clock. Metadata only.
+  version: "0.1.3",
   status: "work",
   offsetFlight: `${OFFSET_FLIGHT_V0_1.id} ${OFFSET_FLIGHT_V0_1.version}`,
   popupBe: `${POPUP_BE_V0_2.id} ${POPUP_BE_V0_2.version}`,
@@ -257,7 +260,9 @@ function popupFlight(input, offsetFlight) {
   }
   // Drop-order timing on the POP-UP clock.
   const flightTiming = dropOrderTiming(output.flightSize, aircraftResults, computeDropOrderDeltaFull);
-  const result = { ...output, model: { ...POPUP_FLIGHT_V0_1, offsetModel: output.model }, aircraftResults, flightTiming, nextInput };
+  // The file-name metadata: the Offset Flight's formation name and attack type, #1 Impact − #2 Release on this clock.
+  const flightName = output.flightName ? { ...output.flightName, leadImpactToWingmanReleaseSec: leadImpactToWingmanReleaseSec(flightTiming) } : null;
+  const result = { ...output, model: { ...POPUP_FLIGHT_V0_1, offsetModel: output.model }, aircraftResults, flightTiming, flightName, nextInput };
   // The page's on-demand request: the minimum-exposure angle of one aircraft (an Apply result, §13.5).
   const requested = input.popupRequest?.minimumExposure;
   if (requested !== undefined && requested !== null) {

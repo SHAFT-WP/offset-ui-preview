@@ -6,7 +6,8 @@ import {
   computeFormationOffsetVectorFull,
   solveElementSameTimeActionRange,
 } from "./offset-formation-v0.1.mjs";
-import { add, candidateFailureCause } from "./offset-geometry-v0.2.mjs";
+import { add, candidateFailureCause, directionRule } from "./offset-geometry-v0.2.mjs";
+import { FLIGHT_FORMATION_V0_1, flightNameMetadata } from "../../../flight/flight-bombing-tactics/formation-v0.1.mjs";
 import { BOMB_DELIVERY_PLANNER_MODEL_V0_4, FRAGMENT_MARGIN_MODES, ROLL_IN_ONSET_DEFAULTS, calculateBombDeliveryV0_4Full } from "../bomb-delivery-planner/bomb-delivery-planner-v0.4.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import { calculationKey, createCalculationCache, withCalculationCache } from "../../../common/calculation/calculation-cache-v0.1.mjs";
@@ -50,13 +51,18 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // 0.1.10 (2026-11-02, owner): a follower's formation.bearingDeg is measured from the reference aircraft's abeam line,
   // aft positive (Flight Bombing Tactics formation-v0.1; -90…90°, 0 abeam). Input schemaVersion 2; the page converts a
   // record saved with tail bearings once (90 - bearing). Every place the tail rule allowed is the same place.
-  version: "0.1.10",
+  // 0.1.11 (2026-11-02, owner): output.flightName — the Flight's formation name (Flight Bombing Tactics formation-v0.1
+  // 0.2.0: 2S_<code>, 3S_ARW, 4S_TRA / BOX / WED / LAB / FLD / OBX, else NA; L / R = #2's side), the attack type
+  // (ech / pin / mix from each aircraft's attack side) and #1 Impact − #2 Release, for the HTML file name. Metadata
+  // only: every aircraft result is unchanged.
+  version: "0.1.11",
   status: "work",
   schemaVersion: 2,
   components: Object.freeze({
     offsetBe: OFFSET_BE_V0_2.version,
     offsetFormationGeometry: OFFSET_FORMATION_GEOMETRY_V0_1.version,
     offsetFormation: OFFSET_FORMATION_V0_1.version,
+    flightFormation: FLIGHT_FORMATION_V0_1.version,
   }),
 });
 
@@ -1176,6 +1182,27 @@ function flightTiming(flightSize, results) {
   return dropOrderTiming(flightSize, results, computeDropOrderDeltaFull);
 }
 
+// Each aircraft's attack side: the side of its Run-In its Attack Heading is on (Offset direction rule); null without a
+// result or when the two headings do not decide a side.
+export function offsetAttackSides(flightSize, results) {
+  const sides = {};
+  for (let number = 1; number <= flightSize; number += 1) {
+    const resolved = results[number]?.result?.resolved;
+    const rule = resolved && Number.isFinite(resolved.runInHeadingDeg) && Number.isFinite(resolved.attackHeadingDeg)
+      ? directionRule(resolved.runInHeadingDeg, resolved.attackHeadingDeg) : null;
+    sides[number] = rule && !rule.ambiguous ? rule.attackSide : null;
+  }
+  return sides;
+}
+
+// The Flight's naming metadata (owner 2026-11-02; Flight Bombing Tactics flightNameMetadata) from the followers'
+// Formation records as solved, each aircraft's attack side and the drop-order timing.
+function offsetFlightName(flightSize, aircraft, results, timing) {
+  const formation = {};
+  for (let number = 2; number <= flightSize; number += 1) formation[number] = aircraft[number]?.raw ? null : aircraft[number]?.formation ?? null;
+  return flightNameMetadata({ flightSize, formation, attackSides: offsetAttackSides(flightSize, results), flightTiming: timing });
+}
+
 function outputRecord(number, record) {
   if (record.raw) return structuredClone(record.raw);
   if (number === 1) return { values: record.values, locks: record.locks, state: record.state };
@@ -1368,12 +1395,14 @@ function calculateFlight(input, session) {
     aircraftResults[number] = { ...rest, ded: entry.ded ?? null };
     constraintDiagnostics.push(...diagnostics);
   }
+  const timing = flightTiming(flightSize, results);
   const output = {
     model: { ...OFFSET_FLIGHT_V0_1, components: { ...OFFSET_FLIGHT_V0_1.components } },
     flightSize,
     aircraftResults,
     constraintDiagnostics,
-    flightTiming: flightTiming(flightSize, results),
+    flightTiming: timing,
+    flightName: offsetFlightName(flightSize, aircraft, results, timing),
     nextInput: { schemaVersion: OFFSET_FLIGHT_V0_1.schemaVersion, flightSize, aircraft: nextAircraft },
   };
   return { output, solveLog };
