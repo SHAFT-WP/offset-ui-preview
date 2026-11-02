@@ -42,7 +42,7 @@ import { createPresetStore, createSaveRun, savedTimeText } from "./shared/save-s
 // The shown-aircraft set and its #1–#4 buttons: bombing app shared FE (2026-10-22).
 import { createShownAircraft, installShownAircraftClicks } from "./shared/flight-ui-v0.1.mjs?v=0.1.0";
 // The BDP tab of index #1–#4 (owner composition 2026-10-25): bombing app shared FE, as on the BOX page.
-import { BDP_TAB_KEYS, bdpTabMarkup } from "./shared/bdp-tab-v0.1.mjs?v=0.1.1";
+import { BDP_TAB_KEYS, NLT_RELEASE_FIELD, bdpTabMarkup, syncBdpNltRelease } from "./shared/bdp-tab-v0.1.mjs?v=0.1.2";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.10";
@@ -959,6 +959,8 @@ function installCalculation() {
   });
 }
 
+// #1's NLT Release readouts (BDP tab and Offset tab copies; the followers' sit in their slots).
+const leadNltReleaseNodes = () => [...document.querySelectorAll("[data-bdp-nlt-release]")].filter((node) => !node.closest(".flight-slot"));
 function renderLead(entry) {
   if (entry?.result) {
     const full = entry.result;
@@ -978,6 +980,7 @@ function renderLead(entry) {
       renderPopup(entry);
     }
     renderSemFragmentReadouts($("#lead-sem-readouts"), result);
+    syncBdpNltRelease(leadNltReleaseNodes(), result.profile);
     resultPanel.refresh();
     refreshBdpDiagrams(1);
     renderDed(entry.ded);
@@ -1003,6 +1006,7 @@ function renderLead(entry) {
     renderPopup(null);
   }
   renderSemFragmentReadouts($("#lead-sem-readouts"), null);
+  syncBdpNltRelease(leadNltReleaseNodes(), null);
   showCalculationFailed($("#offset-z-svg"), zDiagramTitle(1), errorMessage);
   $("#capture-z").disabled = true;
   clearDed();
@@ -2060,7 +2064,7 @@ function followerCalculatingMarkup(number) {
     rollInAltitude: `<label class="field"><span>Roll-in Altitude (ft MSL)</span><input data-flight-field="rollInAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">BDP entry altitude</span></label>`,
     dive: `<label class="field"><span class="lock-title"><span>Dive Angle (deg)</span><button class="lock-button" type="button" data-flight-field="diveAngleLocked" aria-label="Lock Dive Angle" aria-pressed="false">LOCK</button></span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label>`,
     tracking: `<label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"><span class="unit">Track Point → Release · 0.1 s</span></label>`,
-    releaseAltitude: `<label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label>`,
+    releaseAltitude: `<label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label>${NLT_RELEASE_FIELD}`,
     releaseSpeed: `<label class="field"><span>Release Speed (KCAS)</span><input data-flight-field="releaseSpeedKcas" type="text" inputmode="decimal"></label>`,
     runIn: `<label class="field"><span>Run-In Heading</span><output data-flight-readout="runInHeadingDeg">-</output><span class="unit">Follows #1 · parallel Run-In</span></label>`,
     ipRange: `<label class="field"><span>IP Range from Target</span><output data-flight-readout="ipRangeFromTargetNm">-</output><span class="unit">NM · from Formation position</span></label>`,
@@ -2617,6 +2621,7 @@ function renderFollower(number, entry) {
     renderFollowerStatus(number, "INVALID", entry.error);
     renderFollowerResult(number, slot, { state: "INVALID", message: entry.error });
     renderSemFragmentReadouts(slot.querySelector("[data-sem-readouts]"), null);
+    syncBdpNltRelease(slot.querySelectorAll("[data-bdp-nlt-release]"), null);
     renderFollowerDed(number, null);
     showCalculationFailed(zSvg, zDiagramTitle(number), entry.error ?? "no result");
     if (zPng) zPng.disabled = true;
@@ -2643,6 +2648,7 @@ function renderFollower(number, entry) {
   if (headingReadout) headingReadout.textContent = fmtHeading(result.resolved.offsetHeadingDeg);
   renderFollowerResult(number, slot, { result, delta: flightTimingOf(number) });
   renderSemFragmentReadouts(slot.querySelector("[data-sem-readouts]"), result);
+  syncBdpNltRelease(slot.querySelectorAll("[data-bdp-nlt-release]"), result.profile);
   renderFollowerDed(number, entry.ded);
   const zDrawn = renderZDiagramOf(number, zSvg, resultFull);
   if (zPng) zPng.disabled = !zDrawn;

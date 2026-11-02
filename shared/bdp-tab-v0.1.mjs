@@ -18,7 +18,18 @@
 //   - SEM End / SEM Turn start with "Follow #lead"; Initial Speed is KCAS only;
 //   - Wind is the Flight's (#1's), a readout ([data-flight-readout="wind"]) the page fills.
 
-export const BDP_TAB_V0_1 = Object.freeze({ id: "bombing-bdp-tab-v0.1", version: "0.1.1" });
+// 0.1.2 (2026-11-02, owner): the BDP Profile shows the NLT Release (a BDP result, read only) right after Release
+// Altitude, in the BDP tab and in every pattern tab's copy; syncBdpNltRelease fills it from the BDP result.
+export const BDP_TAB_V0_1 = Object.freeze({ id: "bombing-bdp-tab-v0.1", version: "0.1.2" });
+
+// The NLT Release readout (BDP result) shown after Release Altitude; pages that hand-write their BDP Profile use it too.
+export const NLT_RELEASE_FIELD = `<label class="field"><span>NLT Release (ft MSL)</span><output class="readout" data-bdp-nlt-release>-</output><span class="unit">Result · BDP minimum release altitude</span></label>`;
+// Writes a BDP result's NLT Release into the readouts (nodes: the readouts of one aircraft; bdp: its BDP result or null).
+export function syncBdpNltRelease(nodes, bdp) {
+  const value = bdp?.public?.nltReleaseMslFt;
+  const text = Number.isFinite(value) ? Math.round(value).toLocaleString("en-US") : "-";
+  for (const node of nodes) if (node.textContent !== text) node.textContent = text;
+}
 
 export const BDP_TAB_NOTE = "BDP : Bomb Delivery Planner";
 
@@ -76,6 +87,7 @@ export function bdpProfileFieldsMarkup({ angleOff = null, follower = null } = {}
     + field("diveAngleDeg", "Dive Angle (deg)", "BDP parameter", { lock: "diveAngleDeg", follower })
     + field("trackingTimeSec", "Tracking Time (sec)", "Track Point → Release · 0.1 s", { follower })
     + field("releaseAltitudeMslFt", "Release Altitude (ft MSL)", "NLT clamp is BDP-owned", { follower })
+    + NLT_RELEASE_FIELD
     + field("releaseSpeedKcas", "Release Speed (kcas)", "Release speed", { follower })
     + angle;
 }

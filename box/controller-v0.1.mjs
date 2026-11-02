@@ -9,7 +9,8 @@ import { createCalculationScheduler, createWorkerTransport } from "../common/cal
 import { WEAPON_DATABASE_V0_1 } from "../AG/bombing/bomb-delivery-planner/weapon-data-v0.1.mjs";
 import {
   BDP_FIELD_DIGITS, BDP_TAB_KEYS, bdpProfileFieldsMarkup, bdpTabMarkup, rollInTurnFieldsMarkup, syncLinkButtons, syncSemChoices, turnOnsetFieldsMarkup,
-} from "../shared/bdp-tab-v0.1.mjs?v=0.1.1";
+} from "../shared/bdp-tab-v0.1.mjs?v=0.1.2";
+import { syncBdpNltRelease } from "../shared/bdp-tab-v0.1.mjs?v=0.1.2";
 import { createEnterCommit, headingText, installSectionDisclosure as installSectionDisclosureOn, installSectionTools, parsedFieldValue, syncLockButtons } from "../shared/input-fields-v0.1.mjs?v=0.1.0";
 import { bdpResultRows, resultRow, semTurnAutoBankText } from "../shared/bdp-result-v0.1.mjs?v=0.2.0";
 import { clearDedPages, dedPagesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedPages } from "../shared/ded-v0.1.mjs?v=0.1.1";
@@ -507,6 +508,7 @@ function renderLead(entry) {
   lastEntry = entry ?? null;
   renderStatus(entry);
   renderResults(entry);
+  syncBdpNltRelease(app.querySelectorAll("[data-bdp-nlt-release]"), entry?.result?.bombDelivery ?? null);
   renderPlaceholders(entry?.result ?? null);
   renderTopView();
   renderZ();
