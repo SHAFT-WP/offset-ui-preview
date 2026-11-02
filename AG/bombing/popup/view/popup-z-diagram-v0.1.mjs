@@ -1,23 +1,29 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { profileName } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs?v=0.1.8";
+import { offsetZLowerColumns } from "../../offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 
 // POP-UP Z-Diagram v0.1 (owner 2026-10-27, POP-UP SPEC §13.8, §13.8a; owner sketch reference/popup-z-diagram-
 // owner-2026-10-27.jpg). POP-UP only. A triangle: the climb leg from the Action Point up at the Climb Angle to the
 // Apex, the dive leg down to the MRA; ticks for the climb-leg altitude (Roll-in or Pull Down, the page's option) and
 // the PRA. Altitudes in thousands of feet MSL, one decimal (§13.8). The altitude not on the tick is written under
 // the diagram, so both are always on it (§13.8a). The view reads the POP-UP Flight result; nothing is solved here.
+// 0.1.1 (owner 2026-11-02, "팝업 Z diagram 아래에 정보들에 offset 쪽 정보들 넣어줘"): under the POP-UP lines, the Offset
+// Z-Diagram's lower block — the same two columns (Offset view offsetZLowerColumns: Essential, or every row with the
+// Z head's Advanced), with ΔTime on the POP-UP clock. The canvas grows with the rows.
 export const POPUP_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "popup-z-diagram-v0.1",
-  version: "0.1.0",
+  version: "0.1.1",
   ticks: Object.freeze(["ROLL_IN", "PULL_DOWN"]),
   canvas: Object.freeze({ width: 650, height: 580 }),
+  offsetRows: Object.freeze({ firstY: 606, rowHeight: 30, bottomGap: 26, leftX: 40, rightX: 340 }),
 });
 
 const kft = (ft) => (Number.isFinite(ft) ? (ft / 1000).toFixed(1) : "-");
 const event = (popup, name) => popup?.events?.find((e) => e.name === name) ?? null;
 
-// The numbers on the diagram (pure; tested). `tick` is "ROLL_IN" (default, owner) or "PULL_DOWN".
-export function buildPopupZDiagramData(result, popup, { tick = "ROLL_IN" } = {}) {
+// The numbers on the diagram (pure; tested). `tick` is "ROLL_IN" (default, owner) or "PULL_DOWN". `deltaTime`,
+// `advanced` and `aircraftNumber` are the Offset Z's options for its lower block (offsetZLowerColumns).
+export function buildPopupZDiagramData(result, popup, { tick = "ROLL_IN", deltaTime = null, advanced = false, aircraftNumber = 1 } = {}) {
   if (!result?.profile || !popup) return { supported: false, reason: "No POP-UP result" };
   if (!POPUP_Z_DIAGRAM_V0_1.ticks.includes(tick)) throw new RangeError(`tick must be one of ${POPUP_Z_DIAGRAM_V0_1.ticks.join(", ")}`);
   const input = result.profile.canonicalInputs;
@@ -48,6 +54,8 @@ export function buildPopupZDiagramData(result, popup, { tick = "ROLL_IN" } = {})
     mraMslFt: p.nltReleaseMslFt,
     groundSpeedKt,
     actionRangeNm: result.geometry?.actionRangeNm ?? null,
+    // The Offset Z-Diagram's lower block, drawn under the POP-UP lines (0.1.1).
+    offsetColumns: offsetZLowerColumns(result, { deltaTime, advanced: advanced === true, aircraftNumber }),
     text: {
       apex: kft(apex?.altitudeMslFt),
       tick: kft(climbTick.altitudeMslFt),
@@ -67,10 +75,13 @@ export function popupZDiagramTitle({ aircraftNumber = 1 } = {}) {
 
 // Draws the schematic as the owner sketch: a fixed triangle (the numbers carry the values, not the drawn angles);
 // the ticks sit on the legs at their altitudes between the base line (Pop altitude) and the Apex.
-export function renderPopupZDiagram(svg, result, popup, { tick = "ROLL_IN", aircraftNumber = 1 } = {}) {
+export function renderPopupZDiagram(svg, result, popup, { tick = "ROLL_IN", aircraftNumber = 1, deltaTime = null, advanced = false } = {}) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
-  const data = buildPopupZDiagramData(result, popup, { tick });
-  const { width, height } = POPUP_Z_DIAGRAM_V0_1.canvas;
+  const data = buildPopupZDiagramData(result, popup, { tick, deltaTime, advanced, aircraftNumber });
+  const { width, height: diagramHeight } = POPUP_Z_DIAGRAM_V0_1.canvas;
+  const rows = POPUP_Z_DIAGRAM_V0_1.offsetRows;
+  const rowCount = data.supported ? Math.max(data.offsetColumns.left.length, data.offsetColumns.right.length) : 0;
+  const height = rowCount ? rows.firstY + (rowCount - 1) * rows.rowHeight + rows.bottomGap : diagramHeight;
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.style.aspectRatio = `${width} / ${height}`;
   svg.setAttribute("aria-label", popupZDiagramTitle({ aircraftNumber }));
@@ -127,7 +138,14 @@ export function renderPopupZDiagram(svg, result, popup, { tick = "ROLL_IN", airc
   text(startX - 6, baseY + 40, data.text.groundSpeed, { anchor: "middle", size: 24 });
   text(startX + 120, baseY + 40, data.text.actionRange, { anchor: "middle", size: 24 });
   // Both climb-leg altitudes are on the diagram: the tick's label and the other one's value (§13.8a).
-  text(40, height - 50, `${data.other.label} ${data.text.other} · ${data.climbTick.label} ${data.text.tick} (tick)`, { size: 18, weight: 700 });
-  text(40, height - 22, `PRA ${data.text.pra} · MRA = NLT Release ${data.text.mra} · Apex ${data.text.apex} · kft MSL`, { size: 15, weight: 600 });
+  text(40, diagramHeight - 50, `${data.other.label} ${data.text.other} · ${data.climbTick.label} ${data.text.tick} (tick)`, { size: 18, weight: 700 });
+  text(40, diagramHeight - 22, `PRA ${data.text.pra} · MRA = NLT Release ${data.text.mra} · Apex ${data.text.apex} · kft MSL`, { size: 15, weight: 600 });
+  // The Offset Z-Diagram's lower block (0.1.1): its two columns, as the Offset Z writes them ("Label: value").
+  if (rowCount) {
+    root.append(svgNode("line", { x1: 40, y1: diagramHeight - 2, x2: width - 40, y2: diagramHeight - 2, stroke: "#c9d1d9", "stroke-width": 1.5 }));
+    [[rows.leftX, data.offsetColumns.left], [rows.rightX, data.offsetColumns.right]].forEach(([x, list]) => list.forEach((row, index) => {
+      text(x, rows.firstY + index * rows.rowHeight, `${String(row.label).replace(/:\s*$/, "")}: ${row.value}`, { size: 15, weight: 900 });
+    }));
+  }
   return data;
 }

@@ -53,7 +53,7 @@ import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLe
 import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.3";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // POP-UP Z-Diagram (POP-UP SPEC §13.8 / §13.8a; the POP-UP page only): a BE-owned view of the POP-UP Flight result.
-import { popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.0";
+import { popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.1";
 import { popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.13.3";
@@ -2665,7 +2665,8 @@ function renderZDiagramOf(number, svg, resultFull) {
   if (!svg) return false;
   delete svg.dataset.calculationFailed;
   if (POPUP_MODE && popupFull.has(number)) {
-    const data = renderPopupZDiagram(svg, resultFull, popupFull.get(number), { tick: popupZTick, aircraftNumber: number });
+    // The Offset Z's lower block under the POP-UP lines (POP-UP Z 0.1.1): the same ΔTime and Advanced as the Offset Z.
+    const data = renderPopupZDiagram(svg, resultFull, popupFull.get(number), { tick: popupZTick, aircraftNumber: number, deltaTime: zDeltaTime(Math.max(2, number)), advanced: zAdvancedOn.has(number) });
     return data.supported;
   }
   return renderOffsetZDiagram(svg, resultFull, { aircraftNumber: number, deltaTime: zDeltaTime(Math.max(2, number)), advanced: zAdvancedOn.has(number) });
