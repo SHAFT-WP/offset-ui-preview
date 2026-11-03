@@ -11,17 +11,17 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // The BE runs in a Worker (offset-flight-worker-v0.1.mjs); Common calculation-client-v0.1.mjs decides when a
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
-import { FORMATION_TEMPLATES, OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.13";
+import { FORMATION_TEMPLATES, OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, formationTemplatePositions } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.14";
 // Flight Formation top view (Flight Bombing Tactics view, owner 2026-11-02): draws the BE's flightName.formation.
 import { formationTopViewSvg } from "./flight/flight-bombing-tactics/view/formation-top-view-v0.1.mjs?v=0.2.0";
 import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
-const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.8", import.meta.url);
+const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.9", import.meta.url);
 // POP-UP page (owner 2026-10-27, POP-UP SPEC §13.1 "Offset as is, modified"): popup/index.html runs this controller
 // with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
 // climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
 const POPUP_MODE = document.body.classList.contains("popup-page");
-const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.7", import.meta.url);
-const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.7", import.meta.url);
+const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.8", import.meta.url);
+const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.8", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -1582,7 +1582,15 @@ function installLeadBdpTab() {
 }
 function followerBdpTabMarkup(number) {
   const follower = { leadNumber: elementLeadNumber(number), lockKeys: FOLLOWER_BDP_LOCKS, linkKey: "rollInAltitudeLinked", followKeys: FOLLOWER_BDP_EXTRA_KEYS };
-  return `<section class="section flight-draft-section bdp-tab-section" data-tab="bdp" data-aircraft-tab="${number}">${bdpTabMarkup({ number, ...INDEX_BDP_TAB, follower })}</section>`;
+  return `<section class="section flight-draft-section bdp-tab-section" data-tab="bdp" data-aircraft-tab="${number}">${profileLinkMarkup(number)}${bdpTabMarkup({ number, ...INDEX_BDP_TAB, follower })}</section>`;
+}
+
+// Profile LINK button (#3 / #4, owner 2026-11-03), on the BDP and Offset / Pop-Up tabs: pressed = follows the source.
+const PROFILE_LINK_SCOPE = POPUP_MODE ? "BDP / Pop-Up values" : "BDP / Offset values";
+function profileLinkMarkup(number) {
+  const source = profileLinkSource(number);
+  if (!source) return "";
+  return `<div class="profile-link-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px"><button class="lock-button" type="button" data-flight-field="profileLinked" aria-pressed="true" title="#${number} flies #${source}'s profile while linked">LINKED #${source}</button><span class="unit" data-profile-link-note>Follows #${source}'s ${PROFILE_LINK_SCOPE}</span></div>`;
 }
 
 // Per-tab controls (2026-09-26): each input tab of each aircraft carries its own visibility
@@ -1945,21 +1953,46 @@ const FOLLOWER_TAB_KEYS = {
   offset: ["attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "approachRangeNm", ...FOLLOWER_LOCK_OPTIONS, "driver"],
 };
 
-// Default 4-ship positions (fingertip): #2 left of #1, #3 right of #1 at 2 NM, #4 right of #3.
-// #1 offsets to its right by default, so the right-hand element solves cleanly from these values.
-const FLIGHT_DEFAULT_POSITIONS = { 2: { side: "LEFT", distanceNm: "1" }, 3: { side: "RIGHT", distanceNm: "2" }, 4: { side: "RIGHT", distanceNm: "1" } };
+// Default formation per Flight size (owner 2026-11-03, Offset and POP-UP): 2-ship LAB, 3-ship Arrow Head, 4-ship Box, #2's
+// side LEFT (Box: #2 left of #1, #3 1.5 NM directly behind #1, #4 left of #3). The places are the Form templates'.
+const FLIGHT_DEFAULT_FORMATION = Object.freeze({ 2: "LAB", 3: "ARW", 4: "BOX" });
+// Before 2026-11-03 (fingertip): a draft still at these places counts as default when the Flight size changes.
+const LEGACY_DEFAULT_POSITIONS = { 2: { side: "LEFT", bearingDeg: "0", distanceNm: "1" }, 3: { side: "RIGHT", bearingDeg: "0", distanceNm: "2" }, 4: { side: "RIGHT", bearingDeg: "0", distanceNm: "1" } };
+function defaultFlightPosition(number, flightSize = flightLayout.size) {
+  const size = Math.max(number, Math.min(4, flightSize));
+  const place = formationTemplatePositions({ flightSize: size, name: FLIGHT_DEFAULT_FORMATION[size], side: "LEFT" })[number];
+  return { side: place.side, bearingDeg: String(Number(place.bearingDeg.toFixed(1))), distanceNm: String(Number(place.distanceNm.toFixed(2))) };
+}
+const samePosition = (draft, place) => draft.side === place.side && Number(draft.bearingDeg) === Number(place.bearingDeg) && Number(draft.distanceNm) === Number(place.distanceNm);
+// A Flight size change moves each follower still at a default place (of the old size, or the legacy one) to the new
+// size's default place; a place the user set stays.
+function applyDefaultPositions(oldSize, newSize) {
+  for (let number = 2; number <= newSize; number += 1) {
+    const draft = flightLayout.aircraft[number];
+    if (!draft) continue;
+    const atDefault = samePosition(draft, defaultFlightPosition(number, oldSize)) || samePosition(draft, LEGACY_DEFAULT_POSITIONS[number]);
+    if (!atDefault) continue;
+    Object.assign(draft, defaultFlightPosition(number, newSize));
+    ["bearingDeg", "distanceNm"].forEach((key) => { delete draft.solved?.[key]; });
+  }
+}
+// Profile LINK (owner 2026-11-03): #3 follows #1, #4 follows #2 (BE OFFSET_FLIGHT_PROFILE_LINK); linked by default.
+const profileLinkSource = (number) => OFFSET_FLIGHT_PROFILE_LINK[number] ?? null;
 
 // Default draft of a follower: the developer preset's draft when one is saved (§3.2), else built-in.
 function defaultFlightDraft(number = 2) {
   const factory = factoryFlightDraft(number);
   const record = readDefaultPreset()?.flight?.aircraft?.[number];
-  return record ? normalizeFlightDraft(number, record, factory) : factory;
+  if (!record) return factory;
+  // A preset saved before the profile LINK links like the built-in default.
+  return { ...normalizeFlightDraft(number, record, factory), ...(typeof record.profileLinked === "boolean" ? {} : { profileLinked: factory.profileLinked }) };
 }
 
 function factoryFlightDraft(number = 2) {
-  const position = FLIGHT_DEFAULT_POSITIONS[number] ?? FLIGHT_DEFAULT_POSITIONS[2];
+  const position = defaultFlightPosition(number);
   return {
-    weaponId: "M82", semEnd: "", semTurnType: "", semTurnDirection: "", side: position.side, bearingDeg: "0", distanceNm: position.distanceNm,
+    weaponId: "M82", semEnd: "", semTurnType: "", semTurnDirection: "", side: position.side, bearingDeg: position.bearingDeg, distanceNm: position.distanceNm,
+    profileLinked: profileLinkSource(number) !== null,
     initialSpeedValue: "350", initialAltitudeMslFt: "16000", diveAngleDeg: "45",
     rollInAltitudeMslFt: "16000", rollInAltitudeLinked: true,
     trackingTimeSec: "18.0", solveMode: "height", enteredTrackingTimeSec: "18", releaseAltitudeMslFt: "6800", releaseSpeedKcas: "450",
@@ -2234,7 +2267,7 @@ function followerCalculatingMarkup(number) {
     approachRange: `<label class="field"><span class="lock-title"><span>Approach Range (NM)</span><button class="lock-button" type="button" data-flight-field="approachRangeLocked" aria-label="Lock Approach Range" aria-pressed="false">LOCK</button></span><input data-flight-field="approachRangeNm" type="text" inputmode="decimal"><span class="unit">Offset Turn End → Roll-in Start</span></label>`,
     approachingHeading: `<label class="field"><span>Approaching Heading</span><output data-flight-readout="offsetHeadingDeg">-</output><span class="unit">Offset Turn completion → Roll-in Start</span></label>`,
   };
-  const statusHead = `<div class="section-head"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div>`;
+  const statusHead = `<div class="section-head"><span id="flight-state-pill-${number}" class="status ok">VALID</span></div>${profileLinkMarkup(number)}`;
   const statusLine = `<div id="flight-status-${number}" class="status-message valid">-</div>`;
   const group = (title, content) => `<h3 class="input-group-title">${title}</h3><div class="input-grid">${content}</div>`;
   // index Offset tab groups fold like #1's (owner 2026-10-12); Roll-in Condition starts folded.
@@ -2258,7 +2291,7 @@ function followerCalculatingMarkup(number) {
     followerBdpTabMarkup(number),
     flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${field.initialSpeed}${field.initialAltitude}${rollInLocked}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${popupGroup}${foldGroup("Roll-in Condition", `${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${statusLine}`, { calculating: true, tab: "offset" }),
   ] : [
-    flightSection(number, "BDP", `<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}${ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label)).join("")}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerSemFields(number)}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerSemTurnFields(number)}</div><div data-sem-readouts></div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target).</p>`, { calculating: true, tab: "bdp" }),
+    flightSection(number, "BDP", `${profileLinkMarkup(number)}<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}${ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label)).join("")}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerSemFields(number)}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerSemTurnFields(number)}</div><div data-sem-readouts></div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target).</p>`, { calculating: true, tab: "bdp" }),
     flightSection(number, "Offset", `${statusHead}<div class="input-grid">${field.runIn}${field.ipRange}${field.attack}${field.angleOff}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}</div>${popupGroup}${statusLine}`, { calculating: true, tab: "offset" }),
   ];
   return [
@@ -2289,7 +2322,12 @@ function followerDedMarkup() {
 const FOLLOWER_LOCK_KEYS = new Set(FOLLOWER_LOCK_OPTIONS.filter((key) => key.endsWith("Locked")));
 function syncFlightToggleButton(button, on) {
   const key = button.dataset.flightField;
-  syncToggleButton(button, on, { activeClass: true, texts: FOLLOWER_LOCK_KEYS.has(key) ? LOCK_TEXTS : key === "rollInAltitudeLinked" ? LINK_TEXTS : null });
+  const source = key === "profileLinked" ? profileLinkSource(Number(button.closest(".flight-slot")?.dataset.aircraft)) : null;
+  syncToggleButton(button, on, { activeClass: true, texts: FOLLOWER_LOCK_KEYS.has(key) ? LOCK_TEXTS : key === "rollInAltitudeLinked" ? LINK_TEXTS : source ? { on: `LINKED #${source}`, off: `LINK #${source}` } : null });
+  if (source) {
+    const note = button.parentElement?.querySelector("[data-profile-link-note]");
+    if (note) note.textContent = on ? `Follows #${source}'s ${PROFILE_LINK_SCOPE} · typing any of them unlinks` : `Own values · LINK to follow #${source} again`;
+  }
   if (key === "rollInAltitudeLinked") {
     const note = button.closest(".field")?.querySelector("[data-initial-link-note]");
     if (note) note.textContent = on ? "Linked to Roll-in Altitude" : "Reference only (not linked)";
@@ -2378,6 +2416,8 @@ function normalizeFlightDraft(number, record, fallback) {
     actionRangeNm: str("actionRangeNm"),
     approachRangeNm: str("approachRangeNm"),
     ...Object.fromEntries(FOLLOWER_LOCK_OPTIONS.map((key) => [key, record[key] === true])),
+    // A record saved before the profile LINK keeps its own values (not linked).
+    profileLinked: profileLinkSource(number) !== null && record.profileLinked === true,
     driver: FLIGHT_TACTICAL_DRIVERS.includes(record.driver) ? record.driver : "actionRangeNm",
     ...(POPUP_MODE ? { ...Object.fromEntries(POPUP_FOLLOWER_VALUE_KEYS.map((key) => [key, typeof record[key] === "string" ? record[key] : ""])), popupDriver: POPUP_DRIVERS.includes(record.popupDriver) ? record.popupDriver : "DEFAULT" } : {}),
     solved: normalizeSolvedValues(record),
@@ -2416,7 +2456,9 @@ function installFlightLayout() {
     // Ignore malformed or unavailable presentation-only storage.
   }
   $("#flight-size").addEventListener("change", (event) => {
+    const oldSize = flightLayout.size;
     flightLayout.size = Math.max(1, Math.min(4, Number(event.target.value) || 1));
+    applyDefaultPositions(oldSize, flightLayout.size);
     pruneVisibleAircraft();
     renderFlightLayout();
   });
@@ -2556,7 +2598,7 @@ function collectFollowerRecord(number) {
       side: text("side") === "RIGHT" ? "RIGHT" : "LEFT", bearingDeg: read("bearingDeg"), distanceNm: read("distanceNm"),
       ...(slot && followerField(slot, "longitudinalNm") ? { longitudinalNm: read("longitudinalNm"), lateralNm: read("lateralNm") } : {}),
     },
-    options: Object.fromEntries(FOLLOWER_LOCK_OPTIONS.map((key) => [key, draft[key] === true])),
+    options: { ...Object.fromEntries(FOLLOWER_LOCK_OPTIONS.map((key) => [key, draft[key] === true])), ...(profileLinkSource(number) ? { profileLinked: draft.profileLinked === true } : {}) },
     state: { driver: draft.driver, solveMode: draft.solveMode, enteredTrackingTimeSec: Number.isFinite(entered) ? entered : null, rollInAltitudeLinked: draft.rollInAltitudeLinked !== false, ...(POPUP_MODE ? { popupDriver: draft.popupDriver || "DEFAULT", popupLocks: { ...(draft.popupLocks ?? {}) } } : {}) },
   };
 }
@@ -2583,6 +2625,18 @@ function applyFollowerState(number, record, sent, activeKey, commit) {
     if (value === null && followsLeadWhenBlank(key)) {
       draft[key] = "";
       delete draft.solved[key];
+      return;
+    }
+    // Text values (Bomb, SEM choices) a profile LINK set.
+    if (key === "weaponId" && typeof value === "string" && value) {
+      draft.weaponId = value;
+      (slot ? followerFields(slot, key) : []).forEach((select) => { if (select !== active) select.value = value; });
+      return;
+    }
+    if (key in FOLLOWER_CHOICES) {
+      const choice = followerChoice(key, value);
+      draft[key] = choice;
+      (slot ? followerFields(slot, key) : []).forEach((select) => { if (select !== active) select.value = choice; });
       return;
     }
     write(key, value);

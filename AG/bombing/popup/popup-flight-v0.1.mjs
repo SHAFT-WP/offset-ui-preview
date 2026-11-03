@@ -1,6 +1,6 @@
 import { casToTas, machToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
-import { OFFSET_FLIGHT_V0_1, calculateOffsetFlightFull, createOffsetFlightSession } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.13";
+import { OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, calculateOffsetFlightFull, createOffsetFlightSession, profileLinkStates } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.14";
 import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs?v=0.2.1";
 import { calculatePopupClimbFull } from "./popup-climb-v0.2.mjs";
 import { computeDropOrderDeltaFull } from "../offset-bombing/offset-formation-v0.1.mjs";
@@ -40,7 +40,10 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // for it ("ROLL_IN_SPEED"); a LOCKed angle or distance holds that driver; two LOCKs together are a conflict.
   // Typing a Roll-in Speed (initialSpeedValue) LOCKs it. "Pop with #1" (LEAD_POP_TIME) is removed (owner): a stored
   // one reads as DEFAULT.
-  version: "0.1.7",
+  // 0.1.8 (owner 2026-11-03, SPEC §13.8j): Offset Flight 0.1.14's profile LINK — a linked #3 / #4 flies #1's / #2's POP-UP
+  // too (its settings, angle and Roll-in Speed are its source's). A POP-UP edit of a linked aircraft (a value, a LOCK, AUTO,
+  // Apply) turns its LINK off, as any other edit of it does.
+  version: "0.1.8",
   status: "work",
   offsetFlight: `${OFFSET_FLIGHT_V0_1.id} ${OFFSET_FLIGHT_V0_1.version}`,
   popupBe: `${POPUP_BE_V0_2.id} ${POPUP_BE_V0_2.version}`,
@@ -181,13 +184,23 @@ export function calculatePopupFlightFull(input) {
 // The output has the Offset Flight's shape (the page reuses the Offset controller): each aircraftResults[n] is the
 // Offset's with the POP-UP status, errors and warnings merged in and `popup` added (angle, climb, events, checks,
 // Pop Point, Hold-Down).
-function popupFlight(input, offsetFlight) {
-  if (!input?.aircraft?.[1]) throw new TypeError("POP-UP Flight input needs aircraft #1");
+function popupFlight(rawInput, offsetFlight) {
+  if (!rawInput?.aircraft?.[1]) throw new TypeError("POP-UP Flight input needs aircraft #1");
+  // Profile LINK (0.1.8): the LINK after every edit of this request, the POP-UP edits included (the Offset Flight does
+  // not see those), goes down with the records; a linked aircraft takes its source's POP-UP below.
+  const linkStates = profileLinkStates(rawInput);
+  const input = { ...rawInput, aircraft: { ...rawInput.aircraft } };
+  for (const [n, on] of Object.entries(linkStates)) {
+    const record = input.aircraft[n];
+    if (record && (record.options?.profileLinked === true) !== on) input.aircraft[n] = { ...record, options: { ...record.options, profileLinked: on } };
+  }
   const numbers = Object.keys(input.aircraft);
+  const linkedTo = Object.fromEntries(numbers.filter((n) => linkStates[n] && input.aircraft[OFFSET_FLIGHT_PROFILE_LINK[n]]).map((n) => [n, String(OFFSET_FLIGHT_PROFILE_LINK[n])]));
   const edited = editedDrivers(input);
   const cleared = clearedValues(input);
   const lockEdits = editedLocks(input);
   const settings = Object.fromEntries(numbers.map((n) => [n, popupSettings(input, n, edited, cleared, lockEdits)]));
+  for (const [n, source] of Object.entries(linkedTo)) settings[n] = { ...settings[source], locks: { ...settings[source].locks } };
   // First angles: the driver's own value or the automatic rule on the aircraft's Dive.
   const angles = {};
   for (const n of numbers) {
@@ -203,9 +216,19 @@ function popupFlight(input, offsetFlight) {
     if (settings[n].conflict) angleErrors[n] = settings[n].conflict;
     if (Number.isFinite(settings[n].rollInSpeedKcas)) speeds[n] = settings[n].rollInSpeedKcas;
   }
-  const autoSpeed = numbers.filter((n) => !settings[n].locks.rollInSpeed && !settings[n].conflict);
+  // A linked aircraft flies its source's angle and Roll-in Speed (and its errors); it is not solved on its own.
+  const followSources = () => {
+    for (const [n, source] of Object.entries(linkedTo)) {
+      angles[n] = angles[source];
+      if (Number.isFinite(speeds[source])) speeds[n] = speeds[source];
+      if (solved[source]) solved[n] = solved[source]; else delete solved[n];
+      if (angleErrors[source]) angleErrors[n] = angleErrors[source]; else delete angleErrors[n];
+    }
+  };
+  followSources();
+  const autoSpeed = numbers.filter((n) => !linkedTo[n] && !settings[n].locks.rollInSpeed && !settings[n].conflict);
   let output = offsetFlight(withAngles(input, angles, speeds));
-  const needsSolve = numbers.filter((n) => !settings[n].conflict && ["GROUND_DISTANCE", "EXPOSURE_TIME", "ROLL_IN_SPEED"].includes(settings[n].driver));
+  const needsSolve = numbers.filter((n) => !linkedTo[n] && !settings[n].conflict && ["GROUND_DISTANCE", "EXPOSURE_TIME", "ROLL_IN_SPEED"].includes(settings[n].driver));
   for (let iteration = 0; (needsSolve.length || autoSpeed.length) && iteration < POPUP_FLIGHT_V0_1.angleIterations; iteration += 1) {
     let moved = false;
     for (const n of needsSolve) {
@@ -233,6 +256,7 @@ function popupFlight(input, offsetFlight) {
         speeds[n] = arrival;
       } catch { /* the climb error is reported below */ }
     }
+    followSources();
     if (!moved) break;
     output = offsetFlight(withAngles(input, angles, speeds));
   }

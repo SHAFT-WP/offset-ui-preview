@@ -10,6 +10,7 @@ import { add, candidateFailureCause, directionRule } from "./offset-geometry-v0.
 import { FLIGHT_FORMATION_V0_1, FORMATION_TEMPLATES, flightNameMetadata, formationComponentsNm, formationFromComponentsNm, formationTemplatePositions } from "../../../flight/flight-bombing-tactics/formation-v0.1.mjs";
 import { BOMB_DELIVERY_PLANNER_MODEL_V0_4, FRAGMENT_MARGIN_MODES, ROLL_IN_ONSET_DEFAULTS, calculateBombDeliveryV0_4Full } from "../bomb-delivery-planner/bomb-delivery-planner-v0.4.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
+import { machToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { calculationKey, createCalculationCache, withCalculationCache } from "../../../common/calculation/calculation-cache-v0.1.mjs";
 // The flight-level mechanics (Flight structure, input records, edit events, per-aircraft reuse, editing session,
 // drop-order walk) are Flight Bombing Tactics' (2026-10-22); this entrypoint gives them the Offset meaning.
@@ -61,7 +62,11 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // ranges for display. The Flight edit "formationTemplate" { name, side } places #2–#4 from a Form template (the
   // name stays the one the places give); flightName.formation.places gives each aircraft's place in #1's frame for the
   // Formation top view. No bearing ahead of abeam and no negative range (Flight Bombing Tactics formation-v0.1 0.3.0).
-  version: "0.1.13",
+  // 0.1.14 (2026-11-03, owner): the profile LINK — #3 flies #1's profile and #4 flies #2's while options.profileLinked is
+  // on (the page's default for #3 / #4): before it is solved, the follower takes its source's solved BDP and Offset values,
+  // solve mode and Roll-in Altitude LOCK (OFFSET_FLIGHT_PROFILE_LINK). Any edit of the follower other than its Formation
+  // turns the LINK off (its values stay as they are now); the toggle { key: "profileLinked", value: true } links it again.
+  version: "0.1.14",
   status: "work",
   schemaVersion: 2,
   components: Object.freeze({
@@ -145,6 +150,66 @@ const OPTION_EXCLUSIONS = Object.freeze({
   angleOffLocked: [],
   diveAngleLocked: [],
 });
+// Profile LINK (0.1.14, owner 2026-11-03): #3 follows #1's profile, #4 follows #2's (Box: each element's trail aircraft
+// flies its lead pair's attack). While a follower's options.profileLinked is on, its BDP and Offset values are its
+// source's solved ones (the inherited BDP extras of #3 are left blank: they follow #1, its element lead, so they are #1's).
+// The follower then solves on its own place with the Action Range driver and the Offset Angle held, so from a place on
+// the source's Run-In line (Box #3 behind #1) it flies the source's path. Every edit of the follower except its Formation
+// place turns the LINK off; the values stay as they are now. Toggle profileLinked true links it again.
+export const OFFSET_FLIGHT_PROFILE_LINK = Object.freeze({ 3: 1, 4: 2 });
+const PROFILE_LINK_INHERITED_KEYS = new Set([...OFFSET_FLIGHT_INHERITED_KEYS, ...OFFSET_FLIGHT_INHERITED_TEXT_KEYS, ...OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS]);
+const PROFILE_LINK_VALUE_KEYS = Object.freeze([
+  "attackHeadingDeg", "angleOffDeg", "offsetAngleDeg", "actionRangeNm", "approachRangeNm",
+  "weaponId", "diveAngleDeg", "initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "trackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas",
+  ...PROFILE_LINK_INHERITED_KEYS, "semTurnDirection",
+  // POP-UP (the POP-UP Flight gives the linked aircraft its source's POP-UP settings as well).
+  "rollInStartFpaDeg", "rollInSpeedModel", "popupAngleDeg", "popupGroundDistanceNm", "popupExposureTimeSec", "popupG",
+]);
+const PROFILE_LINK_FORMATION_KEYS = new Set(["side", "bearingDeg", "distanceNm", "longitudinalNm", "lateralNm"]);
+// Does this edit of a linked follower turn its LINK off? Every edit but its Formation place and the LINK toggle itself.
+export function breaksProfileLink(edit) {
+  if (!edit || edit.kind === "formationTemplate") return false;
+  if (edit.key === "profileLinked") return false;
+  return !PROFILE_LINK_FORMATION_KEYS.has(edit.key);
+}
+// The LINK of each follower after the edits of one request (the POP-UP Flight reads it for its own edits too).
+export function profileLinkStates(input) {
+  const states = {};
+  for (const number of Object.keys(OFFSET_FLIGHT_PROFILE_LINK)) states[number] = input?.aircraft?.[number]?.options?.profileLinked === true;
+  const edits = [...(input?.edit ? [input.edit] : []), ...(input?.edits ?? [])];
+  for (const edit of edits) {
+    const number = String(edit?.aircraft ?? 1);
+    if (!(number in states)) continue;
+    if (edit.key === "profileLinked" && edit.kind === "toggle") states[number] = edit.value === true;
+    else if (breaksProfileLink(edit)) states[number] = false;
+  }
+  return states;
+}
+
+function linkProfile(aircraft, number) {
+  const follower = aircraft[number];
+  const sourceNumber = OFFSET_FLIGHT_PROFILE_LINK[number];
+  const source = aircraft[sourceNumber];
+  if (!sourceNumber || !follower || follower.raw || !follower.options.profileLinked || !source || source.raw) return;
+  const v = follower.values;
+  for (const key of PROFILE_LINK_VALUE_KEYS) {
+    const value = sourceNumber === 1 && PROFILE_LINK_INHERITED_KEYS.has(key) ? null : source.values[key];
+    if (blank(value)) { if (key in v) v[key] = null; }
+    else v[key] = value;
+  }
+  // A follower's Roll-in Speed is KCAS: #1's Mach entry goes over as its CAS at #1's Roll-in Altitude.
+  if (source.values.initialSpeedMode === "MACH" && isNumber(v.initialSpeedValue) && isNumber(source.values.rollInAltitudeMslFt)) {
+    v.initialSpeedValue = tasToCas(machToTas(v.initialSpeedValue, source.values.rollInAltitudeMslFt), source.values.rollInAltitudeMslFt);
+  }
+  const rollInLocked = sourceNumber === 1 ? source.locks?.rollInAltitudeMslFt === true : source.options?.rollInAltitudeLocked === true;
+  for (const key of FOLLOWER_OPTIONS) follower.options[key] = false;
+  follower.options.rollInAltitudeLocked = rollInLocked;
+  follower.state.driver = "actionRangeNm";
+  follower.state.solveMode = normalizeSolveMode(source.state.solveMode, rollInLocked);
+  follower.state.enteredTrackingTimeSec = source.state.enteredTrackingTimeSec;
+  follower.state.rollInAltitudeLinked = source.state.rollInAltitudeLinked;
+}
+
 // Entered Tracking Time unit (user 2026-10-12: 0.1 s, superseding whole seconds); BDP rounds the same.
 export const OFFSET_FLIGHT_TRACKING_TIME_STEP_SEC = 0.1;
 const roundTrackingTime = (value) => Math.round(value * 10) / 10;
@@ -251,7 +316,7 @@ function normalizeFollower(record = {}) {
       side: formation.side === "RIGHT" ? "RIGHT" : "LEFT", bearingDeg: formation.bearingDeg ?? null, distanceNm: formation.distanceNm ?? null,
       longitudinalNm: formation.longitudinalNm ?? null, lateralNm: formation.lateralNm ?? null,
     },
-    options: optionValues,
+    options: { ...optionValues, profileLinked: options.profileLinked === true },
     state: {
       driver: enumOr("driver", state.driver, FOLLOWER_DRIVERS, "actionRangeNm"),
       solveMode: normalizeSolveMode(state.solveMode, optionValues.rollInAltitudeLocked),
@@ -377,6 +442,13 @@ function applyLeadEdit(lead, edit) {
 function applyFollowerEdit(follower, edit, number) {
   const { values: v, state: s, options, formation } = follower;
   const key = edit.key;
+  // Profile LINK (0.1.14): the LINK toggle, else any edit but the Formation place turns it off.
+  if (key === "profileLinked" && edit.kind === "toggle") {
+    if (!OFFSET_FLIGHT_PROFILE_LINK[number]) throw new TypeError(`#${number} has no profile LINK`);
+    options.profileLinked = edit.value === true;
+    return;
+  }
+  if (breaksProfileLink(edit)) options.profileLinked = false;
   if (edit.kind === "toggle") {
     const on = edit.value === true;
     if (key === "rollInAltitudeLinked") {
@@ -1306,7 +1378,7 @@ function turnWithRunIn(aircraft, edit, runInBefore) {
 }
 
 // The Form templates the page offers (Flight Bombing Tactics formation-v0.1): one list per Flight size.
-export { FORMATION_TEMPLATES };
+export { FORMATION_TEMPLATES, formationTemplatePositions };
 
 // A Form template (owner sketch 2026-11-02, Flight edit sent as #1's): every follower takes the template's Side,
 // bearing and distance. A name that is not a template of this Flight size fails #1's edit with the reason.
@@ -1441,6 +1513,8 @@ function calculateFlight(input, session) {
     if (number > flightSize) continue;
     const leadNumber = OFFSET_FLIGHT_ELEMENT_LEAD[number];
     const leaderResult = views[leadNumber] ?? null;
+    // Profile LINK (0.1.14): the source (#1 / #2) is solved; its values become this aircraft's before its solve.
+    linkProfile(aircraft, number);
     const keyOf = () => aircraftSolveKey(number, aircraft[number] ?? null, errorOf(number), { flightLead: views[1], flightLeadValues, elementLead: leaderResult });
     const solved = reusedSolve(session, keyOf, () => {
       const entry = solveFollower({ number, follower: aircraft[number], stateError: errorOf(number), leaderResult, flightLead: views[1], flightLeadValues });
