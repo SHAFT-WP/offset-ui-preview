@@ -1,5 +1,5 @@
 // Same cache token as the page controller (one module instance in the in-thread fallback).
-import { POPUP_FLIGHT_V0_1, createPopupFlightSession } from "./popup-flight-v0.1.mjs?v=0.1.6";
+import { POPUP_FLIGHT_V0_1, createPopupFlightSession } from "./popup-flight-v0.1.mjs?v=0.1.7";
 import { createFlightHost, serveFlightWorker } from "../../../flight/flight-bombing-tactics/flight-worker-host-v0.1.mjs";
 
 // POP-UP Flight calculation host (the Offset Flight host's contract, offset-flight-worker-v0.1): it answers

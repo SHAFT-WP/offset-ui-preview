@@ -1,7 +1,7 @@
 import { casToTas, machToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import { OFFSET_FLIGHT_V0_1, calculateOffsetFlightFull, createOffsetFlightSession } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.13";
-import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs";
+import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs?v=0.2.1";
 import { calculatePopupClimbFull } from "./popup-climb-v0.2.mjs";
 import { computeDropOrderDeltaFull } from "../offset-bombing/offset-formation-v0.1.mjs";
 import { dropOrderTiming } from "../../../flight/flight-bombing-tactics/flight-composition-v0.1.mjs";
@@ -13,9 +13,8 @@ import { leadImpactToWingmanReleaseSec } from "../../../flight/flight-bombing-ta
 //   before Roll-in Start; Hold-Down = Approach Range − ground distance, which must be ≥ 0 (an error, never clipped).
 //   The Pop Point state is the Offset leg's: Offset Altitude and Offset Speed (§13.5).
 // Per aircraft (values / state of the Offset record; blank follows #1, then the defaults):
-//   state.popupDriver "DEFAULT" (automatic rule) | "ANGLE" | "GROUND_DISTANCE" | "EXPOSURE_TIME" | "LEAD_POP_TIME"
-//   (#2–#4: Pop at #1's Pop time; the ground distance for it is Approach Range − (#1's Pop time − this aircraft's
-//   Turn End time) × its Offset speed, and the angle is solved for that distance; #1 takes it as "DEFAULT");
+//   state.popupDriver "DEFAULT" (automatic rule) | "ANGLE" | "GROUND_DISTANCE" | "EXPOSURE_TIME" (the last typed);
+//   state.popupLocks { rollInSpeed, angle, distance } (0.1.7) override it ("ROLL_IN_SPEED", "ANGLE", "GROUND_DISTANCE");
 //   values.popupAngleDeg / popupGroundDistanceNm / popupExposureTimeSec (the driver's value); values.popupG (3 G).
 // The angle for a distance or a time is solved on the aircraft's BDP input from an Offset Flight at the previous
 // angle, repeated until the angle settles (the Offset solve moves the Roll-in a little with the angle).
@@ -35,12 +34,19 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // 0.1.6 (owner 2026-11-03, confirming the reading offered): OA2 is OA1's point (the Roll-in Start, same RNG / TBRG)
   // with ELEV = the Target Elevation; the Pop Point is its own DED page `popUp` (TBRG / RNG from the same reference,
   // ELEV = Target Elevation), no longer OA2.
-  version: "0.1.6",
+  // 0.1.7 (owner 2026-11-03, SPEC §13.8i): the Roll-in Speed is AUTO — each aircraft's BDP starts its Roll-in at
+  // its MIL arrival speed at Roll-in Start (iterated with the Roll-in Altitude) — unless LOCKed; three POP-UP LOCKs
+  // per aircraft (state.popupLocks { rollInSpeed, angle, distance }): a LOCKed Roll-in Speed solves the Popup angle
+  // for it ("ROLL_IN_SPEED"); a LOCKed angle or distance holds that driver; two LOCKs together are a conflict.
+  // Typing a Roll-in Speed (initialSpeedValue) LOCKs it. "Pop with #1" (LEAD_POP_TIME) is removed (owner): a stored
+  // one reads as DEFAULT.
+  version: "0.1.7",
   status: "work",
   offsetFlight: `${OFFSET_FLIGHT_V0_1.id} ${OFFSET_FLIGHT_V0_1.version}`,
   popupBe: `${POPUP_BE_V0_2.id} ${POPUP_BE_V0_2.version}`,
   defaultPopupG: 3,
-  angleIterations: 8,
+  angleIterations: 12,
+  speedSettleKt: 0.05,
   angleSettleDeg: 0.01,
 });
 
@@ -74,6 +80,21 @@ function editedDrivers(input) {
   }
   return drivers;
 }
+// The POP-UP LOCK edits (0.1.7): { key: "popupLockRollInSpeed" | "popupLockAngle" | "popupLockDistance", value }.
+// A typed Roll-in Speed (initialSpeedValue, not a clear) LOCKs it. The minimum-exposure Apply (popupAngleDeg with
+// source "minimumExposure") releases the Roll-in Speed and distance LOCKs.
+const POPUP_LOCK_OF_KEY = Object.freeze({ popupLockRollInSpeed: "rollInSpeed", popupLockAngle: "angle", popupLockDistance: "distance" });
+function editedLocks(input) {
+  const locks = {};
+  for (const edit of editsOf(input)) {
+    const number = String(edit?.aircraft ?? 1);
+    if (POPUP_LOCK_OF_KEY[edit?.key]) (locks[number] ||= {})[POPUP_LOCK_OF_KEY[edit.key]] = edit.value === true;
+    else if (edit?.key === "initialSpeedValue" && edit.kind !== "clear" && edit.kind !== "lock") (locks[number] ||= {}).rollInSpeed = true;
+    else if (edit?.key === "popupAngleDeg" && edit.source === "minimumExposure") Object.assign((locks[number] ||= {}), { rollInSpeed: false, distance: false });
+  }
+  return locks;
+}
+
 function clearedValues(input) {
   const cleared = {};
   for (const edit of editsOf(input)) {
@@ -87,7 +108,7 @@ function clearedValues(input) {
 
 // Per aircraft: its own values, else #1's (a follower without its own POP-UP inputs flies #1's), then the defaults.
 // A blank Popup G follows #1's.
-function popupSettings(input, number, edited, cleared) {
+function popupSettings(input, number, edited, cleared, lockEdits) {
   const own = input.aircraft[number] ?? {};
   const lead = input.aircraft[1] ?? {};
   const ownInputs = number === "1" || !blank(own.state?.popupDriver) || !!edited[number];
@@ -95,10 +116,24 @@ function popupSettings(input, number, edited, cleared) {
   const valueOf = (record, n, key) => cleared[n]?.[key] ?? record.values?.[key];
   const sourceValue = (key) => valueOf(source, ownInputs ? number : "1", key);
   const pick = (key) => (blank(valueOf(own, number, key)) ? valueOf(lead, "1", key) : valueOf(own, number, key));
-  const asked = edited[number] ?? source.state?.popupDriver ?? (number === "1" ? undefined : edited["1"]) ?? "DEFAULT";
-  const driver = asked === "LEAD_POP_TIME" && (number === "1" || !ownInputs) ? "DEFAULT" : asked;
+  const askedRaw = edited[number] ?? source.state?.popupDriver ?? (number === "1" ? undefined : edited["1"]) ?? "DEFAULT";
+  const asked = askedRaw === "LEAD_POP_TIME" || askedRaw === "ROLL_IN_SPEED" ? "DEFAULT" : askedRaw;
+  const stored = own.state?.popupLocks ?? {};
+  const locks = { rollInSpeed: stored.rollInSpeed === true, angle: stored.angle === true, distance: stored.distance === true, ...(lockEdits[number] ?? {}) };
+  // The LOCKs decide the driver; two together leave nothing to solve (a conflict, as the Roll-in Altitude LOCK's).
+  const on = Object.entries(locks).filter(([, v]) => v).map(([k]) => k);
+  const LOCK_NAME = { rollInSpeed: "Roll-in Speed", angle: "Popup Angle", distance: "Pop to Roll-in Distance" };
+  const conflict = on.length > 1 ? `LOCK conflict: ${on.map((k) => LOCK_NAME[k]).join(" and ")} are both LOCKed; nothing is left to solve (release one)` : null;
+  const lockedDriver = locks.rollInSpeed ? "ROLL_IN_SPEED" : locks.angle ? "ANGLE" : locks.distance ? "GROUND_DISTANCE" : null;
+  const driver = conflict ? asked : lockedDriver ?? asked;
+  const overridden = !conflict && lockedDriver && edited[number] && edited[number] !== "DEFAULT" && edited[number] !== lockedDriver
+    ? `${LOCK_NAME[on[0]]} is LOCKed: the typed value is solved again (release the LOCK to drive it)` : null;
   return {
     driver,
+    locks,
+    conflict,
+    overridden,
+    rollInSpeedKcas: Number(pick("initialSpeedValue")),
     popupG: blank(pick("popupG")) ? POPUP_FLIGHT_V0_1.defaultPopupG : Number(pick("popupG")),
     popupAngleDeg: sourceValue("popupAngleDeg"),
     groundDistanceNm: sourceValue("popupGroundDistanceNm"),
@@ -107,13 +142,14 @@ function popupSettings(input, number, edited, cleared) {
 }
 
 // The Offset input with every aircraft's Roll-in from its angle at MIL (the POP-UP edits and request left out).
-function withAngles(input, angles) {
+function withAngles(input, angles, speeds = {}) {
   const aircraft = {};
   for (const [key, record] of Object.entries(input.aircraft)) {
     const angle = angles[key];
+    const speed = speeds[key];
     aircraft[key] = angle === undefined
       ? record
-      : { ...record, values: { ...record.values, rollInStartFpaDeg: angle, rollInSpeedModel: "MIL" } };
+      : { ...record, values: { ...record.values, rollInStartFpaDeg: angle, rollInSpeedModel: "MIL", ...(Number.isFinite(speed) ? { initialSpeedValue: speed, initialSpeedMode: "CAS" } : {}) } };
   }
   const { popupRequest, edit, ...rest } = input;
   const edits = (input.edits ?? []).filter((e) => !isPopupEdit(e));
@@ -132,14 +168,6 @@ function popState(resolved) {
   return { popAltitudeMslFt: altitudeMslFt, popSpeedKcas: tasToCas(tasKt, altitudeMslFt) };
 }
 
-// Seconds after IP at the Pop Point at this angle: IP → Turn End on the Offset clock, then the Hold-Down at the
-// Offset speed (the Approach Range less the climb's ground distance).
-function popTimeAt(r, angleDeg, popupG) {
-  const bdp = r.profile;
-  const climb = calculatePopupClimbFull({ ...popState(r.resolved), rollInAltitudeMslFt: bdp.public.resolvedInitialAltitudeMslFt, popupAngleDeg: angleDeg, popupG, gOnsetRateGSec: bdp.canonicalInputs.gOnsetRateGSec });
-  const speed = approachSpeedNmSec(r);
-  return r.timing.ingressSec + r.timing.offsetTurnSec + (r.resolved.approachRangeNm - climb.groundDistanceNm) / speed;
-}
 const approachSpeedNmSec = (r) => r.resolved.offsetTasKt / 3600;
 
 function flownAircraft(output) {
@@ -158,7 +186,8 @@ function popupFlight(input, offsetFlight) {
   const numbers = Object.keys(input.aircraft);
   const edited = editedDrivers(input);
   const cleared = clearedValues(input);
-  const settings = Object.fromEntries(numbers.map((n) => [n, popupSettings(input, n, edited, cleared)]));
+  const lockEdits = editedLocks(input);
+  const settings = Object.fromEntries(numbers.map((n) => [n, popupSettings(input, n, edited, cleared, lockEdits)]));
   // First angles: the driver's own value or the automatic rule on the aircraft's Dive.
   const angles = {};
   for (const n of numbers) {
@@ -168,45 +197,50 @@ function popupFlight(input, offsetFlight) {
   }
   const angleErrors = {};
   const solved = {};
-  let output = offsetFlight(withAngles(input, angles));
-  const needsSolve = numbers.filter((n) => ["GROUND_DISTANCE", "EXPOSURE_TIME", "LEAD_POP_TIME"].includes(settings[n].driver));
-  const leadPop = {};
-  for (let iteration = 0; needsSolve.length && iteration < POPUP_FLIGHT_V0_1.angleIterations; iteration += 1) {
+  // Roll-in Speeds (0.1.7): a LOCKed one as entered; AUTO starts from the field and follows the MIL arrival.
+  const speeds = {};
+  for (const n of numbers) {
+    if (settings[n].conflict) angleErrors[n] = settings[n].conflict;
+    if (Number.isFinite(settings[n].rollInSpeedKcas)) speeds[n] = settings[n].rollInSpeedKcas;
+  }
+  const autoSpeed = numbers.filter((n) => !settings[n].locks.rollInSpeed && !settings[n].conflict);
+  let output = offsetFlight(withAngles(input, angles, speeds));
+  const needsSolve = numbers.filter((n) => !settings[n].conflict && ["GROUND_DISTANCE", "EXPOSURE_TIME", "ROLL_IN_SPEED"].includes(settings[n].driver));
+  for (let iteration = 0; (needsSolve.length || autoSpeed.length) && iteration < POPUP_FLIGHT_V0_1.angleIterations; iteration += 1) {
     let moved = false;
     for (const n of needsSolve) {
       const r = output.aircraftResults[n];
       if (!r?.result?.profile?.canonicalInputs) continue;
       const s = settings[n];
       try {
-        let groundDistanceNm = Number(s.groundDistanceNm);
-        if (s.driver === "LEAD_POP_TIME") {
-          const lead = output.aircraftResults[1]?.result;
-          if (!lead?.profile?.canonicalInputs) throw new Error("Pop with #1: #1 has no result");
-          const leadPopSec = popTimeAt(lead, angles["1"], settings["1"].popupG);
-          const turnEndSec = r.result.timing.ingressSec + r.result.timing.offsetTurnSec;
-          groundDistanceNm = r.result.resolved.approachRangeNm - (leadPopSec - turnEndSec) * approachSpeedNmSec(r.result);
-          leadPop[n] = { leadPopSec, groundDistanceNm };
-          if (!(groundDistanceNm > 0)) throw new RangeError(`Pop with #1: #1 pops at IP +${leadPopSec.toFixed(1)} s, after this aircraft's Roll-in Start would be reached (needed ground distance ${groundDistanceNm.toFixed(2)} NM)`);
-        }
-        const solveDriver = s.driver === "LEAD_POP_TIME" ? "GROUND_DISTANCE" : s.driver;
-        const p = normalizePopupInput({ bdp: bdpInputOf(r.result.profile), popup: { ...popState(r.result.resolved), popupG: s.popupG, driver: solveDriver, groundDistanceNm, exposureTimeSec: Number(s.exposureTimeSec) } });
+        const p = normalizePopupInput({ bdp: bdpInputOf(r.result.profile), popup: { ...popState(r.result.resolved), popupG: s.popupG, driver: s.driver, groundDistanceNm: Number(s.groundDistanceNm), exposureTimeSec: Number(s.exposureTimeSec), rollInSpeedKcas: speeds[n] } });
         const resolved = resolvePopupAngle(p);
         solved[n] = resolved;
         delete angleErrors[n];
         if (Math.abs(resolved.angleDeg - angles[n]) > POPUP_FLIGHT_V0_1.angleSettleDeg) moved = true;
         angles[n] = resolved.angleDeg;
       } catch (error) {
-        angleErrors[n] = s.driver === "LEAD_POP_TIME" && !/^Pop with #1/.test(error.message) ? `Pop with #1: ${error.message}` : error.message;
+        angleErrors[n] = error.message;
       }
     }
+    // AUTO Roll-in Speed: the MIL arrival at this angle and Roll-in Altitude becomes the BDP's Roll-in Speed.
+    for (const n of autoSpeed) {
+      const r = output.aircraftResults[n]?.result;
+      if (!r?.profile?.canonicalInputs || angleErrors[n]) continue;
+      try {
+        const arrival = calculatePopupClimbFull({ ...popState(r.resolved), rollInAltitudeMslFt: r.profile.public.resolvedInitialAltitudeMslFt, popupAngleDeg: angles[n], popupG: settings[n].popupG, gOnsetRateGSec: r.profile.canonicalInputs.gOnsetRateGSec }).rollInStart.casKt;
+        if (!(Math.abs(arrival - speeds[n]) <= POPUP_FLIGHT_V0_1.speedSettleKt)) moved = true;
+        speeds[n] = arrival;
+      } catch { /* the climb error is reported below */ }
+    }
     if (!moved) break;
-    output = offsetFlight(withAngles(input, angles));
+    output = offsetFlight(withAngles(input, angles, speeds));
   }
   const aircraftResults = {};
   for (const n of numbers) {
     const offset = output.aircraftResults[n];
     const s = settings[n];
-    const base = { driver: s.driver, popupG: s.popupG, popupAngleDeg: angles[n] };
+    const base = { driver: s.driver, popupG: s.popupG, popupAngleDeg: angles[n], locks: s.locks, rollInSpeedSource: s.locks.rollInSpeed ? "LOCK" : "AUTO", rollInSpeedKcas: speeds[n] };
     const merge = (popup, errors, warnings) => {
       const status = errors.length ? "INVALID" : offset.status === "WARNING" || warnings.length ? "WARNING" : offset.status;
       return { ...offset, status, errors: [...(offset.errors ?? []), ...errors], warnings: [...(offset.warnings ?? []), ...warnings], popup: { ...base, ...popup } };
@@ -229,8 +263,8 @@ function popupFlight(input, offsetFlight) {
       continue;
     }
     const errors = [];
-    const warnings = [];
-    const attack = assemblePopupAttack({ p: { ...p, driver: s.driver }, angleDeg: angles[n], otherSolutionsDeg: solved[n]?.otherSolutionsDeg ?? [], bdp, climb, errors, warnings });
+    const warnings = s.overridden ? [s.overridden] : [];
+    const attack = assemblePopupAttack({ p: { ...p, driver: s.driver }, rollInSpeedSource: s.locks.rollInSpeed ? "LOCK" : "AUTO", angleDeg: angles[n], otherSolutionsDeg: solved[n]?.otherSolutionsDeg ?? [], bdp, climb, errors, warnings });
     // Pop Point on the Approach leg, ground distance before Roll-in Start.
     const approachRangeNm = r.resolved.approachRangeNm;
     const holdDownNm = approachRangeNm - climb.groundDistanceNm;
@@ -249,10 +283,6 @@ function popupFlight(input, offsetFlight) {
     const popToTargetNm = Math.hypot(target.x - popPoint.x, target.y - popPoint.y);
     let popAngleOffDeg = (Math.atan2(target.x - popPoint.x, target.y - popPoint.y) / DEG) - r.geometry.offsetHeadingDeg;
     popAngleOffDeg -= 360 * Math.round(popAngleOffDeg / 360);
-    if (leadPop[n]) {
-      const offSec = popTimeSec - leadPop[n].leadPopSec;
-      if (Math.abs(offSec) > 0.05) warnings.push(`Pop with #1: ${Math.abs(offSec).toFixed(1)} s ${offSec > 0 ? "after" : "before"} #1's Pop`);
-    }
     // The POP-UP clock (0.1.2): the Approach is the Hold-Down then the climb; IP → Release follows it.
     const climbSec = climb.climbTimeSec;
     const approachSec = holdDownSec + climbSec;
@@ -265,7 +295,7 @@ function popupFlight(input, offsetFlight) {
     const flightLead = output.aircraftResults[1]?.result;
     const dedBase = flightLead?.referenceMode === "VIP" ? flightLead.geometry.points.vip : target;
     const ded = offset.ded ? { ...offset.ded, popUp: popPointDedPage(dedBase, popPoint, bdp.canonicalInputs.targetElevationMslFt) } : offset.ded;
-    aircraftResults[n] = { ...merge({ ...popup, popPoint, approachRangeNm, holdDownNm, holdDownSec, popTimeSec, popToTargetNm, popAngleOffDeg, ...(leadPop[n] ? { leadPopSec: leadPop[n].leadPopSec } : {}) }, errors, warnings), result: popupResult, ded };
+    aircraftResults[n] = { ...merge({ ...popup, popPoint, approachRangeNm, holdDownNm, holdDownSec, popTimeSec, popToTargetNm, popAngleOffDeg }, errors, warnings), result: popupResult, ded };
   }
   // DED OA2 (0.1.6, owner): OA1's point (same RNG / TBRG) with ELEV = the aircraft's Target Elevation, wherever the
   // aircraft has an OA1 (with or without a Pop Point).
@@ -286,7 +316,9 @@ function popupFlight(input, offsetFlight) {
     values.popupAngleDeg = a.popupAngleDeg;
     if (Number.isFinite(a.groundDistanceNm)) values.popupGroundDistanceNm = a.groundDistanceNm;
     if (Number.isFinite(a.exposureTimeSec)) values.popupExposureTimeSec = a.exposureTimeSec;
-    nextInput.aircraft[n].state = { ...nextInput.aircraft[n].state, popupDriver: settings[n].driver };
+    nextInput.aircraft[n].state = { ...nextInput.aircraft[n].state, popupDriver: settings[n].driver, popupLocks: { ...settings[n].locks } };
+    // The AUTO Roll-in Speed is written back to the field (the Full value behind it).
+    if (!settings[n].locks.rollInSpeed && Number.isFinite(speeds[n])) { values.initialSpeedValue = speeds[n]; values.initialSpeedMode = "CAS"; }
   }
   // Drop-order timing on the POP-UP clock.
   const flightTiming = dropOrderTiming(output.flightSize, aircraftResults, computeDropOrderDeltaFull);

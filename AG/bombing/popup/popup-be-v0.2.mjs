@@ -15,11 +15,13 @@ import { POPUP_CLIMB_V0_2, calculatePopupClimbFull } from "./popup-climb-v0.2.mj
 // 250 KCAS is a warning only (§13.3). No G limit check (§13.9 item 9).
 export const POPUP_BE_V0_2 = Object.freeze({
   id: "popup-be-v0.2",
-  version: "0.2.0",
+  version: "0.2.1",
   status: "Work / Not Official",
   bdpModel: `${BOMB_DELIVERY_PLANNER_MODEL_V0_4.id} ${BOMB_DELIVERY_PLANNER_MODEL_V0_4.version}`,
   climbModel: `${POPUP_CLIMB_V0_2.id} ${POPUP_CLIMB_V0_2.version}`,
-  drivers: Object.freeze(["DEFAULT", "ANGLE", "GROUND_DISTANCE", "EXPOSURE_TIME"]),
+  // "ROLL_IN_SPEED" (owner 2026-11-03, SPEC §13.8i): the Popup angle whose MIL arrival at Roll-in Start is the
+  // LOCKed Roll-in Speed (p.rollInSpeedKcas).
+  drivers: Object.freeze(["DEFAULT", "ANGLE", "GROUND_DISTANCE", "EXPOSURE_TIME", "ROLL_IN_SPEED"]),
   apexSpeedWarningKcas: 250,
   // Angle search for the distance / time drivers and the minimum exposure: a scan, then refinement.
   angleScanDeg: Object.freeze([2, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 54.9]),
@@ -53,6 +55,7 @@ export function normalizePopupInput(input) {
     popupAngleDeg: driver === "ANGLE" ? finite("popupAngleDeg", popup.popupAngleDeg) : null,
     groundDistanceNm: driver === "GROUND_DISTANCE" ? finite("groundDistanceNm", popup.groundDistanceNm) : null,
     exposureTimeSec: driver === "EXPOSURE_TIME" ? finite("exposureTimeSec", popup.exposureTimeSec) : null,
+    rollInSpeedKcas: driver === "ROLL_IN_SPEED" ? finite("rollInSpeedKcas", popup.rollInSpeedKcas) : null,
   };
 }
 
@@ -78,13 +81,14 @@ function flyAngle(p, angleDeg) {
   };
 }
 
-// The climb alone for a ground distance (it does not depend on the Roll-in): the Roll-in Altitude must be known.
-function groundDistanceAt(p, rollInAltitudeMslFt, angleDeg) {
+// The climb alone (it does not depend on the Roll-in): the Roll-in Altitude must be known.
+function climbAt(p, rollInAltitudeMslFt, angleDeg) {
   return calculatePopupClimbFull({
     popAltitudeMslFt: p.popAltitudeMslFt, popSpeedKcas: p.popSpeedKcas, rollInAltitudeMslFt, popupAngleDeg: angleDeg, popupG: p.popupG,
     gOnsetRateGSec: p.bdp.gOnsetRateGSec ?? 2,
-  }).groundDistanceNm;
+  });
 }
+const groundDistanceAt = (p, rollInAltitudeMslFt, angleDeg) => climbAt(p, rollInAltitudeMslFt, angleDeg).groundDistanceNm;
 
 // Bisection on the angle for f(angle) = 0 between two scan points of opposite sign.
 function bisectAngle(f, a, b, fa) {
@@ -110,13 +114,32 @@ export function resolvePopupAngle(p) {
   const diveAngleDeg = finite("diveAngleDeg", p.bdp.diveAngleDeg);
   if (p.driver === "DEFAULT") return { angleDeg: defaultPopupAngleDeg(diveAngleDeg), note: "automatic rule" };
   if (p.driver === "ANGLE") return { angleDeg: p.popupAngleDeg };
+  // The Roll-in Altitude is the entered one in height mode; in time mode the BDP solves it for each angle.
+  const heightMode = (p.bdp.solveMode ?? "height") === "height" && diveAngleDeg > 0;
+  const rollInAltitudeAt = (angleDeg) => (heightMode
+    ? finite("initialAltitudeMslFt", p.bdp.initialAltitudeMslFt)
+    : calculateBombDeliveryV0_4Full({ ...p.bdp, rollInStartFpaDeg: angleDeg, rollInSpeedModel: "MIL" }).public.resolvedInitialAltitudeMslFt);
+  if (p.driver === "ROLL_IN_SPEED") {
+    // §13.8i (owner 2026-11-03): the smallest angle whose MIL arrival at Roll-in Start is the LOCKed Roll-in Speed;
+    // out of reach (no AB model) is an error with the reachable speeds.
+    if (!(p.rollInSpeedKcas > 0)) throw new RangeError("Roll-in Speed must be > 0 KCAS");
+    const f = (angleDeg) => climbAt(p, rollInAltitudeAt(angleDeg), angleDeg).rollInStart.casKt - p.rollInSpeedKcas;
+    const points = scan(f);
+    const roots = [];
+    for (let i = 1; i < points.length; i += 1) {
+      const a = points[i - 1];
+      const b = points[i];
+      if (b.value === 0) roots.push(b.angleDeg);
+      else if (a.value !== null && b.value !== null && Math.sign(a.value) !== Math.sign(b.value)) roots.push(bisectAngle(f, a.angleDeg, b.angleDeg, a.value));
+    }
+    if (!roots.length) {
+      const reachable = points.filter((x) => x.value !== null).map((x) => x.value + p.rollInSpeedKcas);
+      throw new RangeError(`Roll-in Speed LOCK: no Popup angle reaches ${p.rollInSpeedKcas.toFixed(0)} KCAS at Roll-in Start on MIL${reachable.length ? ` (reachable ${Math.min(...reachable).toFixed(0)}–${Math.max(...reachable).toFixed(0)} KCAS)` : ""}; AB is not modelled`);
+    }
+    return { angleDeg: roots[0], otherSolutionsDeg: roots.slice(1) };
+  }
   if (p.driver === "GROUND_DISTANCE") {
     if (!(p.groundDistanceNm > 0)) throw new RangeError("Popup ground distance must be > 0 NM");
-    // The Roll-in Altitude is the entered one in height mode; in time mode the BDP solves it for each angle.
-    const heightMode = (p.bdp.solveMode ?? "height") === "height" && diveAngleDeg > 0;
-    const rollInAltitudeAt = (angleDeg) => (heightMode
-      ? finite("initialAltitudeMslFt", p.bdp.initialAltitudeMslFt)
-      : calculateBombDeliveryV0_4Full({ ...p.bdp, rollInStartFpaDeg: angleDeg, rollInSpeedModel: "MIL" }).public.resolvedInitialAltitudeMslFt);
     const f = (angleDeg) => groundDistanceAt(p, rollInAltitudeAt(angleDeg), angleDeg) - p.groundDistanceNm;
     const points = scan(f);
     for (let i = 1; i < points.length; i += 1) {
@@ -183,14 +206,18 @@ export function calculatePopupFull(input) {
 
 // The checks, events and result fields of one flown POP-UP attack (climb + BDP from the Popup angle); the POP-UP
 // Flight (Offset composition) builds each aircraft's with it.
-export function assemblePopupAttack({ p, angleDeg, otherSolutionsDeg = [], bdp, climb, errors = [], warnings = [] }) {
+// rollInSpeedSource "AUTO" (POP-UP Flight 0.1.7): the Roll-in Speed is the MIL arrival itself, so there is no check.
+export function assemblePopupAttack({ p, angleDeg, otherSolutionsDeg = [], bdp, climb, errors = [], warnings = [], rollInSpeedSource = "INPUT" }) {
   const pu = bdp.public.rollInPopUp;
   const resolved = { otherSolutionsDeg };
   const rollInSpeedKcas = bdp.canonicalInputs.initialSpeedValue;
   // §13.3: MIL arrival at Roll-in Start against the entered Roll-in Speed (the Roll-in starts at the entered one).
   const arrivalKcas = climb.rollInStart.casKt;
   const marginKt = arrivalKcas - rollInSpeedKcas;
-  const speedCheck = marginKt >= 0
+  const speedCheck = rollInSpeedSource === "AUTO"
+    ? { status: "AUTO", arrivalKcas, rollInSpeedKcas, marginKt }
+    // LOCK: the angle was solved for it (bisection on the angle, so within a fraction of a knot).
+    : marginKt >= 0 || (rollInSpeedSource === "LOCK" && marginKt > -0.5)
     ? { status: "MIL_OK", arrivalKcas, rollInSpeedKcas, marginKt }
     : { status: "MIL_SHORT", arrivalKcas, rollInSpeedKcas, marginKt, abJudgement: "UNAVAILABLE" };
   if (speedCheck.status === "MIL_SHORT") {
