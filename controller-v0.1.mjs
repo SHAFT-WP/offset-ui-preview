@@ -2459,6 +2459,9 @@ function installFlightLayout() {
     const oldSize = flightLayout.size;
     flightLayout.size = Math.max(1, Math.min(4, Number(event.target.value) || 1));
     applyDefaultPositions(oldSize, flightLayout.size);
+    // An aircraft added to the Flight starts from the defaults (owner 2026-11-03: "기체를 추가하는 순간"), not from
+    // values it had before it was removed; #3 / #4 start linked.
+    for (let number = oldSize + 1; number <= flightLayout.size; number += 1) flightLayout.aircraft[number] = defaultFlightDraft(number);
     pruneVisibleAircraft();
     renderFlightLayout();
   });
