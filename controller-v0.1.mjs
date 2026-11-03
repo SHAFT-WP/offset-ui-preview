@@ -53,7 +53,7 @@ import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLe
 import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.3";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // POP-UP Z-Diagram (POP-UP SPEC §13.8 / §13.8a; the POP-UP page only): a BE-owned view of the POP-UP Flight result.
-import { popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.2";
+import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.4";
 import { popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.14.0";
@@ -191,6 +191,8 @@ const popupMinimumExposure = new Map();
 // (owner 2026-10-27: starts on Roll-in; the Pull Down button moves it to the Pull Down altitude).
 const popupFull = new Map();
 let popupZTick = "ROLL_IN";
+// POP-UP Z text size (owner 2026-11-03, "다이어그램도 글자 크기 옵션 제공하자"): one body size for every aircraft's Z.
+let popupZFontSize = POPUP_Z_DIAGRAM_V0_1.fontSize;
 let topViewTextScale = TOP_VIEW_TEXT_SCALE_DEFAULT;
 let topViewAdvanced = false;
 // IP Bottom (default on): Top View drawn with the Run-In (IP -> Target) pointing up; off = north up
@@ -2669,15 +2671,31 @@ function renderZDiagramOf(number, svg, resultFull) {
   delete svg.dataset.calculationFailed;
   if (POPUP_MODE && popupFull.has(number)) {
     // The Offset Z's lower block under the POP-UP lines (POP-UP Z 0.1.1): the same ΔTime and Advanced as the Offset Z.
-    const data = renderPopupZDiagram(svg, resultFull, popupFull.get(number), { tick: popupZTick, aircraftNumber: number, deltaTime: zDeltaTime(Math.max(2, number)), advanced: zAdvancedOn.has(number) });
+    const data = renderPopupZDiagram(svg, resultFull, popupFull.get(number), { tick: popupZTick, aircraftNumber: number, advanced: zAdvancedOn.has(number), fontSize: popupZFontSize });
     return data.supported;
   }
   return renderOffsetZDiagram(svg, resultFull, { aircraftNumber: number, deltaTime: zDeltaTime(Math.max(2, number)), advanced: zAdvancedOn.has(number) });
 }
 function zAdvancedMarkup(number) {
-  return `<button class="capture-button view-toggle" type="button" data-z-advanced="${number}" aria-pressed="false">Advanced: Off</button>${POPUP_MODE ? popupZTickMarkup() : ""}`;
+  return `<button class="capture-button view-toggle" type="button" data-z-advanced="${number}" aria-pressed="false">Advanced: Off</button>${POPUP_MODE ? popupZTickMarkup() + popupZTextMarkup() : ""}`;
 }
 // POP-UP: every aircraft's Z carries the one climb-leg tick option (§13.8a).
+// The POP-UP Z Text control (the Common Text group's look): − / the body size (back to the default) / +.
+function popupZTextMarkup() {
+  const sizes = POPUP_Z_DIAGRAM_V0_1.fontSizes;
+  const button = (step, text, label, extra = "", disabled = false) => `<button class="capture-button${extra}" type="button" data-popup-z-text="${step}" aria-label="${label}"${disabled ? " disabled" : ""}>${text}</button>`;
+  return `<div class="font-scale-control" role="group" aria-label="Z-Diagram text size"><span class="diagram-control-label">Text</span>`
+    + button("down", "−", "Z-Diagram text smaller", "", popupZFontSize <= sizes[0])
+    + button("reset", String(popupZFontSize), `Reset Z-Diagram text size to ${POPUP_Z_DIAGRAM_V0_1.fontSize}`, " diagram-scale-output")
+    + button("up", "+", "Z-Diagram text larger", "", popupZFontSize >= sizes[sizes.length - 1])
+    + `</div>`;
+}
+function syncPopupZTextButtons() {
+  const sizes = POPUP_Z_DIAGRAM_V0_1.fontSizes;
+  $$('[data-popup-z-text="reset"]').forEach((b) => { b.textContent = String(popupZFontSize); });
+  $$('[data-popup-z-text="down"]').forEach((b) => { b.disabled = popupZFontSize <= sizes[0]; });
+  $$('[data-popup-z-text="up"]').forEach((b) => { b.disabled = popupZFontSize >= sizes[sizes.length - 1]; });
+}
 function popupZTickMarkup() {
   const on = popupZTick === "PULL_DOWN";
   return `<button class="capture-button view-toggle${on ? " active" : ""}" type="button" data-popup-z-tick aria-pressed="${on}" title="Climb-leg tick: Roll-in Altitude (off) or Pull Down altitude (on)">Pull Down: ${on ? "On" : "Off"}</button>`;
@@ -2715,6 +2733,21 @@ document.addEventListener("click", (event) => {
     b.classList.toggle("active", on);
     b.textContent = `Pull Down: ${on ? "On" : "Off"}`;
   });
+  if (lastResultFull) renderZDiagramOf(1, $("#offset-z-svg"), lastResultFull);
+  for (const [number, resultFull] of flightResultsFull) {
+    if (number !== 1) renderZDiagramOf(number, flightOutput(number, "svg[data-flight-z]"), resultFull);
+  }
+});
+
+// POP-UP Z text size (owner 2026-11-03): one setting for every aircraft's Z on the page.
+document.addEventListener("click", (event) => {
+  const button = event.target.closest?.("[data-popup-z-text]");
+  if (!button || !POPUP_MODE) return;
+  const sizes = POPUP_Z_DIAGRAM_V0_1.fontSizes;
+  const step = button.dataset.popupZText;
+  const at = sizes.indexOf(popupZFontSize);
+  popupZFontSize = step === "reset" ? POPUP_Z_DIAGRAM_V0_1.fontSize : sizes[Math.max(0, Math.min(sizes.length - 1, at + (step === "up" ? 1 : -1)))];
+  syncPopupZTextButtons();
   if (lastResultFull) renderZDiagramOf(1, $("#offset-z-svg"), lastResultFull);
   for (const [number, resultFull] of flightResultsFull) {
     if (number !== 1) renderZDiagramOf(number, flightOutput(number, "svg[data-flight-z]"), resultFull);

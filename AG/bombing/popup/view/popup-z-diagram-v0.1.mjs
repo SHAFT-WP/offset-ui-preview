@@ -1,7 +1,7 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { buildBdpZDiagramData, profileName } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs?v=0.1.8";
-import { offsetZLowerColumns } from "../../offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
-import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
+import { formatHeadingDeg } from "../../offset-bombing/view/offset-view-style-v0.1.mjs?v=0.1.5";
+import { formatDeg, formatG, formatNm, formatSec, formatSecTenths } from "../../../../common/ui/display-precision-v0.1.mjs";
 
 // POP-UP Z-Diagram v0.1 (owner 2026-10-27, POP-UP SPEC §13.8, §13.8a; owner sketch reference/popup-z-diagram-
 // owner-2026-10-27.jpg). POP-UP only. A triangle: the climb leg from the Action Point up at the Climb Angle to the
@@ -15,25 +15,71 @@ import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.
 // 오른쪽 하단에 Roll in lead 추가 / Action range 밑에 Pop-up range 추가"): on the diagram, the Roll-in group at the
 // upper right (Roll-in Angle Off, Roll-in Range Ground / Slant, IAA — the Offset Z's values, BDP Z data), Roll-in
 // Lead Angle at the lower right, and the Pop-up Range (Pop-up Point → Target, §13.8f) under the Action Range.
+// 0.1.3 (owner 2026-11-03, "Pop-up range roll in lead 모두 리젠드 항목임 / Pull down range와 roll in range 라인도 밑으로
+// 폰트 사이즈 리젠드랑 통일 오와 열을 맞춰서 작성"): the legend (the two-column rows under the diagram) takes Pop-up
+// Range (under Action Range) and Roll-in Lead Angle (right column, last), and the Roll-in / Pull Down altitude line
+// becomes the legend's last row pair (same size, same grid). With it, the §13.9 notes 10–13: the speed is the CAS at
+// the Pop (`480 KCAS`), the climb angle `30° (Pop-up 3.9Nm)`, the Action Range `7.0Nm (Offset 12°)`, the tick value
+// with its name on the next line (`(Roll-in)` / `(Pull Down)`). Owner the same day ("Pra 3.3 mra=min..... 요라인 중복이니
+// 지워. 밑에 라인도 지우고"): the PRA · MRA · Apex line (the diagram already writes them) and the rule under it go.
+// Then ("4.0 (rolllin)은 가운디 정렬 / 다이어그램을 왼쪽으로 이동시켜서 오른쪽 상단 블록이 내려올 수 있게 한다 / 폰트
+// 사이즈는 모두 동일"): the tick value and its name centred on one axis; the triangle 40 units left and the Roll-in
+// block lower; every text of the Z at one size, the legend's (15). Then ("폰트 사이즈 옵셋과 같냐?" → "같게 맞춰줘"): as the
+// Offset Z (Common Z with uniformBodyText) — the title 27, every other text 15, every text weight 900. Then ("다시 생각하니
+// roll in과 pull down만 이전처럼 제일 윗라인에 수평으로 적어주고 밑에 선하나 이전처럼 그어주는게 좋겠다. 레전드에서는
+// 제거 하자"): the Roll-in / Pull Down altitudes are one line again above the legend, with the rule under it, and leave
+// the legend. Then (owner's legend list, "왼쪽 컬럼부터 쓸 것이고 (a)는 advanced 항목 … Advanced가 아닐 때, 남은
+// 아이템들을 왼쪽 컬럼부터 다시 작성 / 다이어그램도 글자 크기 옵션 제공하자"): the legend is the owner's own list
+// (POPUP_Z_LEGEND), written down the left column first, the (a) rows only with Advanced; and a text size option
+// (`fontSize`, 13–17, the title moving with it; the page's Text control). Owner ("기본 폰트 사이즈는 제일 마지막에
+// 보여준 결과물로 하자"): the default is the last one shown, +2 — body 17, title 29.
 export const POPUP_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "popup-z-diagram-v0.1",
-  version: "0.1.2",
+  version: "0.1.4",
   ticks: Object.freeze(["ROLL_IN", "PULL_DOWN"]),
-  canvas: Object.freeze({ width: 650, height: 580 }),
-  offsetRows: Object.freeze({ firstY: 606, rowHeight: 30, bottomGap: 26, leftX: 40, rightX: 340 }),
-  // Right-aligned at x; the Roll-in group from firstY down, Roll-in Lead on the Ground Speed / Action Range line.
-  rollInGroup: Object.freeze({ x: 630, firstY: 32, rowHeight: 26 }),
-  rollInLead: Object.freeze({ x: 630, y: 460 }),
-  popupRange: Object.freeze({ y: 490 }),
+  canvas: Object.freeze({ width: 650, height: 520 }),
+  // 0.1.4 (owner 2026-11-03, "롤인 alt라인부터 그 아래까지 2줄 밀자", then "두줄 말고 한줄만"): the Roll-in / Pull Down line, its rule and the
+  // legend move down one legend row (30); the diagram above them stays.
+  lowerShift: 30,
+  offsetRows: Object.freeze({ firstY: 576, rowHeight: 30, bottomGap: 26, leftX: 40, rightX: 340 }),
+  // Default sizes (owner 2026-11-03): body 17, title 29 (the Offset Z's 15 / 27 + 2), weight 900. The Text option
+  // (owner) steps the body size by 1 within fontSizes; the title moves by the same step. Above 17 the Roll-in Range
+  // (Slant) line of the upper-right block reaches the dive leg.
+  fontSize: 17,
+  fontSizes: Object.freeze([13, 14, 15, 16, 17]),
+  titleFontSize: 29,
+  fontWeight: 900,
+  // The fixed triangle: base corner and Apex (40 units left of 0.1.2, owner 2026-11-03).
+  shape: Object.freeze({ baseX: 110, baseY: 420, apexX: 290, apexY: 120 }),
+  // Right-aligned at x; the Roll-in group from firstY down.
+  rollInGroup: Object.freeze({ x: 630, firstY: 96, rowHeight: 26 }),
 });
 
 const FT_PER_NM = 6076.11549;
+
+// The legend, the owner's list and order (2026-11-03). `advanced`: an (a) row, shown only with Advanced.
+export const POPUP_Z_LEGEND = Object.freeze([
+  { key: "attackHeading", label: "Attack Heading" },
+  { key: "angleOff", label: "Angle Off" },
+  { key: "offsetTurnG", label: "Offset Turn G" },
+  { key: "approachingHeading", label: "Approaching Heading", advanced: true },
+  { key: "popupG", label: "Popup G" },
+  { key: "popupToRollIn", label: "Pop-up to Roll-in", advanced: true },
+  { key: "map", label: "MAP", advanced: true },
+  { key: "rollInBank", label: "Roll-in Bank Angle", advanced: true },
+  { key: "rollInG", label: "Roll-in G" },
+  { key: "rollInLead", label: "Roll-in Lead Angle", advanced: true },
+  { key: "trackingTime", label: "Tracking Time" },
+  { key: "bombTof", label: "Bomb TOF", advanced: true },
+  { key: "ipToImpact", label: "IP to Impact Time", advanced: true },
+].map(Object.freeze));
 const kft = (ft) => (Number.isFinite(ft) ? (ft / 1000).toFixed(1) : "-");
 const event = (popup, name) => popup?.events?.find((e) => e.name === name) ?? null;
 
-// The numbers on the diagram (pure; tested). `tick` is "ROLL_IN" (default, owner) or "PULL_DOWN". `deltaTime`,
-// `advanced` and `aircraftNumber` are the Offset Z's options for its lower block (offsetZLowerColumns).
-export function buildPopupZDiagramData(result, popup, { tick = "ROLL_IN", deltaTime = null, advanced = false, aircraftNumber = 1 } = {}) {
+// The numbers on the diagram (pure; tested). `tick` is "ROLL_IN" (default, owner) or "PULL_DOWN". `advanced` shows the
+// (a) legend rows; `aircraftNumber` names this aircraft's own IP to Impact Time. `deltaTime` is accepted and unused
+// (the legend has no ΔTime row since the owner's list).
+export function buildPopupZDiagramData(result, popup, { tick = "ROLL_IN", advanced = false, aircraftNumber = 1 } = {}) {
   if (!result?.profile || !popup) return { supported: false, reason: "No POP-UP result" };
   if (!POPUP_Z_DIAGRAM_V0_1.ticks.includes(tick)) throw new RangeError(`tick must be one of ${POPUP_Z_DIAGRAM_V0_1.ticks.join(", ")}`);
   const input = result.profile.canonicalInputs;
@@ -46,10 +92,9 @@ export function buildPopupZDiagramData(result, popup, { tick = "ROLL_IN", deltaT
   const rollIn = event(popup, "ROLL_IN_START");
   const pullDown = event(popup, "PULL_DOWN");
   const apex = event(popup, "APEX");
-  // Ground speed on the Run-In at the Action Point: the Offset ingress leg (IP → Action Point), else the Offset TAS.
-  const t = result.timing ?? {};
-  const ingressGs = Math.abs(t.ingressDistanceNm) > 1e-6 && t.ingressSec > 0 ? (Math.abs(t.ingressDistanceNm) / t.ingressSec) * 3600 : null;
-  const groundSpeedKt = ingressGs ?? result.resolved?.offsetTasKt ?? null;
+  // CAS at the Pop (0.1.3, §13.9 item 10): the climb's Pop state, else the Offset speed when it is entered as CAS.
+  const r = result.resolved ?? {};
+  const popCasKt = popup.climb?.pop?.casKt ?? event(popup, "POP")?.kcas ?? (r.offsetSpeedMode === "CAS" ? r.offsetSpeedValue : null);
   const climbTick = tick === "PULL_DOWN"
     ? { label: "PULL DOWN ALT", altitudeMslFt: pullDown?.altitudeMslFt ?? null }
     : { label: "ROLL-IN ALT", altitudeMslFt: rollIn?.altitudeMslFt ?? null };
@@ -67,7 +112,7 @@ export function buildPopupZDiagramData(result, popup, { tick = "ROLL_IN", deltaT
     apexAltitudeMslFt: apex?.altitudeMslFt ?? null,
     praMslFt: p.effectiveReleaseAltitudeMslFt,
     mraMslFt: p.nltReleaseMslFt,
-    groundSpeedKt,
+    popCasKt,
     actionRangeNm: result.geometry?.actionRangeNm ?? null,
     popupRangeNm: Number.isFinite(popup.popToTargetNm) ? popup.popToTargetNm : null,
     // Upper right (0.1.2): Roll-in Angle Off, Roll-in Range (Ground), Roll-in Range (Slant), IAA.
@@ -77,23 +122,63 @@ export function buildPopupZDiagramData(result, popup, { tick = "ROLL_IN", deltaT
       { label: labels.rollInRange, value: `${formatNm(nmOf(z.slantFt))} NM (Slant)` },
       { label: labels.aimOffAngle, value: `${formatDeg(z.aimOffAngle)}°` },
     ],
-    // Lower right (0.1.2).
-    rollInLead: { label: labels.rollInLead, value: `${formatDeg(z.rollInLead)}°` },
-    // Under the Action Range (0.1.2): the Pop-up Point → Target distance (§13.8f).
-    popupRange: { label: "Pop-up Range", value: `${formatNm(popup.popToTargetNm)} NM` },
-    // The Offset Z-Diagram's lower block, drawn under the POP-UP lines (0.1.1).
-    offsetColumns: offsetZLowerColumns(result, { deltaTime, advanced: advanced === true, aircraftNumber }),
+    // The legend (owner's list): two columns, the left one filled first.
+    legendColumns: legendColumns(legendRows(result, popup, { advanced: advanced === true, aircraftNumber })),
     text: {
       apex: kft(apex?.altitudeMslFt),
       tick: kft(climbTick.altitudeMslFt),
       other: kft(other.altitudeMslFt),
       pra: kft(p.effectiveReleaseAltitudeMslFt),
       mra: kft(p.nltReleaseMslFt),
-      climbAngle: `${Math.round(popup.popupAngleDeg)}°`,
-      groundSpeed: Number.isFinite(groundSpeedKt) ? `${Math.round(groundSpeedKt)} Gs` : "- Gs",
-      actionRange: Number.isFinite(result.geometry?.actionRangeNm) ? `${result.geometry.actionRangeNm.toFixed(1)}Nm` : "-Nm",
+      climbAngle: `${Math.round(popup.popupAngleDeg)}° (Pop-up ${formatNm(popup.popToTargetNm)}Nm)`,
+      tickName: tick === "PULL_DOWN" ? "(Pull Down)" : "(Roll-in)",
+      speed: `${Number.isFinite(popCasKt) ? Math.round(popCasKt) : "-"} KCAS`,
+      actionRange: `${formatNm(result.geometry?.actionRangeNm)}Nm (Offset ${formatDeg(result.geometry?.offsetAngleDeg)}°)`,
     },
   };
+}
+
+// The legend rows in the owner's order, the (a) rows only with Advanced. Values from the POP-UP Flight result: the
+// Offset turn as flown (its held G), the BDP profile, the POP-UP climb, this aircraft's IP → Impact on the POP-UP clock.
+function legendRows(result, popup, { advanced, aircraftNumber }) {
+  const g = result.geometry ?? {};
+  const t = result.timing ?? {};
+  const p = result.profile.public;
+  const input = result.profile.canonicalInputs;
+  const gText = (value) => `${formatG(value)}G`;
+  const values = {
+    attackHeading: Number.isFinite(g.attackHeadingDeg) ? formatHeadingDeg(g.attackHeadingDeg) : "-",
+    angleOff: `${formatDeg(input.angleOffDeg)}°`,
+    offsetTurnG: gText(g.offsetTurn?.loadFactorG ?? result.resolved?.offsetG),
+    approachingHeading: Number.isFinite(g.offsetHeadingDeg) ? formatHeadingDeg(g.offsetHeadingDeg) : "-",
+    popupG: gText(popup.popupG),
+    popupToRollIn: `${formatNm(popup.groundDistanceNm)} NM`,
+    map: `${formatNm(p.groundRangeNm)} NM`,
+    rollInBank: `${formatDeg(p.rollInBankAngleDeg)}°`,
+    rollInG: gText(input.rollInG),
+    rollInLead: `${formatDeg(p.leadAngleDeg)}°`,
+    trackingTime: `${formatSecTenths(p.trackingTimeSec)} s`,
+    bombTof: `${formatSec(p.bombTofSec)} s`,
+    ipToImpact: `${formatSec(t.offsetIpToReleaseSec + p.bombTofSec)} s`,
+  };
+  return POPUP_Z_LEGEND.filter((row) => advanced || !row.advanced).map((row) => ({
+    key: row.key,
+    label: row.key === "ipToImpact" ? `#${aircraftNumber} ${row.label}` : row.label,
+    value: values[row.key],
+  }));
+}
+
+// Down the left column first, then the right (owner): the left column takes the larger half.
+function legendColumns(rows) {
+  const half = Math.ceil(rows.length / 2);
+  return { left: rows.slice(0, half), right: rows.slice(half) };
+}
+
+// The altitude line above the legend (owner 2026-11-03), Roll-in then Pull Down whatever the tick shows.
+function altitudeLine(data) {
+  const rollInAlt = data.tick === "PULL_DOWN" ? data.other : data.climbTick;
+  const pullDownAlt = data.tick === "PULL_DOWN" ? data.climbTick : data.other;
+  return `ROLL-IN ALT ${kft(rollInAlt.altitudeMslFt)} · PULL DOWN ALT ${kft(pullDownAlt.altitudeMslFt)}`;
 }
 
 export function popupZDiagramTitle({ aircraftNumber = 1 } = {}) {
@@ -102,20 +187,23 @@ export function popupZDiagramTitle({ aircraftNumber = 1 } = {}) {
 
 // Draws the schematic as the owner sketch: a fixed triangle (the numbers carry the values, not the drawn angles);
 // the ticks sit on the legs at their altitudes between the base line (Pop altitude) and the Apex.
-export function renderPopupZDiagram(svg, result, popup, { tick = "ROLL_IN", aircraftNumber = 1, deltaTime = null, advanced = false } = {}) {
+export function renderPopupZDiagram(svg, result, popup, { tick = "ROLL_IN", aircraftNumber = 1, advanced = false, fontSize = POPUP_Z_DIAGRAM_V0_1.fontSize } = {}) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
-  const data = buildPopupZDiagramData(result, popup, { tick, deltaTime, advanced, aircraftNumber });
+  if (!POPUP_Z_DIAGRAM_V0_1.fontSizes.includes(fontSize)) throw new RangeError(`fontSize must be one of ${POPUP_Z_DIAGRAM_V0_1.fontSizes.join(", ")}`);
+  const data = buildPopupZDiagramData(result, popup, { tick, advanced, aircraftNumber });
   const { width, height: diagramHeight } = POPUP_Z_DIAGRAM_V0_1.canvas;
   const rows = POPUP_Z_DIAGRAM_V0_1.offsetRows;
-  const rowCount = data.supported ? Math.max(data.offsetColumns.left.length, data.offsetColumns.right.length) : 0;
-  const height = rowCount ? rows.firstY + (rowCount - 1) * rows.rowHeight + rows.bottomGap : diagramHeight;
+  const legend = data.supported ? data.legendColumns : null;
+  const rowCount = legend ? Math.max(legend.left.length, legend.right.length) : 0;
+  const height = rowCount ? rows.firstY + (rowCount - 1) * rows.rowHeight + rows.bottomGap : diagramHeight + POPUP_Z_DIAGRAM_V0_1.lowerShift;
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.style.aspectRatio = `${width} / ${height}`;
   svg.setAttribute("aria-label", popupZDiagramTitle({ aircraftNumber }));
   const root = svg.querySelector("g") ?? svg;
   root.replaceChildren();
   root.append(svgNode("rect", { x: 0, y: 0, width, height, fill: "#ffffff" }));
-  const text = (x, y, value, { size = 22, anchor = "start", weight = 700 } = {}) =>
+  const FS = fontSize;
+  const text = (x, y, value, { size = FS, anchor = "start", weight = POPUP_Z_DIAGRAM_V0_1.fontWeight } = {}) =>
     root.append(svgNode("text", { x, y, "font-size": size, "font-weight": weight, "text-anchor": anchor, fill: "#111111", "font-family": "Arial, Helvetica, sans-serif" }, value));
   if (!data.supported) {
     text(width / 2, height / 2, data.reason, { anchor: "middle" });
@@ -123,8 +211,9 @@ export function renderPopupZDiagram(svg, result, popup, { tick = "ROLL_IN", airc
   }
   const line = (x1, y1, x2, y2, w = 9) => root.append(svgNode("line", { x1, y1, x2, y2, stroke: "#111111", "stroke-width": w, "stroke-linecap": "square" }));
   // Fixed shape: base corner, Apex, MRA end (the sketch's proportions).
-  const base = { x: 150, y: 420 };
-  const apex = { x: 330, y: 120 };
+  const shape = POPUP_Z_DIAGRAM_V0_1.shape;
+  const base = { x: shape.baseX, y: shape.baseY };
+  const apex = { x: shape.apexX, y: shape.apexY };
   const popAlt = event(popup, "POP")?.altitudeMslFt ?? 0;
   const apexAlt = data.apexAltitudeMslFt ?? popAlt + 1;
   // Height fraction of an altitude between the Pop altitude (0) and the Apex (1), kept inside the legs.
@@ -156,28 +245,30 @@ export function renderPopupZDiagram(svg, result, popup, { tick = "ROLL_IN", airc
   const startX = base.x;
   const baseY = base.y;
   // Labels (the owner sketch's places).
-  text(40, 50, data.title, { size: 28 });
-  text(apexX, apexY - 22, data.text.apex, { anchor: "middle", size: 28 });
-  text(tickX - 42, tickY - 10, data.text.tick, { anchor: "end", size: 26 });
-  text(praX + 12, praY - 14, data.text.pra, { size: 26 });
-  text(mraX + 64, mraY + 9, data.text.mra, { size: 26 });
-  text(startX + 34, baseY - 18, data.text.climbAngle, { size: 26 });
-  text(startX - 6, baseY + 40, data.text.groundSpeed, { anchor: "middle", size: 24 });
-  text(startX + 120, baseY + 40, data.text.actionRange, { anchor: "middle", size: 24 });
-  // 0.1.2: Pop-up Range under the Action Range; the Roll-in group at the upper right; Roll-in Lead at the lower right.
-  const rowText = (row) => `${row.label}: ${row.value}`;
+  text(40, 50, data.title, { size: POPUP_Z_DIAGRAM_V0_1.titleFontSize + fontSize - POPUP_Z_DIAGRAM_V0_1.fontSize });
+  text(apexX, apexY - 16, data.text.apex, { anchor: "middle" });
+  // The tick value and its name on one centre axis, left of the tick, kept inside the canvas (owner 2026-11-03).
+  const tickHalf = (Math.max(data.text.tick.length, data.text.tickName.length) * FS * 0.56) / 2;
+  const tickCentre = Math.max(8 + tickHalf, tickX - 48 - tickHalf);
+  text(tickCentre, tickY - 7, data.text.tick, { anchor: "middle" });
+  text(tickCentre, tickY + 18, data.text.tickName, { anchor: "middle" });
+  text(praX + 12, praY - 12, data.text.pra);
+  text(mraX + 62, mraY + 5, data.text.mra);
+  text(startX + 34, baseY - 14, data.text.climbAngle);
+  text(startX, baseY + 30, data.text.speed, { anchor: "middle" });
+  text(startX + 50, baseY + 30, data.text.actionRange);
+  // The Roll-in group at the upper right (0.1.2).
   const group = POPUP_Z_DIAGRAM_V0_1.rollInGroup;
-  text(startX + 120, POPUP_Z_DIAGRAM_V0_1.popupRange.y, rowText(data.popupRange), { anchor: "middle", size: 15, weight: 900 });
-  data.rollInGroup.forEach((row, index) => text(group.x, group.firstY + index * group.rowHeight, rowText(row), { anchor: "end", size: 15, weight: 900 }));
-  text(POPUP_Z_DIAGRAM_V0_1.rollInLead.x, POPUP_Z_DIAGRAM_V0_1.rollInLead.y, rowText(data.rollInLead), { anchor: "end", size: 15, weight: 900 });
-  // Both climb-leg altitudes are on the diagram: the tick's label and the other one's value (§13.8a).
-  text(40, diagramHeight - 50, `${data.other.label} ${data.text.other} · ${data.climbTick.label} ${data.text.tick} (tick)`, { size: 18, weight: 700 });
-  text(40, diagramHeight - 22, `PRA ${data.text.pra} · MRA = NLT Release ${data.text.mra} · Apex ${data.text.apex} · kft MSL`, { size: 15, weight: 600 });
+  data.rollInGroup.forEach((row, index) => text(group.x, group.firstY + index * group.rowHeight, `${row.label}: ${row.value}`, { anchor: "end", weight: 900 }));
+  // The Roll-in / Pull Down altitude line and the rule under it, as before (owner 2026-11-03).
+  data.altitudeLine = altitudeLine(data);
+  const lowerY = diagramHeight + POPUP_Z_DIAGRAM_V0_1.lowerShift;
+  text(40, lowerY - 22, data.altitudeLine);
+  root.append(svgNode("line", { x1: 40, y1: lowerY - 2, x2: width - 40, y2: lowerY - 2, stroke: "#c9d1d9", "stroke-width": 1.5 }));
   // The Offset Z-Diagram's lower block (0.1.1): its two columns, as the Offset Z writes them ("Label: value").
   if (rowCount) {
-    root.append(svgNode("line", { x1: 40, y1: diagramHeight - 2, x2: width - 40, y2: diagramHeight - 2, stroke: "#c9d1d9", "stroke-width": 1.5 }));
-    [[rows.leftX, data.offsetColumns.left], [rows.rightX, data.offsetColumns.right]].forEach(([x, list]) => list.forEach((row, index) => {
-      text(x, rows.firstY + index * rows.rowHeight, `${String(row.label).replace(/:\s*$/, "")}: ${row.value}`, { size: 15, weight: 900 });
+    [[rows.leftX, legend.left], [rows.rightX, legend.right]].forEach(([x, list]) => list.forEach((row, index) => {
+      if (row) text(x, rows.firstY + index * rows.rowHeight, `${String(row.label).replace(/:\s*$/, "")}: ${row.value}`, { weight: 900 });
     }));
   }
   return data;
