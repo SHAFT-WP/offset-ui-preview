@@ -3,8 +3,8 @@ import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath } from "./bdp-flight-path-v0.1.mjs?v=0.1.5";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.20";
-import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.13";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.21";
+import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.14";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
 // Full BDP diagrams panel — BDP-owned presentation reused by every BE that embeds a BDP input tab
@@ -78,7 +78,12 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.13.2: 3D 0.1.19 (one screen winding for the merged aircraft faces: no unpainted wings).
   // 0.13.3: 3D 0.1.20 (black bomb, no upper zoom limit); the 3D − / + buttons zoom by ×1.25 / ÷1.25 (from 100%:
   // 125%, as before), so they keep working at any zoom.
-  version: "0.13.3",
+  // 0.14.0 (owner 2026-11-03, "슬라이드와 재생 축은 3d 프로파일 밑 허드뷰 모두 아래쪽에 메뉴는 위쪽에 / 휴대폰으로 가로
+  // 모드로 바꾸면 오른쪽에 메뉴들, 아래쪽에 슬라이더"): the 3D Profile and HUD View are menus → picture → time dial (the
+  // dial and its key points under the picture, the HUD's options above it); a phone held landscape puts the menus to the
+  // right of the picture and keeps the dial under both (common-ui .bdp-flight-layout). The HUD follows the device's
+  // light / dark setting (HUD 0.1.14) and shows the Flight's other aircraft and every bomb in the air (3D 0.1.21).
+  version: "0.14.0",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -143,24 +148,31 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
     + `<button class="capture-button" type="button" data-bdp-${kind}="zoom-in" aria-label="Zoom in">+</button>${extra}</span>`;
   // 3D (0.10.0, addendum §4–§7): no Altitude ×2; the gesture area alone takes the touch (no page scroll / selection
   // / long-press menu inside it).
+  // 0.14.0 (owner): menus → picture → time dial; the legend after them.
   const threeD = `<details class="input-panel bdp-diagram" open data-bdp-diagram="3d"><summary>${t3}${viewTools("3d")}</summary>`
-    + `<div class="diagram-actions"><div class="diagram-action-row" data-bdp-3d-controls>`
+    + `<div class="bdp-flight-layout" style="--bdp-aspect:${w3}/${h3}">`
+    + `<div class="diagram-actions bdp-flight-menus"><div class="diagram-action-row" data-bdp-3d-controls>`
     + `<label data-bdp-fleet-label hidden>Show aircraft <select data-bdp-3d="fleet" aria-label="3D aircraft selection" style="${CONTROL_STYLE};width:auto"><option value="all">All</option></select></label><span data-bdp-fleet-status role="status"></span>`
     + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Aircraft <select data-bdp-3d="aircraft-scale" style="${CONTROL_STYLE};width:auto" aria-label="Aircraft size (times actual)" title="Aircraft size relative to the real F-16. Auto sizes it to the flight path."><option value="auto" selected>Auto</option>${aircraftScales}</select></label>`
     + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Bank line <select data-bdp-3d="bank-line" style="${CONTROL_STYLE};width:auto" aria-label="Bank line length (the wing line every 1 s)" title="The wing line drawn every 1 s along the path; its tilt is the bank."><option value="0">Off</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="3">3×</option></select></label>`
-    + `<span class="diagram-control-label">Drag: turn · Hold 0.5 s, then drag: pan · Pinch / wheel: zoom</span></div>${threeDTimeMarkup}</div>`
-    + `<div class="bdp-diagram-canvas"><svg class="bdp-3d-svg" viewBox="0 0 ${w3} ${h3}" role="img" aria-label="${t3}" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none"></svg>`
-    + `<svg class="diagram-legend-box" data-bdp-legend="3d" role="img" aria-label="${t3} legend" hidden></svg></div></details>`;
+    + `<span class="diagram-control-label">Drag: turn · Hold 0.5 s, then drag: pan · Pinch / wheel: zoom</span></div></div>`
+    + `<div class="bdp-diagram-canvas bdp-flight-canvas"><svg class="bdp-3d-svg" viewBox="0 0 ${w3} ${h3}" role="img" aria-label="${t3}" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none"></svg></div>`
+    + `<div class="bdp-flight-time" data-bdp-time="3d">${threeDTimeMarkup}</div></div>`
+    + `<svg class="diagram-legend-box" data-bdp-legend="3d" role="img" aria-label="${t3} legend" hidden></svg></details>`;
+  // 0.14.0 (owner): the observer row and the HUD's options above the picture, the time dial under it.
   const hud = `<details class="input-panel bdp-diagram" open data-bdp-diagram="hud"><summary>${th}${viewTools("hud")}</summary>`
-    + `<div class="diagram-actions"><div class="diagram-action-row" role="tablist" aria-label="HUD observer"><button class="capture-button" type="button" role="tab" data-hud-observer="you" aria-selected="true">You</button><button class="capture-button" type="button" role="tab" data-hud-observer="wingman" aria-selected="false" disabled>Wingman</button><label data-hud-pair-label hidden>Wingman <select data-hud-pair aria-label="Wingman aircraft" style="${CONTROL_STYLE};width:auto"></select></label><span data-hud-availability role="status"></span></div></div>`
-    + `<div class="bdp-diagram-canvas"><svg class="bdp-hud-svg" viewBox="0 0 ${wh} ${hh}" role="img" aria-label="${th}"></svg></div>`
-    + `<div class="diagram-actions bdp-hud-controls" data-bdp-hud-controls><div class="diagram-action-row">`
+    + `<div class="bdp-flight-layout" style="--bdp-aspect:${wh}/${hh}">`
+    + `<div class="diagram-actions bdp-flight-menus bdp-hud-controls" data-bdp-hud-controls>`
+    + `<div class="diagram-action-row" role="tablist" aria-label="HUD observer"><button class="capture-button" type="button" role="tab" data-hud-observer="you" aria-selected="true">You</button><button class="capture-button" type="button" role="tab" data-hud-observer="wingman" aria-selected="false" disabled>Wingman</button><label data-hud-pair-label hidden>Wingman <select data-hud-pair aria-label="Wingman aircraft" style="${CONTROL_STYLE};width:auto"></select></label><span data-hud-availability role="status"></span></div>`
+    + `<div class="diagram-action-row">`
     + `<span class="diagram-control-label">HUD</span><input type="number" data-bdp-hud="size" min="4" max="40" step="1" value="${d.hudSizeDeg}" inputmode="numeric" style="${CONTROL_STYLE};width:4.2em" aria-label="HUD size (degrees, square)"><span class="diagram-control-label">°</span>`
     + `<span class="diagram-control-label">FOV</span><select data-bdp-hud="fov" style="${CONTROL_STYLE};width:auto" aria-label="Screen vertical field of view">${fov}</select>`
     + `<button class="capture-button view-toggle" type="button" data-bdp-hud="aoa" aria-pressed="${d.aoa}">AOA: ${d.aoa ? "On" : "Off"}</button>`
     + `<button class="capture-button view-toggle" type="button" data-bdp-hud="fpm-path" aria-pressed="${d.fpmPath}">FPM path: ${d.fpmPath ? "On" : "Off"}</button>`
     + `<span class="diagram-control-label">PAD LOCK :</span><button class="capture-button view-toggle" type="button" data-bdp-hud="padlock" data-hud-lock="TGT" aria-pressed="false" style="touch-action:none;user-select:none">TGT</button><button class="capture-button view-toggle" type="button" data-hud-lock="WM" aria-pressed="false" disabled style="touch-action:none;user-select:none">WM</button>`
-    + `</div>${hudTimeMarkup}</div></details>`;
+    + `</div></div>`
+    + `<div class="bdp-diagram-canvas bdp-flight-canvas"><svg class="bdp-hud-svg" viewBox="0 0 ${wh} ${hh}" role="img" aria-label="${th}"></svg></div>`
+    + `<div class="bdp-flight-time" data-bdp-time="hud">${hudTimeMarkup}</div></div></details>`;
   return { threeD, hud };
 }
 
@@ -419,6 +431,12 @@ function flightState(container) {
 // size (the glass) is not changed by it.
 const HUD_ZOOM_LIMITS = [0.5, 2];
 const ZOOM_STEP = 0.25;
+// The HUD theme (owner 2026-11-03, "다크모드 화이트 모드에 따라"): the device's light / dark setting. A change of the
+// setting redraws every HUD drawn so far.
+const darkQuery = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
+const hudTheme = () => (darkQuery?.matches === false ? "light" : "dark");
+const hudContainers = new Map();
+darkQuery?.addEventListener?.("change", () => { for (const [container, scope] of hudContainers) if (container.isConnected) drawHud(container, scope); else hudContainers.delete(container); });
 function hudOptions(container) {
   const control = (name) => container.querySelector(`[data-bdp-hud="${name}"]`);
   const baseFovDeg = Number(control("fov")?.value) || BDP_HUD_VIEW_V0_1.defaults.fovDeg;
@@ -428,6 +446,7 @@ function hudOptions(container) {
     fovDeg: (2 * Math.atan(Math.tan((baseFovDeg / 2) * Math.PI / 180) / zoom) * 180) / Math.PI,
     aoa: control("aoa") ? control("aoa").getAttribute("aria-pressed") === "true" : BDP_HUD_VIEW_V0_1.defaults.aoa,
     fpmPath: control("fpm-path") ? control("fpm-path").getAttribute("aria-pressed") === "true" : BDP_HUD_VIEW_V0_1.defaults.fpmPath,
+    theme: hudTheme(),
   };
 }
 
@@ -512,10 +531,13 @@ function hudFrame(container) {
   }
   const note = container.querySelector('[data-hud-availability]');
   setText(note, [observer?.warning, other?.warning, !pose ? observer?.unavailableReason ?? 'No current flight path' : !wm ? 'No available wingman' : !otherPose ? `Wingman: ${other?.unavailableReason ?? 'Outside flight window'}` : ''].filter(Boolean).join(' · '));
+  // The HUD's Flight (owner 2026-11-03): every other aircraft with a place at this time, and its path for its bomb.
+  const fleet = entries.filter(a => a !== observer).map(a => ({ number: a.number, state: a.at(time) ?? null, path: a.path ?? null })).filter(a => a.state || a.path);
   return { path: observer?.path, state: pose, unavailable: !pose, number: observer?.number, timeSec: time,
-    gridStepFt: context.gridStepFt, otherAircraft: otherPose ? { number: other.number, state: otherPose } : null };
+    gridStepFt: context.gridStepFt, otherAircraft: otherPose ? { number: other.number, state: otherPose } : null, fleet };
 }
 function drawHud(container, scope) {
+  hudContainers.set(container, scope);
   try { drawHudFrame(container, scope); container.querySelector('[data-bdp-diagram="hud"] [data-view-error]')?.remove(); }
   catch (error) { showFlightViewError(container, 'hud', error); }
 }
@@ -539,7 +561,7 @@ function drawHudFrame(container, scope) {
   const options = { ...hudOptions(container), ...frame, gazeProgressDeg: state.holding ? state.progressDeg : 0, scope: `${scope}-hud`, padlockTarget: state.lockTarget,
     lookAt: state.lockTarget === 'WM' ? frame.otherAircraft?.state : undefined };
   const key = JSON.stringify({ ...hudOptions(container), state: frame.state, timeSec: frame.timeSec, gridStepFt: frame.gridStepFt,
-    otherAircraft: frame.otherAircraft, gazeProgressDeg: options.gazeProgressDeg, padlockTarget: state.lockTarget });
+    otherAircraft: frame.otherAircraft, fleet: (frame.fleet ?? []).map(a => [a.number, a.state]), gazeProgressDeg: options.gazeProgressDeg, padlockTarget: state.lockTarget });
   const rendered = viewCache.draw(svg, frame.path, key, () => renderBdpHudView(svg, frame.path, options));
   state.progressDeg = rendered.progressDeg;
   setData(svg, 'fovDeg', rendered.fovDeg.toFixed(2));

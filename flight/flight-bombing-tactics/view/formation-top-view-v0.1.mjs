@@ -6,13 +6,20 @@
 // the BDP 3D view lights it). Owner 2026-11-02: "포메이션은 탑뷰로 하면 되", "탑뷰 비행기 크기는 모바일에서 잘보이게
 // 확대": the places are to scale (NM grid), the aircraft are not — they are enlarged so they read on a phone.
 //
+// 0.2.0 (owner 2026-11-03, "포메이션은 기체 센터에 참조선을 구하고 거리와 각도를 표시해줘 각도0도는 적을 필요 없어 …
+// 박스는 각도 그릴 필요 없다 / 기체는 제일 위쪽에 위치 선은 아래에 / 기체 크기는 1/3으로 줄여줘"), drawn as the
+// owner's formation slides: each reference aircraft gets its abeam (0°) reference line through its centre, each
+// follower a solid line from its reference aircraft's centre to its own with the range on it, and the angle from that
+// abeam line as an arc with its value — only between 0° and 90° (abeam / in trail need none, as in a Box). The
+// aircraft are a third of 0.1.0's size and drawn above every line and label.
+//
 // Presentation only: no place is computed here. The input is the Flight Formation module's formationName output
 // (links and places); this module only scales and draws it. Pure: returns SVG markup, no DOM.
 import { BDP_F16_MESH_V0_1 } from "../../../AG/bombing/bomb-delivery-planner/view/bdp-f16-mesh-v0.1.mjs";
 
 export const FORMATION_TOP_VIEW_V0_1 = Object.freeze({
   id: "flight-formation-top-view-v0.1",
-  version: "0.1.0",
+  version: "0.2.0",
   status: "work",
   mesh: `${BDP_F16_MESH_V0_1.id} ${BDP_F16_MESH_V0_1.version}`,
   widthUnits: 360,
@@ -27,9 +34,15 @@ export const FORMATION_TOP_VIEW_V0_1 = Object.freeze({
   footerUnits: 26,
   legendLineUnits: 16,
   gridNm: 0.5,
-  // Drawn aircraft length (view units, = CSS px at 360 px wide): 60 % of the closest spacing, within these bounds.
-  aircraftMinUnits: 44,
-  aircraftMaxUnits: 84,
+  // Drawn aircraft length (view units, = CSS px at 360 px wide): 20 % of the closest spacing, within these bounds
+  // (0.2.0, owner: a third of 0.1.0's 60 % / 44–84).
+  aircraftSpacingShare: 0.2,
+  aircraftMinUnits: 15,
+  aircraftMaxUnits: 28,
+  // The angle arc's radius (view units), and the angles that get no arc (abeam and in trail, owner 0.2.0).
+  angleArcUnits: 26,
+  angleLabelMinDeg: 0.05,
+  angleLabelMaxDeg: 89.95,
 });
 
 const DEFAULT_COLORS = Object.freeze({ 1: "#4c5966", 2: "#8a3ab9", 3: "#2f9e6e", 4: "#b5651d" });
@@ -40,6 +53,8 @@ const MUTED = "#66788a";
 const LINE = "#d5dde5";
 const PAPER = "#ffffff";
 const fmt = (value, digits) => String(Number(value.toFixed(digits)));
+// A range as written on the drawing: up to two decimals, at least one ("1.0", "0.5", "1.58").
+const rangeText = (nm) => { const v = Number(Number(nm).toFixed(2)); return Number.isInteger(v) ? v.toFixed(1) : String(v); };
 const escapeText = (value) => String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 
 // ---- the F-16 seen from above (built once) ----------------------------------------------------------------------
@@ -154,7 +169,7 @@ export function formationTopViewSvg({ formation, colors = DEFAULT_COLORS, idPref
   const toX = (x) => (x - frame.minX) * k;
   const toY = (y) => (y - frame.minY) * k;
   const spacing = closestSpacingNm(aircraft);
-  const lengthUnits = Math.min(C.aircraftMaxUnits, Math.max(C.aircraftMinUnits, Number.isFinite(spacing) ? 0.6 * spacing * k : C.aircraftMaxUnits));
+  const lengthUnits = Math.min(C.aircraftMaxUnits, Math.max(C.aircraftMinUnits, Number.isFinite(spacing) ? C.aircraftSpacingShare * spacing * k : C.aircraftMaxUnits));
   const meshScale = lengthUnits / BDP_F16_MESH_V0_1.lengthM;
   const f16Id = `${idPrefix}-f16`;
   const colorOf = (number) => colors?.[number] ?? DEFAULT_COLORS[number] ?? INK;
@@ -164,15 +179,49 @@ export function formationTopViewSvg({ formation, colors = DEFAULT_COLORS, idPref
   const drawing = [];
 
   drawing.push(gridMarkup(frame, k, toX, toY));
-  // #1's abeam line (0°).
-  drawing.push(`<line x1="0" y1="${fmt(toY(0), 2)}" x2="${fmt(width, 2)}" y2="${fmt(toY(0), 2)}" style="stroke:${MUTED}" stroke-width="1" stroke-dasharray="6 5" data-formation-role="abeam"/>`);
-  // Each follower's link to its reference aircraft.
-  for (const link of links) {
+  const drawn = links.filter((link) => byNumber.has(link.number) && byNumber.has(link.reference));
+  // Reference lines (0.2.0): the abeam (0°) line through the centre of every reference aircraft (#1 always).
+  const references = [...new Set([1, ...drawn.map((link) => link.reference)])].filter((number) => byNumber.has(number));
+  for (const number of references) {
+    const y = toY(byNumber.get(number).y);
+    drawing.push(`<line x1="0" y1="${fmt(y, 2)}" x2="${fmt(width, 2)}" y2="${fmt(y, 2)}" style="stroke:${MUTED}" stroke-width="1" stroke-dasharray="6 5" opacity="0.8" data-formation-role="${number === 1 ? "abeam" : "reference-abeam"}" data-aircraft-number="${number}"/>`);
+  }
+  // Each follower: the line from its reference aircraft's centre to its own, its range, and its angle from the
+  // reference's abeam line where it is neither abeam nor in trail.
+  const labels = [];
+  for (const link of drawn) {
     const own = byNumber.get(link.number);
     const reference = byNumber.get(link.reference);
-    if (!own || !reference) continue;
-    drawing.push(`<line x1="${fmt(toX(reference.x), 2)}" y1="${fmt(toY(reference.y), 2)}" x2="${fmt(toX(own.x), 2)}" y2="${fmt(toY(own.y), 2)}" style="stroke:${colorOf(link.number)}" stroke-width="1.6" stroke-dasharray="5 4" opacity="0.85" data-formation-role="link" data-aircraft-number="${link.number}"/>`);
+    const color = colorOf(link.number);
+    const x1 = toX(reference.x), y1 = toY(reference.y), x2 = toX(own.x), y2 = toY(own.y);
+    drawing.push(`<line x1="${fmt(x1, 2)}" y1="${fmt(y1, 2)}" x2="${fmt(x2, 2)}" y2="${fmt(y2, 2)}" style="stroke:${color}" stroke-width="1.8" opacity="0.9" data-formation-role="link" data-aircraft-number="${link.number}"/>`);
+    const length = Math.hypot(x2 - x1, y2 - y1);
+    if (!(length > 1e-6)) continue;
+    // The range at the middle of the line: above a level line, right of a trail line. A slanted line's angle sits
+    // between the abeam line and the link, near the reference aircraft: a long line takes its range on that (outer)
+    // side, clear of the angle and of a mirrored line (Arrow Head); a short one on the inner side, clear of the angle.
+    const ux = (x2 - x1) / length, uy = (y2 - y1) / length;
+    const level = Math.abs(uy) < 0.02, trail = Math.abs(ux) < 0.02;
+    // A follower is never ahead (uy ≥ 0): the upward normal is the outer side, the downward one the inner side.
+    const outer = ux > 0 ? [uy, -ux] : [-uy, ux];
+    const longLine = length / 2 > Math.min(C.angleArcUnits, 0.45 * length) + 48;
+    const [nx, ny] = level ? [0, -1] : trail ? [1, 0] : longLine ? outer : [-outer[0], -outer[1]];
+    const mx = (x1 + x2) / 2 + nx * 12, my = (y1 + y2) / 2 + ny * 12 + 4;
+    const anchor = trail ? "start" : level ? "middle" : nx > 0 ? "start" : "end";
+    labels.push(textMarkup(mx, my, `${rangeText(link.distanceNm)} NM`, { size: 12, anchor, weight: 900, color, role: "range-label" }));
+    const bearing = Number(link.bearingDeg);
+    if (Number.isFinite(bearing) && bearing > C.angleLabelMinDeg && bearing < C.angleLabelMaxDeg) {
+      const sx = x2 >= x1 ? 1 : -1;
+      const r = Math.min(C.angleArcUnits, 0.45 * length);
+      const b = bearing * Math.PI / 180;
+      const ax = x1 + sx * r, ay = y1;
+      const bx = x1 + sx * r * Math.cos(b), by = y1 + r * Math.sin(b);
+      drawing.push(`<path d="M ${fmt(ax, 2)} ${fmt(ay, 2)} A ${fmt(r, 2)} ${fmt(r, 2)} 0 0 ${sx > 0 ? 1 : 0} ${fmt(bx, 2)} ${fmt(by, 2)}" style="fill:none;stroke:${color}" stroke-width="1.4" data-formation-role="angle-arc" data-aircraft-number="${link.number}"/>`);
+      const lx = x1 + sx * (r + 13) * Math.cos(b / 2), ly = y1 + (r + 13) * Math.sin(b / 2) + 4;
+      labels.push(textMarkup(lx, ly, `${Math.round(bearing)}°`, { size: 12, anchor: sx > 0 ? "start" : "end", weight: 900, color, role: "angle-label" }));
+    }
   }
+  drawing.push(...labels);
   // The aircraft: a soft disc in the aircraft's colour under the F-16, its number beside it.
   for (const a of aircraft) {
     const color = colorOf(a.number);

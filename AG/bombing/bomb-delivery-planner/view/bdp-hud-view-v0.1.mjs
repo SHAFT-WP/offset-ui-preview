@@ -1,6 +1,6 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
-import { bdpCanvasLayer, renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.20";
+import { bdpCanvasLayer, renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.21";
 
 // BDP HUD view v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.3 in SVG). A first-person
 // view from the aircraft of a BDP flight path at time t: an F-16-style HUD square of `hudSizeDeg` (default 14°,
@@ -26,7 +26,12 @@ export const BDP_HUD_VIEW_V0_1 = Object.freeze({
   // 0.1.11: the 3D scene 0.1.18.
   // 0.1.12: the 3D scene 0.1.19.
   // 0.1.13: the 3D scene 0.1.20.
-  version: "0.1.13",
+  // 0.1.14 (owner 2026-11-03, "허드뷰 하늘 색과 땅색이 전부 하야니깐 잘 분간이 안되는 것 같아 / 다크모드 화이트 모드에
+  // 따라 세련되게 네가 다시 설정해 주고 / 허드뷰에서도 3d 전투기와 폭탄이 보이더록 해줘"): `theme` ("dark" / "light",
+  // BDP_HUD_THEMES) paints a graded sky and ground on either side of the horizon (lighter toward it, as haze) and sets
+  // the HUD ink, the world grid and the marker colours for that theme; `fleet` (the Flight's other aircraft: number,
+  // state, path) and their bombs are drawn in the cockpit scene (3D view 0.1.21), enlarged to stay visible.
+  version: "0.1.14",
   fovLimitsDeg: Object.freeze([5, 150]),
   canvas: Object.freeze({ width: 720, height: 540 }),
   ladderStepDeg: 5,
@@ -36,7 +41,18 @@ export const BDP_HUD_VIEW_V0_1 = Object.freeze({
 });
 
 const DEG = Math.PI / 180;
-const HUD_GREEN = "#28d26a";
+// Theme palettes (0.1.14). Sky: zenith → horizon; ground: horizon → near; `flat*` where no gradient is drawn (the SVG
+// outlines when the world is not on a canvas). `ink` is the HUD symbology; `ink` on the light palette is a deeper green
+// so it reads on a pale sky.
+export const BDP_HUD_THEMES = Object.freeze({
+  dark: Object.freeze({ skyTop: "#081426", skyHorizon: "#33577f", groundHorizon: "#4c5540", groundNear: "#171c12", flatSky: "#1d3554", flatGround: "#2f3626",
+    grid: "#b5c49b", ink: "#3ee07f", inkSoft: "#7cf29a", target: "#ff6b6b", aim: "#ffffff", wingman: "#8ad9ff", padlock: "#ffd166",
+    aircraftHalo: "rgba(225,238,255,0.85)", label: "#d6ecff", labelHalo: "#0b1626" }),
+  light: Object.freeze({ skyTop: "#5d97cb", skyHorizon: "#dcebf6", groundHorizon: "#c3bb93", groundNear: "#78714e", flatSky: "#a9cbe8", flatGround: "#9f9871",
+    grid: "#3f3a24", ink: "#067a3a", inkSoft: "#0c9a4b", target: "#c62828", aim: "#067a3a", wingman: "#1d5fa8", padlock: "#8a5a00",
+    aircraftHalo: "rgba(255,255,255,0.9)", label: "#16314f", labelHalo: "#ffffff" }),
+});
+const themeOf = (name) => BDP_HUD_THEMES[name] ?? BDP_HUD_THEMES.dark;
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const mul = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
@@ -134,33 +150,55 @@ export function renderBdpHudView(svg, path, options = {}) {
   // transparent sky / ground outlines and draws the HUD symbols on top.
   const worldLayer = bdpCanvasLayer(svg, W, H, { "data-hud-role": "world-canvas" }, { keep: true, under: !!svg.parentElement });
   const ink = worldLayer.begin();
-  ink.fillStyle = "#ffffff";
-  ink.fillRect(0, 0, W, H);
-  root.append(svgNode("rect", { x: 0, y: 0, width: W, height: H, fill: worldLayer.foreign ? "#ffffff" : "none", "data-hud-role": "sky" }));
+  const theme = themeOf(o.theme);
+  const themeName = BDP_HUD_THEMES[o.theme] ? o.theme : "dark";
+  svg.dataset.hudTheme = themeName;
+  // Under the canvas the host shows the theme's sky, never a white page, if the canvas cannot be painted.
+  if (!worldLayer.foreign && svg.parentElement && svg.parentElement.style.background !== theme.flatSky) svg.parentElement.style.background = theme.flatSky;
   const rayZ = (p) => focal * forward[2] + (p.x - W / 2) * camRight[2] - (p.y - H / 2) * camUp[2];
+  // 0.1.14: a graded sky and ground. rayZ grows toward the zenith at the screen rate (camRight.z, −camUp.z); the
+  // gradients run from the horizon point nearest the centre along it (sky) and against it (ground).
+  const grad = { x: camRight[2], y: -camUp[2] };
+  const gradLength = Math.hypot(grad.x, grad.y);
+  const reach = Math.hypot(W, H);
+  const paint = (fallback, horizonColor, farColor, sign) => {
+    if (!(gradLength > 1e-6) || typeof ink.createLinearGradient !== "function") return fallback;
+    const e = { x: grad.x / gradLength, y: grad.y / gradLength };
+    const c = { x: W / 2, y: H / 2 };
+    const k = rayZ(c) / (gradLength * gradLength);
+    const h = { x: c.x - grad.x * k, y: c.y - grad.y * k };
+    const g = ink.createLinearGradient(h.x, h.y, h.x + sign * e.x * reach * 0.75, h.y + sign * e.y * reach * 0.75);
+    g.addColorStop(0, horizonColor);
+    g.addColorStop(1, farColor);
+    return g;
+  };
+  ink.fillStyle = paint(theme.flatSky, theme.skyHorizon, theme.skyTop, 1);
+  ink.fillRect(0, 0, W, H);
+  root.append(svgNode("rect", { x: 0, y: 0, width: W, height: H, fill: worldLayer.foreign ? theme.flatSky : "none", "data-hud-role": "sky" }));
   const ground = clipBelowHorizon([{ x: 0, y: 0 }, { x: W, y: 0 }, { x: W, y: H }, { x: 0, y: H }], rayZ);
   if (ground.length >= 3) {
-    ink.fillStyle = "#394337";
+    ink.fillStyle = paint(theme.flatGround, theme.groundHorizon, theme.groundNear, -1);
     ink.beginPath();
     ground.forEach((p, i) => (i ? ink.lineTo(p.x, p.y) : ink.moveTo(p.x, p.y)));
     ink.closePath();
     ink.fill();
-    root.append(svgNode("polygon", { points: ground.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), fill: worldLayer.foreign ? "#394337" : "none", "data-hud-role": "ground" }));
+    root.append(svgNode("polygon", { points: ground.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), fill: worldLayer.foreign ? theme.flatGround : "none", "data-hud-role": "ground" }));
   }
 
   // One world renderer for the external profile and this cockpit view. Position, bank, AOA, FOV and
   // padlock use the very same axes as the overlay below; the external marker scale is never passed in.
   if (worldLayer.foreign) root.append(worldLayer.foreign);
   const world = svgNode("svg");
-  renderBdp3dView(world, path, { timeSec: shownT, aircraft: o.otherAircraft, gridStepFt: o.gridStepFt, ctx: ink, camera: { eye: pos, forward, right: camRight, up: camUp, fovDeg, width: W, height: H } });
+  renderBdp3dView(world, path, { timeSec: shownT, aircraft: o.otherAircraft, fleet: o.fleet, gridStepFt: o.gridStepFt, gridColor: theme.grid, cockpitStyle: { halo: theme.aircraftHalo, label: theme.label, labelHalo: theme.labelHalo }, ctx: ink, camera: { eye: pos, forward, right: camRight, up: camUp, fovDeg, width: W, height: H } });
   const scene = world.firstElementChild;
   scene.setAttribute("data-hud-role", "scene");
   root.append(scene);
   if (o.otherAircraft?.state) {
     const other = o.otherAircraft.state, q = at([other.x, other.y, other.z]);
     if (q && q.x >= 0 && q.x <= W && q.y >= 0 && q.y <= H) {
-      root.append(svgNode("circle", { cx: q.x, cy: q.y, r: 5, fill: "none", stroke: "#8ad9ff", "data-hud-role": "wingman" }));
-      root.append(svgNode("text", { x: q.x + 8, y: q.y - 8, fill: "#8ad9ff", "font-size": 13, "font-family": "system-ui", "data-hud-role": "wingman-label" }, `#${o.otherAircraft.number}`));
+      root.append(svgNode("circle", { cx: q.x, cy: q.y, r: 5, fill: "none", stroke: theme.wingman, "data-hud-role": "wingman" }));
+      // With the Flight drawn (0.1.14) the scene labels every aircraft; the ring alone marks the wingman.
+      if (!o.fleet?.length) root.append(svgNode("text", { x: q.x + 8, y: q.y - 8, fill: theme.wingman, "font-size": 13, "font-family": "system-ui", "data-hud-role": "wingman-label" }, `#${o.otherAircraft.number}`));
     }
   }
 
@@ -176,16 +214,16 @@ export function renderBdpHudView(svg, path, options = {}) {
     clip.append(svgNode("polygon", { points: corners.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ") }));
     defs.append(clip);
     svg.insertBefore(defs, root);
-    root.append(svgNode("polygon", { points: corners.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), fill: "none", stroke: HUD_GREEN, "stroke-width": 1.2, "stroke-opacity": 0.55, "data-hud-role": "hud-frame" }));
+    root.append(svgNode("polygon", { points: corners.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), fill: "none", stroke: theme.ink, "stroke-width": 1.2, "stroke-opacity": 0.55, "data-hud-role": "hud-frame" }));
   }
   const hud = svgNode("g", hudVisible ? { "clip-path": `url(#${clipId})`, "data-hud-role": "hud" } : { "data-hud-role": "hud", display: "none" });
   root.append(hud);
   const line = (points, attrs = {}) => {
     const p = points.filter(Boolean);
     if (p.length < 2) return null;
-    return svgNode("polyline", { points: p.map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" "), fill: "none", stroke: HUD_GREEN, "stroke-width": 1.8, ...attrs });
+    return svgNode("polyline", { points: p.map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" "), fill: "none", stroke: theme.ink, "stroke-width": 1.8, ...attrs });
   };
-  const text = (x, y, value, attrs = {}) => svgNode("text", { x, y, fill: HUD_GREEN, "font-size": 14, "font-family": "ui-monospace, monospace", "font-weight": 700, ...attrs }, value);
+  const text = (x, y, value, attrs = {}) => svgNode("text", { x, y, fill: theme.ink, "font-size": 14, "font-family": "ui-monospace, monospace", "font-weight": 700, ...attrs }, value);
 
   // Ladder culling (0.1.5): an element is created only when one of its points lies within 30 px of the HUD square
   // (the clip). Consecutive points are a few px apart, so no line crosses the square between two outside points.
@@ -227,7 +265,7 @@ export function renderBdpHudView(svg, path, options = {}) {
   // FPM, gun cross, planned IAA circle, Aim-off Point.
   const fpm = project(axes.v);
   if (fpm) {
-    hud.append(svgNode("circle", { cx: fpm.x, cy: fpm.y, r: 7, fill: "none", stroke: HUD_GREEN, "stroke-width": 2, "data-hud-role": "fpm" }));
+    hud.append(svgNode("circle", { cx: fpm.x, cy: fpm.y, r: 7, fill: "none", stroke: theme.ink, "stroke-width": 2, "data-hud-role": "fpm" }));
     hud.append(line([{ x: fpm.x - 18, y: fpm.y }, { x: fpm.x - 7, y: fpm.y }]));
     hud.append(line([{ x: fpm.x + 7, y: fpm.y }, { x: fpm.x + 18, y: fpm.y }]));
     hud.append(line([{ x: fpm.x, y: fpm.y - 7 }, { x: fpm.x, y: fpm.y - 14 }]));
@@ -240,11 +278,11 @@ export function renderBdpHudView(svg, path, options = {}) {
   if (Number.isFinite(path.plannedIaaDeg)) {
     const i = path.plannedIaaDeg * DEG;
     const iaa = project(add(mul(axes.v, Math.cos(i)), mul(axes.up, -Math.sin(i))));
-    if (iaa) hud.append(svgNode("circle", { cx: iaa.x, cy: iaa.y, r: 5, fill: "none", stroke: HUD_GREEN, "stroke-width": 1.5, "stroke-dasharray": "3 2", "data-hud-role": "planned-iaa" }));
+    if (iaa) hud.append(svgNode("circle", { cx: iaa.x, cy: iaa.y, r: 5, fill: "none", stroke: theme.ink, "stroke-width": 1.5, "stroke-dasharray": "3 2", "data-hud-role": "planned-iaa" }));
   }
   if (path.aim) {
     const aim = at([path.aim.x, path.aim.y, path.aim.z]);
-    if (aim) hud.append(svgNode("polygon", { points: `${aim.x},${aim.y - 6} ${aim.x + 6},${aim.y} ${aim.x},${aim.y + 6} ${aim.x - 6},${aim.y}`, fill: "#ffffff", "data-hud-role": "aim-point" }));
+    if (aim) hud.append(svgNode("polygon", { points: `${aim.x},${aim.y - 6} ${aim.x + 6},${aim.y} ${aim.x},${aim.y + 6} ${aim.x - 6},${aim.y}`, fill: theme.aim, "data-hud-role": "aim-point" }));
   }
   // FPM predicted path: where each later velocity line meets the Target plane, seen from here, to the Track Point.
   if (o.fpmPath) {
@@ -256,14 +294,14 @@ export function renderBdpHudView(svg, path, options = {}) {
       const ground = v[2] < -1e-3 ? add(p, mul(v, (s.z - path.target.z) / -v[2])) : add(p, mul(v, 30000));
       pts.push(at(ground));
     }
-    const predicted = line(pts, { stroke: "#7cf29a", "stroke-width": 1.4, "stroke-dasharray": "2 4", "data-hud-role": "fpm-path" });
+    const predicted = line(pts, { stroke: theme.inkSoft, "stroke-width": 1.4, "stroke-dasharray": "2 4", "data-hud-role": "fpm-path" });
     if (predicted) hud.append(predicted);
   }
   // Target: TGT box on screen, else an arrow at the edge toward it.
   const tgt = at([path.target.x, path.target.y, path.target.z]);
   if (tgt && tgt.x > 0 && tgt.x < W && tgt.y > 0 && tgt.y < H) {
-    root.append(svgNode("rect", { x: tgt.x - 8, y: tgt.y - 8, width: 16, height: 16, fill: "none", stroke: "#ff5a5a", "stroke-width": 2, "data-hud-role": "target" }));
-    root.append(text(tgt.x + 11, tgt.y - 10, "TGT", { fill: "#ff5a5a", "font-size": 12 }));
+    root.append(svgNode("rect", { x: tgt.x - 8, y: tgt.y - 8, width: 16, height: 16, fill: "none", stroke: theme.target, "stroke-width": 2, "data-hud-role": "target" }));
+    root.append(text(tgt.x + 11, tgt.y - 10, "TGT", { fill: theme.target, "font-size": 12 }));
   } else {
     const cx = dot(toTarget, camRight);
     const cy = dot(toTarget, camUp);
@@ -273,7 +311,7 @@ export function renderBdpHudView(svg, path, options = {}) {
     const ay = H / 2 + r * Math.sin(a);
     root.append(svgNode("polygon", {
       points: [[14, 0], [-8, -8], [-8, 8]].map(([px, py]) => `${(ax + px * Math.cos(a) - py * Math.sin(a)).toFixed(1)},${(ay + px * Math.sin(a) + py * Math.cos(a)).toFixed(1)}`).join(" "),
-      fill: "#ff5a5a", "data-hud-role": "target-arrow",
+      fill: theme.target, "data-hud-role": "target-arrow",
     }));
   }
 
@@ -292,6 +330,6 @@ export function renderBdpHudView(svg, path, options = {}) {
     root.append(text(12, 22 + index * 19, left, { "data-hud-readout": index }));
     root.append(text(W - 12, 22 + index * 19, right, { "text-anchor": "end" }));
   });
-  if (progress > 0) root.append(text(W / 2, H - 12, progress >= totalDeg - 1e-6 ? `PAD LOCK · ${o.padlockTarget ?? "TGT"} · LOCKED` : `PAD LOCK · ${o.padlockTarget ?? "TGT"} · ${Math.round(progress)}° / ${Math.round(totalDeg)}°`, { "text-anchor": "middle", fill: "#ffd166", "data-hud-role": "padlock" }));
+  if (progress > 0) root.append(text(W / 2, H - 12, progress >= totalDeg - 1e-6 ? `PAD LOCK · ${o.padlockTarget ?? "TGT"} · LOCKED` : `PAD LOCK · ${o.padlockTarget ?? "TGT"} · ${Math.round(progress)}° / ${Math.round(totalDeg)}°`, { "text-anchor": "middle", fill: theme.padlock, "data-hud-role": "padlock" }));
   return { title: options.title ?? "HUD View", fovDeg, timeSec: t, totalDeg, progressDeg: progress, locked: progress > 0 && progress >= totalDeg - 1e-6, state, canvas: { width: W, height: H } };
 }

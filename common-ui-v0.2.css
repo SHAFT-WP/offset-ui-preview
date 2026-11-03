@@ -1,4 +1,4 @@
-@import url("./common/ui/value-states-v0.1.css?v=e5eb3a695a43");
+@import url("./common/ui/value-states-v0.1.css?v=f8791fcdf3b4");
 
 :root{
   color-scheme:light dark;
@@ -103,6 +103,24 @@ input:focus,select:focus{border-color:var(--blue);box-shadow:0 0 0 3px color-mix
 .bdp-diagram .diagram-actions{padding:10px 12px 0}
 .bdp-diagram-canvas{background:#fff}
 .bdp-diagram-canvas svg{display:block;width:100%;height:auto}
+/* 3D Profile / HUD View (owner 2026-11-03; BDP diagrams panel 0.14.0): menus above the picture, the time dial under it.
+   A phone held landscape puts the menus to the right of the picture, its height kept inside the screen, and the dial
+   under both. */
+.bdp-flight-layout{display:flex;flex-direction:column;gap:6px}
+.bdp-flight-layout>.bdp-flight-time:empty{display:none}
+.bdp-flight-layout>.bdp-flight-menus .diagram-action-row{flex-wrap:wrap;width:auto}
+/* The time dial under the picture takes the panel's width: the slider grows into what Time / Play / speed / output
+   leave, so the row fits a phone without scrolling. */
+.bdp-flight-time .time-dial{width:100%;flex-wrap:nowrap}
+.bdp-flight-time .time-dial-track{flex:1 1 auto;min-width:72px}
+.bdp-flight-time .time-dial-range{width:100%;min-width:0}
+.bdp-flight-time .time-dial-output{min-width:96px!important}
+@media (orientation:landscape) and (max-height:560px){
+  .bdp-flight-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,34%);grid-template-areas:"canvas menus" "time time";align-items:start;gap:6px 10px}
+  .bdp-flight-layout>.bdp-flight-canvas{grid-area:canvas;width:100%;max-width:calc((100vh - 120px) * var(--bdp-aspect));max-width:calc((100dvh - 120px) * var(--bdp-aspect));justify-self:start}
+  .bdp-flight-layout>.bdp-flight-menus{grid-area:menus;max-height:calc(100vh - 120px);max-height:calc(100dvh - 120px);overflow:auto}
+  .bdp-flight-layout>.bdp-flight-time{grid-area:time}
+}
 .advanced-only{display:none}
 body.show-advanced .advanced-only{display:grid}
 section.advanced-only,details.advanced-only{display:none}

@@ -48,7 +48,14 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // skins, lit alike when seen wings-level) cancelled under the nonzero rule and left the wing unpainted.
   // 0.1.20 (2026-11-01, owner): the bomb at t is black (white edge kept); zoom in has no upper limit (zoomLimits
   // [0.5, ∞]), so a 1× (real-size) aircraft can be enlarged on screen.
-  version: "0.1.20",
+  // 0.1.21 (owner 2026-11-03, "허드뷰에서도 3d 전투기와 폭탄이 보이더록 해줘"): the cockpit camera (HUD) draws the
+  // Flight's other aircraft it is given (`fleet`: number, state, path) and every bomb in the air (its own and theirs);
+  // each is enlarged only as far as it needs to stay visible (an F-16 at least cockpitMinUnits.aircraft view units long,
+  // a bomb cockpitMinUnits.bomb), never smaller than real; a bomb seen end-on also gets a dot. The cockpit's aircraft get a
+  // light rim (`cockpitStyle.halo`) and their numbers in `cockpitStyle.label` / `labelHalo`, and `gridColor` tints the
+  // cockpit grid (all from the HUD's theme).
+  version: "0.1.21",
+  cockpitMinUnits: Object.freeze({ aircraft: 56, bomb: 18 }),
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
   zoomLimits: Object.freeze([0.5, Infinity]),
@@ -381,6 +388,9 @@ function strokeLike(ctx, attrs) {
 }
 
 // 0.1.17: a Mk-82 LD side outline in metres (along the body, across it): 2.22 m long, 0.274 m body, tail fins.
+// Lengths for the cockpit enlargement (0.1.21): the F-16 display mesh and the Mk-82 LD outline, in feet.
+const F16_LENGTH_FT = aircraftMesh.lengthM / 0.3048;
+const BOMB_LENGTH_FT = 2.22 / 0.3048;
 const BOMB_OUTLINE_M = (() => {
   const upper = [[1.11, 0], [0.98, 0.06], [0.75, 0.115], [0.45, 0.137], [-0.55, 0.137], [-0.78, 0.1], [-0.82, 0.1], [-1.06, 0.2], [-1.11, 0.2], [-1.11, 0.04]];
   return [...upper, ...upper.slice(1, -1).reverse().map(([a, b]) => [a, -b])];
@@ -434,6 +444,8 @@ export function renderBdp3dView(svg, path, options = {}) {
   if (!Array.isArray(path?.samples) || path.samples.length < 2) throw new TypeError("a BDP flight path is required");
   // t: seconds from the Roll-in Point (before it the aircraft is still on the approach and is not drawn).
   const fleet = options.camera ? [] : options.fleet ?? [];
+  // 0.1.21: the cockpit's other aircraft (the HUD's Flight), each { number, state, path }.
+  const cockpitFleet = options.camera && Array.isArray(options.fleet) ? options.fleet.filter((a) => a && Number.isFinite(a.number)) : [];
   const t = Number.isFinite(options.timeSec) ? (fleet.length ? options.timeSec : Math.min(options.timeSec, path.endT)) : null;
   const cockpit = !!options.camera;
   // The cockpit (HUD) redraws its whole picture every frame and never reuses a scene: no key.
@@ -495,6 +507,14 @@ export function renderBdp3dView(svg, path, options = {}) {
   const eye = cockpit ? options.camera.eye : cam.eye;
   const cameraForward = cockpit ? options.camera.forward : norm(sub(centre, eye));
   const projection = cockpit ? bdp3dCameraProjection(options.camera) : null;
+  // 0.1.21: how much a thing of `lengthFt` at point q must be enlarged in the cockpit to be at least `minUnits` long
+  // on screen (1 = real size; never smaller).
+  const cockpitFocal = cockpit ? options.camera.height / 2 / Math.tan((options.camera.fovDeg * DEG) / 2) : 0;
+  const cockpitEnlarge = (q, lengthFt, minUnits) => {
+    const depth = dot(sub(q, eye), cameraForward);
+    if (!(depth > 1) || !(cockpitFocal > 0)) return 1;
+    return Math.max(1, minUnits / (cockpitFocal * lengthFt / depth));
+  };
   const aircraftLight = norm([-0.25, 0.35, 0.91]);
   // Fit (0.1.2): from the default orbit, so the scale and the centre's screen point stay put while the orbit turns;
   // a new path or Reset View is the only refit. The ground square's corners, the path and the dome's top fill the
@@ -596,9 +616,9 @@ export function renderBdp3dView(svg, path, options = {}) {
     if (ink) for (const [level, segs] of [...gridRuns].sort((a, b) => a[0] - b[0])) {
       ink.beginPath();
       for (const [a, b] of segs) { ink.moveTo(a.x, a.y); ink.lineTo(b.x, b.y); }
-      strokeLike(ink, { stroke: "#72816b", "stroke-width": 1, "stroke-opacity": level / 20 });
+      strokeLike(ink, { stroke: options.gridColor ?? "#72816b", "stroke-width": 1, "stroke-opacity": level / 20 });
     }
-    else for (const [level, d] of [...gridRuns].sort((a, b) => a[0] - b[0])) add(svgNode("path", { d: d.join(""), fill: "none", stroke: "#72816b", "stroke-width": 1, "stroke-opacity": level / 20, "data-3d-role": "grid" }));
+    else for (const [level, d] of [...gridRuns].sort((a, b) => a[0] - b[0])) add(svgNode("path", { d: d.join(""), fill: "none", stroke: options.gridColor ?? "#72816b", "stroke-width": 1, "stroke-opacity": level / 20, "data-3d-role": "grid" }));
   } else {
     const corners = [[minX, minY, 0], [maxX, minY, 0], [maxX, maxY, 0], [minX, maxY, 0]];
     add(svgNode("polygon", { points: pts(corners.map(at)), fill: "#f1f4ee", stroke: "#b8c2cc", "stroke-width": 1, "data-3d-role": "ground" }));
@@ -738,17 +758,31 @@ export function renderBdp3dView(svg, path, options = {}) {
     const put = (node) => { if (node) timeTop.append(node); return node; };
     const fragmentNow = tNow === null ? null : fragmentAt(path, tNow);
     if (fragmentNow) dome(fragmentNow.radiusFt, fragmentNow.heightFt, true, "fragment-now", timeUnder);
-    const bombNow = tNow === null ? null : bombAt(path, tNow);
-    const bombPoint = bombNow ? at(P(bombNow)) : null;
-    if (bombPoint) {
-      const outline = bombOutline(path, tNow, bombNow, eye, meshScale, at, P);
+    // The bombs in the air: this path's, and in the cockpit the Flight's (0.1.21, enlarged to stay visible there).
+    const bombPaths = [{ number: options.aircraft?.number ?? null, path, own: true }, ...cockpitFleet.filter((a) => a.path && a.path !== path).map((a) => ({ number: a.number, path: a.path, own: false }))];
+    for (const item of bombPaths) {
+      const bombNow = tNow === null ? null : bombAt(item.path, tNow);
+      const bombPoint = bombNow ? at(P(bombNow)) : null;
+      if (!bombPoint) continue;
+      const scaleNow = cockpit ? meshScale * cockpitEnlarge(P(bombNow), BOMB_LENGTH_FT, BDP_3D_VIEW_V0_1.cockpitMinUnits.bomb) : meshScale;
+      const outline = bombOutline(item.path, tNow, bombNow, eye, scaleNow, at, P);
+      const extra = item.own ? {} : { "data-aircraft-number": item.number };
       put(outline
-        ? svgNode("path", { d: outline, fill: "#000000", stroke: "#ffffff", "stroke-width": 0.6, "stroke-linejoin": "round", "data-3d-role": "bomb", "data-bomb-shape": "outline" })
-        : svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 4.5, fill: "#000000", stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb" }));
+        ? svgNode("path", { d: outline, fill: "#000000", stroke: "#ffffff", "stroke-width": cockpit ? 1 : 0.6, "stroke-linejoin": "round", "data-3d-role": "bomb", "data-bomb-shape": "outline", ...extra })
+        : svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 4.5, fill: "#000000", stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb", ...extra }));
+      // In the cockpit a bomb seen nose- or tail-on is a sliver: under 8 units across it also gets a dot (0.1.21).
+      if (cockpit && outline) {
+        const n = outline.match(/-?\d+(?:\.\d+)?/g).map(Number);
+        const xs = n.filter((_, i) => i % 2 === 0), ys = n.filter((_, i) => i % 2 === 1);
+        if (Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) < 8) put(svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 3.5, fill: "#000000", stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb-dot", ...extra }));
+      }
     }
     const flying = cockpit ? !!options.aircraft?.state : tNow !== null && tNow >= firstT - 1e-9;
     const state = fleet.length ? fleet.find(a => a.path === path)?.at(tNow) ?? null : flying ? (cockpit ? options.aircraft.state : flightStateAt(path, tNow)) : null;
-    const visible = fleet.length ? fleet.map(a => ({ number: a.number, state: a.at(tNow) })).filter(a => a.state) : state ? [{ number: options.aircraft?.number, state }] : [];
+    // 0.1.21: in the cockpit, the Flight given replaces the single other aircraft.
+    const visible = fleet.length ? fleet.map(a => ({ number: a.number, state: a.at(tNow) })).filter(a => a.state)
+      : cockpitFleet.length ? cockpitFleet.filter(a => a.state).map(a => ({ number: a.number, state: a.state }))
+      : state ? [{ number: options.aircraft?.number, state }] : [];
     visible.sort((a,b) => dot(sub(P(b.state), eye), cameraForward) - dot(sub(P(a.state), eye), cameraForward));
     const meshFaces = [];
     for (const item of visible) {
@@ -764,8 +798,11 @@ export function renderBdp3dView(svg, path, options = {}) {
       if (meshLayer || ink) {
         aircraft.setAttribute("data-render", "canvas");
         put(aircraft);
-        meshFaces.push(...projectMesh(q, r, v, u, meshScale, eye, cameraForward, projection ? at : fastAt));
-        if (fleet.length) { const label = at(q); if (label) put(text({ x: label.x + 10, y: label.y - 10 }, `#${item.number}`, { fill: fleetColor(item.number), 'data-3d-role': 'aircraft-label' })); }
+        const itemScale = cockpit ? meshScale * cockpitEnlarge(q, F16_LENGTH_FT, BDP_3D_VIEW_V0_1.cockpitMinUnits.aircraft) : meshScale;
+        if (cockpit) aircraft.setAttribute("data-cockpit-scale", (itemScale / meshScale).toFixed(2));
+        meshFaces.push(...projectMesh(q, r, v, u, itemScale, eye, cameraForward, projection ? at : fastAt));
+        const labelStyle = cockpit && options.cockpitStyle ? { fill: options.cockpitStyle.label, stroke: options.cockpitStyle.labelHalo } : { fill: fleetColor(item.number) };
+        if (fleet.length || (cockpit && cockpitFleet.length)) { const label = at(q); if (label) put(text({ x: label.x + 14, y: label.y - 14 }, `#${item.number}`, { ...labelStyle, 'data-3d-role': 'aircraft-label' })); }
         continue;
       }
       const faces = aircraftMesh.faces.map(({ vertices, color }) => {
@@ -800,7 +837,19 @@ export function renderBdp3dView(svg, path, options = {}) {
       if (fleet.length) { const label = at(q); if (label) put(text({ x: label.x + 10, y: label.y - 10 }, `#${item.number}`, { fill: fleetColor(item.number), 'data-3d-role': 'aircraft-label' })); }
     }
     if (meshLayer) paintFaces(meshLayer.begin(), meshFaces);
-    else if (ink) paintFaces(ink, meshFaces);
+    else if (ink) {
+      // 0.1.21: a light rim under the cockpit's aircraft, so a dark airframe reads on a dark sky.
+      const halo = cockpit ? options.cockpitStyle?.halo : null;
+      if (halo && meshFaces.length) {
+        ink.save();
+        ink.strokeStyle = halo; ink.lineWidth = 2.6; ink.lineJoin = "round";
+        ink.beginPath();
+        for (const face of meshFaces) { const p = face.points; ink.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) ink.lineTo(p[i], p[i + 1]); ink.closePath(); }
+        ink.stroke();
+        ink.restore();
+      }
+      paintFaces(ink, meshFaces);
+    }
     const putText = (node) => { if (node) timeText.append(node); };
     if (!cockpit && !fleet.length && tNow !== null && !flying) putText(text({ x: 16, y: 46 }, `Roll-in in ${(path.samples[0].t - tNow).toFixed(1)} s`, { "data-3d-role": "state" }));
     if (state && !cockpit) putText(text({ x: 16, y: 46 }, `${path.timeOriginLabel ?? "Roll-in"} ${tNow < 0 ? "−" : "+"}${Math.abs(tNow).toFixed(1)} s · ${String(state.phase).toUpperCase()} · ${Math.round(state.z - path.target.z)} ft AGL · ${Math.round(state.kcas)} KCAS · Bank ${Math.round(Math.abs(state.bankDeg))}°`, { "data-3d-role": "state" }));
