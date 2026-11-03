@@ -3,8 +3,8 @@ import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
 import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath } from "./bdp-flight-path-v0.1.mjs?v=0.1.5";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.21";
-import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.14";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.22";
+import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.15";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
 // Full BDP diagrams panel — BDP-owned presentation reused by every BE that embeds a BDP input tab
@@ -83,7 +83,11 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // dial and its key points under the picture, the HUD's options above it); a phone held landscape puts the menus to the
   // right of the picture and keeps the dial under both (common-ui .bdp-flight-layout). The HUD follows the device's
   // light / dark setting (HUD 0.1.14) and shows the Flight's other aircraft and every bomb in the air (3D 0.1.21).
-  version: "0.14.0",
+  // 0.15.0 (owner 2026-11-03): 3D Bank line 1× / 0.5× / 0.2× / Off; the HUD's PAD LOCK moves under the picture, after
+  // the key points (SEM End); an Aircraft size select (Auto, 1×–10×) joins the HUD's options; a host can state its clock
+  // offset (dial `data-clock-offset-sec`: the host's clock at the path's t = 0), so the key points stay right when its
+  // dial runs past this path's end (the Offset 3D Profile plays until the last aircraft ends its SEM).
+  version: "0.15.0",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -129,6 +133,7 @@ export function renderBdpHudPanel(container, context, scope = "offset-hud") {
   drawHud(container, scope);
 }
 
+const HUD_AIRCRAFT_SCALES = Object.freeze([1, 2, 5, 10]);
 const CONTROL_STYLE = "min-height:32px;padding:4px 6px;font-size:12px;border-radius:9px";
 
 // 3D Profile and HUD View panels (0.8.0). The HUD inputs are only the HUD's own (BDP values are not repeated).
@@ -154,7 +159,7 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
     + `<div class="diagram-actions bdp-flight-menus"><div class="diagram-action-row" data-bdp-3d-controls>`
     + `<label data-bdp-fleet-label hidden>Show aircraft <select data-bdp-3d="fleet" aria-label="3D aircraft selection" style="${CONTROL_STYLE};width:auto"><option value="all">All</option></select></label><span data-bdp-fleet-status role="status"></span>`
     + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Aircraft <select data-bdp-3d="aircraft-scale" style="${CONTROL_STYLE};width:auto" aria-label="Aircraft size (times actual)" title="Aircraft size relative to the real F-16. Auto sizes it to the flight path."><option value="auto" selected>Auto</option>${aircraftScales}</select></label>`
-    + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Bank line <select data-bdp-3d="bank-line" style="${CONTROL_STYLE};width:auto" aria-label="Bank line length (the wing line every 1 s)" title="The wing line drawn every 1 s along the path; its tilt is the bank."><option value="0">Off</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="3">3×</option></select></label>`
+    + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Bank line <select data-bdp-3d="bank-line" style="${CONTROL_STYLE};width:auto" aria-label="Bank line length (the wing line every 1 s)" title="The wing line drawn every 1 s along the path; its tilt is the bank."><option value="1" selected>1×</option><option value="0.5">0.5×</option><option value="0.2">0.2×</option><option value="0">Off</option></select></label>`
     + `<span class="diagram-control-label">Drag: turn · Hold 0.5 s, then drag: pan · Pinch / wheel: zoom</span></div></div>`
     + `<div class="bdp-diagram-canvas bdp-flight-canvas"><svg class="bdp-3d-svg" viewBox="0 0 ${w3} ${h3}" role="img" aria-label="${t3}" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none"></svg></div>`
     + `<div class="bdp-flight-time" data-bdp-time="3d">${threeDTimeMarkup}</div></div>`
@@ -169,10 +174,12 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
     + `<span class="diagram-control-label">FOV</span><select data-bdp-hud="fov" style="${CONTROL_STYLE};width:auto" aria-label="Screen vertical field of view">${fov}</select>`
     + `<button class="capture-button view-toggle" type="button" data-bdp-hud="aoa" aria-pressed="${d.aoa}">AOA: ${d.aoa ? "On" : "Off"}</button>`
     + `<button class="capture-button view-toggle" type="button" data-bdp-hud="fpm-path" aria-pressed="${d.fpmPath}">FPM path: ${d.fpmPath ? "On" : "Off"}</button>`
-    + `<span class="diagram-control-label">PAD LOCK :</span><button class="capture-button view-toggle" type="button" data-bdp-hud="padlock" data-hud-lock="TGT" aria-pressed="false" style="touch-action:none;user-select:none">TGT</button><button class="capture-button view-toggle" type="button" data-hud-lock="WM" aria-pressed="false" disabled style="touch-action:none;user-select:none">WM</button>`
+    + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Aircraft <select data-bdp-hud="aircraft-scale" style="${CONTROL_STYLE};width:auto" aria-label="HUD aircraft size (times actual)" title="Size of the other aircraft seen from the cockpit. Auto enlarges a far aircraft so it stays visible; N× is N times the real F-16."><option value="auto" selected>Auto</option>${HUD_AIRCRAFT_SCALES.map((value) => `<option value="${value}">${value}×</option>`).join("")}</select></label>`
     + `</div></div>`
     + `<div class="bdp-diagram-canvas bdp-flight-canvas"><svg class="bdp-hud-svg" viewBox="0 0 ${wh} ${hh}" role="img" aria-label="${th}"></svg></div>`
-    + `<div class="bdp-flight-time" data-bdp-time="hud">${hudTimeMarkup}</div></div></details>`;
+    + `<div class="bdp-flight-time" data-bdp-time="hud">${hudTimeMarkup}`
+    + `<span class="bdp-padlock-group" data-bdp-padlock-group style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><span class="diagram-control-label">PAD LOCK :</span><button class="capture-button view-toggle" type="button" data-bdp-hud="padlock" data-hud-lock="TGT" aria-pressed="false" style="touch-action:none;user-select:none">TGT</button><button class="capture-button view-toggle" type="button" data-hud-lock="WM" aria-pressed="false" disabled style="touch-action:none;user-select:none">WM</button></span>`
+    + `</div></div></details>`;
   return { threeD, hud };
 }
 
@@ -447,6 +454,7 @@ function hudOptions(container) {
     aoa: control("aoa") ? control("aoa").getAttribute("aria-pressed") === "true" : BDP_HUD_VIEW_V0_1.defaults.aoa,
     fpmPath: control("fpm-path") ? control("fpm-path").getAttribute("aria-pressed") === "true" : BDP_HUD_VIEW_V0_1.defaults.fpmPath,
     theme: hudTheme(),
+    aircraftScale: HUD_AIRCRAFT_SCALES.includes(Number(control("aircraft-scale")?.value)) ? Number(control("aircraft-scale").value) : null,
   };
 }
 
@@ -708,7 +716,7 @@ function installFlightControls(container, scope) {
     container.querySelector('[data-bdp-hud="padlock"]')?.setAttribute("aria-pressed", "false");
     hudZoomTo(1);
   });
-  container.querySelectorAll('[data-bdp-hud="size"], [data-bdp-hud="fov"]').forEach((input) => {
+  container.querySelectorAll('[data-bdp-hud="size"], [data-bdp-hud="fov"], [data-bdp-hud="aircraft-scale"]').forEach((input) => {
     input.addEventListener(input.type === "number" ? "input" : "change", () => drawHud(container, scope));
   });
   container.querySelectorAll('[data-bdp-hud="aoa"], [data-bdp-hud="fpm-path"]').forEach((button) => {
@@ -837,19 +845,24 @@ function syncKeyPoints(container, path) {
       dial.after(row);
       kept = { marks, row, path: null, points: [] };
       keyPointObservers.set(dial, kept);
+      kept.dial = dial;
       const place = () => placeKeyPoints(range, kept);
-      if (typeof MutationObserver === "function") new MutationObserver(place).observe(range, { attributes: true, attributeFilter: ["min", "max"] });
+      if (typeof MutationObserver === "function") {
+        new MutationObserver(place).observe(range, { attributes: true, attributeFilter: ["min", "max"] });
+        new MutationObserver(place).observe(dial, { attributes: true, attributeFilter: ["data-clock-offset-sec"] });
+      }
       row.addEventListener("click", (event) => {
         const button = event.target.closest?.("[data-time-point]");
         if (!button || !kept.path) return;
         const point = kept.points.find((p) => p.key === button.dataset.timePoint);
         if (!point) return;
-        range.value = String(point.t + (Number(range.max) - kept.path.endT));
+        range.value = String(point.t + keyPointOffset(dial, range, kept.path));
         range.dispatchEvent(new Event("input", { bubbles: true }));
       });
     }
     kept.path = path;
     kept.points = bdpFlightKeyPoints(path);
+    const padlock = dial.closest("[data-bdp-diagram]")?.querySelector("[data-bdp-padlock-group]");
     kept.row.replaceChildren(...kept.points.map((p) => {
       const button = document.createElement("button");
       button.type = "button";
@@ -859,14 +872,19 @@ function syncKeyPoints(container, path) {
       button.setAttribute("style", `min-height:26px;padding:2px 8px;font-size:11px;border-left:4px solid ${p.color}`);
       button.textContent = p.label;
       return button;
-    }));
+    }), ...(padlock ? [padlock] : []));
     placeKeyPoints(range, kept);
   });
+}
+// The host's dial value at the path's t = 0: stated by the host, else the dial's end is the path's end.
+function keyPointOffset(dial, range, path) {
+  const stated = Number(dial?.dataset.clockOffsetSec);
+  return dial?.dataset.clockOffsetSec !== undefined && Number.isFinite(stated) ? stated : Number(range.max) - path.endT;
 }
 function placeKeyPoints(range, kept) {
   const min = Number(range.min), max = Number(range.max);
   const ticks = kept.path && max > min ? kept.points.map((p) => {
-    const frac = (p.t + (max - kept.path.endT) - min) / (max - min);
+    const frac = (p.t + keyPointOffset(kept.dial, range, kept.path) - min) / (max - min);
     if (!(frac >= -1e-6 && frac <= 1 + 1e-6)) return null;
     const tick = document.createElement("span");
     tick.dataset.timeMark = p.key;

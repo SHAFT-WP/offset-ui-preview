@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · Standard layout</title>
-<link rel="stylesheet" href="./offset.css?v=2a7a64a638ae">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=2a7a64a638ae">
+<link rel="stylesheet" href="./offset.css?v=c6cd58ad765a">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=c6cd58ad765a">
 </head>
 <body>
 <main class="app" id="offset-calculator">
@@ -63,7 +63,7 @@
         <label class="field advanced-only bdp-extra"><span>Fragment Height Margin (%) <span class="adv-tag">ADV</span></span><input data-key="fragmentHeightMarginPercent" type="text" inputmode="decimal" value="20"></label>
         <label class="field advanced-only bdp-extra" data-level-sem-only><span>SEM Turn <span class="adv-tag">ADV</span></span><select data-key="semTurnType"><option value="LEVEL">Level turn (bank AUTO)</option><option value="SLICE">Slice (entered bank, descends)</option></select><span class="unit">Right at the level-off · speed and G held · Roll-in onsets</span></label>
         <label class="field advanced-only bdp-extra" data-level-sem-only><span>Turn Direction <span class="adv-tag">ADV</span></span><select data-key="semTurnDirection"><option value="">Roll-in direction</option><option value="LEFT">Left</option><option value="RIGHT">Right</option></select><span class="unit">Blank: this aircraft's Roll-in side</span></label>
-        <label class="field advanced-only bdp-extra" data-level-sem-only><span>Turn Amount (deg) <span class="adv-tag">ADV</span></span><input data-key="semTurnDeg" type="text" inputmode="decimal" value="90"><span class="unit">Heading change · 0 = no turn · up to 360</span></label>
+        <label class="field advanced-only bdp-extra" data-level-sem-only><span>Turn Amount (deg) <span class="adv-tag">ADV</span></span><input data-key="semTurnDeg" type="text" inputmode="decimal" value="" placeholder="Auto"><span class="unit">Heading change · blank: turn to the reciprocal of IP → Target · 0 = no turn</span></label>
         <label class="field advanced-only bdp-extra" data-level-sem-only><span>Turn G (G) <span class="adv-tag">ADV</span></span><input data-key="semTurnG" type="text" inputmode="decimal" value="" placeholder="Recovery G"><span class="unit">Sustained · blank: Recovery G</span></label>
         <label class="field advanced-only bdp-extra" data-level-sem-only><span>Turn Speed (kcas) <span class="adv-tag">ADV</span></span><input data-key="semTurnSpeedKcas" type="text" inputmode="decimal" value="" placeholder="Level-off"><span class="unit">Held · blank: the level-off speed</span></label>
         <label class="field advanced-only bdp-extra" data-level-sem-only data-sem-turn-level-only><span>Turn Bank <span class="adv-tag">ADV</span></span><output data-sem-turn-auto-bank>AUTO</output><span class="unit">Level turn: acos(1/G)</span></label>
@@ -182,7 +182,7 @@
         <div class="diagram-action-row time-dial" id="top-view-time-dial" data-time-dial="1" role="group" aria-label="Top View #1 time after IP">
           <span class="diagram-control-label">Time</span>
           <button class="capture-button time-dial-play" type="button" data-time-play aria-pressed="false" title="Play the time dial">Play</button>
-          <button class="capture-button time-dial-speed" type="button" data-time-speed title="Play speed: press for the next (1×, 2× real time)">1×</button>
+          <button class="capture-button time-dial-speed" type="button" data-time-speed title="Play speed: press for the next (1×, 2×, 3× real time)">1×</button>
           <input class="time-dial-range" type="range" min="0" max="1" step="1" value="0" data-time-range aria-label="Seconds after IP">
           <button class="capture-button diagram-scale-output time-dial-output" type="button" data-time-output aria-pressed="false" title="Seconds after IP; press to turn off">Off</button>
         </div>
@@ -228,7 +228,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./controller-v0.1.mjs?v=2a7a64a638ae"></script>
+<script type="module" src="./controller-v0.1.mjs?v=c6cd58ad765a"></script>
 
 </body>
 </html>

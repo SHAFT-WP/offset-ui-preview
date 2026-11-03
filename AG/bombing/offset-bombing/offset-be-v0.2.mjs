@@ -32,9 +32,11 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 // (onset-level-turn 0.1.1).
 // 0.2.14 (2026-10-19, owner): the Level SEM turn inputs pass through to BDP v0.4.3; a blank direction is the
 // aircraft's Roll-in direction.
+// 0.2.16 (owner 2026-11-03): with no Turn Amount entered, the Level SEM turns from the Attack Heading to the reciprocal
+// of the Run-In (IP to Target) heading, in its turn direction (semTurnToRunInReciprocalDeg).
 // 0.2.15 (2026-10-27, owner, POP-UP step 3b): profile.rollInStartFpaDeg / rollInSpeedModel pass through to BDP v0.4.5
 // (the POP-UP Roll-in option); absent, nothing changes.
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.15", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.16", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -134,7 +136,17 @@ export function bdpWindDirectionDeg(profile, attackHeadingDeg) {
   return norm(finite("windDirectionTrueDeg", profile.windDirectionTrueDeg) - finite("attackHeadingDeg", attackHeadingDeg));
 }
 
-function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirection) {
+// Level SEM turn amount when none is entered (owner 2026-11-03, "Ip to target 방향 반대 방향까지 선회"): from the
+// Attack Heading, in the turn's direction, to the reciprocal of the Run-In (IP to Target) heading. 0 = no turn.
+export function semTurnToRunInReciprocalDeg(runInHeadingDeg, attackHeadingDeg, direction) {
+  if (!Number.isFinite(runInHeadingDeg) || !Number.isFinite(attackHeadingDeg)) return undefined;
+  const reciprocal = runInHeadingDeg + 180;
+  const raw = direction === "LEFT" ? attackHeadingDeg - reciprocal : reciprocal - attackHeadingDeg;
+  const change = ((raw % 360) + 360) % 360;
+  return change < 0.5 || change > 359.5 ? 0 : change;
+}
+
+function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirection, runInHeadingDeg) {
   const profile = input.profile ?? {};
   const diveAngleDeg = finite("diveAngleDeg", profile.diveAngleDeg ?? input.diveAngleDeg);
   return {
@@ -167,7 +179,8 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirecti
     // The Level SEM turn (BDP v0.4.3; absent: no turn, Recovery G, the level-off speed). Direction absent: this
     // aircraft's Roll-in direction (owner 2026-10-19).
     semTurnType: profile.semTurnType ?? undefined,
-    semTurnDeg: profile.semTurnDeg ?? undefined,
+    // Absent: the Level SEM turns to the reciprocal of the Run-In heading (owner 2026-11-03).
+    semTurnDeg: profile.semTurnDeg ?? (profile.semEnd === "CLIMB" ? undefined : semTurnToRunInReciprocalDeg(runInHeadingDeg, attackHeadingDeg, profile.semTurnDirection ?? rollDirection)),
     semTurnDirection: profile.semTurnDirection ?? rollDirection ?? undefined,
     semTurnG: profile.semTurnG ?? undefined,
     semTurnSpeedKcas: profile.semTurnSpeedKcas ?? undefined,
@@ -330,7 +343,7 @@ export function calculateOffsetV0_2Full(input) {
     if (!(headings.angleOffDeg > 0 && headings.angleOffDeg < 179.5)) throw new Error("Angle-Off outside supported range");
     const derivedDirection = directionRule(runInHeadingDeg, headings.attackHeadingDeg);
     if (derivedDirection.ambiguous || derivedDirection.attackSide !== direction.attackSide) throw new Error("Heading solve would switch the fixed Offset/Roll-in side");
-    const profile = calculateBombDeliveryV0_4(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg, direction.rollDirection));
+    const profile = calculateBombDeliveryV0_4(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg, direction.rollDirection, runInHeadingDeg));
     return buildOffsetCandidate({
       runInHeadingDeg,
       attackHeadingDeg: headings.attackHeadingDeg,

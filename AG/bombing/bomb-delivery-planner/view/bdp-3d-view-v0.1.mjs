@@ -54,7 +54,11 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // a bomb cockpitMinUnits.bomb), never smaller than real; a bomb seen end-on also gets a dot. The cockpit's aircraft get a
   // light rim (`cockpitStyle.halo`) and their numbers in `cockpitStyle.label` / `labelHalo`, and `gridColor` tints the
   // cockpit grid (all from the HUD's theme).
-  version: "0.1.21",
+  // 0.1.22 (owner 2026-11-03): the outside view's bomb is twice the F-16 mesh scale and has a white halo under its
+  // black body, so it stands out on the sky, the ground and its trajectory; `cockpitAircraftScale` (a number) draws the
+  // cockpit's aircraft at that multiple of their real size instead of the Auto enlargement.
+  version: "0.1.22",
+  bombScaleFactor: 2,
   cockpitMinUnits: Object.freeze({ aircraft: 56, bomb: 18 }),
   canvas: Object.freeze({ width: 900, height: 560 }),
   gesture: Object.freeze({ holdMs: 500, slopCssPx: 8, minPinchCssPx: 10 }),
@@ -512,6 +516,7 @@ export function renderBdp3dView(svg, path, options = {}) {
   const cockpitFocal = cockpit ? options.camera.height / 2 / Math.tan((options.camera.fovDeg * DEG) / 2) : 0;
   const cockpitEnlarge = (q, lengthFt, minUnits) => {
     const depth = dot(sub(q, eye), cameraForward);
+    if (lengthFt === F16_LENGTH_FT && Number.isFinite(options.cockpitAircraftScale) && options.cockpitAircraftScale > 0) return options.cockpitAircraftScale;
     if (!(depth > 1) || !(cockpitFocal > 0)) return 1;
     return Math.max(1, minUnits / (cockpitFocal * lengthFt / depth));
   };
@@ -764,9 +769,10 @@ export function renderBdp3dView(svg, path, options = {}) {
       const bombNow = tNow === null ? null : bombAt(item.path, tNow);
       const bombPoint = bombNow ? at(P(bombNow)) : null;
       if (!bombPoint) continue;
-      const scaleNow = cockpit ? meshScale * cockpitEnlarge(P(bombNow), BOMB_LENGTH_FT, BDP_3D_VIEW_V0_1.cockpitMinUnits.bomb) : meshScale;
+      const scaleNow = cockpit ? meshScale * cockpitEnlarge(P(bombNow), BOMB_LENGTH_FT, BDP_3D_VIEW_V0_1.cockpitMinUnits.bomb) : meshScale * BDP_3D_VIEW_V0_1.bombScaleFactor;
       const outline = bombOutline(item.path, tNow, bombNow, eye, scaleNow, at, P);
       const extra = item.own ? {} : { "data-aircraft-number": item.number };
+      if (outline && !cockpit) put(svgNode("path", { d: outline, fill: "none", stroke: "#ffffff", "stroke-width": 3, "stroke-linejoin": "round", "data-3d-role": "bomb-halo" }));
       put(outline
         ? svgNode("path", { d: outline, fill: "#000000", stroke: "#ffffff", "stroke-width": cockpit ? 1 : 0.6, "stroke-linejoin": "round", "data-3d-role": "bomb", "data-bomb-shape": "outline", ...extra })
         : svgNode("circle", { cx: bombPoint.x.toFixed(1), cy: bombPoint.y.toFixed(1), r: 4.5, fill: "#000000", stroke: "#ffffff", "stroke-width": 1.2, "data-3d-role": "bomb", ...extra }));

@@ -8,18 +8,19 @@
 // - Play runs the clock at real time × the speed and draws at most every `frameMs` (30 frames a second: a slower
 //   device draws fewer frames, the clock follows real time). It stops at the dial's end or the copy's window end;
 //   pressing Play again, moving a range or turning the clock off stops it.
-// - The speed button steps through `speeds` (default 1× → 2× → 1×, owner 2026-10-22); any other value plays at the
+// - The speed button steps through `speeds` (default 1× → 2× → 3× → 1×, owner 2026-11-03); any other value plays at the
 //   nearest step at or below it, never above the last. A change during Play keeps the clock where it is. Every
 //   dial shows the one speed.
 
-export const TIME_DIAL_V0_1 = Object.freeze({ id: "common-time-dial-v0.1", version: "0.1.1" });
+export const TIME_DIAL_V0_1 = Object.freeze({ id: "common-time-dial-v0.1", version: "0.1.2" });
+// 0.1.2 (owner 2026-11-03, "Play 배속은 1x 2x 3x로 구성"): the speed steps are 1× → 2× → 3× → 1×.
 // 0.1.1 (2026-11-01, Play speed): a dial writes an attribute or text only when it changes. Play mirrors every dial
 // each frame; rewriting the same values still invalidated the page's style and made each frame's layout slower.
 const setAttr = (el, name, value) => { if (el && el.getAttribute(name) !== value) el.setAttribute(name, value); };
 const setText = (el, value) => { if (el && el.textContent !== value) el.textContent = value; };
 const setProp = (el, name, value) => { if (el && el[name] !== value) el[name] = value; };
 
-export const TIME_PLAY_SPEEDS_DEFAULT = Object.freeze([1, 2]);
+export const TIME_PLAY_SPEEDS_DEFAULT = Object.freeze([1, 2, 3]);
 export const TIME_PLAY_FRAME_MS_DEFAULT = 1000 / 30;
 
 // One dial's markup. The labels name the consumer's clock (the Offset page: "… time after IP", "Seconds after IP").

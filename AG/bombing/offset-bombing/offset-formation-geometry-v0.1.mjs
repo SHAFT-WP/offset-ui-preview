@@ -33,9 +33,10 @@ export const OFFSET_FORMATION_GEOMETRY_V0_1 = Object.freeze({
   // 0.1.9 (2026-10-15, owner R3): profile.fragmentMarginAppliesTo passes through to BDP v0.4.1.
   // 0.1.10 (2026-10-19, owner): the Level SEM turn inputs pass through to BDP v0.4.3 (direction absent: the
   // aircraft's Roll-in direction).
+  // 0.1.12 (owner 2026-11-03): no Turn Amount entered: the Level SEM turns to the reciprocal of the Run-In heading.
   // 0.1.11 (2026-10-27, owner, POP-UP step 3b): profile.rollInStartFpaDeg / rollInSpeedModel pass through to BDP
   // v0.4.5; absent, nothing changes.
-  version: "0.1.11",
+  version: "0.1.12",
   status: "work",
   purpose:
     "Off-axis Offset geometry for a Flight follower whose IP is displaced from the shared Target-through Run-In axis by its Formation position, while Target and Run-In heading stay shared with its element lead. Reuses offset-geometry-v0.2.mjs's pure heading/vector helpers without modifying offset-be-v0.2.mjs or offset-geometry-v0.2.mjs's own single-aircraft (on-axis) contract.",
@@ -60,7 +61,17 @@ function speedToTas(speedValue, speedMode, altitudeMslFt) {
   return speedMode === "MACH" ? machToTas(speedValue, altitudeMslFt) : casToTas(speedValue, altitudeMslFt);
 }
 
-function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirection) {
+// Level SEM turn amount when none is entered (owner 2026-11-03, "Ip to target 방향 반대 방향까지 선회"): from the
+// Attack Heading, in the turn's direction, to the reciprocal of the Run-In (IP to Target) heading. 0 = no turn.
+export function semTurnToRunInReciprocalDeg(runInHeadingDeg, attackHeadingDeg, direction) {
+  if (!Number.isFinite(runInHeadingDeg) || !Number.isFinite(attackHeadingDeg)) return undefined;
+  const reciprocal = runInHeadingDeg + 180;
+  const raw = direction === "LEFT" ? attackHeadingDeg - reciprocal : reciprocal - attackHeadingDeg;
+  const change = ((raw % 360) + 360) % 360;
+  return change < 0.5 || change > 359.5 ? 0 : change;
+}
+
+function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirection, runInHeadingDeg) {
   const profile = input.profile ?? {};
   const diveAngleDeg = finite("diveAngleDeg", profile.diveAngleDeg ?? input.diveAngleDeg);
   return {
@@ -93,7 +104,8 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirecti
     // The Level SEM turn (BDP v0.4.3; absent: no turn, Recovery G, the level-off speed). Direction absent: this
     // aircraft's Roll-in direction (owner 2026-10-19).
     semTurnType: profile.semTurnType ?? undefined,
-    semTurnDeg: profile.semTurnDeg ?? undefined,
+    // Absent: the Level SEM turns to the reciprocal of the Run-In heading (owner 2026-11-03).
+    semTurnDeg: profile.semTurnDeg ?? (profile.semEnd === "CLIMB" ? undefined : semTurnToRunInReciprocalDeg(runInHeadingDeg, attackHeadingDeg, profile.semTurnDirection ?? rollDirection)),
     semTurnDirection: profile.semTurnDirection ?? rollDirection ?? undefined,
     semTurnG: profile.semTurnG ?? undefined,
     semTurnSpeedKcas: profile.semTurnSpeedKcas ?? undefined,
@@ -253,7 +265,7 @@ export function calculateOffAxisOffsetFull(input) {
     if (!(headings.angleOffDeg > 0 && headings.angleOffDeg < 179.5)) throw new Error("Angle-Off outside supported range");
     const derivedDirection = directionRule(runInHeadingDeg, headings.attackHeadingDeg);
     if (derivedDirection.ambiguous || derivedDirection.attackSide !== direction.attackSide) throw new Error("Heading solve would switch the fixed Offset/Roll-in side");
-    const profile = calculateBombDeliveryV0_4(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg, direction.rollDirection));
+    const profile = calculateBombDeliveryV0_4(canonicalProfileInput(input, headings.angleOffDeg, headings.attackHeadingDeg, direction.rollDirection, runInHeadingDeg));
     return buildOffAxisOffsetCandidate({
       runInHeadingDeg,
       ipPoint,

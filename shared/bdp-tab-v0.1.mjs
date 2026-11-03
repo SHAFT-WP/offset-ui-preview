@@ -20,7 +20,9 @@
 
 // 0.1.2 (2026-11-02, owner): the BDP Profile shows the NLT Release (a BDP result, read only) right after Release
 // Altitude, in the BDP tab and in every pattern tab's copy; syncBdpNltRelease fills it from the BDP result.
-export const BDP_TAB_V0_1 = Object.freeze({ id: "bombing-bdp-tab-v0.1", version: "0.1.2" });
+// 0.1.3 (2026-11-03, owner): a page may give the SEM Turn Amount its own note and placeholder (Offset: blank turns
+// to the reciprocal of the IP → Target heading).
+export const BDP_TAB_V0_1 = Object.freeze({ id: "bombing-bdp-tab-v0.1", version: "0.1.3" });
 
 // The NLT Release readout (BDP result) shown after Release Altitude; pages that hand-write their BDP Profile use it too.
 export const NLT_RELEASE_FIELD = `<label class="field"><span>NLT Release (ft MSL)</span><output class="readout" data-bdp-nlt-release>-</output><span class="unit">Result · BDP minimum release altitude</span></label>`;
@@ -107,12 +109,12 @@ export function turnOnsetFieldsMarkup({ turnNote = "pattern Level Turns", extraC
 }
 
 // SEM / Recovery (group 6) with the SEM Turn inside it.
-export function semRecoveryFieldsMarkup({ follower = null } = {}) {
+export function semRecoveryFieldsMarkup({ follower = null, turnAmount = null } = {}) {
   const level = { attrs: " data-level-sem-only", follower };
   return select("semEnd", "SEM End", [["LEVEL", "Level (pull to FPA 0°, then 1 G)"], ["CLIMB", "CSEM (climb to Target FPA)"]], "Every BDP view flies this SEM", { follower, followChoice: true })
     + select("semTurnType", "SEM Turn", [["LEVEL", "Level turn (bank AUTO)"], ["SLICE", "Slice (entered bank, descends)"]], "Right at the level-off · speed and G held · Roll-in onsets", { ...level, followChoice: true })
     + select("semTurnDirection", "Turn Direction", [["", "Roll-in direction"], ["LEFT", "Left"], ["RIGHT", "Right"]], follower ? "This aircraft's own · blank: its Roll-in side" : "Blank: this aircraft's Roll-in side", level)
-    + field("semTurnDeg", "Turn Amount (deg)", "Heading change · 0 = no turn · up to 360", level)
+    + field("semTurnDeg", "Turn Amount (deg)", turnAmount?.note ?? "Heading change · 0 = no turn · up to 360", { ...level, placeholder: turnAmount?.placeholder ?? "" })
     + field("semTurnG", "Turn G (G)", "Sustained · blank: Recovery G", { ...level, placeholder: "Recovery G" })
     + field("semTurnSpeedKcas", "Turn Speed (kcas)", "Held · blank: the level-off speed", { ...level, placeholder: "Level-off" })
     + `<label class="field" data-level-sem-only data-sem-turn-level-only><span>Turn Bank</span><output data-sem-turn-auto-bank>AUTO</output><span class="unit">Level turn: acos(1/G)</span></label>`
@@ -129,7 +131,7 @@ export function semRecoveryFieldsMarkup({ follower = null } = {}) {
 // The BDP section's content (head + groups) of aircraft `number`. weapons: [{ id, label }] for the Bomb select.
 // angleOff: as bdpProfileFieldsMarkup. turnNote: as turnOnsetFieldsMarkup. targetNote / windNote: the Target
 // Elevation and Wind Direction notes. follower: the follower form (above).
-export function bdpTabMarkup({ number = 1, weapons = [], angleOff = null, turnNote, targetNote = "Target MSL", windNote = "TRUE · wind FROM", follower = null } = {}) {
+export function bdpTabMarkup({ number = 1, weapons = [], angleOff = null, turnNote, targetNote = "Target MSL", windNote = "TRUE · wind FROM", follower = null, turnAmount = null } = {}) {
   const options = weapons.map((weapon) => `<option value="${esc(weapon.id)}">${esc(weapon.label ?? weapon.id)}</option>`).join("");
   const bomb = `<label class="field${follower ? " flight-weapon-field" : ""}"><span>Bomb</span><select ${keyAttr("weaponId", follower)}>${options}</select><span class="unit">BDP weapon database</span></label>`;
   const wind = follower
@@ -141,7 +143,7 @@ export function bdpTabMarkup({ number = 1, weapons = [], angleOff = null, turnNo
     + group("BDP Profile", bdpProfileFieldsMarkup({ angleOff, follower }), { full: true })
     + group("Roll-in Turn", rollInTurnFieldsMarkup({ follower }))
     + group("Turn Onset", turnOnsetFieldsMarkup({ turnNote, follower }))
-    + `<div class="bdp-tab-group bdp-full-only bdp-extra"><h3 class="input-group-title">SEM / Recovery</h3><div class="input-grid">${semRecoveryFieldsMarkup({ follower })}</div><div data-sem-readouts></div></div>`;
+    + `<div class="bdp-tab-group bdp-full-only bdp-extra"><h3 class="input-group-title">SEM / Recovery</h3><div class="input-grid">${semRecoveryFieldsMarkup({ follower, turnAmount })}</div><div data-sem-readouts></div></div>`;
 }
 
 // Record keys of the BDP tab (its Tab Default restores these). Angle-Off is the pattern's, never the BDP tab's.

@@ -11,7 +11,7 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // The BE runs in a Worker (offset-flight-worker-v0.1.mjs); Common calculation-client-v0.1.mjs decides when a
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
-import { FORMATION_TEMPLATES, OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.12";
+import { FORMATION_TEMPLATES, OFFSET_FLIGHT_V0_1 } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.13";
 // Flight Formation top view (Flight Bombing Tactics view, owner 2026-11-02): draws the BE's flightName.formation.
 import { formationTopViewSvg } from "./flight/flight-bombing-tactics/view/formation-top-view-v0.1.mjs?v=0.2.0";
 import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
@@ -29,7 +29,7 @@ import { installSmartLabelDrag } from "./common/diagram/svg-smart-label-v0.1.mjs
 import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
-import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.1";
+import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.2";
 // DED boxes, texts and PNG: bombing app shared FE (2026-10-22); the DED record is the Flight BE's.
 import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.3";
 // BDP Result rows and Fragment Data readouts: bombing app shared FE (2026-10-22).
@@ -45,7 +45,7 @@ import { createPresetStore, createSaveRun, savedTimeText } from "./shared/save-s
 // The shown-aircraft set and its #1–#4 buttons: bombing app shared FE (2026-10-22).
 import { createShownAircraft, installShownAircraftClicks } from "./shared/flight-ui-v0.1.mjs?v=0.1.0";
 // The BDP tab of index #1–#4 (owner composition 2026-10-25): bombing app shared FE, as on the BOX page.
-import { BDP_TAB_KEYS, NLT_RELEASE_FIELD, bdpTabMarkup, syncBdpNltRelease } from "./shared/bdp-tab-v0.1.mjs?v=0.1.2";
+import { BDP_TAB_KEYS, NLT_RELEASE_FIELD, bdpTabMarkup, syncBdpNltRelease } from "./shared/bdp-tab-v0.1.mjs?v=0.1.3";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.10";
@@ -56,7 +56,7 @@ import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-b
 import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.5";
 import { popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.14.0";
+import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.15.0";
 
 import { buildOffsetHudAircraft, offsetHudGridStep } from "./AG/bombing/offset-bombing/view/offset-hud-scene-v0.1.mjs?v=0.1.3";
 
@@ -116,7 +116,7 @@ const OFFSET_DEFAULT_INPUT_VALUES = Object.freeze({
   // blank direction = the Roll-in side, blank G = Recovery G, blank speed = the level-off speed.
   semTurnType: "LEVEL",
   semTurnDirection: "",
-  semTurnDeg: "90",
+  semTurnDeg: "",
   semTurnG: "",
   semTurnSpeedKcas: "",
   semTurnBankDeg: "85",
@@ -709,7 +709,7 @@ let topViewStale = false;
 let topViewDrawnAt = -Infinity;
 let topViewOnScreen = true;
 // redraw: draw the Top View a Play left behind (not when the caller sets the clock next).
-const timePlayer = createTimePlayer({ speeds: [1, 2], onStop: ({ redraw }) => { if (redraw && topViewStale) renderTopView(); } });
+const timePlayer = createTimePlayer({ speeds: [1, 2, 3], onStop: ({ redraw }) => { if (redraw && topViewStale) renderTopView(); } });
 // The Offset clock (seconds after IP): the Top View, and the BDP Profiles, 3D Profiles and HUD Views follow it
 // (owner 2026-10-15, R5 / R6). `playing`: a Play frame, which may leave the Top View for later.
 function setOffsetClock(timeSec, { playing = false } = {}) {
@@ -758,12 +758,14 @@ function flightDialWindow(dial) {
   const result = flightResultOf(number);
   const kind = dial.dataset.timeDial.startsWith("3d-") ? "3d" : "hud";
   const popup = POPUP_MODE ? popupFull.get(number) ?? null : null;
+  // The 3D window also ends with the Flight's other aircraft: kept against every aircraft's result.
+  const flightKey = kind === "3d" ? [1, 2, 3, 4].map((n) => flightResultOf(n) ?? null) : null;
   const kept = result ? dialWindows.get(result)?.[kind] : undefined;
-  if (kept && kept.popup === popup) return kept.window;
+  if (kept && kept.popup === popup && (!flightKey || kept.flightKey?.every((r, i) => r === flightKey[i]))) return kept.window;
   const startSec = kind === "3d" ? threeDStartClockSec(number) : hudStartClockSec(number);
-  const endSec = hudEndClockSec(number);
+  const endSec = kind === "3d" ? threeDEndClockSec(number) : hudEndClockSec(number);
   const window = Number.isFinite(endSec) && endSec > startSec ? { startSec, endSec } : null;
-  if (result && window) dialWindows.set(result, { ...dialWindows.get(result), [kind]: { popup, window } });
+  if (result && window) dialWindows.set(result, { ...dialWindows.get(result), [kind]: { popup, window, flightKey } });
   return window;
 }
 function mirrorTimeDial(dial) {
@@ -1533,7 +1535,7 @@ function clearPendingInputStates() {
 // Angle-Off) and SEM / Recovery with the SEM Turn inside it. The Offset tab keeps its BDP Profile and Roll-in
 // Condition copies: a field and its copy are one value. A follower's Target Elevation is its own once entered
 // (blank: its element lead's), Wind stays the Flight's. Standard keeps its own BDP tab.
-const INDEX_BDP_TAB = Object.freeze({ angleOff: { key: "angleOffDeg", lock: true, note: "Offset Geometry · Approaching Heading → Attack Heading" }, turnNote: "Offset Turn" });
+const INDEX_BDP_TAB = Object.freeze({ angleOff: { key: "angleOffDeg", lock: true, note: "Offset Geometry · Approaching Heading → Attack Heading" }, turnNote: "Offset Turn", turnAmount: { placeholder: "Auto", note: "Heading change · blank: turn to the reciprocal of IP → Target · 0 = no turn" } });
 // Follower LOCK / LINK option keys of the BDP Profile copy (the Offset tab's, one value).
 const FOLLOWER_BDP_LOCKS = Object.freeze({ rollInAltitudeMslFt: "rollInAltitudeLocked", diveAngleDeg: "diveAngleLocked", angleOffDeg: "angleOffLocked" });
 // Keys of the index BDP tab that are Offset's (its Angle-Off copy): never reset by the BDP Tab Default.
@@ -1695,6 +1697,18 @@ function hudEndClockSec(number) {
   } catch (_) { return Infinity; }
 }
 
+// The 3D Profile plays until the last aircraft of the Flight ends its SEM (owner 2026-11-03, "마지막 기체가 선회를
+// 마칠 때까지 play"): the latest window end among the Flight's aircraft, never before this aircraft's own.
+function threeDEndClockSec(number) {
+  const own = hudEndClockSec(number);
+  let latest = Number.isFinite(own) ? own : -Infinity;
+  try { for (const entry of offsetHudContext(number).aircraft) if (Number.isFinite(entry.endSec) && entry.endSec > latest) latest = entry.endSec; } catch (_) { /* own window only */ }
+  return Number.isFinite(latest) ? latest : own;
+}
+function rollInClockSecOf(number) {
+  try { return timelineOf(flightResultOf(number)).legs.find((leg) => leg.phase === "roll-in").startSec; } catch (_) { return null; }
+}
+
 function refreshBdpDiagrams(number) {
   const target = bdpDiagramsContainer(number);
   if (!target?.container || !target.section.classList.contains("show-full-views")) return;
@@ -1736,7 +1750,10 @@ function refreshBdpDiagrams(number) {
     installTimeDial(hudDial, setOffsetClock, { startSec: () => hudStartClockSec(number), endSec: () => hudEndClockSec(number) });
     mirrorTimeDial(hudDial);
     const threeDDial = target.container.querySelector(`[data-time-dial="3d-${number}"]`);
-    installTimeDial(threeDDial, setOffsetClock, { startSec: () => threeDStartClockSec(number), endSec: () => hudEndClockSec(number) });
+    installTimeDial(threeDDial, setOffsetClock, { startSec: () => threeDStartClockSec(number), endSec: () => threeDEndClockSec(number) });
+    // The key points under the 3D / HUD dials: this aircraft's Roll-in on the Offset clock (diagrams panel 0.15.0).
+    const rollInClockSec = rollInClockSecOf(number);
+    for (const dial of [hudDial, threeDDial]) if (dial && Number.isFinite(rollInClockSec) && dial.dataset.clockOffsetSec !== String(rollInClockSec)) dial.dataset.clockOffsetSec = String(rollInClockSec);
     mirrorTimeDial(threeDDial);
   } catch {
     clearBdpDiagrams(target.container);
@@ -2198,7 +2215,7 @@ function followerCalculatingMarkup(number) {
     + `<div class="field"><span>Pop-up Range (NM)</span><output class="readout" data-popup-range-out>-</output><span class="unit">Pop-up Point → Target · result</span></div>`
     + `<label class="field"><span>Exposure Time (sec)</span><input data-flight-field="popupExposureTimeSec" type="text" inputmode="decimal"><span class="unit">Pop Point → Apex · MIL</span></label>`
     + `<label class="field"><span>Popup G (G)</span><input data-flight-field="popupG" type="text" inputmode="decimal"><span class="unit" data-follow-note></span></label>`
-    + `<div class="field"><span>Pop-up Angle</span><span class="compound"><button class="btn" type="button" data-popup-auto>AUTO</button><button class="btn" type="button" data-popup-lead aria-pressed="false">Pop with #1</button></span><span class="unit">AUTO: Dive Angle + 10° (Dive ≤ 15°: +5°) · Pop with #1: #1's Pop time (angle solved)</span></div>`
+    + `<div class="field"><span>Pop-up Angle</span><span class="compound"><button class="btn" type="button" data-popup-auto>AUTO</button><button class="btn" type="button" data-popup-lead aria-pressed="false">Pop with #1</button></span><span class="unit">AUTO: Dive ≤ 15° → Dive + 5°, Dive > 15° → Dive + 10° · Pop with #1: #1's Pop time (angle solved)</span></div>`
     + `<div class="field"><span>Popup Angle Min. Exposure</span><span class="compound"><button class="btn" type="button" data-popup-min>Calculate</button><output class="readout" data-popup-min-out>-</output><button class="btn" type="button" data-popup-min-apply hidden>Apply</button></span><span class="unit">Popup angle with the shortest Pop → Apex</span></div>`
     + `</div></details>`;
   const inputSections = INDEX_LAYOUT ? [
@@ -2557,7 +2574,7 @@ function applyFollowerState(number, record, sent, activeKey, commit) {
 // no longer an extra: it is BDP v0.4's result, owner 2026-10-15.)
 const FOLLOWER_EXTRA_DIGITS = { fragmentHeightMarginPercent: 0, recoveryG: 1, speedOvershootKcas: 0, gOnsetTimeSec: 1, rollInG: 1, rollInRollRateDegSec: 0, rollOutRollRateDegSec: 0, gOnsetRateGSec: 1, csemTargetFpaDeg: 0, semTurnDeg: 0, semTurnG: 1, semTurnSpeedKcas: 0, semTurnBankDeg: 0, targetElevationMslFt: 0 };
 // What a blank (followed) entry means when the lead's is blank too.
-const FOLLOWER_EXTRA_PLACEHOLDERS = { semTurnG: "Recovery G", semTurnSpeedKcas: "Level-off" };
+const FOLLOWER_EXTRA_PLACEHOLDERS = { semTurnDeg: "Auto", semTurnG: "Recovery G", semTurnSpeedKcas: "Level-off" };
 const followerExtraText = (key, value) => String(Number(value.toFixed(FOLLOWER_EXTRA_DIGITS[key])));
 function syncFollowerExtraFields(slot, entry, result, leadNumber) {
   const number = Number(slot.dataset.aircraft);
@@ -2975,8 +2992,8 @@ installDedPngClicks({ visibleAircraft: () => offsetIndexUi.visibleAircraft(), ex
 const NON_NUMERIC_INPUTS = new Set(["weaponId", "initialSpeedMode", "offsetSpeedMode", "semEnd", "semTurnType", "semTurnDirection"]);
 // Keys added after presets existed (2026-10-18 / 2026-10-19): a preset without them is still valid (built-in default).
 const PRESET_OPTIONAL_KEYS = new Set(["semEnd", "csemTargetFpaDeg", "semTurnType", "semTurnDirection", "semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg"]);
-// Numbers whose blank is a value (Turn G: Recovery G, Turn Speed: the level-off speed).
-const PRESET_BLANK_KEYS = new Set(["semTurnG", "semTurnSpeedKcas"]);
+// Numbers whose blank is a value (Turn Amount: to the IP → Target reciprocal, Turn G: Recovery G, Turn Speed: the level-off speed).
+const PRESET_BLANK_KEYS = new Set(["semTurnDeg", "semTurnG", "semTurnSpeedKcas"]);
 function validDefaultPreset(stored) {
   if (!stored || typeof stored !== "object") return null;
   const record = stored.schemaVersion === 1

@@ -1,6 +1,6 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
-import { bdpCanvasLayer, renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.21";
+import { bdpCanvasLayer, renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.22";
 
 // BDP HUD view v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.3 in SVG). A first-person
 // view from the aircraft of a BDP flight path at time t: an F-16-style HUD square of `hudSizeDeg` (default 14°,
@@ -31,7 +31,9 @@ export const BDP_HUD_VIEW_V0_1 = Object.freeze({
   // BDP_HUD_THEMES) paints a graded sky and ground on either side of the horizon (lighter toward it, as haze) and sets
   // the HUD ink, the world grid and the marker colours for that theme; `fleet` (the Flight's other aircraft: number,
   // state, path) and their bombs are drawn in the cockpit scene (3D view 0.1.21), enlarged to stay visible.
-  version: "0.1.14",
+  // 0.1.15 (owner 2026-11-03, "기체 사이즈 옵션을 위 컨트롤 박스에 추가"): `aircraftScale` (null: Auto, the enlargement that
+  // keeps each aircraft visible; a number: that multiple of the real F-16) for the cockpit's aircraft (3D 0.1.22).
+  version: "0.1.15",
   fovLimitsDeg: Object.freeze([5, 150]),
   canvas: Object.freeze({ width: 720, height: 540 }),
   ladderStepDeg: 5,
@@ -189,7 +191,7 @@ export function renderBdpHudView(svg, path, options = {}) {
   // padlock use the very same axes as the overlay below; the external marker scale is never passed in.
   if (worldLayer.foreign) root.append(worldLayer.foreign);
   const world = svgNode("svg");
-  renderBdp3dView(world, path, { timeSec: shownT, aircraft: o.otherAircraft, fleet: o.fleet, gridStepFt: o.gridStepFt, gridColor: theme.grid, cockpitStyle: { halo: theme.aircraftHalo, label: theme.label, labelHalo: theme.labelHalo }, ctx: ink, camera: { eye: pos, forward, right: camRight, up: camUp, fovDeg, width: W, height: H } });
+  renderBdp3dView(world, path, { timeSec: shownT, aircraft: o.otherAircraft, fleet: o.fleet, cockpitAircraftScale: o.aircraftScale ?? null, gridStepFt: o.gridStepFt, gridColor: theme.grid, cockpitStyle: { halo: theme.aircraftHalo, label: theme.label, labelHalo: theme.labelHalo }, ctx: ink, camera: { eye: pos, forward, right: camRight, up: camUp, fovDeg, width: W, height: H } });
   const scene = world.firstElementChild;
   scene.setAttribute("data-hud-role", "scene");
   root.append(scene);

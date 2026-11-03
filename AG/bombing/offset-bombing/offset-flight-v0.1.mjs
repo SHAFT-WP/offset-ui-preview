@@ -61,7 +61,7 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // ranges for display. The Flight edit "formationTemplate" { name, side } places #2–#4 from a Form template (the
   // name stays the one the places give); flightName.formation.places gives each aircraft's place in #1's frame for the
   // Formation top view. No bearing ahead of abeam and no negative range (Flight Bombing Tactics formation-v0.1 0.3.0).
-  version: "0.1.12",
+  version: "0.1.13",
   status: "work",
   schemaVersion: 2,
   components: Object.freeze({
@@ -117,9 +117,11 @@ const FOLLOWER_FALLBACK_DRIVERS = Object.freeze({ actionRangeNm: "offsetAngleDeg
 // optional semTurnG / semTurnSpeedKcas / semTurnBankDeg follow the lead's entry, whose blank means Recovery G / the
 // level-off speed / none. semTurnDirection is each aircraft's own (blank: its own Roll-in direction).
 // 2026-10-26 (0.1.8, owner 2026-10-25): targetElevationMslFt joins them (each aircraft's own once entered).
-export const OFFSET_FLIGHT_INHERITED_KEYS = Object.freeze(["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "semTurnDeg", "targetElevationMslFt"]);
+export const OFFSET_FLIGHT_INHERITED_KEYS = Object.freeze(["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "targetElevationMslFt"]);
 export const OFFSET_FLIGHT_INHERITED_TEXT_KEYS = Object.freeze(["semEnd", "semTurnType"]);
-export const OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS = Object.freeze(["semTurnG", "semTurnSpeedKcas", "semTurnBankDeg"]);
+// 0.1.13 (owner 2026-11-03): semTurnDeg is optional too; blank all the way to the lead: the Offset BE turns the Level SEM
+// to the reciprocal of the Run-In heading (offset BE 0.2.16).
+export const OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS = Object.freeze(["semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg"]);
 const SEM_ENDS = Object.freeze(["LEVEL", "CLIMB"]);
 const semEndOf = (value) => (SEM_ENDS.includes(value) ? value : undefined);
 const SEM_TURN_TYPES = Object.freeze(["LEVEL", "SLICE"]);
