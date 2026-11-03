@@ -35,7 +35,7 @@ import { formatDeg, formatG, formatNm, formatSec, formatSecTenths } from "../../
 // 보여준 결과물로 하자"): the default is the last one shown, +2 — body 17, title 29.
 export const POPUP_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "popup-z-diagram-v0.1",
-  version: "0.1.4",
+  version: "0.1.5",
   ticks: Object.freeze(["ROLL_IN", "PULL_DOWN"]),
   canvas: Object.freeze({ width: 650, height: 520 }),
   // 0.1.4 (owner 2026-11-03, "롤인 alt라인부터 그 아래까지 2줄 밀자", then "두줄 말고 한줄만"): the Roll-in / Pull Down line, its rule and the
@@ -64,7 +64,7 @@ export const POPUP_Z_LEGEND = Object.freeze([
   { key: "offsetTurnG", label: "Offset Turn G" },
   { key: "approachingHeading", label: "Approaching Heading", advanced: true },
   { key: "popupG", label: "Popup G" },
-  { key: "popupToRollIn", label: "Pop-up to Roll-in", advanced: true },
+  { key: "popupToRollIn", label: "Pop to Roll-in Distance", advanced: true },
   { key: "map", label: "MAP", advanced: true },
   { key: "rollInBank", label: "Roll-in Bank Angle", advanced: true },
   { key: "rollInG", label: "Roll-in G" },
@@ -103,7 +103,8 @@ export function buildPopupZDiagramData(result, popup, { tick = "ROLL_IN", advanc
     : { label: "PULL DOWN ALT", altitudeMslFt: pullDown?.altitudeMslFt ?? null };
   return {
     supported: true,
-    title: `${Math.round(input.diveAngleDeg)} ${profileName(input)}`,
+    // 0.1.5 (owner 2026-11-03, "z 다이어그램 헤더 처음에 #1 #2 글자를 넣어줘 출력할 때 헷갈림"): the aircraft number first.
+    title: `#${aircraftNumber} ${Math.round(input.diveAngleDeg)} ${profileName(input)}`,
     diveAngleDeg: input.diveAngleDeg,
     climbAngleDeg: popup.popupAngleDeg,
     tick,

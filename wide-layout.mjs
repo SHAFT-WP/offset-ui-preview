@@ -5,8 +5,8 @@
 // shared set of shown aircraft. This module gives the Offset tabs and what each draws.
 // SEM & Rejoin (2026-10-13): its own module, mounted once into the S&R input tab and the centre
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=1149c62dbf05";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=1149c62dbf05";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=2a7a64a638ae";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=2a7a64a638ae";
 import { mountWideWorkspace } from "./shared/wide-workspace-v0.1.mjs?v=0.1.2";
 
 const app = document.getElementById("offset-calculator");
@@ -16,7 +16,9 @@ let semRejoin = null;
 // Tab order (owner 2026-10-07): BDP, Offset, Formation (#2-#4), Save/Load (renamed from Save 2026-10-11). Offset stays the tab shown on
 // first entry. #1 has no Formation tab (owner 2026-10-07): its Reference Point (VRP / VIP, IP) sits on top
 // of the Offset tab, as on the standard page. S&R (2026-10-13) follows Offset, for every aircraft.
-const INPUT_TABS = [["bdp", "BDP"], ["offset", "Offset"], ["sr", "S&R"], ["reference", "Formation", { hidden: (editAircraft) => editAircraft === 1 }], ["save", "Save/Load"]];
+// The POP-UP page names the Offset tab "Pop-Up" (owner 2026-11-03).
+const OFFSET_TAB_LABEL = document.body.classList.contains("popup-page") ? "Pop-Up" : "Offset";
+const INPUT_TABS = [["bdp", "BDP"], ["offset", OFFSET_TAB_LABEL], ["sr", "S&R"], ["reference", "Formation", { hidden: (editAircraft) => editAircraft === 1 }], ["save", "Save/Load"]];
 // An input tab brings its centre view with it (handoff 2026-10-13 §3): S&R → SEM & Rejoin, BDP → BDP,
 // Offset → Offset Top View. A centre tab changes the centre only (owner 2026-10-22). Formation, Save/Load
 // and the right-hand tabs keep the other panes.
