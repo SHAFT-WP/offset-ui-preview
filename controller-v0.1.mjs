@@ -1720,13 +1720,16 @@ function threeDStartClockSec(number) {
     return rollLeg.startSec + approach.startSec;
   } catch (_) { return hudStartClockSec(number); }
 }
-// HUD Play from off or the end starts at this aircraft's Roll-in −3 s on the Offset clock (not before the IP).
+// HUD Play from off or the end starts at the IP (owner 2026-11-03, "허드 뷰도 ip부터 재생"), like the POP-UP 3D
+// Profile; it was this aircraft's Roll-in −3 s. Without the Offset → Roll-in altitude transition the aircraft has no
+// path before its Roll-in, so Play starts there.
 function hudStartClockSec(number) {
+  if (POPUP_MODE) return 0;
   try {
     const rollLeg = timelineOf(flightResultOf(number)).legs.find((leg) => leg.phase === "roll-in");
     const result = flightResultOf(number);
     const missingTransition = !popupBdpApproach(number) && Math.abs(result.resolved.offsetAltitudeMslFt - result.profile.public.resolvedInitialAltitudeMslFt) > 1;
-    return Math.max(0, rollLeg.startSec - (missingTransition ? 0 : 3));
+    return missingTransition ? Math.max(0, rollLeg.startSec) : 0;
   } catch (_) { return 0; }
 }
 
