@@ -9,8 +9,8 @@ import { createCalculationScheduler, createWorkerTransport } from "../common/cal
 import { WEAPON_DATABASE_V0_1 } from "../AG/bombing/bomb-delivery-planner/weapon-data-v0.1.mjs";
 import {
   BDP_FIELD_DIGITS, BDP_TAB_KEYS, bdpProfileFieldsMarkup, bdpTabMarkup, rollInTurnFieldsMarkup, syncLinkButtons, syncSemChoices, turnOnsetFieldsMarkup,
-} from "../shared/bdp-tab-v0.1.mjs?v=0.1.3";
-import { syncBdpNltRelease } from "../shared/bdp-tab-v0.1.mjs?v=0.1.3";
+} from "../shared/bdp-tab-v0.1.mjs?v=0.1.4";
+import { syncBdpNltRelease } from "../shared/bdp-tab-v0.1.mjs?v=0.1.4";
 import { createEnterCommit, headingText, installSectionDisclosure as installSectionDisclosureOn, installSectionTools, parsedFieldValue, syncLockButtons } from "../shared/input-fields-v0.1.mjs?v=0.1.0";
 import { bdpResultRows, resultRow, semTurnAutoBankText } from "../shared/bdp-result-v0.1.mjs?v=0.2.0";
 import { clearDedPages, dedPagesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedPages } from "../shared/ded-v0.1.mjs?v=0.1.1";
@@ -28,7 +28,7 @@ import { createTimePlayer, timeDialMarkup } from "../common/ui/time-dial-v0.1.mj
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec } from "../common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { WHEEL_BOX_TOP_VIEW_V0_1, renderWheelBoxTopView, wheelRadiusText, wheelTopViewTitle } from "../AG/bombing/wheel-box/view/wheel-box-top-view-v0.1.mjs?v=0.2.0";
 import { renderWheelBoxZDiagramV0_1, wheelAbeamText, wheelZDiagramTitle } from "../AG/bombing/wheel-box/view/wheel-box-z-diagram-v0.1.mjs?v=0.1.2";
-import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.15.0";
+import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.15.1";
 
 // 0.1.0 (2026-10-25, owner): #1–#4 fly #1's BDP and Wheel data; #2–#4 hold only their Formation position, and the Wheel
 // Top View shows each aircraft at its place (BOX's Formation rule).

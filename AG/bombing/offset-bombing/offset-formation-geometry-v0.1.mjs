@@ -36,7 +36,8 @@ export const OFFSET_FORMATION_GEOMETRY_V0_1 = Object.freeze({
   // 0.1.12 (owner 2026-11-03): no Turn Amount entered: the Level SEM turns to the reciprocal of the Run-In heading.
   // 0.1.11 (2026-10-27, owner, POP-UP step 3b): profile.rollInStartFpaDeg / rollInSpeedModel pass through to BDP
   // v0.4.5; absent, nothing changes.
-  version: "0.1.12",
+  // 0.1.13 (owner 2026-11-04): the CSEM defaults of offset BE 0.2.17 (Dive + 10°, the CSEM turn at 12,000 ft AGL).
+  version: "0.1.13",
   status: "work",
   purpose:
     "Off-axis Offset geometry for a Flight follower whose IP is displaced from the shared Target-through Run-In axis by its Formation position, while Target and Run-In heading stay shared with its element lead. Reuses offset-geometry-v0.2.mjs's pure heading/vector helpers without modifying offset-be-v0.2.mjs or offset-geometry-v0.2.mjs's own single-aircraft (on-axis) contract.",
@@ -63,6 +64,9 @@ function speedToTas(speedValue, speedMode, altitudeMslFt) {
 
 // Level SEM turn amount when none is entered (owner 2026-11-03, "Ip to target 방향 반대 방향까지 선회"): from the
 // Attack Heading, in the turn's direction, to the reciprocal of the Run-In (IP to Target) heading. 0 = no turn.
+// The CSEM turn's Level Altitude when the profile leaves it blank (owner 2026-11-04: "12000피트", the short-range air
+// defence boundary), above the Target.
+export const OFFSET_CSEM_LEVEL_ALTITUDE_AGL_FT = 12000;
 export function semTurnToRunInReciprocalDeg(runInHeadingDeg, attackHeadingDeg, direction) {
   if (!Number.isFinite(runInHeadingDeg) || !Number.isFinite(attackHeadingDeg)) return undefined;
   const reciprocal = runInHeadingDeg + 180;
@@ -100,12 +104,16 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirecti
     fragmentMarginAppliesTo: profile.fragmentMarginAppliesTo,
     // The selected SEM (BDP v0.4.2; absent: LEVEL, +30°).
     semEnd: profile.semEnd ?? undefined,
-    csemTargetFpaDeg: profile.csemTargetFpaDeg ?? undefined,
+    // CSEM (owner 2026-11-04): Target FPA blank = Dive + 10°; the CSEM turn levels at csemLevelAltitudeAglFt
+    // (blank 12,000 ft AGL) and turns like the Level SEM (BDP v0.4.6).
+    csemTargetFpaDeg: profile.csemTargetFpaDeg ?? (profile.semEnd === "CLIMB" ? (profile.diveAngleDeg ?? input.diveAngleDeg) + 10 : undefined),
+    // 0 = no CSEM turn (the CSEM End held, as before).
+    csemLevelAltitudeAglFt: profile.semEnd === "CLIMB" && profile.csemLevelAltitudeAglFt !== 0 ? profile.csemLevelAltitudeAglFt ?? OFFSET_CSEM_LEVEL_ALTITUDE_AGL_FT : undefined,
     // The Level SEM turn (BDP v0.4.3; absent: no turn, Recovery G, the level-off speed). Direction absent: this
     // aircraft's Roll-in direction (owner 2026-10-19).
     semTurnType: profile.semTurnType ?? undefined,
     // Absent: the Level SEM turns to the reciprocal of the Run-In heading (owner 2026-11-03).
-    semTurnDeg: profile.semTurnDeg ?? (profile.semEnd === "CLIMB" ? undefined : semTurnToRunInReciprocalDeg(runInHeadingDeg, attackHeadingDeg, profile.semTurnDirection ?? rollDirection)),
+    semTurnDeg: profile.semTurnDeg ?? semTurnToRunInReciprocalDeg(runInHeadingDeg, attackHeadingDeg, profile.semTurnDirection ?? rollDirection),
     semTurnDirection: profile.semTurnDirection ?? rollDirection ?? undefined,
     semTurnG: profile.semTurnG ?? undefined,
     semTurnSpeedKcas: profile.semTurnSpeedKcas ?? undefined,

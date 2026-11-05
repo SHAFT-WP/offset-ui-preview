@@ -1,6 +1,7 @@
 import { calculateWingsLevelRecoveryPull } from "../../../common/maneuvers/recovery-pull/recovery-pull-v0.1.mjs";
 import { tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { SEM_TURN_MODEL_V0_1, calculateSemTurn } from "./sem-turn-v0.1.mjs";
+import { CSEM_TURN_MODEL_V0_1, calculateCsemTurn } from "./csem-turn-v0.1.mjs";
 import { calculateFragmentData } from "./safety-legacy-v0.1.mjs";
 import { CLIMB_SEM_MODEL_V0_2, calculateClimbSemV0_2 } from "../../../flight/maneuvers/safe-escape/work/v0.2/climb-sem-core-v0.2.mjs";
 
@@ -26,7 +27,10 @@ export const SEM_FRAGMENT_MODEL_V0_1 = Object.freeze({
   // ground path takes the wind (crab at the turn start, drift during it): samples carry the cross range (+ = right
   // of the Attack Heading), the heading change and the bank, and the fragment check measures the distance with the
   // cross range. The SEM minimum covers the turn (a slice descends). Without a turn every result is unchanged.
-  version: "0.1.2",
+  // 0.1.3 (2026-11-04, owner, SPEC §6.10): `csemTurn` — after the CSEM End a straight climb, a 90° bank 2 G slice
+  // to level at the Level Altitude (12,000 ft AGL), a level turn to the heading asked, then level flight
+  // (csem-turn v0.1). Placed on the ground like the Level SEM turn. Without `csemTurn` every result is unchanged.
+  version: "0.1.3",
   semEnds: Object.freeze(["LEVEL", "CLIMB"]),
   csemGReleaseStartFpaDeg: 20,
   peakAfterImpactSec: 1,
@@ -91,6 +95,7 @@ export function calculateSemPathAndFragment({
   semEnd = "LEVEL",
   csemTargetFpaDeg = 30,
   semTurn = null,
+  csemTurn = null,
 }) {
   if (!SEM_FRAGMENT_MODEL_V0_1.semEnds.includes(semEnd)) throw new RangeError(`semEnd must be one of ${SEM_FRAGMENT_MODEL_V0_1.semEnds.join(", ")}`);
   const climb = semEnd === "CLIMB";
@@ -172,7 +177,26 @@ export function calculateSemPathAndFragment({
   let turnSpeedSource = null;
   let levelOffSpeedKcas = null;
   let turnCrabRad = 0;
-  if (!climb && semTurn && semTurn.headingChangeDeg !== 0) {
+  let turnStart = levelOff;
+  if (climb && csemTurn) {
+    if (!SEM_TURN_MODEL_V0_1.directions.includes(csemTurn.direction)) throw new RangeError(`csemTurn.direction must be one of ${SEM_TURN_MODEL_V0_1.directions.join(", ")}`);
+    turnStart = samples[samples.length - 1];
+    turn = calculateCsemTurn({
+      startAltitudeMslFt: turnStart.altitudeMslFt,
+      startTasKt: turnStart.tasKt,
+      startFpaDeg: csemTargetFpaDeg,
+      startTimeSec: turnStart.timeSec,
+      levelAltitudeMslFt: targetElevationMslFt + (csemTurn.levelAltitudeAglFt ?? CSEM_TURN_MODEL_V0_1.defaultLevelAltitudeAglFt),
+      headingChangeDeg: csemTurn.headingChangeDeg,
+      loadFactorG: csemTurn.loadFactorG ?? CSEM_TURN_MODEL_V0_1.defaultLoadFactorG,
+      sliceBankDeg: csemTurn.bankDeg ?? CSEM_TURN_MODEL_V0_1.defaultSliceBankDeg,
+      rollInRollRateDegSec: csemTurn.rollInRollRateDegSec,
+      rollOutRollRateDegSec: csemTurn.rollOutRollRateDegSec,
+      gOnsetRateGSec: csemTurn.gOnsetRateGSec,
+    });
+    turn.startTasKt = turnStart.tasKt;
+    turnSide = csemTurn.direction === "LEFT" ? -1 : 1;
+  } else if (!climb && semTurn && semTurn.headingChangeDeg !== 0) {
     if (!SEM_TURN_MODEL_V0_1.directions.includes(semTurn.direction)) throw new RangeError(`semTurn.direction must be one of ${SEM_TURN_MODEL_V0_1.directions.join(", ")}`);
     levelOffSpeedKcas = tasToCas(levelOff.tasKt, levelOff.altitudeMslFt);
     turnSpeedSource = semTurn.speedKcas === null || semTurn.speedKcas === undefined ? "LEVEL_OFF" : "INPUT";
@@ -189,16 +213,18 @@ export function calculateSemPathAndFragment({
       gOnsetRateGSec: semTurn.gOnsetRateGSec,
     });
     turnSide = semTurn.direction === "LEFT" ? -1 : 1;
+  }
+  if (turn) {
     turnCrabRad = Math.asin(Math.max(-1, Math.min(1, -windCrossFps / (turn.startTasKt * KT_TO_FPS))));
     const cosC = Math.cos(turnCrabRad);
     const sinC = Math.sin(turnCrabRad);
     turn.samples.forEach((point, index) => {
       if (index === 0) return;
-      const tau = point.timeSec - levelOff.timeSec;
+      const tau = point.timeSec - turnStart.timeSec;
       const y = turnSide * point.turnSideFt;
       samples.push({
         timeSec: point.timeSec,
-        downRangeFt: levelOff.downRangeFt + point.forwardFt * cosC - y * sinC + windAlongFps * tau,
+        downRangeFt: turnStart.downRangeFt + point.forwardFt * cosC - y * sinC + windAlongFps * tau,
         crossRangeFt: point.forwardFt * sinC + y * cosC + windCrossFps * tau,
         altitudeMslFt: point.altitudeMslFt,
         fpaDeg: point.fpaDeg,
@@ -241,14 +267,15 @@ export function calculateSemPathAndFragment({
       altitudeMslFt: last.altitudeMslFt + lastTasFps * Math.sin(fpa) * dt,
       fpaDeg: last.fpaDeg,
       tasKt: last.tasKt,
-      loadFactorG: climb ? Math.cos(fpa) : 1,
+      loadFactorG: heldClimb ? Math.cos(fpa) : 1,
       headingChangeDeg: 0,
       bankDeg: 0,
-      phase: climb ? "csem-end-held" : "level",
+      phase: heldClimb ? "csem-end-held" : "level",
     };
   };
-  if (!climb && endSec > last.timeSec + 1e-9) samples.push(carried(endSec));
-  const checkSamples = climb && endSec > last.timeSec + 1e-9 ? [...samples, carried(endSec)] : samples;
+  const heldClimb = climb && !turn;
+  if (!heldClimb && endSec > last.timeSec + 1e-9) samples.push(carried(endSec));
+  const checkSamples = heldClimb && endSec > last.timeSec + 1e-9 ? [...samples, carried(endSec)] : samples;
 
   // Aircraft state at any time (linear between samples).
   const at = (t) => {
@@ -315,7 +342,31 @@ export function calculateSemPathAndFragment({
       endSpeedKcas: climb ? csem.terminationSpeedKcas : null,
       endFpaDeg: climb ? csem.terminationState.fpaDeg : null,
       // The Level SEM turn from the level-off (0.1.2); null without one.
-      turn: turn ? {
+      turn: turn && climb ? {
+        model: { ...turn.model },
+        type: "CSEM",
+        mode: turn.mode,
+        direction: csemTurn.direction,
+        headingChangeDeg: turn.headingChangeDeg,
+        flownHeadingChangeDeg: turn.flownHeadingChangeDeg,
+        loadFactorG: turn.loadFactorG,
+        sliceBankDeg: turn.sliceBankDeg,
+        levelBankDeg: turn.levelBankDeg,
+        levelAltitudeMslFt: turn.levelAltitudeMslFt,
+        levelAltitudeAglFt: turn.levelAltitudeMslFt - targetElevationMslFt,
+        levelOffAltitudeMslFt: turn.levelOffAltitudeMslFt,
+        levelAboveTarget: turn.levelAboveTarget,
+        climbSec: turn.climbSec,
+        levelOffTimeSec: turn.levelOffTimeSec,
+        levelOffHeadingChangeDeg: turn.levelOffHeadingChangeDeg,
+        levelOffSpeedKcas: tasToCas(turn.levelOffTasKt, turn.levelOffAltitudeMslFt),
+        speedKcas: tasToCas(turn.end.tasKt, turn.end.altitudeMslFt),
+        onset: { ...turn.onset },
+        startTimeSec: turnStart.timeSec,
+        endTimeSec: turnStart.timeSec + turn.timeSec,
+        endAltitudeMslFt: turn.end.altitudeMslFt,
+        minAltitudeMslFt: turn.minAltitudeMslFt,
+      } : turn ? {
         model: { ...turn.model },
         type: turn.type,
         flownType: turn.flownType,
@@ -337,8 +388,10 @@ export function calculateSemPathAndFragment({
         endAltitudeMslFt: turn.end.altitudeMslFt,
         minAltitudeMslFt: turn.minAltitudeMslFt,
       } : null,
-      warnings: climb ? [...csem.validation.warnings] : [],
-      assumptions: climb
+      warnings: climb ? [...csem.validation.warnings, ...(turn?.levelAboveTarget ? ["CSEM_LEVEL_ABOVE_TARGET"] : []), ...(turn?.mode === "HEADING_OVERSHOOT" ? ["CSEM_TURN_HEADING_OVERSHOOT"] : [])] : [],
+      assumptions: climb && turn
+        ? ["CSEM_TURN_ENERGY_NEUTRAL: after the CSEM End the climb, the slice and the level turn trade speed for height only (no thrust / drag); level flight holds the level-off speed"]
+        : climb
         ? ["CSEM_END_HELD_FOR_FRAGMENT_CHECK: after the CSEM End the fragment check carries the end state straight at its FPA and speed (the path itself ends there)"]
         : turn ? ["SEM_TURN_SPEED_HELD: the turn and the level flight after it hold the turn speed (CAS) from the level-off; no acceleration or thrust model"] : [],
     },

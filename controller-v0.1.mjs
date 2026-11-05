@@ -1,7 +1,7 @@
-import { POPUP_STORAGE_KEYS, readOffsetWorkSave, writeOffsetWorkSave } from "./work-save-v0.1.mjs?v=0.1.2";
+import { POPUP_STORAGE_KEYS, offsetWorkRecord, readOffsetWorkRecord, readOffsetWorkSave, writeOffsetWorkSave } from "./work-save-v0.1.mjs?v=0.1.3";
 import { convertOffsetDraftsFromTail } from "./shared/formation-save-v0.1.mjs?v=0.1.0";
 import { formatDeg, formatG, formatKt, formatNm, formatSec, formatSignedSec, truncateBeOutput } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
-import { installResultPanel } from "./common/ui/result-panel-v0.1.mjs";
+import { installResultPanel, isUnavailableResult } from "./common/ui/result-panel-v0.1.mjs";
 import { formationPositionMarkup, installFormationPositionRows } from "./common/ui/formation-position-v0.1.mjs?v=0.1.2";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // One BE call per request (AG SPEC "Flight entrypoint", 2026-10-12): the Flight entrypoint owns every
@@ -11,7 +11,7 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // The BE runs in a Worker (offset-flight-worker-v0.1.mjs); Common calculation-client-v0.1.mjs decides when a
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
-import { FORMATION_TEMPLATES, OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, formationTemplatePositions } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.14";
+import { FORMATION_TEMPLATES, OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, formationTemplatePositions } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.15";
 // Flight Formation top view (Flight Bombing Tactics view, owner 2026-11-02): draws the BE's flightName.formation.
 import { formationTopViewSvg } from "./flight/flight-bombing-tactics/view/formation-top-view-v0.1.mjs?v=0.2.0";
 import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
@@ -28,7 +28,9 @@ import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primi
 import { installSmartLabelDrag } from "./common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
 import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
-import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
+import { prepareSvgForExport, saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
+// Flight HTML Save / Load (owner 2026-11-05; Flight HTML Save/Load handoff 2026-10-27 §6–§9).
+import { aircraftSetHtml, buildFlightHtml, cardHtml, dedBoxesHtml, escapeHtml, installFlightFileDialog, readFlightHtml, resultGroupsHtml, FLIGHT_FILE_FORMAT, FLIGHT_FILE_SCHEMA_VERSION } from "./shared/flight-html-file-v0.1.mjs?v=0.1.0";
 import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.2";
 // DED boxes, texts and PNG: bombing app shared FE (2026-10-22); the DED record is the Flight BE's.
 import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.3";
@@ -45,18 +47,18 @@ import { createPresetStore, createSaveRun, savedTimeText } from "./shared/save-s
 // The shown-aircraft set and its #1–#4 buttons: bombing app shared FE (2026-10-22).
 import { createShownAircraft, installShownAircraftClicks } from "./shared/flight-ui-v0.1.mjs?v=0.1.0";
 // The BDP tab of index #1–#4 (owner composition 2026-10-25): bombing app shared FE, as on the BOX page.
-import { BDP_TAB_KEYS, NLT_RELEASE_FIELD, bdpTabMarkup, syncBdpNltRelease } from "./shared/bdp-tab-v0.1.mjs?v=0.1.3";
+import { BDP_TAB_KEYS, NLT_RELEASE_FIELD, bdpTabMarkup, syncBdpNltRelease } from "./shared/bdp-tab-v0.1.mjs?v=0.1.4";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.10";
-import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.11";
+import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.12";
 import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.3";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // POP-UP Z-Diagram (POP-UP SPEC §13.8 / §13.8a; the POP-UP page only): a BE-owned view of the POP-UP Flight result.
 import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.5";
 import { popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.15.0";
+import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.15.1";
 
 import { buildOffsetHudAircraft, offsetHudGridStep } from "./AG/bombing/offset-bombing/view/offset-hud-scene-v0.1.mjs?v=0.1.3";
 
@@ -111,7 +113,10 @@ const OFFSET_DEFAULT_INPUT_VALUES = Object.freeze({
   gOnsetRateGSec: "2",
   // The selected SEM (owner handoff 2026-10-18 §6; BDP v0.4.2): every BDP view and S&R fly it.
   semEnd: "LEVEL",
-  csemTargetFpaDeg: "30",
+  // CSEM (owner 2026-11-04): blank Target FPA = Dive + 10°; the CSEM turn levels at the Level Altitude (blank
+  // 12,000 ft AGL) with a 90° bank 2 G slice and turns like the Level SEM (blank: the Run-In reciprocal).
+  csemTargetFpaDeg: "",
+  csemLevelAltitudeAglFt: "",
   // The Level SEM turn from the level-off (owner 2026-10-19; BDP v0.4.3): Level (bank AUTO) / Slice, 90° default;
   // blank direction = the Roll-in side, blank G = Recovery G, blank speed = the level-off speed.
   semTurnType: "LEVEL",
@@ -679,6 +684,10 @@ function timeDialMaxSec(results) {
     try {
       const fragmentSec = result.profile?.public?.fragmentCheck?.applicable ? result.profile.public.fragment.timeSec : 0;
       max = Math.max(max, timelineOf(result).impactSec + fragmentSec);
+      // 2026-11-04: also 1 s past the SEM's flown end (a SEM / CSEM turn can outlast the fragment), so the 3D / HUD
+      // windows are not cut by this dial.
+      const flown = (result.profile?.visualization?.semPathSamples ?? []).filter((sample) => sample.phase !== "level");
+      if (flown.length) max = Math.max(max, timelineOf(result).releaseSec + flown[flown.length - 1].timeSec + 1);
     } catch (_) { /* unsolved: no time path */ }
   });
   return Math.max(1, Math.ceil(max));
@@ -765,11 +774,13 @@ function flightDialWindow(dial) {
   // The 3D window also ends with the Flight's other aircraft: kept against every aircraft's result.
   const flightKey = kind === "3d" ? [1, 2, 3, 4].map((n) => flightResultOf(n) ?? null) : null;
   const kept = result ? dialWindows.get(result)?.[kind] : undefined;
-  if (kept && kept.popup === popup && (!flightKey || kept.flightKey?.every((r, i) => r === flightKey[i]))) return kept.window;
+  // The panel's own flight path (its window) is drawn after the result arrives: a window kept from before it is stale.
+  const pathEndSec = bdpFlightViewWindow(bdpDiagramsContainer(number)?.container)?.endSec ?? null;
+  if (kept && kept.popup === popup && kept.pathEndSec === pathEndSec && (!flightKey || kept.flightKey?.every((r, i) => r === flightKey[i]))) return kept.window;
   const startSec = kind === "3d" ? threeDStartClockSec(number) : hudStartClockSec(number);
   const endSec = kind === "3d" ? threeDEndClockSec(number) : hudEndClockSec(number);
   const window = Number.isFinite(endSec) && endSec > startSec ? { startSec, endSec } : null;
-  if (result && window) dialWindows.set(result, { ...dialWindows.get(result), [kind]: { popup, window, flightKey } });
+  if (result && window) dialWindows.set(result, { ...dialWindows.get(result), [kind]: { popup, window, flightKey, pathEndSec } });
   return window;
 }
 function mirrorTimeDial(dial) {
@@ -855,8 +866,7 @@ function renderTopView() {
     upHeadingDeg: topViewIpBottom ? upResult.resolved.runInHeadingDeg : 0,
     northArrow: !topViewIpBottom,
     timeSec: topViewTimeSec ?? undefined,
-    // POP-UP: each drawn aircraft's Pop Point (the BE's popPoint) on its Approach leg.
-    ...(POPUP_MODE ? { markers: aircraft.map((item) => ({ item, popup: popupFull.get(item.number) })).filter(({ popup }) => popup?.popPoint).map(({ item, popup }) => ({ x: popup.popPoint.x, y: popup.popPoint.y, label: item.number === 1 ? "Pop Up" : `Pop Up #${item.number}`, value: Number.isFinite(popup.popToTargetNm) ? `${popup.popToTargetNm.toFixed(1)} NM` : null })) } : {}),
+    ...(POPUP_MODE ? { markers: popupTopViewMarkers(aircraft) } : {}),
   });
   syncTopViewViewport(svg, rendered, aircraft.map((item) => `${item.number}:${topViewResultId(item.result)}`).join(","));
   syncTimeDials(svg, aircraft.map((item) => item.result), topViewTimeSec);
@@ -864,15 +874,20 @@ function renderTopView() {
   legend.render();
 }
 
+// POP-UP: each drawn aircraft's Pop Point (the BE's popPoint) on its Approach leg.
+function popupTopViewMarkers(aircraft) {
+  return aircraft.map((item) => ({ item, popup: popupFull.get(item.number) })).filter(({ popup }) => popup?.popPoint).map(({ item, popup }) => ({ x: popup.popPoint.x, y: popup.popPoint.y, label: item.number === 1 ? "Pop Up" : `Pop Up #${item.number}`, value: Number.isFinite(popup.popToTargetNm) ? `${popup.popToTargetNm.toFixed(1)} NM` : null }));
+}
+
 const CANVAS_LABELED_LEGEND = ["Roll-in Radius", "Offset Angle", "Approaching Heading"];
 
 // Legend: #1 alone keeps #1's legend; otherwise the highest aircraft shown against the aircraft it
 // releases after (#n vs #(n-1), the ΔTime reference; user 2026-10-05), in their drawing colours.
-function topViewLegendItems(aircraft) {
+function topViewLegendItems(aircraft, advanced = topViewAdvanced) {
   const own = aircraft[aircraft.length - 1];
   // Advanced off leaves out Roll-in Radius (user 2026-10-07) and the values the Top View already draws
   // as labels, Offset Angle and Approaching Heading (owner 2026-10-12).
-  if (own.number === 1) return offsetTopViewLegend(own.result).filter((item) => topViewAdvanced || !CANVAS_LABELED_LEGEND.some((name) => item.label.startsWith(name)));
+  if (own.number === 1) return offsetTopViewLegend(own.result).filter((item) => advanced || !CANVAS_LABELED_LEGEND.some((name) => item.label.startsWith(name)));
   const referenceNumber = own.number - 1;
   const referenceFull = flightResultFullOf(referenceNumber) ?? null;
   const ownFull = flightResultFullOf(own.number) ?? null;
@@ -1569,7 +1584,8 @@ function clearPendingInputStates() {
 // Angle-Off) and SEM / Recovery with the SEM Turn inside it. The Offset tab keeps its BDP Profile and Roll-in
 // Condition copies: a field and its copy are one value. A follower's Target Elevation is its own once entered
 // (blank: its element lead's), Wind stays the Flight's. Standard keeps its own BDP tab.
-const INDEX_BDP_TAB = Object.freeze({ angleOff: { key: "angleOffDeg", lock: true, note: "Offset Geometry · Approaching Heading → Attack Heading" }, turnNote: "Offset Turn", turnAmount: { placeholder: "Auto", note: "Heading change · blank: turn to the reciprocal of IP → Target · 0 = no turn" } });
+const INDEX_BDP_TAB = Object.freeze({ angleOff: { key: "angleOffDeg", lock: true, note: "Offset Geometry · Approaching Heading → Attack Heading" }, turnNote: "Offset Turn", turnAmount: { placeholder: "Auto", note: "Heading change · blank: turn to the reciprocal of IP → Target · 0 = no turn" },
+  csem: { targetPlaceholder: "Dive + 10", targetNote: "Blank: Dive Angle + 10° · &gt; 20° and &lt; 90° · G falls linearly from +20°", levelPlaceholder: "12000", levelNote: "Then a 90° bank 2 G turn levels here · blank: 12,000 ft AGL" } });
 // Follower LOCK / LINK option keys of the BDP Profile copy (the Offset tab's, one value).
 const FOLLOWER_BDP_LOCKS = Object.freeze({ rollInAltitudeMslFt: "rollInAltitudeLocked", diveAngleDeg: "diveAngleLocked", angleOffDeg: "angleOffLocked" });
 // Keys of the index BDP tab that are Offset's (its Angle-Off copy): never reset by the BDP Tab Default.
@@ -1873,7 +1889,7 @@ function resetLeadTab(tab, section) {
   const current = capturePersistedState();
   const defaults = createDefaultPersistedState();
   // index BDP tab: the shared tab's keys (BDP_TAB_KEYS); its Angle-Off copy stays Offset's.
-  const tabKey = (key) => !(INDEX_LAYOUT && tab === "bdp") || BDP_TAB_KEYS.includes(key);
+  const tabKey = (key) => !(INDEX_LAYOUT && tab === "bdp") || BDP_TAB_KEYS.includes(key) || key === "csemLevelAltitudeAglFt";
   const owns = (key) => tabKey(key) && !!section.querySelector(`[data-key="${key}"]:not(#ip-bearing-input)`);
   section.querySelectorAll("[data-key]").forEach((control) => {
     const key = control.dataset.key;
@@ -1934,7 +1950,7 @@ function resetFollowerTab(number, tab, section = null) {
 // (#2 / #3: #1, #4: #3; Roll-in Bank: automatic from this aircraft's own Dive Angle), shown as the
 // placeholder; the BE resolves it (AG SPEC "Flight entrypoint").
 // Target Elevation joined them on 2026-10-26 (owner 2026-10-25; Offset Flight 0.1.8): index only has its field.
-const FOLLOWER_BDP_EXTRA_KEYS = ["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg", "targetElevationMslFt"];
+const FOLLOWER_BDP_EXTRA_KEYS = ["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "csemLevelAltitudeAglFt", "semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg", "targetElevationMslFt"];
 // The driver line of every POP-UP group (owner 2026-11-01: what the driver is).
 const POPUP_DRIVER_NOTE = "Popup Angle · Pop to Roll-in Distance · Exposure Time 중 마지막에 입력한 값이 Driver (나머지 둘은 결과) · AUTO = 다이브 ≤15° +5°, 그 외 +10°";
 // POP-UP page (owner 2026-10-27): each follower's own POP-UP inputs (Offset tab, POP-UP group) and angle driver
@@ -2123,7 +2139,8 @@ function followerExtraField(key, label, { always = false, attrs = "" } = {}) {
 // its element lead's while "Follow" (blank); with the CSEM its Target FPA (blank follows the lead too).
 function followerSemFields(number) {
   return `<label class="field advanced-only bdp-extra"><span>SEM End <span class="adv-tag">ADV</span></span><select data-flight-field="semEnd"><option value="">Follow #${elementLeadNumber(number)}</option><option value="LEVEL">Level (FPA 0°, then 1 G)</option><option value="CLIMB">CSEM (climb to Target FPA)</option></select><span class="unit">Every BDP view and S&amp;R fly this SEM</span></label>`
-    + followerExtraField("csemTargetFpaDeg", "CSEM Target FPA (deg)", { attrs: " data-csem-only" });
+    + followerExtraField("csemTargetFpaDeg", "CSEM Target FPA (deg)", { attrs: " data-csem-only" })
+    + followerExtraField("csemLevelAltitudeAglFt", "CSEM Level Altitude (ft AGL)", { attrs: " data-csem-only" });
 }
 // Level SEM turn (owner 2026-10-19): its type and numbers follow the element lead while blank / "Follow"; the
 // direction is this aircraft's own (blank: its Roll-in side). Each field is marked Level SEM only.
@@ -2133,8 +2150,8 @@ function followerSemTurnFields(number) {
   const level = " data-level-sem-only";
   const extra = (key, label, attrs = "") => followerExtraField(key, label, { attrs: `${level}${attrs}` });
   return `<label class="${className}"${level}><span>SEM Turn${tag}</span><select data-flight-field="semTurnType"><option value="">Follow #${elementLeadNumber(number)}</option><option value="LEVEL">Level turn (bank AUTO)</option><option value="SLICE">Slice (entered bank, descends)</option></select><span class="unit">Right at the level-off · speed and G held</span></label>`
-    + `<label class="${className}"${level}><span>Turn Direction${tag}</span><select data-flight-field="semTurnDirection"><option value="">Roll-in direction</option><option value="LEFT">Left</option><option value="RIGHT">Right</option></select><span class="unit">This aircraft's own · blank: its Roll-in side</span></label>`
-    + extra("semTurnDeg", "Turn Amount (deg)")
+    + `<label class="${className}"><span>Turn Direction${tag}</span><select data-flight-field="semTurnDirection"><option value="">Roll-in direction</option><option value="LEFT">Left</option><option value="RIGHT">Right</option></select><span class="unit">This aircraft's own · blank: its Roll-in side</span></label>`
+    + followerExtraField("semTurnDeg", "Turn Amount (deg)")
     + extra("semTurnG", "Turn G (G)")
     + extra("semTurnSpeedKcas", "Turn Speed (KCAS)")
     + `<label class="${className}"${level} data-sem-turn-level-only><span>Turn Bank${tag}</span><output data-sem-turn-auto-bank>AUTO</output><span class="unit">Level turn: acos(1/G)</span></label>`
@@ -2669,9 +2686,9 @@ function applyFollowerState(number, record, sent, activeKey, commit) {
 // follow shows the applied value in the field like any input, and its note says it follows the element
 // lead. Typing over it gives the aircraft its own value; clearing it follows again. (The Roll-in Bank is
 // no longer an extra: it is BDP v0.4's result, owner 2026-10-15.)
-const FOLLOWER_EXTRA_DIGITS = { fragmentHeightMarginPercent: 0, recoveryG: 1, speedOvershootKcas: 0, gOnsetTimeSec: 1, rollInG: 1, rollInRollRateDegSec: 0, rollOutRollRateDegSec: 0, gOnsetRateGSec: 1, csemTargetFpaDeg: 0, semTurnDeg: 0, semTurnG: 1, semTurnSpeedKcas: 0, semTurnBankDeg: 0, targetElevationMslFt: 0 };
+const FOLLOWER_EXTRA_DIGITS = { fragmentHeightMarginPercent: 0, recoveryG: 1, speedOvershootKcas: 0, gOnsetTimeSec: 1, rollInG: 1, rollInRollRateDegSec: 0, rollOutRollRateDegSec: 0, gOnsetRateGSec: 1, csemTargetFpaDeg: 0, csemLevelAltitudeAglFt: 0, semTurnDeg: 0, semTurnG: 1, semTurnSpeedKcas: 0, semTurnBankDeg: 0, targetElevationMslFt: 0 };
 // What a blank (followed) entry means when the lead's is blank too.
-const FOLLOWER_EXTRA_PLACEHOLDERS = { semTurnDeg: "Auto", semTurnG: "Recovery G", semTurnSpeedKcas: "Level-off" };
+const FOLLOWER_EXTRA_PLACEHOLDERS = { csemTargetFpaDeg: "Dive + 10", csemLevelAltitudeAglFt: "12000", semTurnDeg: "Auto", semTurnG: "Recovery G", semTurnSpeedKcas: "Level-off" };
 const followerExtraText = (key, value) => String(Number(value.toFixed(FOLLOWER_EXTRA_DIGITS[key])));
 function syncFollowerExtraFields(slot, entry, result, leadNumber) {
   const number = Number(slot.dataset.aircraft);
@@ -2684,6 +2701,8 @@ function syncFollowerExtraFields(slot, entry, result, leadNumber) {
     if (note) note.textContent = following ? `Follows #${leadNumber}` : `Own value · clear to follow #${leadNumber}`;
     field.placeholder = FOLLOWER_EXTRA_PLACEHOLDERS[key] ?? "";
     if (!following || !Number.isFinite(value)) {
+      // Following a value the BDP no longer has (the CSEM Level Altitude under a Level SEM): blank, the placeholder shows.
+      if (following && field.dataset.following === "true" && field !== document.activeElement) field.value = "";
       delete field.dataset.refill;
       delete field.dataset.following;
       delete field.dataset.followingText;
@@ -2780,15 +2799,15 @@ function zDeltaTime(releaseNumber) {
 
 // Z Advanced (2026-10-03): off = the Essential lower rows; per aircraft, not saved.
 const zAdvancedOn = new Set();
-function renderZDiagramOf(number, svg, resultFull) {
+function renderZDiagramOf(number, svg, resultFull, advanced = zAdvancedOn.has(number)) {
   if (!svg) return false;
   delete svg.dataset.calculationFailed;
   if (POPUP_MODE && popupFull.has(number)) {
     // The Offset Z's lower block under the POP-UP lines (POP-UP Z 0.1.1): the same ΔTime and Advanced as the Offset Z.
-    const data = renderPopupZDiagram(svg, resultFull, popupFull.get(number), { tick: popupZTick, aircraftNumber: number, advanced: zAdvancedOn.has(number), fontSize: popupZFontSize });
+    const data = renderPopupZDiagram(svg, resultFull, popupFull.get(number), { tick: popupZTick, aircraftNumber: number, advanced, fontSize: popupZFontSize });
     return data.supported;
   }
-  return renderOffsetZDiagram(svg, resultFull, { aircraftNumber: number, deltaTime: zDeltaTime(Math.max(2, number)), advanced: zAdvancedOn.has(number) });
+  return renderOffsetZDiagram(svg, resultFull, { aircraftNumber: number, deltaTime: zDeltaTime(Math.max(2, number)), advanced });
 }
 function zAdvancedMarkup(number) {
   return `<button class="capture-button view-toggle" type="button" data-z-advanced="${number}" aria-pressed="false">Advanced: Off</button>${POPUP_MODE ? popupZTickMarkup() + popupZTextMarkup() : ""}`;
@@ -3089,9 +3108,9 @@ installDedPngClicks({ visibleAircraft: () => offsetIndexUi.visibleAircraft(), ex
 // PRESET_KEY, its own schemaVersion, read by every Default; built-in defaults when absent.
 const NON_NUMERIC_INPUTS = new Set(["weaponId", "initialSpeedMode", "offsetSpeedMode", "semEnd", "semTurnType", "semTurnDirection"]);
 // Keys added after presets existed (2026-10-18 / 2026-10-19): a preset without them is still valid (built-in default).
-const PRESET_OPTIONAL_KEYS = new Set(["semEnd", "csemTargetFpaDeg", "semTurnType", "semTurnDirection", "semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg"]);
+const PRESET_OPTIONAL_KEYS = new Set(["semEnd", "csemTargetFpaDeg", "csemLevelAltitudeAglFt", "semTurnType", "semTurnDirection", "semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg"]);
 // Numbers whose blank is a value (Turn Amount: to the IP → Target reciprocal, Turn G: Recovery G, Turn Speed: the level-off speed).
-const PRESET_BLANK_KEYS = new Set(["semTurnDeg", "semTurnG", "semTurnSpeedKcas"]);
+const PRESET_BLANK_KEYS = new Set(["csemTargetFpaDeg", "csemLevelAltitudeAglFt", "semTurnDeg", "semTurnG", "semTurnSpeedKcas"]);
 function validDefaultPreset(stored) {
   if (!stored || typeof stored !== "object") return null;
   const record = stored.schemaVersion === 1
@@ -3127,21 +3146,25 @@ function saveWorkState() {
   return POPUP_MODE ? writeOffsetWorkSave(localStorage, snapshot, POPUP_STORAGE_KEYS) : writeOffsetWorkSave(localStorage, snapshot);
 }
 
+// S&R may still be answering when another Offset edit arrives. Capture only after both have flushed against the same
+// current Offset revision (the work Save and the Flight HTML file).
+async function settleForSave() {
+  for (;;) {
+    commitActiveEdit();
+    await calculationScheduler.flush();
+    const revision = calculationScheduler.state().revision;
+    for (const extension of saveExtensions.values()) await extension.flush?.();
+    const state = calculationScheduler.state();
+    if (state.revision === revision && !state.timer && !state.inFlight && !state.sendWanted && !state.held) break;
+  }
+}
+
 // Every work Save uses the same completion and error path, in both layouts (shared Save run).
 const workSave = createSaveRun({
   buttons: () => $$("#work-save, [data-tab-tool='save']"),
   // S&R may still be answering when another Offset edit arrives. Capture only
   // after both have flushed against the same current Offset revision.
-  settle: async () => {
-    for (;;) {
-      commitActiveEdit();
-      await calculationScheduler.flush();
-      const revision = calculationScheduler.state().revision;
-      for (const extension of saveExtensions.values()) await extension.flush?.();
-      const state = calculationScheduler.state();
-      if (state.revision === revision && !state.timer && !state.inFlight && !state.sendWanted && !state.held) break;
-    }
-  },
+  settle: settleForSave,
   save: saveWorkState,
   status: renderSaveStatus,
   savedText: (saved) => `Saved · #1–#${saved.size} · ${savedTimeText(new Date(saved.savedAt))}`,
@@ -3311,6 +3334,10 @@ function installSaveTab() {
   syncDeveloperUi();
 }
 function renderLoadedSaveStatus() {
+  if (loadedFile) {
+    renderSaveStatus(`File loaded · ${loadedFile.name} · #1–#${flightLayout.size}${restoredWorkSave.notice ? ` · ${restoredWorkSave.notice}` : ""} · press Save to keep it in this browser`, restoredWorkSave.notice ? "warning" : "valid");
+    return;
+  }
   if (restoredWorkSave.notice) {
     renderSaveStatus(restoredWorkSave.notice, "warning");
   } else if (restoredWorkSave.lead) {
@@ -3318,6 +3345,241 @@ function renderLoadedSaveStatus() {
     renderSaveStatus(`Saved conditions loaded · #1–#${flightLayout.size}${when && !Number.isNaN(when.getTime()) ? ` · saved ${savedTimeText(when)}` : ""}`);
   }
 }
+
+// ---- Flight HTML file (owner 2026-11-05; Flight HTML Save/Load handoff 2026-10-27 §6–§9) ---------------------
+// Save/Load tab "File": an in-app preview of the current conditions as one self-contained .html (vertical: Flight
+// Formation, Top View #1·#2 and #3·#4 with legends, then one set per aircraft of Z-Diagram · DED · Result with one
+// Advanced switch), saved where the user chooses. "Open File" previews a saved file; "Load" applies its conditions.
+// The file carries this page's work record (the same record Save writes); results are for reading and are calculated
+// again from the record on Load. Browser storage is not written by either (only Save writes it).
+const FILE_TOOL = POPUP_MODE ? "popup" : "offset";
+const FILE_STORAGE_KEYS = POPUP_MODE ? POPUP_STORAGE_KEYS : undefined;
+const PENDING_FILE_KEY = `flight-sim-tools.${FILE_TOOL}.v2.pending-file-load.v1`;
+const SVG_NS_FILE = "http://www.w3.org/2000/svg";
+const FILE_TOOL_LABEL = POPUP_MODE ? "POP-UP" : "Offset";
+let loadedFile = null; // { name, savedAt } when the page opened with a file's conditions
+
+// SVG ids are made unique per picture so two pictures in one file never share a marker or clip path.
+function uniqueSvgIds(markup, prefix) {
+  const ids = [...markup.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
+  let out = markup;
+  for (const id of new Set(ids)) {
+    const safe = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`(\\sid=")${safe}(")`, "g"), `$1${prefix}-${id}$2`)
+      .replace(new RegExp(`url\\(#${safe}\\)`, "g"), `url(#${prefix}-${id})`)
+      .replace(new RegExp(`(href=")#${safe}(")`, "g"), `$1#${prefix}-${id}$2`);
+  }
+  return out;
+}
+function fileSvgMarkup(svg, prefix, legend = null) {
+  const prepared = prepareSvgForExport(svg, legend ? { legend } : {});
+  const out = prepared.svg;
+  if (!out.getAttribute("viewBox")) out.setAttribute("viewBox", `0 0 ${prepared.width} ${prepared.height}`);
+  out.removeAttribute("width");
+  out.removeAttribute("height");
+  out.style.removeProperty("aspect-ratio");
+  out.style.removeProperty("width");
+  out.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  return uniqueSvgIds(new XMLSerializer().serializeToString(out), prefix);
+}
+// A hidden host keeps the export pictures laid out (text is measured) without showing them.
+function fileExportHost() {
+  const host = document.createElement("div");
+  host.setAttribute("aria-hidden", "true");
+  host.style.cssText = "position:fixed;left:-12000px;top:0;width:900px;opacity:0;pointer-events:none";
+  document.body.append(host);
+  return host;
+}
+function fileSvg(host, viewBox, inner = "") {
+  const svg = document.createElementNS(SVG_NS_FILE, "svg");
+  svg.setAttribute("viewBox", viewBox);
+  svg.style.width = "900px";
+  svg.innerHTML = inner;
+  host.append(svg);
+  return svg;
+}
+
+// Top View pictures (owner: "1번2번 3번4번 이렇게 나누고 레전드도 포함"): #1·#2 and #3·#4, every picture fitted to the
+// whole Flight so both share one frame and scale (Target in the same place).
+function fileTopViewCards(host, numbers) {
+  const all = numbers.map((number) => flightResultOf(number)).filter(Boolean);
+  const pairs = [];
+  for (let index = 0; index < numbers.length; index += 2) pairs.push(numbers.slice(index, index + 2));
+  return pairs.map((pair) => {
+    const aircraft = pair.map((number) => ({ number, result: flightResultOf(number) })).filter((item) => item.result);
+    const heading = `Top View ${pair.map((number) => `#${number}`).join(" · ")}`;
+    if (!aircraft.length) return cardHtml(`<p class="empty">${escapeHtml(`#${pair.join(", #")} has no current result`)}</p>`, { heading });
+    const svg = fileSvg(host, `0 0 ${TOP_VIEW_WIDTH} 1100`);
+    renderOffsetCombinedTopView(svg, aircraft, {
+      textScale: 1, viewportWidth: 1280, advanced: false, upHeadingDeg: 0, northArrow: true,
+      fitResults: all,
+      ...(POPUP_MODE ? { markers: popupTopViewMarkers(aircraft) } : {}),
+    });
+    const legendSvg = fileSvg(host, "0 0 900 60");
+    // The full legend (handoff §8.3), whatever the page's Advanced shows.
+    installSvgLegend(legendSvg, topViewLegendItems(aircraft, true)).render();
+    const missing = pair.filter((number) => !flightResultOf(number));
+    const note = missing.length ? `<p class="note">${escapeHtml(`#${missing.join(", #")} not drawn · no current result`)}</p>` : "";
+    return cardHtml(`<div class="frame">${fileSvgMarkup(svg, `tv${pair.join("")}`, legendSvg)}</div>${note}`, { heading });
+  });
+}
+
+// One aircraft's Result groups as its Result panel shows them (summary rows; the rest with Advanced).
+function fileResultGroups(number) {
+  const section = number === 1 ? $("#result-section") : document.querySelector(`[data-output-aircraft="${number}"][data-aircraft-output="result"]`);
+  if (!section) return "";
+  const groups = [...section.querySelectorAll("[data-result-group]")].map((group) => ({
+    title: group.querySelector("h3")?.textContent.trim() ?? "",
+    rows: [...group.querySelectorAll("[data-result-row]")].map((row) => {
+      const cells = row.querySelectorAll("td");
+      const value = row.querySelector("[data-result-value]")?.textContent.trim() ?? cells[1]?.textContent.trim() ?? "";
+      return { label: cells[0]?.textContent.trim() ?? "", value, summary: row.dataset.summary === "true" && !isUnavailableResult(value) };
+    }),
+  }));
+  return resultGroupsHtml(groups);
+}
+
+function fileAircraftSet(host, number) {
+  const color = offsetAircraftColors(number).run;
+  const resultFull = flightResultFullOf(number);
+  if (!resultFull || !flightResultOf(number)) return aircraftSetHtml({ number, color, missing: `#${number} has no current result` });
+  const z = (advanced) => {
+    const svg = fileSvg(host, "0 0 650 770", "<g data-z-root></g>");
+    renderZDiagramOf(number, svg, resultFull, advanced);
+    return fileSvgMarkup(svg, `z${number}${advanced ? "a" : "b"}`);
+  };
+  return aircraftSetHtml({ number, color, zBasic: z(false), zAdvanced: z(true), ded: dedBoxesHtml(readDedCard(dedSection(number), number)), result: fileResultGroups(number) });
+}
+
+function fileFormationCard() {
+  const formation = lastFlightName?.formation ?? null;
+  const facts = [
+    ["Formation", formation?.text ?? "-"],
+    ["Attack type", lastFlightName?.attackType?.value ?? "-"],
+    ["#1 Impact − #2 Release", Number.isFinite(lastFlightName?.leadImpactToWingmanReleaseSec?.value) ? `${formatSignedSec(lastFlightName.leadImpactToWingmanReleaseSec.value)} s` : "-"],
+  ];
+  const kv = `<div class="kv">${facts.map(([label, value]) => `<div>${escapeHtml(label)}<b>${escapeHtml(value)}</b></div>`).join("")}</div>`;
+  const picture = formation ? uniqueSvgIds(formationTopViewSvg({ formation, idPrefix: "file-formation", title: `Formation top view ${formation.text ?? ""}`.trim() }), "fm") : "";
+  const reason = formation?.reason ? `<p class="note">${escapeHtml(formation.reason)}</p>` : "";
+  return cardHtml(`${picture ? `<div class="frame">${picture}</div>` : ""}${kv}${reason}`);
+}
+
+// handoff §5.1: offset_[Flight name]_[attack type]_[#1 Impact − #2 Release].html; a part that is not available is
+// left out (never 0), and a single aircraft has no Flight name (the user types the name).
+function fileSuggestedName() {
+  const parts = [FILE_TOOL];
+  const name = lastFlightName?.formation?.text;
+  if (flightLayout.size >= 2 && name) {
+    parts.push(name);
+    const attack = lastFlightName?.attackType?.value;
+    if (attack) parts.push(attack);
+    const delta = lastFlightName?.leadImpactToWingmanReleaseSec?.value;
+    if (Number.isFinite(delta)) parts.push(`${formatSignedSec(delta)}s`);
+  } else {
+    parts.push(`${flightLayout.size}S`);
+  }
+  return `${parts.join("_")}.html`;
+}
+
+function fileFacts(savedAt) {
+  const text = (key) => {
+    const node = document.querySelector(`#offset-calculator [data-key="${key}"]:not(.flight-slot [data-key])`) ?? document.querySelector(`[data-key="${key}"]`);
+    if (!node) return "";
+    if (node.tagName === "SELECT") return node.selectedOptions?.[0]?.textContent.trim() ?? node.value;
+    return String(node.value ?? "").trim();
+  };
+  const speedMode = text("initialSpeedMode");
+  const wind = text("windSpeedKt");
+  return [
+    [FILE_TOOL_LABEL, `${flightLayout.size} ship`],
+    ["Saved", savedTimeText(savedAt)],
+    ["Bomb", text("weaponId")],
+    ["Roll-in", `${text("initialSpeedValue")} ${speedMode || "KCAS"} / ${text("rollInAltitudeMslFt")} ft`],
+    ["Dive", `${text("diveAngleDeg")}°`],
+    ["TGT ELEV", `${text("targetElevationMslFt")} ft`],
+    ["Wind", wind && Number(wind) !== 0 ? `${text("windDirectionDeg")}° / ${wind} kt` : "calm"],
+  ];
+}
+
+async function buildFlightFile() {
+  await settleForSave();
+  const numbers = Array.from({ length: flightLayout.size }, (_, index) => index + 1);
+  const savedAt = new Date();
+  const record = offsetWorkRecord({ lead: capturePersistedState(), flight: { ...captureFlightLayout(), savedAt: savedAt.toISOString() } });
+  const host = fileExportHost();
+  let sections;
+  try {
+    sections = [
+      ...(flightLayout.size >= 2 ? [{ heading: "Flight Formation", cards: [fileFormationCard()] }] : []),
+      { heading: "Top View", cards: fileTopViewCards(host, numbers) },
+      { heading: "Z-Diagram · DED · Result", cards: numbers.map((number) => fileAircraftSet(host, number)) },
+    ];
+  } finally {
+    host.remove();
+  }
+  const missing = numbers.filter((number) => !flightResultOf(number));
+  const envelope = {
+    format: FLIGHT_FILE_FORMAT, schemaVersion: FLIGHT_FILE_SCHEMA_VERSION, tool: FILE_TOOL, scope: "flight",
+    angleConvention: record.angleConvention, sourceRevision: `${FILE_TOOL} work save schema ${record.schemaVersion}`, savedAt: savedAt.toISOString(), record,
+  };
+  const facts = fileFacts(savedAt);
+  return {
+    fileName: fileSuggestedName(),
+    notice: missing.length ? `#${missing.join(", #")} has no current result · its pictures are left out; the inputs are saved` : "",
+    render: (title) => buildFlightHtml({ title, facts, sections, envelope, footer: `${FILE_TOOL_LABEL} · the inputs are kept inside this file (not shown) · Save/Load → File → Open File → Load restores them` }),
+  };
+}
+
+// Load: the file's record is read through the work-save checks; the page then opens again with it (the same path as a
+// reload after Save, so every field, LOCK, link and S&R plan is restored and calculated once). Browser storage is not
+// written: Save keeps the loaded conditions when the user wants them.
+function applyFlightFile(envelope, name) {
+  const read = readOffsetWorkRecord(envelope.record, FILE_STORAGE_KEYS);
+  if (!read.lead || !read.flight) return { ok: false, message: read.notice || "the file holds no readable conditions" };
+  try {
+    sessionStorage.setItem(PENDING_FILE_KEY, JSON.stringify({ name, savedAt: envelope.savedAt ?? null, record: envelope.record }));
+  } catch (error) {
+    return { ok: false, message: `this browser could not hold the file for loading (${error?.message || "storage"})` };
+  }
+  globalThis.location.reload();
+  return { ok: true, message: `Loading ${name}…` };
+}
+
+// At start: conditions handed over by a file Load (one time).
+function takePendingFileLoad() {
+  let pending = null;
+  try {
+    pending = JSON.parse(sessionStorage.getItem(PENDING_FILE_KEY) || "null");
+    sessionStorage.removeItem(PENDING_FILE_KEY);
+  } catch {
+    pending = null;
+  }
+  if (!pending?.record) return null;
+  const read = readOffsetWorkRecord(pending.record, FILE_STORAGE_KEYS);
+  if (!read.lead || !read.flight) return null;
+  loadedFile = { name: typeof pending.name === "string" ? pending.name : "file", savedAt: pending.savedAt };
+  return read;
+}
+
+let flightFileDialog = null;
+function installFlightFile() {
+  const trigger = $("#flight-file");
+  if (!trigger) return;
+  flightFileDialog = installFlightFileDialog({
+    trigger,
+    build: buildFlightFile,
+    apply: applyFlightFile,
+    read: (text) => readFlightHtml(text, { tool: FILE_TOOL, scopes: ["flight"] }),
+  });
+  flightFileDialog?.onClose((message) => { if (message) renderSaveStatus(message, "valid"); });
+}
+// Read-only hooks for the browser checks (nothing here calculates or saves).
+globalThis.offsetFlightFile = Object.freeze({
+  build: () => buildFlightFile(),
+  read: (text) => readFlightHtml(text, { tool: FILE_TOOL, scopes: ["flight"] }),
+  dialog: () => flightFileDialog,
+  loadedFile: () => loadedFile,
+});
 
 // index layout hooks (wide-layout.mjs): the shared shown-aircraft set, the centre BDP views and the
 // DED PNG state. Display only: nothing here changes a solve input.
@@ -3375,6 +3637,9 @@ function install() {
   installValueStateBindings();
   try { restoredWorkSave = POPUP_MODE ? readOffsetWorkSave(localStorage, POPUP_STORAGE_KEYS) : readOffsetWorkSave(localStorage); }
   catch { restoredWorkSave = { lead: null, flight: null, notice: "Saved conditions unavailable · browser storage could not be read" }; }
+  // A Flight HTML file Load hands its conditions over once (they replace the browser save for this opening only).
+  const fromFile = takePendingFileLoad();
+  if (fromFile) restoredWorkSave = fromFile;
   installFlightFormationSections();
   installFlightLayout();
   const leadDiagramsHost = document.querySelector('[data-bdp-diagrams-host="1"]');
@@ -3383,6 +3648,7 @@ function install() {
   installSectionTools();
   installTempDef();
   installSaveTab();
+  installFlightFile();
   syncReferencePanes();
   defaultPersistedState = createDefaultPersistedState();
 

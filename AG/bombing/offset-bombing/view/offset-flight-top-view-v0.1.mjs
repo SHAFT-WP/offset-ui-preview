@@ -36,7 +36,9 @@ export const OFFSET_FLIGHT_TOP_VIEW_V0_1 = Object.freeze({
   // 0.1.11 (2026-11-02, owner): a marker's optional `value` is written after its label ("Pop Up : 3.9 NM"); a marker
   // whose one-line text would overlap another marker or label is written on two lines (label, then value): on the right,
   // else on the left, else lower on the right with a leader line.
-  version: "0.1.11",
+  // 0.1.12 (2026-11-05, owner, HTML Save): options.fitResults [result] — more aircraft whose places are fitted but
+  // not drawn, so several pictures of the same Flight share one frame and scale (the saved file's #1·#2 / #3·#4).
+  version: "0.1.12",
   layers: Object.freeze(["offset-plot-lead-<n>", "offset-plot-companion-<k>", "offset-plot-<n>"]),
   combinedLayers: Object.freeze(["offset-plot-aircraft-<n>"]),
 });
@@ -62,7 +64,8 @@ export function renderOffsetCombinedTopView(svg, aircraft, options = {}) {
   const numbers = drawn.map((item) => item.number);
   const title = offsetCombinedTopViewTitle(numbers);
   const markers = (Array.isArray(options.markers) ? options.markers : []).filter((m) => Number.isFinite(m?.x) && Number.isFinite(m?.y));
-  const frame = createOffsetTopViewFrame(svg, [...drawn.flatMap((item) => offsetTopViewWorldPoints(item.result)), ...markers.map(({ x, y }) => ({ x, y }))], { ...options, title });
+  const fitExtra = (Array.isArray(options.fitResults) ? options.fitResults : []).filter(Boolean).flatMap((result) => offsetTopViewWorldPoints(result));
+  const frame = createOffsetTopViewFrame(svg, [...drawn.flatMap((item) => offsetTopViewWorldPoints(item.result)), ...markers.map(({ x, y }) => ({ x, y })), ...fitExtra], { ...options, title });
   const common = { advanced: options.advanced, upHeadingDeg: options.upHeadingDeg, timeSec: options.timeSec };
   const base = drawn[0];
   const top = drawn[drawn.length - 1];

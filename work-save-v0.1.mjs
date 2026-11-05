@@ -61,3 +61,15 @@ export function writeOffsetWorkSave(storage, { lead, flight }, keys = OFFSET_STO
     build: (previous) => ({ ...(flightValid(previous) ? previous : {}), ...flight, schemaVersion: OFFSET_SAVE_SCHEMA_VERSION, angleConvention: FORMATION_ANGLE_CONVENTION, lead }),
   });
 }
+
+// The Flight HTML file (owner 2026-11-05; Flight HTML Save/Load handoff §9): the file carries the record a Save would
+// write (no previous browser record merged in), and an opened file's record is read through the same checks and
+// version conversion as browser storage. Neither touches browser storage.
+export function offsetWorkRecord({ lead, flight }) {
+  if (!leadValid(lead) || !flightValid(flight)) throw new Error("Invalid save snapshot");
+  return { ...flight, schemaVersion: OFFSET_SAVE_SCHEMA_VERSION, angleConvention: FORMATION_ANGLE_CONVENTION, lead };
+}
+export function readOffsetWorkRecord(record, keys = OFFSET_STORAGE_KEYS) {
+  const text = JSON.stringify(record ?? null);
+  return readOffsetWorkSave({ getItem: (key) => (key === keys.flight ? text : null) }, keys);
+}

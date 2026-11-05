@@ -38,7 +38,11 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_4 = Object.freeze({
   // `rollInSpeedModel` ("HOLD" default | "MIL": TAS integrated with the adopted performance model at MIL, so the
   // Track Point speed is a result and the Track goes linearly to the Release Speed). With either, `public.rollInPopUp`
   // gives the Pull Down, the Apex (FPA 0) and, at MIL, the performance domain report. Roll-in v0.2.2.
-  version: "0.4.5",
+  // 0.4.6 (2026-11-04, owner, SPEC §6.10): the CSEM turn, off by default (every result unchanged without it):
+  // `csemLevelAltitudeAglFt` (the Level Altitude above the Target; absent: no CSEM turn), `csemTurnG` (absent 2),
+  // `csemTurnBankDeg` (absent 90); the heading change and side are the SEM Turn's (`semTurnDeg`, `semTurnDirection`)
+  // and its onsets the Roll-in's. A CSEM turn that cannot be flown makes the SEM INVALID; MINALT / NLT unchanged.
+  version: "0.4.6",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   rollInModel: ROLL_IN_V0_2_MODEL,
   semFragmentModel: SEM_FRAGMENT_MODEL_V0_1,
@@ -130,6 +134,9 @@ function canonicalInput(rawInput) {
     semTurnG: optionalNumber("semTurnG", rawInput.semTurnG),
     semTurnSpeedKcas: optionalNumber("semTurnSpeedKcas", rawInput.semTurnSpeedKcas),
     semTurnBankDeg: optionalNumber("semTurnBankDeg", rawInput.semTurnBankDeg),
+    csemLevelAltitudeAglFt: optionalNumber("csemLevelAltitudeAglFt", rawInput.csemLevelAltitudeAglFt),
+    csemTurnG: optionalNumber("csemTurnG", rawInput.csemTurnG),
+    csemTurnBankDeg: optionalNumber("csemTurnBankDeg", rawInput.csemTurnBankDeg),
     targetElevationMslFt: rawInput.targetElevationMslFt,
     releaseSpeedKcas: rawInput.releaseSpeedKcas,
     speedOvershootKcas: rawInput.speedOvershootKcas ?? 50,
@@ -239,7 +246,21 @@ function semPath(input, calculation, windFps, windRad) {
       csemTargetFpaDeg: input.csemTargetFpaDeg,
       // §6.8: the Level SEM turn (none at 0°), with the Roll-in onset rates.
       semTurn: input.semEnd === "LEVEL" ? semTurnInput(input) : null,
+      // §6.9: the CSEM turn, only with a Level Altitude.
+      csemTurn: csemTurnInput(input),
     }),
+  };
+}
+
+function csemTurnInput(input) {
+  if (input.semEnd !== "CLIMB" || input.csemLevelAltitudeAglFt === null) return null;
+  return {
+    levelAltitudeAglFt: input.csemLevelAltitudeAglFt,
+    headingChangeDeg: input.semTurnDeg,
+    direction: input.semTurnDirection,
+    loadFactorG: input.csemTurnG,
+    bankDeg: input.csemTurnBankDeg,
+    ...Object.fromEntries(ONSET_KEYS.map((key) => [key, input[key]])),
   };
 }
 
@@ -290,7 +311,7 @@ function solveCanonical(input) {
       fragment,
       fragmentCheck: sem.applicable ? { applicable: true, ...sem.fragmentCheck } : { applicable: false },
       // The SEM flown and its conditions (sem-fragment 0.1.1); null at Dive 0° (no recovery).
-      sem: sem.applicable ? { status: "VALID", ...sem.sem } : sem.invalid ? { status: "INVALID", end: input.semEnd, targetFpaDeg: input.semEnd === "CLIMB" ? input.csemTargetFpaDeg : null, recoveryG: input.recoveryG, gOnsetTimeSec: input.gOnsetTimeSec, recoverySpeedKcas: input.releaseSpeedKcas + input.speedOvershootKcas, turn: input.semEnd === "LEVEL" && input.semTurnDeg !== 0 ? { type: input.semTurnType, headingChangeDeg: input.semTurnDeg, direction: input.semTurnDirection, loadFactorG: input.semTurnG ?? input.recoveryG, speedKcas: input.semTurnSpeedKcas, bankDeg: input.semTurnType === "SLICE" ? input.semTurnBankDeg : null } : null, errors: sem.errors } : null,
+      sem: sem.applicable ? { status: "VALID", ...sem.sem } : sem.invalid ? { status: "INVALID", end: input.semEnd, targetFpaDeg: input.semEnd === "CLIMB" ? input.csemTargetFpaDeg : null, recoveryG: input.recoveryG, gOnsetTimeSec: input.gOnsetTimeSec, recoverySpeedKcas: input.releaseSpeedKcas + input.speedOvershootKcas, turn: input.semEnd === "CLIMB" && input.csemLevelAltitudeAglFt !== null ? { type: "CSEM", headingChangeDeg: input.semTurnDeg, direction: input.semTurnDirection, levelAltitudeAglFt: input.csemLevelAltitudeAglFt } : input.semEnd === "LEVEL" && input.semTurnDeg !== 0 ? { type: input.semTurnType, headingChangeDeg: input.semTurnDeg, direction: input.semTurnDirection, loadFactorG: input.semTurnG ?? input.recoveryG, speedKcas: input.semTurnSpeedKcas, bankDeg: input.semTurnType === "SLICE" ? input.semTurnBankDeg : null } : null, errors: sem.errors } : null,
     },
     local: calculation.local,
     safety: calculation.safety,

@@ -28,7 +28,9 @@ const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin
 export const SEM_REJOIN_FE_V0_1 = Object.freeze({ id: "sem-rejoin-controller-v0.1", version: "0.2.0" });
 // SEM End labels (owner 2026-10-13: the SEM ends level by default; the +30° CLIMB SEM stays selectable).
 // 2026-10-18 (owner handoff §6.5): the SEM End is the BDP tab's (Full BDP · SEM / Recovery); S&R shows it.
-const semEndText = (sem) => (sem?.end === "CLIMB" ? `+${Number(sem?.inputs?.csemTargetFpaDeg ?? 30).toFixed(0)}° FPA (CSEM)` : sem?.end === "LEVEL" ? "Level (FPA 0°, then 1 G)" : "-");
+// CSEM with its turn (owner 2026-11-04, BDP v0.4.6): the climb, then level at the Level Altitude after the turn.
+const csemTurnText = (turn) => (turn?.type === "CSEM" && Number.isFinite(turn.levelOffAltitudeMslFt) ? ` → level ${Math.round(turn.levelOffAltitudeMslFt).toLocaleString("en-US")} ft, ${Number(turn.flownHeadingChangeDeg).toFixed(0)}° ${turn.direction === "LEFT" ? "L" : "R"}` : "");
+const semEndText = (sem) => (sem?.end === "CLIMB" ? `+${Number(sem?.inputs?.csemTargetFpaDeg ?? 30).toFixed(0)}° FPA (CSEM)${csemTurnText(sem?.bdpSem?.turn)}` : sem?.end === "LEVEL" ? "Level (FPA 0°, then 1 G)" : "-");
 const semKindText = (sem) => (sem?.end === "CLIMB" ? "CSEM" : "Level SEM");
 // Drawing space kept on the canvas around the draw anchor (presentation only).
 const DRAW_ROOM_NM = 5;

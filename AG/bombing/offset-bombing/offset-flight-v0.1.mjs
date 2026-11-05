@@ -66,7 +66,11 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // on (the page's default for #3 / #4): before it is solved, the follower takes its source's solved BDP and Offset values,
   // solve mode and Roll-in Altitude LOCK (OFFSET_FLIGHT_PROFILE_LINK). Any edit of the follower other than its Formation
   // turns the LINK off (its values stay as they are now); the toggle { key: "profileLinked", value: true } links it again.
-  version: "0.1.14",
+  // 0.1.15 (2026-11-04, owner): the CSEM turn (offset BE 0.2.17, BDP v0.4.6) — csemLevelAltitudeAglFt (blank: 12,000 ft
+  // AGL) follows the element lead; csemTargetFpaDeg is optional now (blank all the way to the lead: each aircraft's
+  // Dive + 10°). A blank semTurnDeg / csemTargetFpaDeg chain gives each aircraft its own Auto value (its own Run-In
+  // reciprocal / Dive + 10°), never the lead's computed number (leaderView().entered).
+  version: "0.1.15",
   status: "work",
   schemaVersion: 2,
   components: Object.freeze({
@@ -122,11 +126,14 @@ const FOLLOWER_FALLBACK_DRIVERS = Object.freeze({ actionRangeNm: "offsetAngleDeg
 // optional semTurnG / semTurnSpeedKcas / semTurnBankDeg follow the lead's entry, whose blank means Recovery G / the
 // level-off speed / none. semTurnDirection is each aircraft's own (blank: its own Roll-in direction).
 // 2026-10-26 (0.1.8, owner 2026-10-25): targetElevationMslFt joins them (each aircraft's own once entered).
-export const OFFSET_FLIGHT_INHERITED_KEYS = Object.freeze(["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "targetElevationMslFt"]);
+export const OFFSET_FLIGHT_INHERITED_KEYS = Object.freeze(["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "targetElevationMslFt"]);
 export const OFFSET_FLIGHT_INHERITED_TEXT_KEYS = Object.freeze(["semEnd", "semTurnType"]);
 // 0.1.13 (owner 2026-11-03): semTurnDeg is optional too; blank all the way to the lead: the Offset BE turns the Level SEM
 // to the reciprocal of the Run-In heading (offset BE 0.2.16).
-export const OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS = Object.freeze(["semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg"]);
+export const OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS = Object.freeze(["semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg", "csemTargetFpaDeg", "csemLevelAltitudeAglFt"]);
+// Optional keys whose blank is a per-aircraft Auto value (0.1.15): a follower blank all the way up the chain stays
+// blank (its own Auto), an entry anywhere up the chain is followed.
+const OFFSET_FLIGHT_AUTO_KEYS = Object.freeze(["semTurnDeg", "csemTargetFpaDeg"]);
 const SEM_ENDS = Object.freeze(["LEVEL", "CLIMB"]);
 const semEndOf = (value) => (SEM_ENDS.includes(value) ? value : undefined);
 const SEM_TURN_TYPES = Object.freeze(["LEVEL", "SLICE"]);
@@ -890,7 +897,7 @@ function followerInheritance(follower, leaderResult, leadNumber) {
   // Optional numbers: the lead's entry, absent (its default) included.
   for (const key of OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS) {
     if (blank(v[key])) {
-      resolved[key] = shared[key] ?? undefined;
+      resolved[key] = OFFSET_FLIGHT_AUTO_KEYS.includes(key) ? leaderResult.entered?.[key] ?? undefined : shared[key] ?? undefined;
       inheritance[key] = { source: "inherited", fromAircraft: leadNumber, value: resolved[key] ?? null };
     } else {
       resolved[key] = requireNumber(key, v[key]);
@@ -1410,10 +1417,16 @@ function applyEdits(aircraft, edits, flightSize) {
 // Target / wind / IP limit / VIP): resolved values, timing, geometry points, reference mode and the
 // BDP inputs it inherits. Followers are given only this, so it is exactly their dependency.
 const LEADER_PROFILE_KEYS = [...OFFSET_FLIGHT_INHERITED_KEYS, ...OFFSET_FLIGHT_INHERITED_TEXT_KEYS, ...OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS, "targetElevationMslFt", "windSpeedKt", "fragmentMarginAppliesTo"];
-function leaderView(result) {
+// entered: the Auto keys' entries up this aircraft's chain (null: Auto), from its record and its element lead's view.
+function leaderView(result, record = null, elementLeadView = null) {
   if (!result) return null;
   const inputs = result.profile.canonicalInputs;
+  const entered = Object.fromEntries(OFFSET_FLIGHT_AUTO_KEYS.map((key) => {
+    const own = record?.values?.[key];
+    return [key, blank(own) ? elementLeadView?.entered?.[key] ?? null : Number(own)];
+  }));
   return {
+    entered,
     referenceMode: result.referenceMode,
     resolved: result.resolved,
     timing: result.timing,
@@ -1506,7 +1519,7 @@ function calculateFlight(input, session) {
   });
   aircraft[1] = lead.record;
   results[1] = lead.entry;
-  views[1] = leaderView(results[1].result);
+  views[1] = leaderView(results[1].result, aircraft[1]);
   solveLog[1] = lead.reused ? "reused" : "solved";
   const flightLeadValues = { windDirectionDeg: aircraft[1].values?.windDirectionDeg };
   for (const number of FOLLOWERS) {
@@ -1525,7 +1538,7 @@ function calculateFlight(input, session) {
     const notKept = solved.record ? typedNotKeptWarning(number, solved.record, solved.entry, typed[number]) : null;
     // A copy: the solved entry may be kept for reuse by the next call.
     if (notKept) results[number] = { ...solved.entry, warnings: [notKept, ...solved.entry.warnings], status: solved.entry.status === "VALID" ? "WARNING" : solved.entry.status };
-    views[number] = leaderView(results[number].result);
+    views[number] = leaderView(results[number].result, aircraft[number], leaderResult);
     solveLog[number] = solved.reused ? "reused" : "solved";
   }
   const aircraftResults = {};

@@ -57,7 +57,9 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // 0.1.22 (owner 2026-11-03): the outside view's bomb is twice the F-16 mesh scale and has a white halo under its
   // black body, so it stands out on the sky, the ground and its trajectory; `cockpitAircraftScale` (a number) draws the
   // cockpit's aircraft at that multiple of their real size instead of the Auto enlargement.
-  version: "0.1.22",
+  // 0.1.23 (owner 2026-11-04): the SEM legend names the CSEM turn (BDP v0.4.6): the slice, the Level Altitude and where
+  // it levelled, the heading change.
+  version: "0.1.23",
   bombScaleFactor: 2,
   cockpitMinUnits: Object.freeze({ aircraft: 56, bomb: 18 }),
   canvas: Object.freeze({ width: 900, height: 560 }),
@@ -883,6 +885,12 @@ export function bdpSemLegendNotes(path) {
   ];
   if (climb) rows.push(`CSEM Target FPA: +${f(sem.targetFpaDeg, 0, "°")} · G Release Start: +${f(sem.gReleaseStartFpaDeg, 0, "°")} FPA · Terminal G: ${f(sem.terminalG, 3, " G")}`);
   rows.push(climb ? `CSEM Min Altitude: ${ft(minMslFt)} · CSEM End Altitude: ${ft(sem.endAltitudeMslFt)}` : `Level-off Altitude: ${ft(sem.levelOffAltitudeMslFt)}`);
+  // 0.1.23: the CSEM turn after the CSEM End (BDP v0.4.6).
+  const csemTurn = climb && sem.turn?.type === "CSEM" ? sem.turn : null;
+  if (csemTurn) {
+    const above = csemTurn.levelAboveTarget ? ` (above ${ft(csemTurn.levelAltitudeAglFt, "AGL")})` : "";
+    rows.push(`CSEM Turn: ${f(csemTurn.sliceBankDeg, 0, "°")} bank ${f(csemTurn.loadFactorG, 1, " G")} · Level at ${ft(csemTurn.levelOffAltitudeMslFt)}${above} · ${f(csemTurn.flownHeadingChangeDeg, 0, "°")} ${csemTurn.direction === "LEFT" ? "Left" : "Right"}${csemTurn.mode === "HEADING_OVERSHOOT" ? ` (asked ${f(csemTurn.headingChangeDeg, 0, "°")})` : ""} · ${f(csemTurn.speedKcas, 0, " KCAS")}`);
+  }
   // 0.1.4: the Level SEM turn from the level-off (BDP v0.4.3).
   const turn = climb ? null : sem.turn;
   if (turn) {
