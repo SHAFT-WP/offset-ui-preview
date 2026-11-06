@@ -7,7 +7,7 @@
 // the save / open calls and the in-app preview dialog. The page owns what goes in (its sections, its save record,
 // its validation and how a record is applied). Nothing here calculates.
 
-export const FLIGHT_HTML_FILE_V0_1 = Object.freeze({ id: "bombing-flight-html-file-v0.1", version: "0.1.0" });
+export const FLIGHT_HTML_FILE_V0_1 = Object.freeze({ id: "bombing-flight-html-file-v0.1", version: "0.1.2" });
 
 export const FLIGHT_FILE_FORMAT = "flight-sim-tools-snapshot";
 export const FLIGHT_FILE_SCHEMA_VERSION = 1;
@@ -68,6 +68,8 @@ h2{margin:24px 0 10px;padding-bottom:6px;border-bottom:2px solid #111827;font-si
 .set{border-left:6px solid var(--c,#111827)}
 .set-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
 .set-head h3{margin:0;color:var(--c,#111827)}
+.state{margin-left:8px;padding:2px 8px;border-radius:5px;font-size:12px;vertical-align:middle;color:#fff;background:#15803d}
+.state.bad{background:#b91c1c}.state.warn{background:#b45309}
 .set>input{position:absolute;opacity:0;pointer-events:none}
 .set .adv-label{padding:5px 12px;border:1px solid #9aa4b1;border-radius:6px;font-size:13px;cursor:pointer;user-select:none;background:#fff}
 .set .adv-on,.set .adv-only{display:none}
@@ -124,9 +126,11 @@ ${body}
 export const cardHtml = (inner, { heading = "", className = "" } = {}) => `<section class="card${className ? ` ${className}` : ""}">${heading ? `<h3>${escapeHtml(heading)}</h3>` : ""}${inner}</section>`;
 
 // One aircraft's set: Z (basic + advanced), DED boxes, Result rows (rows marked adv-only show with Advanced).
-export function aircraftSetHtml({ number, color, zBasic, zAdvanced, ded, result, missing = "" }) {
+export function aircraftSetHtml({ number, color, zBasic, zAdvanced, ded, result, missing = "", state = "" }) {
   const id = `adv-${number}`;
-  const head = `<input type="checkbox" id="${id}" aria-label="Advanced #${number}"><div class="set-head"><h3>#${number}</h3><label class="adv-label" for="${id}"><span class="adv-off">Advanced: Off</span><span class="adv-on">Advanced: On</span></label></div>`;
+  const tone = /INVALID/i.test(state) ? "bad" : /WARN/i.test(state) ? "warn" : "ok";
+  const chip = state ? ` <span class="state ${tone}">${escapeHtml(state)}</span>` : "";
+  const head = `<input type="checkbox" id="${id}" aria-label="Advanced #${number}"><div class="set-head"><h3>#${number}${chip}</h3><label class="adv-label" for="${id}"><span class="adv-off">Advanced: Off</span><span class="adv-on">Advanced: On</span></label></div>`;
   if (missing) return `<section class="card set" style="--c:${escapeHtml(color)}">${head}<p class="empty">${escapeHtml(missing)}</p></section>`;
   const z = `<div class="part"><div class="part-title">Z-Diagram</div><div class="frame basic-only">${zBasic}</div><div class="frame adv-only">${zAdvanced}</div></div>`;
   const dedPart = ded ? `<div class="part"><div class="part-title">DED</div>${ded}</div>` : "";
@@ -177,9 +181,37 @@ export function readFlightHtml(text, { tool, scopes = ["flight", "lead-only"] } 
 // Feature detection, not browser names. With the save picker (Chrome / Edge on PC) the system dialog shows the path,
 // takes a pasted path, remembers the last folder (id) and asks before replacing a file. Elsewhere the file is
 // downloaded: the browser / OS decides the folder and a duplicate name, so the status says "download requested".
+// How Save writes on this browser (owner 2026-11-05, "저장 경로도 선택할 수 있게"): "picker" = the system save
+// window (folder and name; Chrome / Edge on PC), "share" = the share menu with the file (phones and tablets: iPhone
+// "파일에 저장" / Android "Files" pick the folder), "download" = the browser's download folder (Safari / Firefox on PC;
+// the browser's own "ask where to save" setting turns it into a save window).
+export function saveMethod(win = globalThis) {
+  if (typeof win.showSaveFilePicker === "function") return "picker";
+  try {
+    const touch = typeof win.matchMedia === "function" && win.matchMedia("(pointer: coarse)").matches;
+    const probe = typeof win.File === "function" ? new win.File(["x"], "probe.html", { type: "text/html" }) : null;
+    if (touch && probe && typeof win.navigator?.share === "function" && win.navigator.canShare?.({ files: [probe] })) return "share";
+  } catch { /* no share */ }
+  return "download";
+}
+export const SAVE_METHOD_HINT = Object.freeze({
+  picker: "Save → 저장 창에서 폴더와 이름을 고릅니다.",
+  share: "Save → 공유 메뉴에서 '파일에 저장'(iPhone) / '파일' 또는 '내 파일'(Android)을 고르면 저장할 폴더를 선택할 수 있습니다.",
+  download: "이 브라우저는 다운로드 폴더에 저장합니다. 매번 폴더를 고르려면 브라우저 설정 → 다운로드 → '다운로드 전에 저장 위치 확인'을 켜 주세요. (Chrome / Edge PC에서는 저장 창이 바로 열립니다)",
+});
+
 export async function saveHtmlFile(text, fileName, { win = globalThis } = {}) {
   const name = cleanFileName(fileName);
   if (!name) return { status: "error", error: "Enter a file name" };
+  if (saveMethod(win) === "share") {
+    try {
+      await win.navigator.share({ files: [new win.File([text], name, { type: "text/html" })], title: name.slice(0, -5) });
+      return { status: "shared", name };
+    } catch (error) {
+      if (error?.name === "AbortError") return { status: "cancelled" };
+      // Not allowed here (no user gesture, policy): the download below still saves the file.
+    }
+  }
   if (typeof win.showSaveFilePicker === "function") {
     let handle;
     try {
@@ -262,8 +294,12 @@ const DIALOG_CSS = `
 .flight-file-dialog button:disabled{opacity:.45;cursor:not-allowed}
 .flight-file-dialog .ffd-status{padding:6px 12px;font-size:13px;min-height:1.6em;border-bottom:1px solid #334155}
 .flight-file-dialog .ffd-status.invalid{color:#fca5a5}.flight-file-dialog .ffd-status.warning{color:#fcd34d}.flight-file-dialog .ffd-status.valid{color:#86efac}
+.flight-file-dialog .ffd-hint{padding:6px 12px;font-size:12px;color:#cbd5e1;border-bottom:1px solid #334155}.flight-file-dialog .ffd-hint[hidden]{display:none}
+.flight-file-dialog .ffd-preview{flex:1;display:flex;flex-direction:column;min-height:0}.flight-file-dialog .ffd-preview[hidden]{display:none}
+.flight-file-dialog .ffd-preview-label{padding:5px 12px;font-size:13px;font-weight:700;color:#e2e8f0;background:#1e293b;border-bottom:1px solid #334155}
 .flight-file-dialog iframe{flex:1;width:100%;border:0;background:#eef1f4}
-@media (max-width:700px){.flight-file-dialog{width:100vw;height:100dvh;max-height:100dvh;border-radius:0;margin:0}}
+.flight-file-dialog:not(.has-preview){height:fit-content}
+@media (max-width:700px){.flight-file-dialog{width:100vw;max-width:100vw;border-radius:0;margin:0}.flight-file-dialog.has-preview{height:100dvh;max-height:100dvh}.flight-file-dialog:not(.has-preview){margin:auto 0 0}}
 `;
 
 // build(): { fileName, render(title) → html, notice? } for the current conditions (may throw / reject: the reason is
@@ -294,7 +330,8 @@ export function installFlightFileDialog({ trigger, build, apply, read, doc = glo
     </div>
   </div>
   <div class="ffd-status" data-ffd-status role="status"></div>
-  <iframe data-ffd-frame sandbox="" title="Flight file preview" referrerpolicy="no-referrer"></iframe>
+  <div class="ffd-hint" data-ffd-hint></div>
+  <div class="ffd-preview" data-ffd-preview hidden><div class="ffd-preview-label">미리보기</div><iframe data-ffd-frame sandbox="" title="미리보기" referrerpolicy="no-referrer"></iframe></div>
 </div>`;
   doc.body.append(dialog);
   const q = (selector) => dialog.querySelector(selector);
@@ -312,6 +349,11 @@ export function installFlightFileDialog({ trigger, build, apply, read, doc = glo
   const sync = () => {
     q("[data-ffd-mode]").textContent = opened ? `File · ${opened.name}` : "Current conditions";
     q("[data-ffd-name-row]").hidden = !!opened;
+    // Owner 2026-11-05: the preview shows only for a file being loaded, titled "미리보기".
+    q("[data-ffd-preview]").hidden = !opened;
+    dialog.classList.toggle("has-preview", !!opened);
+    q("[data-ffd-hint]").hidden = !!opened;
+    q("[data-ffd-hint]").textContent = SAVE_METHOD_HINT[saveMethod(win)];
     q("[data-ffd-save]").hidden = !!opened;
     q("[data-ffd-current]").hidden = !opened;
     q("[data-ffd-load]").disabled = busy || !opened;
@@ -325,12 +367,11 @@ export function installFlightFileDialog({ trigger, build, apply, read, doc = glo
     busy = true;
     sync();
     status("Preparing the current conditions…", "warning");
-    show("<!doctype html><title>…</title><p style='font-family:sans-serif;padding:16px'>…</p>");
+    show("<!doctype html><title>-</title>");
     try {
       const built = await build();
       if (mine !== generation) return;
       current = built;
-      show(built.render(built.fileName.replace(/\.html$/i, "")));
       nameInput.value = built.fileName;
       status(built.notice || "Current conditions · Save writes this file", built.notice ? "warning" : "valid");
     } catch (error) {
@@ -355,6 +396,7 @@ export function installFlightFileDialog({ trigger, build, apply, read, doc = glo
     busy = false;
     sync();
     if (outcome.status === "saved") { status(`Saved · ${outcome.name}`); close(); return; }
+    if (outcome.status === "shared") { status(`Shared · ${outcome.name}`); close(`Shared · ${outcome.name} · saved where you chose in the share menu`); return; }
     if (outcome.status === "downloaded") { status(`Download requested · ${outcome.name}`); close(`Download requested · ${outcome.name} · the browser chooses the folder`); return; }
     if (outcome.status === "cancelled") { status("Save cancelled · nothing written", "warning"); return; }
     status(`Save failed · ${outcome.error}`, "invalid");

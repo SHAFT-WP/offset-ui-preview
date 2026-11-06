@@ -30,10 +30,10 @@ import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { prepareSvgForExport, saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 // Flight HTML Save / Load (owner 2026-11-05; Flight HTML Save/Load handoff 2026-10-27 §6–§9).
-import { aircraftSetHtml, buildFlightHtml, cardHtml, dedBoxesHtml, escapeHtml, installFlightFileDialog, readFlightHtml, resultGroupsHtml, FLIGHT_FILE_FORMAT, FLIGHT_FILE_SCHEMA_VERSION } from "./shared/flight-html-file-v0.1.mjs?v=0.1.0";
+import { aircraftSetHtml, buildFlightHtml, cardHtml, dedBoxesHtml, escapeHtml, installFlightFileDialog, readFlightHtml, resultGroupsHtml, FLIGHT_FILE_FORMAT, FLIGHT_FILE_SCHEMA_VERSION } from "./shared/flight-html-file-v0.1.mjs?v=0.1.2";
 import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.2";
 // DED boxes, texts and PNG: bombing app shared FE (2026-10-22); the DED record is the Flight BE's.
-import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.3";
+import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.4";
 // BDP Result rows and Fragment Data readouts: bombing app shared FE (2026-10-22).
 import { bdpResultRows, fragmentReadoutsMarkup, resultRow, semTurnAutoBankText, writeFragmentReadouts } from "./shared/bdp-result-v0.1.mjs?v=0.2.0";
 // Input field mechanics (solved values, bearings, LOCK / LINK, Enter commit, section collapse and tools): bombing app shared FE (2026-10-22).
@@ -3439,6 +3439,14 @@ function fileResultGroups(number) {
   return resultGroupsHtml(groups);
 }
 
+// The aircraft's state as its Result shows it (State row: VALID / WARNING / INVALID), so an INVALID aircraft is marked.
+function fileAircraftState(number) {
+  const section = number === 1 ? $("#result-section") : document.querySelector(`[data-output-aircraft="${number}"][data-aircraft-output="result"]`);
+  const row = [...(section?.querySelectorAll("[data-result-row]") ?? [])].find((item) => item.querySelector("td")?.textContent.trim() === "State");
+  const value = row ? (row.querySelector("[data-result-value]") ?? row.querySelectorAll("td")[1])?.textContent.trim() ?? "" : "";
+  return isUnavailableResult(value) ? "" : value;
+}
+
 function fileAircraftSet(host, number) {
   const color = offsetAircraftColors(number).run;
   const resultFull = flightResultFullOf(number);
@@ -3448,7 +3456,7 @@ function fileAircraftSet(host, number) {
     renderZDiagramOf(number, svg, resultFull, advanced);
     return fileSvgMarkup(svg, `z${number}${advanced ? "a" : "b"}`);
   };
-  return aircraftSetHtml({ number, color, zBasic: z(false), zAdvanced: z(true), ded: dedBoxesHtml(readDedCard(dedSection(number), number)), result: fileResultGroups(number) });
+  return aircraftSetHtml({ number, color, state: fileAircraftState(number), zBasic: z(false), zAdvanced: z(true), ded: dedBoxesHtml(readDedCard(dedSection(number), number, { partial: true })), result: fileResultGroups(number) });
 }
 
 function fileFormationCard() {

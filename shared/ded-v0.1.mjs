@@ -14,7 +14,7 @@ import { saveSvgAsPng } from "../common/diagram/svg-png-export-v0.1.mjs";
 // 0.1.3 (2026-11-03, POP-UP page, owner): a POP-UP box after the reference page ({ popUp: true }, the record's `popUp`,
 // read TBRG / RNG / ELEV like the reference page); OA2 is then OA1's point at the Target Elevation (the record's). The
 // PNG lays the boxes two to a row.
-export const DED_V0_1 = Object.freeze({ id: "bombing-ded-v0.1", version: "0.1.3" });
+export const DED_V0_1 = Object.freeze({ id: "bombing-ded-v0.1", version: "0.1.4" });
 // The value outputs of the boxes; the reference box's title is "reference-title". The popup / oa2 outputs exist only
 // where the page asked for those boxes.
 export const DED_VALUE_KEYS = Object.freeze(["reference-bearing", "reference-range", "reference-elevation", "popup-bearing", "popup-range", "popup-elevation", "oa1-bearing", "oa1-range", "oa1-elevation", "oa2-bearing", "oa2-range", "oa2-elevation"]);
@@ -106,13 +106,16 @@ export function clearDedPages(out, count) {
 
 // One aircraft's DED as shown in its section: { number, mode, boxes: [{ title, rows: [[label, text]] }] }, or null
 // when the section is missing or a value is not shown.
-export function readDedCard(section, number) {
+// `partial` (HTML file, 2026-11-05): the boxes as shown, "-" kept; without it a box with "-" gives no card (PNG).
+export function readDedCard(section, number, { partial = false } = {}) {
   if (!section) return null;
   const boxes = [...section.querySelectorAll(".ded-screen")].map((screen) => ({
     title: screen.querySelector(".ded-page-title")?.textContent.trim() ?? "",
     rows: [...screen.querySelectorAll(".ded-row")].map((row) => [row.querySelector("span")?.textContent.trim() ?? "", row.querySelector("output")?.textContent.trim() ?? ""]),
   }));
-  if (boxes.length < 2 || boxes.some((box) => box.rows.some(([, text]) => !text || text === "-"))) return null;
+  if (boxes.length < 2) return null;
+  if (partial) return boxes.some((box) => box.rows.some(([, text]) => text && text !== "-")) ? { number, mode: boxes[0].title, boxes } : null;
+  if (boxes.some((box) => box.rows.some(([, text]) => !text || text === "-"))) return null;
   return { number, mode: boxes[0].title, boxes };
 }
 
