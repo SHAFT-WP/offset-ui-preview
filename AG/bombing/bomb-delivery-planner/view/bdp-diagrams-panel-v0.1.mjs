@@ -2,9 +2,9 @@ import { BDP_PROFILE_VIEW_V0_2, bdpProfileTitle, renderBdpProfileView } from "./
 import { BDP_TOP_VIEW_V0_2, bdpTopViewTitle, renderBdpTopView } from "./bdp-top-view-v0.2.mjs?v=0.2.11";
 import { installSvgViewControls, svgViewControlsMarkup } from "../../../../common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "../../../../common/diagram/svg-legend-v0.1.mjs?v=0.1.1";
-import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath } from "./bdp-flight-path-v0.1.mjs?v=0.1.5";
-import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.23";
-import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.16";
+import { BDP_FLIGHT_PATH_V0_1, buildBdpFlightPath } from "./bdp-flight-path-v0.1.mjs?v=0.1.6";
+import { BDP_3D_VIEW_V0_1, bdp3dDefaultOrbit, bdp3dGestureInit, bdp3dGestureStep, renderBdp3dView, zoomAbout } from "./bdp-3d-view-v0.1.mjs?v=0.1.26";
+import { BDP_HUD_VIEW_V0_1, renderBdpHudView } from "./bdp-hud-view-v0.1.mjs?v=0.1.17";
 import { bdpViewTitle } from "./bdp-view-style-v0.1.mjs";
 
 // Full BDP diagrams panel — BDP-owned presentation reused by every BE that embeds a BDP input tab
@@ -88,7 +88,10 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // offset (dial `data-clock-offset-sec`: the host's clock at the path's t = 0), so the key points stay right when its
   // dial runs past this path's end (the Offset 3D Profile plays until the last aircraft ends its SEM).
   // 0.15.1 (owner 2026-11-04): 3D 0.1.23 and Profile 0.2.8 (the CSEM turn in the SEM legends).
-  version: "0.15.1",
+  // 0.16.0 (owner 2026-11-06, Offset / POP-UP): flightView.keyPoints — the host's own key points ({ key, label, t } in
+  // seconds from the Roll-in Point, e.g. the Offset Point, the Pop Point and a "start" that replaces Roll-in −3 s) join
+  // the play bar marks and buttons; 3D 0.1.26 draws the approach by leg with Offset / Pop marks.
+  version: "0.16.0",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
 
@@ -161,7 +164,7 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
     + `<label data-bdp-fleet-label hidden>Show aircraft <select data-bdp-3d="fleet" aria-label="3D aircraft selection" style="${CONTROL_STYLE};width:auto"><option value="all">All</option></select></label><span data-bdp-fleet-status role="status"></span>`
     + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Aircraft <select data-bdp-3d="aircraft-scale" style="${CONTROL_STYLE};width:auto" aria-label="Aircraft size (times actual)" title="Aircraft size relative to the real F-16. Auto sizes it to the flight path."><option value="auto" selected>Auto</option>${aircraftScales}</select></label>`
     + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Bank line <select data-bdp-3d="bank-line" style="${CONTROL_STYLE};width:auto" aria-label="Bank line length (the wing line every 1 s)" title="The wing line drawn every 1 s along the path; its tilt is the bank."><option value="1" selected>1×</option><option value="0.5">0.5×</option><option value="0.2">0.2×</option><option value="0">Off</option></select></label>`
-    + `<span class="diagram-control-label">Drag: turn · Hold 0.5 s, then drag: pan · Pinch / wheel: zoom</span></div></div>`
+    + `<span class="diagram-control-label">Drag: turn · Hold 0.5 s, then drag: pan · Pinch / wheel: zoom · Double-click: centre on it</span></div></div>`
     + `<div class="bdp-diagram-canvas bdp-flight-canvas"><svg class="bdp-3d-svg" viewBox="0 0 ${w3} ${h3}" role="img" aria-label="${t3}" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none"></svg></div>`
     + `<div class="bdp-flight-time" data-bdp-time="3d">${threeDTimeMarkup}</div></div>`
     + `<svg class="diagram-legend-box" data-bdp-legend="3d" role="img" aria-label="${t3} legend" hidden></svg></details>`;
@@ -496,9 +499,11 @@ function draw3dFrame(container, scope) {
   const note = container.querySelector('[data-bdp-fleet-status]');
   setText(note, fleet.flatMap(a => [a.warning, !a.at(clock) ? `#${a.number}: ${a.unavailableReason}` : '']).filter(Boolean).join(' · '));
   // Heights are true (0.10.0: no altitude stretch, whatever an older state held).
-  const options = { orbit: state.orbit ?? undefined, zoom: state.zoom3d, aircraftScale: state.aircraftScale, bankLineScale: state.bankLineScale, pan: state.pan3d, panHint: state.panHint, timeSec: clock, scope: `${scope}-3d`, ...(fleet.length ? { fleet } : {}) };
+  const options = { orbit: state.orbit ?? undefined, zoom: state.zoom3d, aircraftScale: state.aircraftScale, bankLineScale: state.bankLineScale, pan: state.pan3d, panHint: state.panHint, timeSec: clock, scope: `${scope}-3d`, ...(fleet.length ? { fleet } : {}), ...(state.focus3d ? { focus: state.focus3d } : {}) };
   const draw = () => renderBdp3dView(svg, path, options);
   const rendered = state.progressive && !fleet.length ? viewCache.draw(svg, path, JSON.stringify(options), draw) : draw();
+  state.rendered3d = rendered;
+  setData(svg, 'focus', state.focus3d ? state.focus3d.label : '');
   setData(svg, 'aircraftSelection', state.fleetChoice);
   setData(svg, 'timeSec', String(clock ?? ''));
   setData(svg, 'orbit', `${Math.round(rendered.orbit.azimuthDeg)}/${Math.round(rendered.orbit.elevationDeg)}`);
@@ -650,8 +655,26 @@ function installFlightControls(container, scope) {
     const k = BDP_3D_VIEW_V0_1.canvas.width / Math.max(1, box.width);
     return { id: event.pointerId, x: event.clientX, y: event.clientY, cx: (event.clientX - box.left) * k, cy: (event.clientY - box.top) * k, t: event.timeStamp || performance.now() };
   };
+  // Double click / double tap (owner 2026-11-06): on an object, keep it at the centre (3D view 0.1.25 focus); on empty
+  // space, release it where the picture is now. Reset View also releases it.
+  let lastTap = null;
+  const doubleTap = (event) => {
+    const now = performance.now(), p = at(event);
+    const second = lastTap && now - lastTap.t < 350 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 24;
+    lastTap = second ? null : { t: now, x: event.clientX, y: event.clientY };
+    if (!second) return false;
+    const rendered = state.rendered3d;
+    const hit = rendered?.pick?.(p.cx, p.cy, rendered.timeSec ?? null) ?? null;
+    if (hit) state.focus3d = hit;
+    else if (state.focus3d) { state.pan3d = rendered?.pan ?? state.pan3d; state.focus3d = null; }
+    else return true;
+    resetGesture();
+    draw3d(container, scope);
+    return true;
+  };
   svg3d?.addEventListener("pointerdown", (event) => {
     if (!state.path) return;
+    if (event.isPrimary !== false && doubleTap(event)) { event.preventDefault(); return; }
     try { svg3d.setPointerCapture(event.pointerId); } catch { /* synthetic or ended pointer */ }
     event.preventDefault();
     step({ type: "down", ...at(event), t: performance.now(), button: event.button, shiftKey: event.shiftKey });
@@ -696,6 +719,7 @@ function installFlightControls(container, scope) {
   };
   tool('[data-bdp-3d="reset"]', () => {
     resetGesture();
+    state.focus3d = null;
     state.orbit = null;
     state.zoom3d = 1;
     state.pan3d = { x: 0, y: 0 };
@@ -790,7 +814,7 @@ function prepareFlightViews(container, bdpResult, flightView, progressive = fals
   state.progressive = progressive;
   state.timeSec = Number.isFinite(flightView?.timeSec) ? flightView.timeSec : null;
   installFlightControls(container, scope);
-  syncKeyPoints(container, state.path);
+  syncKeyPoints(container, state.path, flightView?.keyPoints ?? null);
   return true;
 }
 
@@ -802,7 +826,7 @@ function renderFlightViews(container, bdpResult, flightView) {
 }
 
 // Key points of a flight path (seconds from the Roll-in Point) for the play bars (0.13.0).
-const KEY_POINT_COLORS = { start: "#7d8b99", rollIn: "#c247c2", track: "#176dac", release: "#087b4c", impact: "#d64545", semEnd: "#7048b6" };
+const KEY_POINT_COLORS = { start: "#7d8b99", offset: "#e08a1e", pop: "#c9a227", rollIn: "#c247c2", track: "#176dac", release: "#087b4c", impact: "#d64545", semEnd: "#7048b6" };
 export function bdpFlightKeyPoints(path) {
   if (!path?.samples?.length) return [];
   const sem = path.samples.filter((s) => s.phase === "sem");
@@ -821,12 +845,21 @@ export function bdpFlightKeyPoints(path) {
 // Marks on each 3D / HUD dial's bar and a button row under it. The host's clock may differ from the path's (the Offset
 // clock counts from the IP): the dial's end is the path's end, so a point's dial value is t + (range.max − path.endT).
 const keyPointObservers = new WeakMap();
-function syncKeyPoints(container, path) {
+// 0.16.0: the host's key points join the path's; a host "start" replaces the path's.
+function withHostKeyPoints(points, extra) {
+  const host = (extra ?? []).filter((p) => p && p.key && Number.isFinite(p.t));
+  if (!host.length) return points;
+  const keys = new Set(host.map((p) => p.key));
+  return [...points.filter((p) => !keys.has(p.key)), ...host.map((p) => ({ ...p, color: p.color ?? KEY_POINT_COLORS[p.key] ?? "#7d8b99" }))]
+    .sort((a, b) => a.t - b.t);
+}
+function syncKeyPoints(container, path, extra = null) {
+  const extraKey = extra ? JSON.stringify(extra) : "";
   container.querySelectorAll('[data-bdp-diagram="3d"] [data-time-dial], [data-bdp-diagram="hud"] [data-time-dial]').forEach((dial) => {
     const range = dial.querySelector("[data-time-range]");
     if (!range) return;
     let kept = keyPointObservers.get(dial);
-    if (kept?.path === path) return;
+    if (kept?.path === path && kept.extraKey === extraKey) return;
     if (!kept) {
       const track = document.createElement("span");
       track.className = "time-dial-track";
@@ -862,7 +895,8 @@ function syncKeyPoints(container, path) {
       });
     }
     kept.path = path;
-    kept.points = bdpFlightKeyPoints(path);
+    kept.extraKey = extraKey;
+    kept.points = withHostKeyPoints(bdpFlightKeyPoints(path), extra);
     const padlock = dial.closest("[data-bdp-diagram]")?.querySelector("[data-bdp-padlock-group]");
     kept.row.replaceChildren(...kept.points.map((p) => {
       const button = document.createElement("button");

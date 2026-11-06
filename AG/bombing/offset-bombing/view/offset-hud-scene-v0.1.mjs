@@ -1,5 +1,5 @@
-import { offsetTimeline, offsetApproachInBdpFrame } from './offset-time-path-v0.1.mjs?v=0.1.3';
-import { buildBdpFlightPath, flightStateAt } from '../../bomb-delivery-planner/view/bdp-flight-path-v0.1.mjs?v=0.1.5';
+import { offsetTimeline, offsetApproachInBdpFrame } from './offset-time-path-v0.1.mjs?v=0.1.4';
+import { buildBdpFlightPath, flightStateAt } from '../../bomb-delivery-planner/view/bdp-flight-path-v0.1.mjs?v=0.1.6';
 import { tasToCas } from '../../../../common/airspeed/airspeed-v0.1.mjs';
 
 // Display adapter only: all aircraft share the existing IP clock and one target-elevation datum.

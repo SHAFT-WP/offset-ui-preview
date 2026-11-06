@@ -1,7 +1,7 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { BDP_VIEW_COLORS as C } from "./bdp-view-style-v0.1.mjs";
 import { BDP_F16_MESH_V0_1 as aircraftMesh } from "./bdp-f16-mesh-v0.1.mjs?v=0.1.0";
-import { aircraftAxes, bombAt, flightStateAt, fragmentAt } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
+import { aircraftAxes, bombAt, flightStateAt, fragmentAt } from "./bdp-flight-path-v0.1.mjs?v=0.1.6";
 
 // BDP 3D Profile v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.2 in SVG). A perspective
 // picture of a BDP flight path (bdp-flight-path-v0.1): ground grid, Target, Aim-off Point, the path coloured by
@@ -59,7 +59,18 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   // cockpit's aircraft at that multiple of their real size instead of the Auto enlargement.
   // 0.1.23 (owner 2026-11-04): the SEM legend names the CSEM turn (BDP v0.4.6): the slice, the Level Altitude and where
   // it levelled, the heading change.
-  version: "0.1.23",
+  // 0.1.24 (owner 2026-11-06, "#1 이외에는 3d나 hud는 폭탄 떨어지는 그래픽 안나오는 것 같드라"): with the Flight shown
+  // (`fleet`) the outside view draws every aircraft's bomb trajectory (its colour) and every bomb in the air, not only
+  // this path's (before: the others' bombs only in the cockpit).
+  // 0.1.25 (owner 2026-11-06, "오브젝트를 더블 클릭하면 그 오브젝트를 센터로 고정해서 보여줘"): options.focus
+  // ({ kind: "aircraft" | "bomb" | "point", number?, point? }) keeps that object at the canvas centre at every time
+  // (the pan is replaced; orbit and zoom still work about it); the result's pick(cx, cy) names the object nearest a
+  // canvas point (aircraft, bombs in the air, Targets, Roll-in / Track Point / Release / Aim-off) for the host.
+  // 0.1.26 (owner 2026-11-06, "오프셋도 3d 허드뷰 프로파일 팝업처럼 구분하자 … 오프셋 포인트도 넣고"): the path before the
+  // Roll-in is drawn by leg, each its own colour and legend line: IP → Offset ("ingress"), the Offset Turn ("turn"), the
+  // Approach, and on POP-UP the Pop-up (pull-up and climb); the Offset Point (start of the Offset Turn) and the Pop Point
+  // are marked like the Roll-in Point. A host approach without leg names draws as before (one Approach line).
+  version: "0.1.26",
   bombScaleFactor: 2,
   cockpitMinUnits: Object.freeze({ aircraft: 56, bomb: 18 }),
   canvas: Object.freeze({ width: 900, height: 560 }),
@@ -70,7 +81,9 @@ export const BDP_3D_VIEW_V0_1 = Object.freeze({
   defaultOrbit: Object.freeze({ fromAttackHeadingDeg: 60, elevationDeg: 15 }),
   elevationLimitsDeg: Object.freeze([5, 85]),
   dragDegPerPx: Object.freeze({ azimuth: 0.4, elevation: 0.3 }),
-  phaseColors: Object.freeze({ approach: "#8f9aa6", "roll-in": C.rollIn, tracking: C.flightPath, sem: C.verticalTracking }),
+  phaseColors: Object.freeze({ ingress: "#8f9aa6", turn: "#e08a1e", approach: "#2a9d8f", "popup-pull-up": "#c9a227", "popup-climb": "#c9a227", "roll-in": C.rollIn, tracking: C.flightPath, sem: C.verticalTracking }),
+  // 0.1.26: the legend line of each leg before the Roll-in (the two Pop-up legs share one).
+  approachLegLabels: Object.freeze({ ingress: "IP → Offset", turn: "Offset Turn", approach: "Approach", "popup-pull-up": "Pop-up", "popup-climb": "Pop-up" }),
 });
 
 const FT_PER_NM = 6076.11549;
@@ -445,6 +458,16 @@ let nextScenePathId = 0;
 const scenePathId = path => { if (!scenePathIds.has(path)) scenePathIds.set(path, ++nextScenePathId); return scenePathIds.get(path); };
 const fleetColor = number => ({ 1: '#4c5966', 2: '#8a3ab9', 3: '#2f9e6e', 4: '#b5651d' })[number] ?? '#203a63';
 
+// 0.1.26: the Offset Point (first sample of the Offset Turn) and the Pop Point (the sample before the Pop-up) of a host
+// approach, as [point, label] marks.
+export function bdp3dApproachMarks(approach = []) {
+  const marks = [];
+  const turn = approach.findIndex((s) => s.phase === "turn");
+  if (turn > 0) marks.push([approach[turn], "Offset"]);
+  const pop = approach.findIndex((s) => s.phase === "popup-pull-up" || s.phase === "popup-climb");
+  if (pop > 0) marks.push([approach[pop - 1], "Pop"]);
+  return marks;
+}
 export function renderBdp3dView(svg, path, options = {}) {
   if (!(svg instanceof SVGElement)) throw new TypeError("svg must be an SVGElement");
   if (!Array.isArray(path?.samples) || path.samples.length < 2) throw new TypeError("a BDP flight path is required");
@@ -455,7 +478,9 @@ export function renderBdp3dView(svg, path, options = {}) {
   const t = Number.isFinite(options.timeSec) ? (fleet.length ? options.timeSec : Math.min(options.timeSec, path.endT)) : null;
   const cockpit = !!options.camera;
   // The cockpit (HUD) redraws its whole picture every frame and never reuses a scene: no key.
-  const viewKey = cockpit ? null : JSON.stringify({ ...options, fleet: fleet.map(a => [a.number, scenePathId(a.path)]), timeSec: null });
+  // A focus on a moving object moves the whole picture with the time: no scene reuse across times then.
+  const movingFocus = !!options.focus && options.focus.kind !== "point";
+  const viewKey = cockpit ? null : JSON.stringify({ ...options, fleet: fleet.map(a => [a.number, scenePathId(a.path)]), timeSec: movingFocus ? options.timeSec : null });
   const scene = drawnScenes.get(svg);
   if (!cockpit && scene && scene.path === path && scene.viewKey === viewKey && svg.contains(scene.layers.time)) return scene.drawTime(t);
   const { width: W, height: H } = cockpit ? options.camera : BDP_3D_VIEW_V0_1.canvas;
@@ -543,7 +568,32 @@ export function renderBdp3dView(svg, path, options = {}) {
   }
   // Then the host's zoom about the canvas centre and pan (canvas px).
   const zoom = Math.min(BDP_3D_VIEW_V0_1.zoomLimits[1], Math.max(BDP_3D_VIEW_V0_1.zoomLimits[0], Number(options.zoom) || 1));
-  const pan = { x: Number(options.pan?.x) || 0, y: Number(options.pan?.y) || 0 };
+  let pan = { x: Number(options.pan?.x) || 0, y: Number(options.pan?.y) || 0 };
+  // 0.1.25: the focused object's world point at t; the pan puts it at the canvas centre.
+  const entryOf = (number) => fleet.find((a) => a.number === number) ?? null;
+  const stateOf = (number, tt) => {
+    const entry = entryOf(number);
+    if (entry) return entry.at(tt);
+    return tt !== null && tt >= firstT - 1e-9 && (!fleet.length) ? flightStateAt(path, tt) : null;
+  };
+  const focusPoint = (() => {
+    const f = options.focus;
+    if (cockpit || !f) return null;
+    if (f.kind === "point") return Array.isArray(f.point) ? f.point : null;
+    const entryPath = entryOf(f.number)?.path ?? path;
+    if (f.kind === "bomb") {
+      const b = t === null ? null : bombAt(entryPath, t);
+      if (b) return P(b);
+      const bombs = entryPath.bomb ?? [];
+      if (bombs.length && t !== null && t > (bombs.at(-1)?.t ?? Infinity)) return P(bombs.at(-1));
+    }
+    const state = stateOf(f.number, t);
+    return state ? P(state) : null;
+  })();
+  if (focusPoint) {
+    const c = cam.project(focusPoint);
+    if (c) pan = { x: -zoom * (ox + scale * c.u - W / 2), y: -zoom * (oy - scale * c.v - H / 2) };
+  }
   const at = (q) => {
     if (projection) return projection.point(q);
     const c = cam.project(q);
@@ -635,7 +685,7 @@ export function renderBdp3dView(svg, path, options = {}) {
 
   // Ground shadow of the path and drop lines at the Roll-in Point, Track Point and Release.
   add(polyline([...approach, ...path.samples].map((s) => [s.x, s.y, 0]), { stroke: "#8f9aa6", "stroke-width": 1.4, "stroke-opacity": 0.7, "data-3d-role": "shadow" }));
-  const marks = [[path.samples[0], "Roll-in"], [path.trackPoint, "Track Point"], ...(path.releaseT > path.trackPointT ? [[path.release, "Release"]] : [])];
+  const marks = [...bdp3dApproachMarks(approach), [path.samples[0], "Roll-in"], [path.trackPoint, "Track Point"], ...(path.releaseT > path.trackPointT ? [[path.release, "Release"]] : [])];
   for (const [p] of marks) add(polyline([[p.x, p.y, 0], P(p)], { stroke: "#8f9aa6", "stroke-width": 1, "stroke-dasharray": "3 3", "data-3d-role": "drop-line" }));
 
   // Fragment dome on the impact point: (x² + y²)/R² + z²/H² = 1 above the ground. Its outline is the convex hull of
@@ -688,7 +738,14 @@ export function renderBdp3dView(svg, path, options = {}) {
   }
 
   // Path by phase, each run joined to the previous one's last point.
-  if (approach.length >= 2) add(polyline(approach.map(P), { stroke: BDP_3D_VIEW_V0_1.phaseColors.approach, "stroke-width": 2, "stroke-linejoin": "round", "data-3d-role": "path-approach" }));
+  // 0.1.26: the approach by leg, each run joined to the previous one's last point (one Approach line without leg names).
+  const approachRuns = [];
+  approach.forEach((s, i) => {
+    const phase = BDP_3D_VIEW_V0_1.phaseColors[s.phase] && s.phase !== "roll-in" ? s.phase : "approach";
+    if (!approachRuns.length || approachRuns.at(-1).phase !== phase) approachRuns.push({ phase, points: i > 0 ? [approach[i - 1]] : [] });
+    approachRuns.at(-1).points.push(s);
+  });
+  if (approach.length >= 2) for (const run of approachRuns) if (run.points.length >= 2) add(polyline(run.points.map(P), { stroke: BDP_3D_VIEW_V0_1.phaseColors[run.phase], "stroke-width": run.phase === "approach" && approachRuns.length === 1 ? 2 : 2.6, "stroke-linejoin": "round", "data-3d-role": run.phase === "approach" ? "path-approach" : `path-${run.phase}` }));
   const runs = [];
   path.samples.forEach((s, i) => {
     if (!runs.length || runs.at(-1).phase !== s.phase) runs.push({ phase: s.phase, points: i > 0 ? [path.samples[i - 1]] : [] });
@@ -701,6 +758,7 @@ export function renderBdp3dView(svg, path, options = {}) {
     const color = fleetColor(item.number), other = item.path;
     if (other.approach?.length >= 2) add(polyline(other.approach.map(P), { stroke: color, 'stroke-width': 1.8, 'stroke-dasharray': '5 3', 'data-3d-role': 'fleet-approach', 'data-aircraft-number': item.number }));
     add(polyline(other.samples.map(P), { stroke: color, 'stroke-width': 2.3, 'data-3d-role': 'fleet-path', 'data-aircraft-number': item.number }));
+    if (other.bomb?.length >= 2) add(polyline(other.bomb.map(P), { stroke: color, 'stroke-width': 1.8, 'stroke-dasharray': '2 3', 'stroke-linecap': 'round', 'data-3d-role': 'fleet-bomb', 'data-aircraft-number': item.number }));
     const target = at(P(other.target));
     if (target) { add(svgNode('circle', { cx: target.x, cy: target.y, r: 4, fill: color, 'data-3d-role': 'fleet-target' })); add(text({x: target.x + 7, y: target.y - 7}, `TGT #${item.number}`, {fill: color})); }
   }
@@ -745,7 +803,8 @@ export function renderBdp3dView(svg, path, options = {}) {
   const timeText = add(svgNode("g", { "data-3d-layer": "time-text" }));
   const legend = [
     ...fleet.map(a => ({ label: `Aircraft #${a.number}`, color: fleetColor(a.number) })),
-    ...(approach.length >= 2 ? [{ label: "Approach", color: BDP_3D_VIEW_V0_1.phaseColors.approach }] : []),
+    ...(approach.length >= 2 ? [...new Set(approachRuns.filter((r) => r.points.length >= 2).map((r) => BDP_3D_VIEW_V0_1.approachLegLabels[r.phase]))]
+      .map((label) => ({ label, color: BDP_3D_VIEW_V0_1.phaseColors[Object.keys(BDP_3D_VIEW_V0_1.approachLegLabels).find((k) => BDP_3D_VIEW_V0_1.approachLegLabels[k] === label)] })) : []),
     { label: "Roll-in", color: BDP_3D_VIEW_V0_1.phaseColors["roll-in"] },
     { label: "Tracking", color: BDP_3D_VIEW_V0_1.phaseColors.tracking },
     ...(path.samples.some((s) => s.phase === "sem") ? [{ label: "SEM", color: BDP_3D_VIEW_V0_1.phaseColors.sem }] : []),
@@ -754,7 +813,31 @@ export function renderBdp3dView(svg, path, options = {}) {
     ...(fragment ? [{ label: "Fragment envelope (max)", color: C.target, dashed: true }] : []),
   ];
   const legendNotes = bdpSemLegendNotes(path);
-  const base = { title: options.title ?? "3D Profile", orbit, zoom, pan, aircraftScale, gridStepNm: stepNm, legend, legendNotes, legendColumns: 0, canvas: { width: W, height: H } };
+  // 0.1.25: the object nearest a canvas point at this time (within 28 canvas px), for the host's double click.
+  const pick = (cx, cy, tt = t) => {
+    if (cockpit) return null;
+    const entries = fleet.length ? fleet.map((a) => ({ number: a.number, path: a.path })) : [{ number: options.aircraft?.number ?? null, path }];
+    const items = [];
+    for (const entry of entries) {
+      const state = stateOf(entry.number, tt);
+      if (state) items.push({ kind: "aircraft", number: entry.number, label: entry.number ? `#${entry.number}` : "Aircraft", q: P(state) });
+      const b = tt === null ? null : bombAt(entry.path, tt);
+      if (b) items.push({ kind: "bomb", number: entry.number, label: `${entry.number ? `#${entry.number} ` : ""}Bomb`, q: P(b) });
+      const fixed = [...bdp3dApproachMarks(entry.path.approach ?? []), [entry.path.target, "Target"], [entry.path.samples[0], "Roll-in"], [entry.path.trackPoint, "Track Point"], [entry.path.release, "Release"], [entry.path.aim, "Aim-off"]];
+      for (const [point, name] of fixed) if (point) items.push({ kind: "point", number: entry.number, label: `${entry.number && fleet.length ? `#${entry.number} ` : ""}${name}`, q: P(point) });
+    }
+    let best = null;
+    for (const item of items) {
+      const sp = at(item.q);
+      if (!sp) continue;
+      const d = Math.hypot(sp.x - cx, sp.y - cy);
+      // Moving things win a tie with the fixed points under them.
+      const score = d - (item.kind === "point" ? 0 : 6);
+      if (d <= 28 && (!best || score < best.score)) best = { score, kind: item.kind, number: item.number, label: item.label, point: item.kind === "point" ? item.q : null };
+    }
+    return best ? { kind: best.kind, number: best.number, label: best.label, ...(best.point ? { point: best.point } : {}) } : null;
+  };
+  const base = { title: options.title ?? "3D Profile", orbit, zoom, pan, pick, focus: focusPoint ? options.focus : null, aircraftScale, gridStepNm: stepNm, legend, legendNotes, legendColumns: 0, canvas: { width: W, height: H } };
 
   // The time layers at t: the fragment dome under the paths; the bomb, the aircraft (the approved F-16 mesh,
   // with its drop line and shadow) and the state row on top.
@@ -766,7 +849,7 @@ export function renderBdp3dView(svg, path, options = {}) {
     const fragmentNow = tNow === null ? null : fragmentAt(path, tNow);
     if (fragmentNow) dome(fragmentNow.radiusFt, fragmentNow.heightFt, true, "fragment-now", timeUnder);
     // The bombs in the air: this path's, and in the cockpit the Flight's (0.1.21, enlarged to stay visible there).
-    const bombPaths = [{ number: options.aircraft?.number ?? null, path, own: true }, ...cockpitFleet.filter((a) => a.path && a.path !== path).map((a) => ({ number: a.number, path: a.path, own: false }))];
+    const bombPaths = [{ number: options.aircraft?.number ?? null, path, own: true }, ...[...cockpitFleet, ...fleet].filter((a) => a.path && a.path !== path).map((a) => ({ number: a.number, path: a.path, own: false }))];
     for (const item of bombPaths) {
       const bombNow = tNow === null ? null : bombAt(item.path, tNow);
       const bombPoint = bombNow ? at(P(bombNow)) : null;
@@ -861,6 +944,7 @@ export function renderBdp3dView(svg, path, options = {}) {
     const putText = (node) => { if (node) timeText.append(node); };
     if (!cockpit && !fleet.length && tNow !== null && !flying) putText(text({ x: 16, y: 46 }, `Roll-in in ${(path.samples[0].t - tNow).toFixed(1)} s`, { "data-3d-role": "state" }));
     if (state && !cockpit) putText(text({ x: 16, y: 46 }, `${path.timeOriginLabel ?? "Roll-in"} ${tNow < 0 ? "−" : "+"}${Math.abs(tNow).toFixed(1)} s · ${String(state.phase).toUpperCase()} · ${Math.round(state.z - path.target.z)} ft AGL · ${Math.round(state.kcas)} KCAS · Bank ${Math.round(Math.abs(state.bankDeg))}°`, { "data-3d-role": "state" }));
+    if (focusPoint && !cockpit) putText(text({ x: 16, y: 66 }, `Centre: ${options.focus.label ?? options.focus.kind} · double-click empty space or Reset View to release`, { "data-3d-role": "focus", fill: "#b45309" }));
     return { ...base, timeSec: tNow, state };
   };
   if (!cockpit) drawnScenes.set(svg, { path, viewKey, layers: { under: timeUnder, time: timeTop, text: timeText }, drawTime });

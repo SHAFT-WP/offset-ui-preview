@@ -31,7 +31,7 @@ import { createValueStateController } from "./common/ui/value-state-controller-v
 import { prepareSvgForExport, saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 // Flight HTML Save / Load (owner 2026-11-05; Flight HTML Save/Load handoff 2026-10-27 §6–§9).
 import { aircraftSetHtml, buildFlightHtml, cardHtml, dedBoxesHtml, escapeHtml, installFlightFileDialog, readFlightHtml, resultGroupsHtml, FLIGHT_FILE_FORMAT, FLIGHT_FILE_SCHEMA_VERSION } from "./shared/flight-html-file-v0.1.mjs?v=0.1.2";
-import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.2";
+import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.3";
 // DED boxes, texts and PNG: bombing app shared FE (2026-10-22); the DED record is the Flight BE's.
 import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.4";
 // BDP Result rows and Fragment Data readouts: bombing app shared FE (2026-10-22).
@@ -52,13 +52,13 @@ import { BDP_TAB_KEYS, NLT_RELEASE_FIELD, bdpTabMarkup, syncBdpNltRelease } from
 // controller only wires their toolbars, legend and titles.
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.10";
 import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.12";
-import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.3";
+import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.4";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
 // POP-UP Z-Diagram (POP-UP SPEC §13.8 / §13.8a; the POP-UP page only): a BE-owned view of the POP-UP Flight result.
 import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.5";
-import { popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
+import { POPUP_BDP_APPROACH_V0_1, popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.15.1";
+import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.0";
 
 import { buildOffsetHudAircraft, offsetHudGridStep } from "./AG/bombing/offset-bombing/view/offset-hud-scene-v0.1.mjs?v=0.1.3";
 
@@ -776,11 +776,16 @@ function flightDialWindow(dial) {
   const kept = result ? dialWindows.get(result)?.[kind] : undefined;
   // The panel's own flight path (its window) is drawn after the result arrives: a window kept from before it is stale.
   const pathEndSec = bdpFlightViewWindow(bdpDiagramsContainer(number)?.container)?.endSec ?? null;
-  if (kept && kept.popup === popup && kept.pathEndSec === pathEndSec && (!flightKey || kept.flightKey?.every((r, i) => r === flightKey[i]))) return kept.window;
-  const startSec = kind === "3d" ? threeDStartClockSec(number) : hudStartClockSec(number);
+  // The window starts with the earliest Offset of the shown aircraft (2026-11-06): kept against every result and the
+  // shown set too.
+  const allResults = [1, 2, 3, 4].map((n) => flightResultOf(n) ?? null);
+  const shown = shownKey();
+  if (kept && kept.popup === popup && kept.pathEndSec === pathEndSec && kept.shown === shown && kept.allResults.every((r, i) => r === allResults[i]) && (!flightKey || kept.flightKey?.every((r, i) => r === flightKey[i]))) return kept.window;
+  const startSec = flightWindowStartClockSec(number, kind);
+  const restSec = kind === "3d" ? threeDStartClockSec(number) : hudStartClockSec(number);
   const endSec = kind === "3d" ? threeDEndClockSec(number) : hudEndClockSec(number);
-  const window = Number.isFinite(endSec) && endSec > startSec ? { startSec, endSec } : null;
-  if (result && window) dialWindows.set(result, { ...dialWindows.get(result), [kind]: { popup, window, flightKey, pathEndSec } });
+  const window = Number.isFinite(endSec) && endSec > startSec ? { startSec, endSec, restSec } : null;
+  if (result && window) dialWindows.set(result, { ...dialWindows.get(result), [kind]: { popup, window, flightKey, pathEndSec, shown, allResults } });
   return window;
 }
 function mirrorTimeDial(dial) {
@@ -788,8 +793,8 @@ function mirrorTimeDial(dial) {
 }
 // startSec: where Play from off, from the end or from before it starts (3D / HUD copies: Roll-in −3 s; else 0);
 // endSec: where it stops (3D / HUD: 1 s after this aircraft's SEM, owner 2026-10-19), else the dial's end.
-function installTimeDial(dial, onChange, { startSec = () => 0, endSec = () => Infinity } = {}) {
-  timePlayer.installDial(dial, onChange, { startSec, endSec, clockSec: () => topViewTimeSec });
+function installTimeDial(dial, onChange, { startSec = () => 0, endSec = () => Infinity, minSec = null } = {}) {
+  timePlayer.installDial(dial, onChange, { startSec, endSec, minSec, clockSec: () => topViewTimeSec });
 }
 
 // Identity of a solved result for the viewport key (a new solve is a new object).
@@ -1726,27 +1731,62 @@ function popupBdpApproach(number) {
   }
   return popupBdpApproaches.get(popup);
 }
-function threeDStartClockSec(number) {
-  // POP-UP (owner 2026-11-01): the 3D Play runs from the IP; every aircraft flies its path from its IP (POP-UP clock).
-  if (POPUP_MODE) return 0;
-  const approach = popupBdpApproach(number);
-  if (!approach) return hudStartClockSec(number);
+// The 3D / HUD play window (owner 2026-11-06, "재생구간은 오프셋 전 10초전으로 셋팅. 스타트 포인트는 오프셋 전 5초전.
+// 전기치 중 오프셋 타임 가장 빠른 기체 기준이야(선택된 기체 중에)"): of the aircraft shown (#1–#4 buttons), the earliest
+// Offset Point (start of the Offset Turn) on the IP clock. The play bar starts 10 s before it; Play from off or the end
+// and the view at rest start 5 s before it. Not before the IP. Replaces POP-UP 3D from the IP (2026-11-01), the HUD from
+// the IP (2026-11-03) and the 3D at Pop −3 s / Roll-in −3 s.
+const OFFSET_WINDOW_BEFORE_SEC = 10;
+const OFFSET_START_BEFORE_SEC = 5;
+function offsetPointClockSecOf(number) {
   try {
-    const rollLeg = timelineOf(flightResultOf(number)).legs.find((leg) => leg.phase === "roll-in");
-    return rollLeg.startSec + approach.startSec;
-  } catch (_) { return hudStartClockSec(number); }
+    const legs = timelineOf(flightResultOf(number)).legs;
+    const leg = legs.find((l) => l.phase === "turn") ?? legs.find((l) => l.phase === "approach");
+    return Number.isFinite(leg?.startSec) ? leg.startSec : null;
+  } catch (_) { return null; }
 }
-// HUD Play from off or the end starts at the IP (owner 2026-11-03, "허드 뷰도 ip부터 재생"), like the POP-UP 3D
-// Profile; it was this aircraft's Roll-in −3 s. Without the Offset → Roll-in altitude transition the aircraft has no
-// path before its Roll-in, so Play starts there.
-function hudStartClockSec(number) {
-  if (POPUP_MODE) return 0;
+// An aircraft without the Offset → Roll-in altitude transition (ordinary Offset, unequal altitudes) has no path before its
+// Roll-in: its Offset Point is not flown in the views and does not count.
+function earliestOffsetClockSec() {
+  const times = shownAircraft.visible().filter((n) => !missingTransitionOf(n)).map(offsetPointClockSecOf).filter(Number.isFinite);
+  return times.length ? Math.min(...times) : null;
+}
+function shownKey() { return shownAircraft.visible().join(","); }
+function missingTransitionOf(number) {
   try {
-    const rollLeg = timelineOf(flightResultOf(number)).legs.find((leg) => leg.phase === "roll-in");
     const result = flightResultOf(number);
-    const missingTransition = !popupBdpApproach(number) && Math.abs(result.resolved.offsetAltitudeMslFt - result.profile.public.resolvedInitialAltitudeMslFt) > 1;
-    return missingTransition ? Math.max(0, rollLeg.startSec) : 0;
-  } catch (_) { return 0; }
+    return !popupBdpApproach(number) && Math.abs(result.resolved.offsetAltitudeMslFt - result.profile.public.resolvedInitialAltitudeMslFt) > 1;
+  } catch (_) { return false; }
+}
+// kind "hud": the cockpit of an aircraft without a path before its Roll-in starts at its Roll-in. The 3D shows the
+// Flight: it keeps the earliest Offset of the others.
+function offsetClockBefore(number, beforeSec, kind) {
+  const missing = missingTransitionOf(number);
+  const roll = Math.max(0, rollInClockSecOf(number) ?? 0);
+  if (kind === "hud" && missing) return roll;
+  const offset = earliestOffsetClockSec();
+  if (Number.isFinite(offset)) return Math.max(0, offset - beforeSec);
+  return missing ? roll : 0;
+}
+// Where Play from off or the end starts, and the view at rest: the earliest Offset −5 s.
+function threeDStartClockSec(number) { return offsetClockBefore(number, OFFSET_START_BEFORE_SEC, "3d"); }
+function hudStartClockSec(number) { return offsetClockBefore(number, OFFSET_START_BEFORE_SEC, "hud"); }
+// The play bar's start: the earliest Offset −10 s.
+function flightWindowStartClockSec(number, kind) { return offsetClockBefore(number, OFFSET_WINDOW_BEFORE_SEC, kind); }
+// The host's key points on this aircraft's 3D / HUD play bars, in seconds from its Roll-in Point: its own Offset Point
+// and Pop Point, and the start (earliest Offset −5 s) in place of Roll-in −3 s.
+function flightKeyPointsOf(number) {
+  const roll = rollInClockSecOf(number);
+  if (!Number.isFinite(roll)) return null;
+  const points = [];
+  // One row serves both dials: the 3D's start (the HUD of an aircraft without a path before its Roll-in starts there).
+  const start = threeDStartClockSec(number);
+  if (Number.isFinite(start) && Number.isFinite(earliestOffsetClockSec())) points.push({ key: "start", label: `Offset −${OFFSET_START_BEFORE_SEC} s`, t: start - roll });
+  const own = offsetPointClockSecOf(number);
+  if (Number.isFinite(own) && !missingTransitionOf(number)) points.push({ key: "offset", label: "Offset", t: own - roll });
+  const approach = popupBdpApproach(number);
+  if (Number.isFinite(approach?.startSec)) points.push({ key: "pop", label: "Pop", t: approach.startSec + POPUP_BDP_APPROACH_V0_1.beforePopSec });
+  return points;
 }
 
 // HUD Play stops 1 s after this aircraft's SEM ends (owner 2026-10-19): the BDP views' window end on the Offset clock.
@@ -1805,13 +1845,13 @@ function refreshBdpDiagrams(number) {
       // 2026-10-15 (owner R6): 3D Profile and HUD View on the same clock (seconds from the Roll-in Point).
       // 2026-10-18 (owner handoff §3.1): the real approach before the Roll-in Point (the HUD starts at Roll-in −3 s).
       flightView: { playing: clockPlaying, hudContext: offsetHudContext(number, topViewTimeSec, { profile: true }), rollDirection: result.geometry.direction.rollDirection, timeSec: dialTimeFromRollIn(result),
-        ...(popupBdpApproach(number) ?? { approach: hudApproachOf(result) }) },
+        ...(popupBdpApproach(number) ?? { approach: hudApproachOf(result) }), keyPoints: flightKeyPointsOf(number) },
     });
     const hudDial = target.container.querySelector(`[data-time-dial="hud-${number}"]`);
-    installTimeDial(hudDial, setOffsetClock, { startSec: () => hudStartClockSec(number), endSec: () => hudEndClockSec(number) });
+    installTimeDial(hudDial, setOffsetClock, { startSec: () => hudStartClockSec(number), endSec: () => hudEndClockSec(number), minSec: () => flightWindowStartClockSec(number, "hud") });
     mirrorTimeDial(hudDial);
     const threeDDial = target.container.querySelector(`[data-time-dial="3d-${number}"]`);
-    installTimeDial(threeDDial, setOffsetClock, { startSec: () => threeDStartClockSec(number), endSec: () => threeDEndClockSec(number) });
+    installTimeDial(threeDDial, setOffsetClock, { startSec: () => threeDStartClockSec(number), endSec: () => threeDEndClockSec(number), minSec: () => flightWindowStartClockSec(number, "3d") });
     // The key points under the 3D / HUD dials: this aircraft's Roll-in on the Offset clock (diagrams panel 0.15.0).
     const rollInClockSec = rollInClockSecOf(number);
     for (const dial of [hudDial, threeDDial]) if (dial && Number.isFinite(rollInClockSec) && dial.dataset.clockOffsetSec !== String(rollInClockSec)) dial.dataset.clockOffsetSec = String(rollInClockSec);

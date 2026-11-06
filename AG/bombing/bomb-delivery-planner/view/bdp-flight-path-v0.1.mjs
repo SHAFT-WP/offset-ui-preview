@@ -24,7 +24,11 @@ export const BDP_FLIGHT_PATH_V0_1 = Object.freeze({
   // the bomb at t). Its samples keep the ballistic model's sample interval (the last at Impact); the wind's cross
   // drift grows with time as in the BE (impact cross range / impact time; none without that impact point).
   // 0.1.5 (2026-10-28): optional host startSec and sampled altitude/FPA/CAS for Popup's pre-Roll-in climb.
-  version: "0.1.5",
+  // 0.1.6 (2026-11-06, owner: "3D 봄 프로파일에서 2번기 경로가 끊어지는 현상"): a negative Tracking Time releases on
+  // the Roll-in, above the Track Point; Release is then the Roll-in point at the Release height and the Roll-in after
+  // it is not flown, so the SEM and the bomb leave from where the aircraft is (before: they jumped up from the Track
+  // Point by the height of the missing seconds).
+  version: "0.1.6",
   window: Object.freeze({ startSec: -3, afterSemEndSec: 1 }),
   hudStartSec: -3,
   // HUD angle of attack (research viewer SPEC §5.4, BMS 4.38.1 fit, PROVISIONAL): a + b·G / CAS² (deg, CAS m/s).
@@ -85,6 +89,16 @@ export function buildBdpFlightPath(result, { rollDirection = "RIGHT", approach =
   const releaseKcas = input.releaseSpeedKcas + (input.speedOvershootKcas ?? 0);
   // Tracking: the FPM line from the Track Point to Release (none when the Tracking Time is not positive).
   let release = { ...trackPoint };
+  if (!(trackingSec > 0) && releaseAglFt > trackPoint.z) {
+    const after = samples.findIndex((sample) => sample.z <= releaseAglFt);
+    if (after > 0) {
+      const a = samples[after - 1], b = samples[after];
+      const f = a.z === b.z ? 0 : (a.z - releaseAglFt) / (a.z - b.z);
+      const mix = (key) => a[key] + (b[key] - a[key]) * f;
+      release = { ...a, t: mix("t"), x: mix("x"), y: mix("y"), z: releaseAglFt, headingDeg: mix("headingDeg"), fpaDeg: mix("fpaDeg"), bankDeg: mix("bankDeg"), loadFactor: mix("loadFactor"), kcas: mix("kcas"), phase: "roll-in" };
+      samples.splice(after, samples.length - after, release);
+    }
+  }
   if (trackingSec > 0) {
     const travelFt = pub.downRangeTravelNm * FT_PER_NM;
     release = {

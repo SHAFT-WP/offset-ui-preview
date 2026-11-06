@@ -23,7 +23,10 @@ export const OFFSET_TIME_PATH_V0_1 = Object.freeze({
   // 0.1.3 (2026-11-01, owner: POP-UP 3D from IP): a POP-UP result (POP-UP Flight 0.1.2: timing.popupHoldDownSec /
   // popupClimbSec and geometry.points.popPoint) flies its approach leg as the Hold-Down to the Pop Point, then the climb's
   // ground track to Roll-in Start, in the POP-UP Flight's own times. Offset results are unchanged.
-  version: "0.1.3",
+  // 0.1.4 (2026-11-06, owner: "3D / HUD를 POP-UP처럼 구분, 오프셋 포인트"): offsetApproachInBdpFrame names the leg of each
+  // sample — "ingress" (IP → Offset Point), "turn" (the Offset Turn) or "approach" (after it); it was "approach" for both
+  // straight legs. Positions and times unchanged.
+  version: "0.1.4",
   phases: Object.freeze(["ingress", "turn", "approach", "roll-in", "tracking", "bomb"]),
 });
 
@@ -197,7 +200,7 @@ export function offsetApproachInBdpFrame(result, seconds = 3.5) {
       y: (rel.x * fwd.x + rel.y * fwd.y) * FT_PER_NM,
       headingDeg,
       ...(turning ? turnState(tSec - turnLeg.startSec) : { bankDeg: 0, loadFactor: 1 }),
-      phase: turning ? "turn" : "approach",
+      phase: turning ? "turn" : at.phase === "ingress" ? "ingress" : "approach",
     });
   }
   return samples;

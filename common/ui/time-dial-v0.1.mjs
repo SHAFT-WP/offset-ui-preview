@@ -12,7 +12,9 @@
 //   nearest step at or below it, never above the last. A change during Play keeps the clock where it is. Every
 //   dial shows the one speed.
 
-export const TIME_DIAL_V0_1 = Object.freeze({ id: "common-time-dial-v0.1", version: "0.1.2" });
+export const TIME_DIAL_V0_1 = Object.freeze({ id: "common-time-dial-v0.1", version: "0.1.3" });
+// 0.1.3 (2026-11-06): a copy's window may carry restSec (the slider while off); installDial's minSec: Play from a clock
+// between it and the fresh start runs from that clock.
 // 0.1.2 (owner 2026-11-03, "Play 배속은 1x 2x 3x로 구성"): the speed steps are 1× → 2× → 3× → 1×.
 // 0.1.1 (2026-11-01, Play speed): a dial writes an attribute or text only when it changes. Play mirrors every dial
 // each frame; rewriting the same values still invalidated the page's style and made each frame's layout slower.
@@ -71,7 +73,7 @@ export function createTimePlayer({
 
   // onChange(timeSec | null, { playing }): the new clock. startSec: where Play from off, from the end or from before
   // it starts begins (default 0); endSec: where it stops (default the dial's end); clockSec: the clock now.
-  function installDial(dial, onChange, { startSec: freshStartSec = () => 0, endSec: windowEndSec = () => Infinity, clockSec = () => null } = {}) {
+  function installDial(dial, onChange, { startSec: freshStartSec = () => 0, endSec: windowEndSec = () => Infinity, clockSec = () => null, minSec = null } = {}) {
     if (!dial || dial.dataset.installed) return;
     dial.dataset.installed = "true";
     const range = dial.querySelector("[data-time-range]");
@@ -96,9 +98,11 @@ export function createTimePlayer({
       const current = active ? (Number.isFinite(clock) ? clock : Number(range.value)) : null;
       const endSec = windowEndSec();
       const stopSec = Math.min(Number(range.max) || 0, Number.isFinite(endSec) ? endSec : Infinity);
-      // A clock before the copy's start (e.g. Roll-in −3 s) starts there too, not after a wait.
+      // A clock before the copy's start (e.g. Roll-in −3 s) starts there too, not after a wait. 0.1.3: a clock at or after
+      // minSec (the window's start, before the fresh start: Offset −10 s … −5 s) plays from there.
       const freshSec = freshStartSec();
-      const startSec = current === null || current >= stopSec || current < freshSec ? freshSec : current;
+      const floorSec = Math.min(freshSec, minSec?.() ?? freshSec);
+      const startSec = current === null || current >= stopSec || current < floorSec ? freshSec : current;
       playing = { startSec, endSec: Number.isFinite(endSec) ? endSec : Infinity, startedAt: now(), lastDraw: -Infinity, frame: 0, onChange };
       setPlayButtons(true);
       playing.frame = requestFrame(step);
@@ -136,7 +140,8 @@ export function createTimePlayer({
       setProp(range, "min", String(span.startSec));
       setProp(range, "max", String(Math.max(span.startSec, endSec)));
       setProp(range, "step", "any");
-      const clock = Number.isFinite(clockSec) ? clockSec : span.startSec;
+      // span.restSec (2026-11-06): where the slider sits while the clock is off, when not at the span's start.
+      const clock = Number.isFinite(clockSec) ? clockSec : Number.isFinite(span.restSec) ? span.restSec : span.startSec;
       setProp(range, "value", String(Math.min(Math.max(clock, span.startSec), endSec)));
     } else {
       setProp(range, "max", sourceRange.max);

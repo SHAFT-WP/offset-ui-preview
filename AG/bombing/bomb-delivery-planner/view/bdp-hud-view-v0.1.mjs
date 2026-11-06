@@ -1,6 +1,6 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
-import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.4";
-import { bdpCanvasLayer, renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.23";
+import { BDP_FLIGHT_PATH_V0_1, aircraftAxes, flightStateAt, hudAoaDeg } from "./bdp-flight-path-v0.1.mjs?v=0.1.6";
+import { bdpCanvasLayer, renderBdp3dView } from "./bdp-3d-view-v0.1.mjs?v=0.1.26";
 
 // BDP HUD view v0.1 (owner 2026-10-15, BDP update R6; plan §4.6; research viewer SPEC §5.3 in SVG). A first-person
 // view from the aircraft of a BDP flight path at time t: an F-16-style HUD square of `hudSizeDeg` (default 14°,
@@ -34,7 +34,8 @@ export const BDP_HUD_VIEW_V0_1 = Object.freeze({
   // 0.1.15 (owner 2026-11-03, "기체 사이즈 옵션을 위 컨트롤 박스에 추가"): `aircraftScale` (null: Auto, the enlargement that
   // keeps each aircraft visible; a number: that multiple of the real F-16) for the cockpit's aircraft (3D 0.1.22).
   // 0.1.16: 3D 0.1.23.
-  version: "0.1.16",
+  // 0.1.17 (2026-11-06): the shared scene is 3D 0.1.26 (the approach by leg: IP → Offset, Offset Turn, Approach, Pop-up).
+  version: "0.1.17",
   fovLimitsDeg: Object.freeze([5, 150]),
   canvas: Object.freeze({ width: 720, height: 540 }),
   ladderStepDeg: 5,
