@@ -2303,12 +2303,21 @@ function renderFlightFormation(flightName) {
   if (shell) shell.innerHTML = formation && flightLayout.size >= 2 ? formationTopViewSvg({ formation, idPrefix: "flight-formation-top-view", title: `Formation top view ${formation.text ?? ""}`.trim() }) : "";
 }
 
+// POP-UP follower Initial Speed readout: the Flight's Offset Turn (Pop) speed, kcas whole / Mach two decimals.
+function initialSpeedText(resolved) {
+  const speed = Number(resolved?.offsetSpeedValue);
+  if (!Number.isFinite(speed)) return "-";
+  return resolved.offsetSpeedMode === "MACH" ? `M ${speed.toFixed(2)}` : `${Math.round(speed)} kcas`;
+}
+
 function followerCalculatingMarkup(number) {
   const leadNumber = elementLeadNumber(number);
   const predecessor = number - 1;
   const wingman = FLIGHT_WINGMEN.has(number);
   const field = {
     weapon: `<label class="field flight-weapon-field"><span>Bomb</span><select data-flight-field="weaponId"></select></label>`,
+    // POP-UP page (owner 2026-11-09): Initial Speed first, the Flight's IP → Offset Turn → Pop Point speed (#1's Offset Turn Speed).
+    popInitialSpeed: POPUP_MODE ? `<div class="field"><span>Initial Speed</span><output class="readout" data-flight-readout="initialSpeed">-</output><span class="unit">Follows #1 · IP → Offset Turn → Pop Point</span></div>` : "",
     initialSpeed: POPUP_MODE
       ? `<label class="field"><span class="lock-title"><span>Roll-in Speed (kcas)</span><button class="lock-button" type="button" data-popup-lock="rollInSpeed" aria-label="Lock Roll-in Speed" aria-pressed="false">LOCK</button></span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"><span class="unit"></span></label>`
       : `<label class="field"><span>Initial Speed (KCAS)</span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"></label>`,
@@ -2337,19 +2346,21 @@ function followerCalculatingMarkup(number) {
   // index (handoff 2026-10-06 §4): the frequently edited profile sits with the Offset geometry; the
   // BDP tab is the shared BDP tab (owner composition 2026-10-25), whose BDP Profile and Roll-in Turn are copies of
   // the Offset tab's (one value). Standard keeps the earlier grouping. Same draft keys either way.
-  // POP-UP page: this aircraft's POP-UP inputs (same fields and controls as #1's group, plus Pop with #1).
+  // POP-UP page: this aircraft's POP-UP inputs (same fields and controls as #1's group). Order (owner 2026-11-09):
+  // Pop-up Range, Popup Angle, Popup G, Roll-in Speed, Roll-in Altitude, Exposure Time, Pop to Roll-in Distance.
   const popupGroup = !POPUP_MODE ? "" : `<details class="input-group-panel" open><summary class="input-group-title">POP-UP</summary><div class="driver"><span>${POPUP_DRIVER_NOTE}</span><output data-popup-driver-out>DRIVER · AUTO</output></div><div class="input-grid">`
-    + `<label class="field"><span class="lock-title"><span>Popup Angle (deg)</span><button class="lock-button" type="button" data-popup-lock="angle" aria-label="Lock Popup Angle" aria-pressed="false">LOCK</button></span><input data-flight-field="popupAngleDeg" type="text" inputmode="decimal"><span class="unit">Climb angle · 0–55° (exclusive)</span></label>`
-    + `<label class="field"><span class="lock-title"><span>Pop to Roll-in Distance (NM)</span><button class="lock-button" type="button" data-popup-lock="distance" aria-label="Lock Pop to Roll-in Distance" aria-pressed="false">LOCK</button></span><input data-flight-field="popupGroundDistanceNm" type="text" inputmode="decimal"><span class="unit">Pop Point → Roll-in Start</span></label>`
     + `<div class="field"><span>Pop-up Range (NM)</span><output class="readout" data-popup-range-out>-</output><span class="unit">Pop-up Point → Target · result</span></div>`
-    + `<label class="field"><span>Exposure Time (sec)</span><input data-flight-field="popupExposureTimeSec" type="text" inputmode="decimal"><span class="unit">Pop Point → Apex · MIL</span></label>`
+    + `<label class="field"><span class="lock-title"><span>Popup Angle (deg)</span><button class="lock-button" type="button" data-popup-lock="angle" aria-label="Lock Popup Angle" aria-pressed="false">LOCK</button></span><input data-flight-field="popupAngleDeg" type="text" inputmode="decimal"><span class="unit">Climb angle · 0–55° (exclusive)</span></label>`
     + `<label class="field"><span>Popup G (G)</span><input data-flight-field="popupG" type="text" inputmode="decimal"><span class="unit" data-follow-note></span></label>`
+    + `${field.initialSpeed}${rollInLocked}`
+    + `<label class="field"><span>Exposure Time (sec)</span><input data-flight-field="popupExposureTimeSec" type="text" inputmode="decimal"><span class="unit">Pop Point → Apex · MIL</span></label>`
+    + `<label class="field"><span class="lock-title"><span>Pop to Roll-in Distance (NM)</span><button class="lock-button" type="button" data-popup-lock="distance" aria-label="Lock Pop to Roll-in Distance" aria-pressed="false">LOCK</button></span><input data-flight-field="popupGroundDistanceNm" type="text" inputmode="decimal"><span class="unit">Pop Point → Roll-in Start</span></label>`
     + `<div class="field"><span>Pop-up Angle</span><span class="compound"><button class="btn" type="button" data-popup-auto>AUTO</button></span><span class="unit">AUTO: Dive ≤ 15° → Dive + 5°, Dive > 15° → Dive + 10°</span></div>`
     + `<div class="field"><span>Popup Angle Min. Exposure</span><span class="compound"><button class="btn" type="button" data-popup-min>Calculate</button><output class="readout" data-popup-min-out>-</output><button class="btn" type="button" data-popup-min-apply hidden>Apply</button></span><span class="unit">Popup angle with the shortest Pop → Apex</span></div>`
     + `</div></details>`;
   const inputSections = INDEX_LAYOUT ? [
     followerBdpTabMarkup(number),
-    flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${field.initialSpeed}${field.initialAltitude}${rollInLocked}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${popupGroup}${foldGroup("Roll-in Condition", `${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${statusLine}`, { calculating: true, tab: "offset" }),
+    flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${POPUP_MODE ? `${field.popInitialSpeed}${field.initialAltitude}` : `${field.initialSpeed}${field.initialAltitude}${rollInLocked}`}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${popupGroup}${foldGroup("Roll-in Condition", `${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${statusLine}`, { calculating: true, tab: "offset" }),
   ] : [
     flightSection(number, "BDP", `${profileLinkMarkup(number)}<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}${ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label)).join("")}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerSemFields(number)}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerSemTurnFields(number)}</div><div data-sem-readouts></div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target).</p>`, { calculating: true, tab: "bdp" }),
     flightSection(number, "Offset", `${statusHead}<div class="input-grid">${field.runIn}${field.ipRange}${field.attack}${field.angleOff}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}</div>${popupGroup}${statusLine}`, { calculating: true, tab: "offset" }),
@@ -2971,6 +2982,8 @@ function renderFollower(number, entry) {
   if (ipRangeReadout) ipRangeReadout.textContent = formatNm(result.resolved.ipRangeNm);
   const headingReadout = slot.querySelector('[data-flight-readout="offsetHeadingDeg"]');
   if (headingReadout) headingReadout.textContent = fmtHeading(result.resolved.offsetHeadingDeg);
+  const initialSpeedReadout = slot.querySelector('[data-flight-readout="initialSpeed"]');
+  if (initialSpeedReadout) initialSpeedReadout.textContent = initialSpeedText(result.resolved);
   renderFollowerResult(number, slot, { result, delta: flightTimingOf(number) });
   renderSemFragmentReadouts(slot.querySelector("[data-sem-readouts]"), result);
   syncBdpNltRelease(slot.querySelectorAll("[data-bdp-nlt-release]"), result.profile);
