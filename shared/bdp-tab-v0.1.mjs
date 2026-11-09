@@ -24,7 +24,8 @@
 // to the reciprocal of the IP → Target heading).
 // 0.1.4 (2026-11-04, owner): a page whose CSEM turns (csem: { ... }) shows the Turn Direction and Turn Amount for
 // both SEMs, the CSEM Target FPA with its own placeholder / note and a CSEM Level Altitude (ft AGL) field.
-export const BDP_TAB_V0_1 = Object.freeze({ id: "bombing-bdp-tab-v0.1", version: "0.1.4" });
+// 0.1.5 (2026-11-09, owner): the wind direction is magnetic like every heading of the bombing pages (label MAG).
+export const BDP_TAB_V0_1 = Object.freeze({ id: "bombing-bdp-tab-v0.1", version: "0.1.5" });
 
 // The NLT Release readout (BDP result) shown after Release Altitude; pages that hand-write their BDP Profile use it too.
 export const NLT_RELEASE_FIELD = `<label class="field"><span>NLT Release (ft MSL)</span><output class="readout" data-bdp-nlt-release>-</output><span class="unit">Result · BDP minimum release altitude</span></label>`;
@@ -136,11 +137,11 @@ export function semRecoveryFieldsMarkup({ follower = null, turnAmount = null, cs
 // The BDP section's content (head + groups) of aircraft `number`. weapons: [{ id, label }] for the Bomb select.
 // angleOff: as bdpProfileFieldsMarkup. turnNote: as turnOnsetFieldsMarkup. targetNote / windNote: the Target
 // Elevation and Wind Direction notes. follower: the follower form (above).
-export function bdpTabMarkup({ number = 1, weapons = [], angleOff = null, turnNote, targetNote = "Target MSL", windNote = "TRUE · wind FROM", follower = null, turnAmount = null, csem = null } = {}) {
+export function bdpTabMarkup({ number = 1, weapons = [], angleOff = null, turnNote, targetNote = "Target MSL", windNote = "MAG · wind FROM", follower = null, turnAmount = null, csem = null } = {}) {
   const options = weapons.map((weapon) => `<option value="${esc(weapon.id)}">${esc(weapon.label ?? weapon.id)}</option>`).join("");
   const bomb = `<label class="field${follower ? " flight-weapon-field" : ""}"><span>Bomb</span><select ${keyAttr("weaponId", follower)}>${options}</select><span class="unit">BDP weapon database</span></label>`;
   const wind = follower
-    ? `<label class="field"><span>Wind FROM / Speed</span><output data-flight-readout="wind">-</output><span class="unit">Shared with #1 · TRUE FROM</span></label>`
+    ? `<label class="field"><span>Wind FROM / Speed</span><output data-flight-readout="wind">-</output><span class="unit">Shared with #1 · MAG FROM</span></label>`
     : field("windDirectionDeg", "Wind Direction FROM (deg)", windNote) + field("windSpeedKt", "Wind Speed (kt)", "");
   return `<div class="section-head"><div class="bdp-tab-head"><h2 id="bdp-title-${number}">BDP #${number}</h2><p class="bdp-tab-note">${BDP_TAB_NOTE}</p></div></div>`
     + group("Target Elevation/Bomb type", field("targetElevationMslFt", "Target Elevation (ft MSL)", targetNote, { follower }) + bomb)

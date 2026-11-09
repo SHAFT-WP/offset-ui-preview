@@ -6,6 +6,7 @@
 import { formatDeg, formatNm } from "../common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { svgNode } from "../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { saveSvgAsPng } from "../common/diagram/svg-png-export-v0.1.mjs";
+import { currentMagVarDeg, dedBasisText, installMagVarFields, onMagVarChange, trueFromMagneticDeg } from "./mag-var-v0.1.mjs?v=0.1.0";
 
 // 0.1.1 (2026-10-25, BOX page): a page list of OA boxes (dedPagesMarkup / writeDedPages / clearDedPages) beside the
 // reference + OA1 pair; the pair is unchanged.
@@ -14,7 +15,11 @@ import { saveSvgAsPng } from "../common/diagram/svg-png-export-v0.1.mjs";
 // 0.1.3 (2026-11-03, POP-UP page, owner): a POP-UP box after the reference page ({ popUp: true }, the record's `popUp`,
 // read TBRG / RNG / ELEV like the reference page); OA2 is then OA1's point at the Target Elevation (the record's). The
 // PNG lays the boxes two to a row.
-export const DED_V0_1 = Object.freeze({ id: "bombing-ded-v0.1", version: "0.1.4" });
+// 0.1.5 (2026-11-09, owner): the records' bearings are magnetic (the calculator's basis); every TBRG shown is converted
+// to true with the page's Magnetic Var (shared/mag-var-v0.1.mjs: T = M + variation, east positive; Korea 7.5°W by default),
+// because BMS's DED offset pages take a true bearing. A basis line under the boxes says which, and the boxes follow a
+// change of the Magnetic Var at once (refreshDedBearings). RNG and ELEV are unchanged.
+export const DED_V0_1 = Object.freeze({ id: "bombing-ded-v0.1", version: "0.1.5" });
 // The value outputs of the boxes; the reference box's title is "reference-title". The popup / oa2 outputs exist only
 // where the page asked for those boxes.
 export const DED_VALUE_KEYS = Object.freeze(["reference-bearing", "reference-range", "reference-elevation", "popup-bearing", "popup-range", "popup-elevation", "oa1-bearing", "oa1-range", "oa1-elevation", "oa2-bearing", "oa2-range", "oa2-elevation"]);
@@ -31,6 +36,29 @@ export function dedBearingText(bearingDeg) {
   return `${formatDeg(bearingDeg)}°`;
 }
 
+// The TBRG text of a magnetic record bearing: converted to true with `magVarDeg` (default: the page's Magnetic Var).
+const varOf = (options) => (options && "magVarDeg" in options ? options.magVarDeg : currentMagVarDeg());
+export function dedTbrgText(magneticDeg, options) {
+  return dedBearingText(trueFromMagneticDeg(magneticDeg, varOf(options)));
+}
+// A bearing output keeps its magnetic value so a Magnetic Var change can rewrite it without a new calculation.
+function writeBearing(node, magneticDeg, options) {
+  node.textContent = dedTbrgText(magneticDeg, options);
+  if (node.dataset) node.dataset.dedMag = String(magneticDeg);
+}
+function clearBearing(node) {
+  node.textContent = "-";
+  if (node.dataset) delete node.dataset.dedMag;
+}
+const basisLine = () => `<p class="ded-basis" data-ded-basis>${dedBasisText()}</p>`;
+
+// Rewrites every shown TBRG and basis line under `root` with the current Magnetic Var.
+export function refreshDedBearings(root = typeof document === "undefined" ? null : document) {
+  if (!root) return;
+  root.querySelectorAll("[data-ded-mag]").forEach((node) => { node.textContent = dedTbrgText(Number(node.dataset.dedMag)); });
+  root.querySelectorAll("[data-ded-basis]").forEach((node) => { node.textContent = dedBasisText(); });
+}
+
 // The two boxes, outputs named by `attribute` ("reference-title", "reference-bearing", …). OA1 reads RNG, TBRG, ELEV
 // (user 2026-10-02); the VRP / VIP page keeps TBRG, RNG, ELEV. `popUp` (0.1.3) adds a POP-UP box after the reference
 // page, read like it; `oa2` (0.1.2) adds an OA2 box after OA1, read like OA1.
@@ -40,11 +68,18 @@ export function dedBoxesMarkup(attribute = "data-flight-ded", { oa2 = false, pop
     return `<div class="ded-row"><span>${label}</span><output ${attribute}="${page}-${key}">-</output></div>`;
   }).join("");
   const box = (title, page) => `<div class="ded-screen" aria-live="polite"><div class="ded-page-title">${title}</div>${rows(page)}</div>`;
-  return `<div class="ded-boxes"><div class="ded-screen" aria-live="polite"><div class="ded-page-title" ${attribute}="reference-title">VRP</div>${rows("reference")}</div>${popUp ? box("POP-UP", "popup") : ""}${box("OA1", "oa1")}${oa2 ? box("OA2", "oa2") : ""}</div>`;
+  return `<div class="ded-boxes"><div class="ded-screen" aria-live="polite"><div class="ded-page-title" ${attribute}="reference-title">VRP</div>${rows("reference")}</div>${popUp ? box("POP-UP", "popup") : ""}${box("OA1", "oa1")}${oa2 ? box("OA2", "oa2") : ""}</div>${basisLine()}`;
 }
 
 // out(key) gives the output of a key in DED_VALUE_KEYS (a missing one is skipped).
-export function writeDedValues(out, ded) {
+// options.magVarDeg: the variation to convert TBRG with (default: the page's Magnetic Var; null = none).
+export function writeDedValues(out, ded, options) {
+  const bearings = {
+    "reference-bearing": ded.reference.bearingDeg,
+    "oa1-bearing": ded.oa1.bearingDeg,
+    "popup-bearing": ded.popUp ? ded.popUp.bearingDeg : null,
+    "oa2-bearing": ded.oa2 ? ded.oa2.bearingDeg : null,
+  };
   const texts = {
     "reference-bearing": dedBearingText(ded.reference.bearingDeg),
     "reference-range": dedRangeText(ded.reference),
@@ -62,14 +97,20 @@ export function writeDedValues(out, ded) {
   };
   for (const key of DED_VALUE_KEYS) {
     const node = out(key);
-    if (node) node.textContent = texts[key];
+    if (!node) continue;
+    if (key in bearings) {
+      if (bearings[key] === null) clearBearing(node);
+      else writeBearing(node, bearings[key], options);
+    } else node.textContent = texts[key];
   }
 }
 
 export function clearDedValues(out) {
   for (const key of DED_VALUE_KEYS) {
     const node = out(key);
-    if (node) node.textContent = "-";
+    if (!node) continue;
+    if (key.endsWith("-bearing")) clearBearing(node);
+    else node.textContent = "-";
   }
 }
 
@@ -80,18 +121,20 @@ export function dedPagesMarkup(titles, attribute = "data-ded-oa") {
     const [key, label] = item.split(":");
     return `<div class="ded-row"><span>${label}</span><output ${attribute}="${index}-${key}">-</output></div>`;
   }).join("");
-  return `<div class="ded-boxes">${titles.map((title, index) => `<div class="ded-screen" aria-live="polite"><div class="ded-page-title">${title}</div>${rows(index)}</div>`).join("")}</div>`;
+  return `<div class="ded-boxes">${titles.map((title, index) => `<div class="ded-screen" aria-live="polite"><div class="ded-page-title">${title}</div>${rows(index)}</div>`).join("")}</div>${basisLine()}`;
 }
 
 // pages: [{ bearingDeg, rangeNm, rangeFt, elevationFt }] in box order; out(index, key) gives an output (a missing one
 // is skipped).
-export function writeDedPages(out, pages) {
+export function writeDedPages(out, pages, options) {
   pages.forEach((page, index) => {
-    const texts = { range: dedRangeText(page), bearing: dedBearingText(page.bearingDeg), elevation: dedElevationText(page.elevationFt) };
+    const texts = { range: dedRangeText(page), elevation: dedElevationText(page.elevationFt) };
     for (const [key, text] of Object.entries(texts)) {
       const node = out(index, key);
       if (node) node.textContent = text;
     }
+    const bearing = out(index, "bearing");
+    if (bearing) writeBearing(bearing, page.bearingDeg, options);
   });
 }
 
@@ -99,7 +142,9 @@ export function clearDedPages(out, count) {
   for (let index = 0; index < count; index += 1) {
     for (const key of ["range", "bearing", "elevation"]) {
       const node = out(index, key);
-      if (node) node.textContent = "-";
+      if (!node) continue;
+      if (key === "bearing") clearBearing(node);
+      else node.textContent = "-";
     }
   }
 }
@@ -114,9 +159,12 @@ export function readDedCard(section, number, { partial = false } = {}) {
     rows: [...screen.querySelectorAll(".ded-row")].map((row) => [row.querySelector("span")?.textContent.trim() ?? "", row.querySelector("output")?.textContent.trim() ?? ""]),
   }));
   if (boxes.length < 2) return null;
-  if (partial) return boxes.some((box) => box.rows.some(([, text]) => text && text !== "-")) ? { number, mode: boxes[0].title, boxes } : null;
+  // The basis line (0.1.5) travels with the card when the section has one.
+  const basisText = section.querySelector?.("[data-ded-basis]")?.textContent?.trim();
+  const card = () => (basisText ? { number, mode: boxes[0].title, boxes, basis: basisText } : { number, mode: boxes[0].title, boxes });
+  if (partial) return boxes.some((box) => box.rows.some(([, text]) => text && text !== "-")) ? card() : null;
   if (boxes.some((box) => box.rows.some(([, text]) => !text || text === "-"))) return null;
-  return { number, mode: boxes[0].title, boxes };
+  return card();
 }
 
 // The PNG picture: aircraft after aircraft, "DED #n · mode" in the aircraft's colour (colorOf), then the two boxes.
@@ -124,7 +172,8 @@ export function dedExportSvg(cards, { colorOf }) {
   const pad = 20, boxWidth = 330, gap = 16, headerHeight = 38, boxHeight = 150, cardGap = 18;
   // Two boxes to a row (0.1.3): one row on the Offset page, two on the POP-UP page (reference, POP-UP | OA1, OA2).
   const width = pad * 2 + boxWidth * 2 + gap;
-  const cardHeightOf = (card) => headerHeight + Math.ceil(card.boxes.length / 2) * (boxHeight + gap) - gap;
+  const headOf = (card) => headerHeight + (card.basis ? 20 : 0);
+  const cardHeightOf = (card) => headOf(card) + Math.ceil(card.boxes.length / 2) * (boxHeight + gap) - gap;
   const tops = [];
   let height = pad;
   cards.forEach((card, index) => { tops.push(height); height += cardHeightOf(card) + (index < cards.length - 1 ? cardGap : 0); });
@@ -135,9 +184,10 @@ export function dedExportSvg(cards, { colorOf }) {
   cards.forEach((card, index) => {
     const top = tops[index];
     svg.append(svgNode("text", { x: pad, y: top + 24, "font-size": 20, "font-weight": 800, "font-family": "system-ui, sans-serif", fill: colorOf(card.number) }, `DED #${card.number} · ${card.mode}`));
+    if (card.basis) svg.append(svgNode("text", { x: pad, y: top + 46, "font-size": 13, "font-family": "system-ui, sans-serif", fill: "#334155" }, card.basis));
     card.boxes.forEach((box, boxIndex) => {
       const x = pad + (boxIndex % 2) * (boxWidth + gap);
-      const y = top + headerHeight + Math.floor(boxIndex / 2) * (boxHeight + gap);
+      const y = top + headOf(card) + Math.floor(boxIndex / 2) * (boxHeight + gap);
       svg.append(svgNode("rect", { x, y, width: boxWidth, height: boxHeight, rx: 12, fill: "#07120c", stroke: "#2f6b45", "stroke-width": 1.5 }));
       svg.append(svgNode("text", { x: x + 16, y: y + 30, "font-size": 17, "font-weight": 900, "font-family": mono, fill: "#9ef0af" }, box.title));
       svg.append(svgNode("line", { x1: x + 16, x2: x + boxWidth - 16, y1: y + 42, y2: y + 42, stroke: "#9ef0af", "stroke-opacity": 0.3 }));
@@ -183,4 +233,11 @@ export function installDedPngClicks({ visibleAircraft, exportPng, root = documen
     if (!button || button.disabled) return;
     exportPng(dedPngAircraft(button.dataset.dedPng, visibleAircraft));
   });
+}
+
+// The page's Magnetic Var fields and its DED boxes follow one choice (0.1.5).
+if (typeof document !== "undefined") {
+  installMagVarFields(document);
+  onMagVarChange(() => refreshDedBearings(document));
+  refreshDedBearings(document);
 }

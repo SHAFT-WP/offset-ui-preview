@@ -7,7 +7,7 @@
 // the save / open calls and the in-app preview dialog. The page owns what goes in (its sections, its save record,
 // its validation and how a record is applied). Nothing here calculates.
 
-export const FLIGHT_HTML_FILE_V0_1 = Object.freeze({ id: "bombing-flight-html-file-v0.1", version: "0.1.2" });
+export const FLIGHT_HTML_FILE_V0_1 = Object.freeze({ id: "bombing-flight-html-file-v0.1", version: "0.1.3" });
 
 export const FLIGHT_FILE_FORMAT = "flight-sim-tools-snapshot";
 export const FLIGHT_FILE_SCHEMA_VERSION = 1;
@@ -141,7 +141,8 @@ export function aircraftSetHtml({ number, color, zBasic, zAdvanced, ded, result,
 // DED boxes from shared ded-v0.1.mjs readDedCard: { boxes: [{ title, rows: [[label, text]] }] } (up to four pages).
 export function dedBoxesHtml(card) {
   if (!card?.boxes?.length) return "";
-  return `<div class="ded">${card.boxes.map((box) => `<div class="ded-box"><div class="t">${escapeHtml(box.title)}</div>${box.rows.map(([label, text]) => `<div class="r"><span>${escapeHtml(label)}</span><span>${escapeHtml(text)}</span></div>`).join("")}</div>`).join("")}</div>`;
+  // card.basis (DED 0.1.5): which bearing the TBRG rows hold (true with the Magnetic Var, or magnetic).
+  return `<div class="ded">${card.boxes.map((box) => `<div class="ded-box"><div class="t">${escapeHtml(box.title)}</div>${box.rows.map(([label, text]) => `<div class="r"><span>${escapeHtml(label)}</span><span>${escapeHtml(text)}</span></div>`).join("")}</div>`).join("")}</div>${card.basis ? `<p class="ded-basis">${escapeHtml(card.basis)}</p>` : ""}`;
 }
 
 // Result groups from the page's Result rows ({ title, rows: [{ label, value, summary }] }); a row that the page's

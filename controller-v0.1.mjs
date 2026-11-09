@@ -30,10 +30,10 @@ import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1
 import { createValueStateController } from "./common/ui/value-state-controller-v0.1.mjs";
 import { prepareSvgForExport, saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 // Flight HTML Save / Load (owner 2026-11-05; Flight HTML Save/Load handoff 2026-10-27 §6–§9).
-import { aircraftSetHtml, buildFlightHtml, cardHtml, dedBoxesHtml, escapeHtml, installFlightFileDialog, readFlightHtml, resultGroupsHtml, FLIGHT_FILE_FORMAT, FLIGHT_FILE_SCHEMA_VERSION } from "./shared/flight-html-file-v0.1.mjs?v=0.1.2";
+import { aircraftSetHtml, buildFlightHtml, cardHtml, dedBoxesHtml, escapeHtml, installFlightFileDialog, readFlightHtml, resultGroupsHtml, FLIGHT_FILE_FORMAT, FLIGHT_FILE_SCHEMA_VERSION } from "./shared/flight-html-file-v0.1.mjs?v=0.1.3";
 import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.3";
 // DED boxes, texts and PNG: bombing app shared FE (2026-10-22); the DED record is the Flight BE's.
-import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.4";
+import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.5";
 // BDP Result rows and Fragment Data readouts: bombing app shared FE (2026-10-22).
 import { bdpResultRows, fragmentReadoutsMarkup, resultRow, semTurnAutoBankText, writeFragmentReadouts } from "./shared/bdp-result-v0.1.mjs?v=0.2.0";
 // Input field mechanics (solved values, bearings, LOCK / LINK, Enter commit, section collapse and tools): bombing app shared FE (2026-10-22).
@@ -47,7 +47,7 @@ import { createPresetStore, createSaveRun, savedTimeText } from "./shared/save-s
 // The shown-aircraft set and its #1–#4 buttons: bombing app shared FE (2026-10-22).
 import { createShownAircraft, installShownAircraftClicks } from "./shared/flight-ui-v0.1.mjs?v=0.1.0";
 // The BDP tab of index #1–#4 (owner composition 2026-10-25): bombing app shared FE, as on the BOX page.
-import { BDP_TAB_KEYS, NLT_RELEASE_FIELD, bdpTabMarkup, syncBdpNltRelease } from "./shared/bdp-tab-v0.1.mjs?v=0.1.4";
+import { BDP_TAB_KEYS, NLT_RELEASE_FIELD, bdpTabMarkup, syncBdpNltRelease } from "./shared/bdp-tab-v0.1.mjs?v=0.1.5";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.10";
@@ -1598,7 +1598,7 @@ const BDP_TAB_OFFSET_KEYS = new Set(["angleOffDeg", "angleOffLocked"]);
 function installLeadBdpTab() {
   const section = INDEX_LAYOUT ? $('.section[data-tab="bdp"][data-bdp-tab="1"]') : null;
   if (!section) return;
-  section.innerHTML = bdpTabMarkup({ number: 1, ...INDEX_BDP_TAB, targetNote: "Target MSL", windNote: "TRUE · wind FROM · shared by the Flight" });
+  section.innerHTML = bdpTabMarkup({ number: 1, ...INDEX_BDP_TAB, targetNote: "Target MSL", windNote: "MAG · wind FROM · shared by the Flight" });
   section.querySelector("[data-sem-readouts]").id = "lead-sem-readouts";
 }
 function followerBdpTabMarkup(number) {

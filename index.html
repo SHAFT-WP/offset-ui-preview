@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=de87667e3ed3">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=de87667e3ed3">
-<link rel="stylesheet" href="./wide-layout.css?v=de87667e3ed3">
+<link rel="stylesheet" href="./offset.css?v=059610a078a0">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=059610a078a0">
+<link rel="stylesheet" href="./wide-layout.css?v=059610a078a0">
 </head>
 <body class="offset-wide bombing-wide">
 <main class="app" id="offset-calculator">
@@ -37,7 +37,7 @@
     <div id="vrp-pane" class="mode-pane reference-input-pane">
       <div class="lock-title"><div class="offset-title">VRP</div><button id="vrp-lock-btn" class="lock-button" type="button" data-lock-key="vrpReference" aria-label="Lock VRP" aria-pressed="false">LOCK</button></div>
       <div class="input-grid">
-        <label class="field advanced-only"><span>Bearing (FROM TARGET) <span class="adv-tag">ADV</span></span><input id="vrp-bearing-input" type="text" inputmode="decimal" value="180"><span class="unit">TRUE</span></label>
+        <label class="field advanced-only"><span>Bearing (FROM TARGET) <span class="adv-tag">ADV</span></span><input id="vrp-bearing-input" type="text" inputmode="decimal" value="180"><span class="unit">MAG</span></label>
         <label class="field advanced-only"><span>Range <span class="adv-tag">ADV</span></span><input data-key="vrpRangeNm" type="text" inputmode="decimal" value="7.0"><span class="unit">NM · Offset start</span></label>
       </div>
     </div>
@@ -49,7 +49,7 @@
         <button id="vip-from-target-btn" class="mode-button" type="button" aria-pressed="false">FROM TARGET</button>
       </div>
       <div class="input-grid">
-        <label class="field"><span>Bearing (TBRG)</span><input id="vip-bearing-input" type="text" inputmode="decimal" value="000"><span class="unit">TRUE</span></label>
+        <label class="field"><span>Bearing (TBRG)</span><input id="vip-bearing-input" type="text" inputmode="decimal" value="000"><span class="unit">MAG</span></label>
         <label class="field"><span>Range</span><input id="vip-range-input" type="text" inputmode="decimal" value="10.0"><span class="unit">NM</span></label>
       </div>
     </div>
@@ -65,12 +65,13 @@
             <button id="ip-from-target-btn" class="mode-button" type="button" aria-pressed="false">FROM TARGET</button>
           </div>
           <div class="input-grid">
-            <label class="field"><span>Bearing (TBRG)</span><input id="ip-bearing-input" data-key="runInHeadingDeg" type="text" inputmode="decimal" value="000"><span class="unit">TRUE</span></label>
+            <label class="field"><span>Bearing (TBRG)</span><input id="ip-bearing-input" data-key="runInHeadingDeg" type="text" inputmode="decimal" value="000"><span class="unit">MAG</span></label>
             <label class="field"><span>Range</span><input data-key="ipRangeNm" type="text" inputmode="decimal" value="10.0"><span class="unit">NM · Default = VRP + 3 NM</span></label>
           </div>
         </div>
       </div>
     </details>
+    <div class="input-grid"><label class="field advanced-only"><span>Magnetic Var <span class="adv-tag">ADV</span></span><select data-mag-var-select aria-label="Magnetic Var theater"><option value="KOREA">Korea</option><option value="ISRAEL">Israel</option><option value="BALKANS">Balkans</option></select><span class="unit" data-mag-var-value>7.5°W · BMS MAGV · DED TBRG = M − 7.5</span></label></div>
   </section>
 
   <section class="section" data-tab="offset" aria-labelledby="offset-input-title">
@@ -95,7 +96,7 @@
     <details class="input-group-panel" open>
       <summary class="input-group-title">Offset Geometry</summary>
       <div class="offset-grid">
-        <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">1</b>Run-In Heading</span><button class="lock-button" type="button" data-lock-key="runInHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="runInHeadingDeg" type="text" inputmode="decimal" value="000"><span class="unit">IP → Target · true heading</span></label>
+        <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">1</b>Run-In Heading</span><button class="lock-button" type="button" data-lock-key="runInHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="runInHeadingDeg" type="text" inputmode="decimal" value="000"><span class="unit">IP → Target · magnetic heading</span></label>
         <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">2</b>Angle Off</span><button class="lock-button" type="button" data-lock-key="angleOffDeg" aria-pressed="false">LOCK</button></span><input data-key="angleOffDeg" type="text" inputmode="decimal" value="70"><span class="unit">Approaching Heading → Attack Heading · BDP / Offset parameter</span></label>
         <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">3</b>Attack Heading</span><button class="lock-button" type="button" data-lock-key="attackHeadingDeg" aria-pressed="false">LOCK</button></span><input data-key="attackHeadingDeg" type="text" inputmode="decimal" value="030"><span class="unit">Final attack axis · coupled heading constraint</span></label>
         <label class="offset-card"><span class="lock-title"><span class="offset-title"><b class="step">4</b>Offset Angle</span><button class="lock-button" type="button" data-lock-key="offsetAngleDeg" aria-pressed="false">LOCK</button></span><input data-key="offsetAngleDeg" type="text" inputmode="decimal" value="40"><span class="unit">Run-In → Approaching Heading change</span></label>
@@ -227,12 +228,13 @@
         <div class="ded-row"><span>ELEV</span><output id="ded-oa1-elevation">-</output></div>
       </div>
     </div>
+    <p class="ded-basis" data-ded-basis>TBRG = true · Magnetic Var Korea 7.5°W</p>
   </section>
 
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=de87667e3ed3"></script>
+<script type="module" src="./wide-layout.mjs?v=059610a078a0"></script>
 
 </body>
 </html>
