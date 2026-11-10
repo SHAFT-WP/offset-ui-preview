@@ -1,10 +1,10 @@
-@import url("./common-ui-v0.2.css?v=f73dddae7277");
+@import url("./common-ui-v0.2.css?v=4cad1bb25375");
 /* Parts made common (2026-10-22) bring their CSS: input fields, DED, Flight UI, the shared BDP tab (index, 2026-10-26) (bombing app shared FE), time dial (Common UI). */
-@import url("./shared/input-fields-v0.1.css?v=f73dddae7277");
-@import url("./shared/ded-v0.1.css?v=f73dddae7277");
-@import url("./shared/flight-ui-v0.1.css?v=f73dddae7277");
-@import url("./shared/bdp-tab-v0.1.css?v=f73dddae7277");
-@import url("./common/ui/time-dial-v0.1.css?v=f73dddae7277");
+@import url("./shared/input-fields-v0.1.css?v=4cad1bb25375");
+@import url("./shared/ded-v0.1.css?v=4cad1bb25375");
+@import url("./shared/flight-ui-v0.1.css?v=4cad1bb25375");
+@import url("./shared/bdp-tab-v0.1.css?v=4cad1bb25375");
+@import url("./common/ui/time-dial-v0.1.css?v=4cad1bb25375");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -63,3 +63,9 @@ input[data-bdp-result]{cursor:default;border-style:dashed;border-color:var(--mut
 .formation-components{margin-top:10px}
 .formation-top-view-shell{box-sizing:border-box;width:100%;max-width:560px;justify-self:center;border:1px solid #dfe6ee;border-radius:12px;background:#fff;overflow:hidden}
 .formation-top-view-shell svg{display:block;width:100%;height:auto}
+/* POP-UP group, #1–#4 (owner 2026-11-10): the fields of one row share their label / box / note rows (subgrid), so a
+   box lines up with its neighbour even when a label with a LOCK wraps to two lines on a phone; the label sits on the
+   box. The Pop-up Angle AUTO button fills its box row, as tall as the inputs beside it. */
+.popup-input-grid>.field{grid-row:span 3;grid-template-rows:subgrid;row-gap:7px}
+.popup-input-grid>.field>:first-child{align-self:end}
+.popup-input-grid>.field>.btn{align-self:stretch}

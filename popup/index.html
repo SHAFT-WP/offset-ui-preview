@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>POP-UP Tactics · V2 WORK</title>
-<link rel="stylesheet" href="../offset.css?v=f73dddae7277">
-  <link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=f73dddae7277">
-<link rel="stylesheet" href="../wide-layout.css?v=f73dddae7277">
+<link rel="stylesheet" href="../offset.css?v=4cad1bb25375">
+  <link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=4cad1bb25375">
+<link rel="stylesheet" href="../wide-layout.css?v=4cad1bb25375">
 </head>
 <!-- POP-UP page (owner 2026-10-27, POP-UP SPEC §13.1: the Offset taken as is and modified). The Offset index
      markup with the POP-UP input group and Result group; the Offset controller runs in POP-UP mode (body.popup-page):
@@ -117,11 +117,11 @@
     <details class="input-group-panel" open>
       <summary class="input-group-title" id="popup-input-title">POP-UP</summary>
       <div class="driver"><span>Popup Angle · Pop to Roll-in Distance · Exposure Time 중 마지막에 입력한 값이 Driver (나머지 둘은 결과) · AUTO = 다이브 ≤15° +5°, 그 외 +10°</span><output id="popup-driver-out">DRIVER · AUTO</output></div>
-      <div class="input-grid">
+      <div class="input-grid popup-input-grid">
         <div class="field"><span>Pop-up Range (NM)</span><output id="popup-range-out" class="readout">-</output><span class="unit">Pop-up Point → Target · result</span></div>
         <label class="field"><span class="lock-title"><span>Popup Angle (deg)</span><button class="lock-button" type="button" data-popup-lock="angle" aria-label="Lock Popup Angle" aria-pressed="false">LOCK</button></span><input data-key="popupAngleDeg" type="text" inputmode="decimal" value=""><span class="unit">Climb angle · 0–55° (exclusive)</span></label>
         <label class="field"><span>Popup G (G)</span><input data-key="popupG" type="text" inputmode="decimal" value="3"><span class="unit">Pull-up G · BDP G onset rate</span></label>
-        <label class="field speed-field"><span class="lock-title"><span>Roll-in Speed (kcas)</span><button class="lock-button" type="button" data-popup-lock="rollInSpeed" aria-label="Lock Roll-in Speed" aria-pressed="false">LOCK</button></span><span class="compound"><input data-key="initialSpeedValue" type="text" inputmode="decimal" value="350"><select data-key="initialSpeedMode" hidden><option value="CAS" selected>kcas</option></select></span><span class="unit">AUTO · MIL arrival at Roll-in Start · result</span></label>
+        <label class="field speed-field"><span class="lock-title"><span>Roll-in Speed (kcas)</span><button class="lock-button" type="button" data-popup-lock="rollInSpeed" aria-label="Lock Roll-in Speed" aria-pressed="false">LOCK</button></span><input data-key="initialSpeedValue" type="text" inputmode="decimal" value="350"><select data-key="initialSpeedMode" hidden><option value="CAS" selected>kcas</option></select><span class="unit">AUTO · MIL arrival at Roll-in Start · result</span></label>
         <label class="field"><span class="lock-title"><span>Roll-in Altitude (ft MSL)</span><button class="lock-button" type="button" data-lock-key="rollInAltitudeMslFt" aria-label="Lock Roll-in Altitude" aria-pressed="false">LOCK</button></span><input data-key="rollInAltitudeMslFt" type="text" inputmode="decimal" value="16000"><span class="unit">OA1 / BDP entry altitude · LOCK: Tracking Time → Release Alt</span></label>
         <label class="field"><span>Exposure Time (sec)</span><input data-key="popupExposureTimeSec" type="text" inputmode="decimal" value=""><span class="unit">Pop Point → Apex · MIL</span></label>
         <label class="field"><span class="lock-title"><span>Pop to Roll-in Distance (NM)</span><button class="lock-button" type="button" data-popup-lock="distance" aria-label="Lock Pop to Roll-in Distance" aria-pressed="false">LOCK</button></span><input data-key="popupGroundDistanceNm" type="text" inputmode="decimal" value=""><span class="unit">Pop Point → Roll-in Start</span></label>
@@ -273,7 +273,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="../wide-layout.mjs?v=f73dddae7277"></script>
+<script type="module" src="../wide-layout.mjs?v=4cad1bb25375"></script>
 
 </body>
 </html>
