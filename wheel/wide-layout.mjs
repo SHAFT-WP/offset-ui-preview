@@ -1,7 +1,7 @@
 // Presentation layer of the Wheel page (index.html): the PC Wide workspace (bombing app shared FE) places the Wheel
 // controller's live nodes. Left = Edit aircraft + input tabs, centre = Wheel Top View / BDP, right = Result / Z-Diagram /
 // DED, every output tab showing the one shared set of shown aircraft (owner 2026-10-27: the Wheel as BOX's page).
-import { wheelIndexUi } from "./controller-v0.1.mjs?v=21d541f563f7";
+import { wheelIndexUi } from "./controller-v0.1.mjs?v=0970e885c05e";
 import { mountWideWorkspace } from "../shared/wide-workspace-v0.1.mjs?v=0.1.2";
 
 const app = document.getElementById("wheel-calculator");

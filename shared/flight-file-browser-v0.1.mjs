@@ -13,7 +13,7 @@
 // File contents, names, the data block and the preview come from flight-html-file-v0.1.mjs.
 import { cleanFileName, escapeHtml, openHtmlFile, readFlightHtml, saveHtmlFile, saveMethod, SAVE_METHOD_HINT } from "./flight-html-file-v0.1.mjs?v=0.1.3";
 
-export const FLIGHT_FILE_BROWSER_V0_1 = Object.freeze({ id: "bombing-flight-file-browser-v0.1", version: "0.1.0" });
+export const FLIGHT_FILE_BROWSER_V0_1 = Object.freeze({ id: "bombing-flight-file-browser-v0.1", version: "0.1.1" });
 
 // ---- Folder access ---------------------------------------------------------------------------------------------
 // Feature detection: the folder window exists and the page is not inside another site's frame (refused there).
@@ -25,6 +25,16 @@ export function folderAccess(win = globalThis) {
     return false;
   }
   return true;
+}
+
+// A PC: a mouse (fine pointer) and no touch-only screen. A phone / tablet keeps the 폴더 선택 step.
+export function pcPointer(win = globalThis) {
+  try {
+    if (typeof win?.matchMedia !== "function") return false;
+    return win.matchMedia("(pointer: fine)").matches && !win.matchMedia("(pointer: coarse)").matches;
+  } catch {
+    return false;
+  }
 }
 
 // "granted" | "prompt" | "denied". request: ask the user (only from a click; the browser shows its own question).
@@ -473,26 +483,35 @@ export function installFlightFileBrowser({ tool, build, read, apply, keepInBrows
   }
   async function enterFolder({ request }) {
     const root = await handles.get(FOLDER_KEY);
-    if (!root) { view = "intro"; render(); return; }
+    if (!root) {
+      // PC (owner 2026-11-10): the folder window opens straight away, no 폴더 선택 step. A phone keeps the intro.
+      // Cancelled or refused (no click left to count): the intro, as on a phone.
+      if (pcPointer(win) && await pickFolder({ quiet: true })) return;
+      view = "intro";
+      render();
+      return;
+    }
     stack = [root];
     const permission = await folderPermission(root, { request });
     if (permission !== "granted") { view = "permission"; render(); return; }
     await browse(await startStack(root));
   }
-  async function pickFolder() {
+  // true when a folder was chosen. quiet: no error line (the caller shows the intro instead).
+  async function pickFolder({ quiet = false } = {}) {
     let root;
     try {
       root = await win.showDirectoryPicker({ id: "flight-sim-tools-files", mode: "readwrite", startIn: "documents" });
     } catch (error) {
-      if (error?.name === "AbortError") return;
+      if (error?.name === "AbortError" || quiet) return false;
       message = { text: `폴더를 열 수 없습니다 · ${error?.message || error}`, kind: "invalid" };
       render();
-      return;
+      return false;
     }
     await handles.set(FOLDER_KEY, root);
     lastPath = [];
     message = null;
     await browse([root]);
+    return true;
   }
 
   // Save As: the document is made when the window opens (it is what 확인 writes, and the share menu has to open
