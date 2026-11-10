@@ -193,9 +193,13 @@ export function buildOffAxisOffsetCandidate(input) {
   const actionRangeNm = Math.hypot(realActionPoint.x, realActionPoint.y);
   const approachRangeNm = dot(sub(rollStart, turnEnd), offsetVector);
 
-  const rollInRadiusNm = profile.public.rollInRadiusNm;
-  const rollNormal = direction.rollDirection === "RIGHT" ? right(offsetVector) : left(offsetVector);
-  const rollCenter = Number.isFinite(rollInRadiusNm) ? add(rollStart, mul(rollNormal, rollInRadiusNm)) : null;
+  // Roll-in Radius (owner 2026-11-10): the real turn radius at the tightest point of the Roll-in, with that
+  // point and its center of curvature (BDP visualization.rollInTurnRadius), in place of Radius (EFF).
+  const rollInTurnRadiusNm = profile.public.rollInTurnRadiusNm;
+  const turnRadiusLocal = profile.visualization.rollInTurnRadius;
+  const placeLocal = (q) => add(rollStart, transformLocal({ forward: q.forwardNm, turnSide: q.turnSideNm }, offsetHeadingDeg, direction.rollDirection));
+  const rollTurnPoint = Number.isFinite(rollInTurnRadiusNm) && turnRadiusLocal ? placeLocal(turnRadiusLocal.point) : null;
+  const rollCenter = rollTurnPoint ? placeLocal(turnRadiusLocal.center) : null;
 
   const rollInTrajectorySamples = profile.visualization.rollInTrajectorySamples.map((sample) => {
     const transformed = transformLocal({ forward: sample.forwardNm, turnSide: sample.turnSideNm }, offsetHeadingDeg, direction.rollDirection);
@@ -217,9 +221,9 @@ export function buildOffAxisOffsetCandidate(input) {
     actionRangeFromIpNm,
     approachRangeNm,
     rollInRangeNm: profile.public.rollInRangeNm,
-    rollInRadiusNm,
+    rollInTurnRadiusNm,
     groundRangeNm: profile.public.groundRangeNm,
-    points: { target, ip: ipPoint, rollStart, trackPoint, temporaryActionPoint, realActionPoint, turnEnd, offsetCenter, offsetHoldStart, offsetHoldEnd, rollCenter },
+    points: { target, ip: ipPoint, rollStart, trackPoint, temporaryActionPoint, realActionPoint, turnEnd, offsetCenter, offsetHoldStart, offsetHoldEnd, rollCenter, rollTurnPoint },
     vectors: { runVector, offsetVector },
     offsetTurn,
     offsetTurnPath: placed.offsetTurnPath,

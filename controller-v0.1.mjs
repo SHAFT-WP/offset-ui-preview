@@ -591,7 +591,7 @@ function collectResultSnapshot(result) {
     trackingTimeSecResult: p.trackingTimeSec,
     rollInRangeNm: p.rollInRangeNm,
     groundRangeNm: p.groundRangeNm,
-    rollInRadiusNm: p.rollInRadiusNm,
+    rollInTurnRadiusNm: p.rollInTurnRadiusNm,
     rollInTimeSec: p.rollInTimeSec,
     rollInGroundArcNm: p.rollInGroundArcNm,
     rollInAltitudeLossFt: p.rollInAltitudeLossFt,

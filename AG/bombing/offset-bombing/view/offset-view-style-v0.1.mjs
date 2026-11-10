@@ -114,7 +114,7 @@ export function offsetTopViewLegend(result = null) {
     { label: `Approaching Heading${value(formatHeadingDeg(g?.offsetHeadingDeg))}`, color: C.approach },
     { label: `Roll-in Radial${value(g ? formatHeadingDeg(bearingDeg(g.points.target, g.points.rollStart)) : "")}`, color: C.roll },
     { label: `Roll-in Heading${value(formatHeadingDeg(g?.offsetHeadingDeg))}`, color: C.roll },
-    { label: `Roll-in Radius${value(`${formatNm(g?.rollInRadiusNm)} NM`)}`, color: C.roll },
+    { label: `Roll-in Radius${value(`${formatNm(g?.rollInTurnRadiusNm)} NM`)}`, color: C.roll },
     { label: `Tracking Time${value(`${formatSecTenths(p?.trackingTimeSec)} s`)}`, color: C.attack },
     { label: `Bomb TOF${value(`${formatSec(p?.bombTofSec)} s`)}`, color: BDP_VIEW_COLORS.bomb },
   ];

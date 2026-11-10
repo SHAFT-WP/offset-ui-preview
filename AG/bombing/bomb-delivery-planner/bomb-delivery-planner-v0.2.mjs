@@ -9,6 +9,32 @@ const FT_PER_NM = 6076.11549;
 const MPS_PER_KT = 0.5144444444444445;
 const MIN_NLT_DIVE_ANGLE_DEG = 10;
 
+// Roll-in Radius (owner 2026-11-10, BDP SPEC §8): the real horizontal turn radius of the Roll-in path — the smallest
+// ground radius of curvature between two path samples (ground arc ÷ heading change), i.e. where the turn is
+// tightest (in the Roll-in G hold). Radius (EFF) (whole ground arc ÷ Angle Off) also counts the 1 G roll, the G
+// onset and the roll-out, where the aircraft flies far and turns little, so it reads up to ~2x too large; it stays
+// as rollInRadiusNm for its legacy consumers (BOX v0.1 bridge) only. The center is the center of curvature there.
+// Model-agnostic: Roll-in v0.1 and v0.2 samples both carry position and heading change.
+function rollInTurnRadius(samples) {
+  let best = null;
+  for (let i = 1; i < samples.length; i += 1) {
+    const a = samples[i - 1];
+    const b = samples[i];
+    const dHeading = b.headingChangeRad - a.headingChangeRad;
+    if (!(dHeading > 1e-6)) continue;
+    const radiusFt = (b.groundArcFt - a.groundArcFt) / dHeading;
+    if (!best || radiusFt < best.radiusFt) best = { radiusFt, a, b };
+  }
+  if (!best) return null;
+  const { radiusFt, a, b } = best;
+  const heading = (a.headingChangeRad + b.headingChangeRad) / 2;
+  const point = { forwardFt: (a.forwardFt + b.forwardFt) / 2, turnSideFt: (a.turnSideFt + b.turnSideFt) / 2 };
+  // The heading grows toward +turnSide, so the center lies to the left of the travel direction in (forward, turnSide).
+  const center = { forwardFt: point.forwardFt - radiusFt * Math.sin(heading), turnSideFt: point.turnSideFt + radiusFt * Math.cos(heading) };
+  const nm = (q) => ({ forwardNm: q.forwardFt / FT_PER_NM, turnSideNm: q.turnSideFt / FT_PER_NM });
+  return { radiusNm: radiusFt / FT_PER_NM, point: nm(point), center: nm(center) };
+}
+
 export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
   id: "bomb-delivery-planner-v0.2-sem-nlt",
   // 0.2.8 (2026-09-29): Dive Angle is the ground-referenced flight path (FPM line) in wind — the
@@ -198,6 +224,7 @@ export function calculateBombDeliveryV0_2(rawInput, options = {}) {
     modelId: input.ballisticModelId,
   });
   const profile = calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitudeMslFt, ...(rollIn ? { rollIn: rollIn.integrate } : {}) });
+  const turnRadius = rollInTurnRadius(profile.roll.samples);
   const resolvedInitialSpeedKcas =
     input.initialSpeedMode === "CAS"
       ? input.initialSpeedValue
@@ -234,6 +261,7 @@ export function calculateBombDeliveryV0_2(rawInput, options = {}) {
       bombRangeNm: bomb.bombRangeFt / FT_PER_NM,
       bombTofSec: bomb.bombTofSec,
       rollInRadiusNm: profile.roll.equivalentRadiusFt / FT_PER_NM,
+      rollInTurnRadiusNm: turnRadius ? turnRadius.radiusNm : null,
       rollInTimeSec: profile.roll.rollInTimeSec,
       rollInGroundArcNm: profile.roll.groundArcFt / FT_PER_NM,
       rollInDisplacement: {
@@ -260,6 +288,8 @@ export function calculateBombDeliveryV0_2(rawInput, options = {}) {
       legacyOffsetLeadDeg: profile.legacyOffsetLeadDeg,
     },
     visualization: {
+      // Roll-in Radius construction (owner 2026-11-10): the tightest point of the Roll-in and its center.
+      rollInTurnRadius: turnRadius ? { point: turnRadius.point, center: turnRadius.center } : null,
       rollInTrajectorySamples: profile.roll.samples.map((sample) => ({
         forwardNm: sample.forwardFt / FT_PER_NM,
         turnSideNm: sample.turnSideFt / FT_PER_NM,

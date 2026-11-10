@@ -42,6 +42,8 @@ export const OFFSET_TOP_VIEW_V0_1 = Object.freeze({
   // ("lead" | "follower") decides the drawing rules apart from the palette, so any aircraft can be the
   // base layer (Target marker, full label set) in its own colours.
   // 0.1.7 (2026-10-06, user): "Radius (EFF): 0.6 NM" on one line (value beside the name).
+  // 2026-11-10 (owner): "Roll-in Radius: x NM" = the real turn radius at the tightest point (BDP rollInTurnRadiusNm),
+  // one guide from that point to its center, in place of Radius (EFF) and its Roll-in Start / Track Point guides.
   // 0.1.8 (2026-10-07, user): Advanced draws MAP as a dashed circle around the Target, labelled
   // "MAP: 2.0 NM". It is not a fit point: the canvas keeps its size and the circle may be clipped.
   // 0.1.9 (2026-10-12): view style 0.1.5 token (Tracking Time 0.1 s in the legend).
@@ -286,11 +288,12 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
     radiusFrom.forEach((point) => appendDirectedLine(group, point, p.offsetCenter, { color: C.offset, width: 1.2, dasharray: "4 4" }));
   }
   if (advanced && p.rollCenter) {
-    appendDirectedLine(group, p.rollStart, p.rollCenter, { color: C.roll, width: 1.2, dasharray: "4 4" });
-    appendDirectedLine(group, p.trackPoint, p.rollCenter, { color: C.roll, width: 1.2, dasharray: "4 4" });
+    // Roll-in Radius (owner 2026-11-10): one radius guide from the tightest point of the Roll-in to its center
+    // of curvature, and the turn circle there (it touches the flown path at that point).
+    appendDirectedLine(group, p.rollTurnPoint, p.rollCenter, { color: C.roll, width: 1.2, dasharray: "4 4" });
     appendCircle(group, p.rollCenter, 2.5, "#ffffff", C.roll, 2);
     group.append(svgNode("circle", {
-      cx: p.rollCenter.x, cy: p.rollCenter.y, r: len(sub(p.rollStart, p.rollCenter)), fill: "none", stroke: C.roll,
+      cx: p.rollCenter.x, cy: p.rollCenter.y, r: len(sub(p.rollTurnPoint, p.rollCenter)), fill: "none", stroke: C.roll,
       "stroke-width": 1, "stroke-dasharray": "5 7", opacity: 0.55,
     }));
   }
@@ -351,8 +354,7 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
   reserve([p.trackPoint, p.target], 9);
   if (advanced && radiusGuides) radiusFrom.forEach((point) => reserve([point, p.offsetCenter], 4));
   if (advanced && p.rollCenter) {
-    reserve([p.rollStart, p.rollCenter], 4);
-    reserve([p.trackPoint, p.rollCenter], 4);
+    reserve([p.rollTurnPoint, p.rollCenter], 4);
   }
 
   function placeLabels() {
@@ -458,10 +460,10 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
         textAttributes: { "data-result-key": "offsetRadiusNm" },
       });
       if (p.rollCenter) {
-        appendLabel(frame.project(add(geometry.points.rollCenter, mul(sub(geometry.points.rollStart, geometry.points.rollCenter), 0.5))), `Radius (EFF): ${formatNm(geometry.rollInRadiusNm)} NM`, {
+        appendLabel(frame.project(add(geometry.points.rollCenter, mul(sub(geometry.points.rollTurnPoint, geometry.points.rollCenter), 0.5))), `Roll-in Radius: ${formatNm(geometry.rollInTurnRadiusNm)} NM`, {
           // One line, value beside the name (user 2026-10-06).
           key: "roll-radius", color: C.rollText,
-          textAttributes: { "data-result-key": "rollInRadiusNm" },
+          textAttributes: { "data-result-key": "rollInTurnRadiusNm" },
         });
       }
     }

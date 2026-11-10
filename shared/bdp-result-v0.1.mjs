@@ -29,7 +29,7 @@ export function bdpResultRows(bdp, { keyed = true, summaryKeys = BDP_RESULT_SUMM
     r("Tracking Time", `${formatSecTenths(p.trackingTimeSec)} sec`, "trackingTimeSecResult"),
     r("Roll-in Range", `${formatNm(p.rollInRangeNm)} NM`, "rollInRangeNm"),
     r("Ground Range", `${formatNm(p.groundRangeNm)} NM`, "groundRangeNm"),
-    r("Roll-in Radius", `${formatNm(p.rollInRadiusNm)} NM`, "rollInRadiusNm"),
+    r("Roll-in Radius", `${formatNm(p.rollInTurnRadiusNm)} NM`, "rollInTurnRadiusNm"),
     r("Roll-in Time", `${formatSec(p.rollInTimeSec)} sec`, "rollInTimeSec"),
     r("Roll-in Ground Arc", `${formatNm(p.rollInGroundArcNm)} NM`, "rollInGroundArcNm"),
     r("Roll-in Altitude Loss", `${formatFt(p.rollInAltitudeLossFt)} ft`, "rollInAltitudeLossFt"),

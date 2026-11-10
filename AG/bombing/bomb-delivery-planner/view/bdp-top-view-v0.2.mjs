@@ -184,6 +184,9 @@ export function renderBdpTopView(svg, result, options = {}) {
     ingress: rotate({ x: oa1.x - ingressLengthNm, y: oa1.y }),
     rollPath: semantic.paths.rollIn.map((p) => rotate({ x: p.forwardNm, y: p.turnSideNm })),
   };
+  // Roll-in Radius (owner 2026-11-10): the tightest point of the Roll-in, where its real turn radius is.
+  const turnRadiusPoint = result.visualization?.rollInTurnRadius?.point;
+  w.rollTurnPoint = turnRadiusPoint ? rotate({ x: turnRadiusPoint.forwardNm, y: turnRadiusPoint.turnSideNm }) : null;
   // Roll-in Long. D / Lat. D: OA1-frame components of OA1 → Track Point. Lat. D is measured from the
   // Initial track extended through OA1 (to its foot at Long. D) across to Track Point.
   const longitudinalNm = track.x - oa1.x;
@@ -258,7 +261,7 @@ export function renderBdpTopView(svg, result, options = {}) {
   const px = (point) => (point ? fit.project(point) : null);
   const P = {
     oa1: px(w.oa1), track: px(w.track), target: px(w.target), aimOff: px(w.aimOff),
-    ingress: px(w.ingress), lateralFoot: px(w.lateralFoot), initialExtension: px(w.initialExtension), rollPath: w.rollPath.map(px),
+    ingress: px(w.ingress), lateralFoot: px(w.lateralFoot), initialExtension: px(w.initialExtension), rollPath: w.rollPath.map(px), rollTurnPoint: px(w.rollTurnPoint),
   };
   const radiusPx = groundRangeNm * fit.scale;
   if (northUp) {
@@ -468,12 +471,11 @@ export function renderBdpTopView(svg, result, options = {}) {
     textAttributes: { "data-top-view-role": "roll-in" },
     candidates: [{ dx: 0, dy: 28, anchor: "middle" }, { dx: -14, dy: 24, anchor: "end" }, { dx: 14, dy: 24, anchor: "start" }, { dx: 0, dy: 48, anchor: "middle" }],
   });
-  // Offset layout, Advanced only: Roll-in Radius with its value on the Roll-in turn.
-  if (offsetLayout && advanced && Number.isFinite(Number(pub.rollInRadiusNm)) && P.rollPath.length > 1) {
-    const midIndex = Math.floor(P.rollPath.length / 2);
-    const at = P.rollPath[midIndex];
+  // Offset layout, Advanced only: Roll-in Radius (the real turn radius, owner 2026-11-10) at the tightest point of the turn.
+  if (offsetLayout && advanced && Number.isFinite(Number(pub.rollInTurnRadiusNm)) && P.rollPath.length > 1) {
+    const at = P.rollTurnPoint ?? P.rollPath[Math.floor(P.rollPath.length / 2)];
     const out = unit(P.target, at);
-    label(at, `Roll-in Radius: ${formatNm(pub.rollInRadiusNm)} NM`, {
+    label(at, `Roll-in Radius: ${formatNm(pub.rollInTurnRadiusNm)} NM`, {
       labelKey: "roll-in-radius", color: C.rollInText, fontSize: 12 * textScale,
       textAttributes: { "data-top-view-role": "roll-in-radius" },
       candidates: [16, 40, 70].flatMap((distance) => [
