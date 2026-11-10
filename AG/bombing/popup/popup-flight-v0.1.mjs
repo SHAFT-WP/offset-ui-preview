@@ -1,6 +1,7 @@
 import { casToTas, machToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
-import { OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, calculateOffsetFlightFull, createOffsetFlightSession, profileLinkStates } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.15";
+import { OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, calculateOffsetFlightUnfittedFull as calculateOffsetFlightFull, createOffsetFlightSession, profileLinkStates } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.16";
+import { calculateWithClearFit, clearFitFieldLocked, clearFitRange } from "../offset-bombing/offset-clear-fit-v0.1.mjs";
 import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs?v=0.2.3";
 import { calculatePopupClimbFull } from "./popup-climb-v0.2.mjs";
 import { computeDropOrderDeltaFull } from "../offset-bombing/offset-formation-v0.1.mjs";
@@ -51,7 +52,9 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // AUTO Popup angle whose pull-up arc passes the Roll-in Altitude is lowered to the steepest one that fits. Each is a
   // warning naming the change; the raised Roll-in Altitude is written back. A typed / LOCKed angle or a LOCKed Roll-in
   // Altitude stays INVALID with the value that would fit.
-  version: "0.1.9",
+  // 0.1.10 (owner 2026-11-10, SPEC §13.8p): an emptied field is filled by the planner (popupFlightWithClearFit).
+  // 0.1.11 (owner 2026-11-10): the fit search moved to offset-clear-fit-v0.1, shared with the Offset Flight 0.1.16.
+  version: "0.1.11",
   defaultPopupG: 3,
   angleIterations: 12,
   autoAngleMinDeg: 1,
@@ -260,7 +263,56 @@ function nextRollInAltitude(tried) {
 }
 
 export function calculatePopupFlightFull(input) {
-  return popupFlight(input, calculateOffsetFlightFull);
+  return popupFlightWithClearFit(input, calculateOffsetFlightFull);
+}
+
+// Cleared-field fit (0.1.10; the search itself is shared with the Offset Flight since 0.1.11, offset-clear-fit-v0.1).
+// POP-UP adds its fields: a Popup Angle / Pop to Roll-in Distance / Exposure Time goes back to AUTO, a Roll-in Speed to
+// AUTO (MIL arrival), and step 2 also tries the Popup Angle; a first pass avoids LOW SPEED fits.
+const range = clearFitRange;
+export const POPUP_CLEAR_FIT = Object.freeze({
+  // key: [label, page default, candidates]
+  offsetSpeedValue: ["Initial Speed", 480, range(360, 550, 10)],
+  offsetAltitudeMslFt: ["Offset Altitude", 500, range(100, 3000, 100)],
+  diveAngleDeg: ["Dive Angle", 20, range(5, 45, 5)],
+  releaseAltitudeMslFt: ["Release Altitude", 3300, range(2000, 8000, 250)],
+  releaseSpeedKcas: ["Release Speed", 450, range(350, 550, 10)],
+  angleOffDeg: ["Angle Off", 45, range(20, 120, 5)],
+  attackHeadingDeg: ["Attack Heading", 30, range(0, 90, 5)],
+  offsetAngleDeg: ["Offset Angle", 20, range(2, 60, 1)],
+  actionRangeNm: ["Action Range", 7, range(3, 15, 0.5)],
+  approachRangeNm: ["Approach Range", 3, range(0.5, 8, 0.5)],
+  vrpRangeNm: ["VRP Range", 8, range(4, 15, 0.5)],
+  ipRangeNm: ["IP Range", 10, range(5, 20, 1)],
+  offsetG: ["Offset G", 2, range(1.5, 6, 0.5)],
+  offsetBankDeg: ["Offset Bank", 60, range(30, 85, 5)],
+  offsetRadiusNm: ["Offset Radius", 2, range(0.5, 4, 0.25)],
+  rollInAltitudeMslFt: ["Roll-in Altitude", 4000, range(2000, 12000, 250)],
+  rollInG: ["Roll-in G", 3, range(2, 6, 0.5)],
+  popupG: ["Popup G", 3, range(2, 6, 0.5)],
+  popupAngleDeg: ["Popup Angle", 30, range(5, 55, 2.5)],
+});
+// Step 2's order (owner agreed 2026-11-10): the fields that change the fit most first.
+export const CLEAR_FIT_ORDER = Object.freeze(["offsetAngleDeg", "rollInAltitudeMslFt", "popupAngleDeg", "actionRangeNm", "approachRangeNm", "offsetG"]);
+const POPUP_CLEAR_FIT_SPEC = Object.freeze({
+  table: POPUP_CLEAR_FIT,
+  order: CLEAR_FIT_ORDER,
+  autoOnClear: {
+    popupAngleDeg: [{ key: "popupDriver", value: "DEFAULT" }, { key: "popupLockAngle", value: false }],
+    popupGroundDistanceNm: [{ key: "popupDriver", value: "DEFAULT" }, { key: "popupLockDistance", value: false }],
+    popupExposureTimeSec: [{ key: "popupDriver", value: "DEFAULT" }],
+    initialSpeedValue: [{ key: "popupLockRollInSpeed", value: false }],
+  },
+  autoLabel: { popupGroundDistanceNm: "Pop to Roll-in Distance", popupExposureTimeSec: "Exposure Time", initialSpeedValue: "Roll-in Speed" },
+  // A fit flies (VALID / WARNING) and, in the first pass, keeps above the LOW SPEED line (the second pass allows it).
+  strict: true,
+  flies: (out, n, strict) => ["VALID", "WARNING"].includes(out?.aircraftResults?.[n]?.status) && !(strict && out.aircraftResults[n].popup?.lowSpeed),
+  locked: (input, n, key) => (key === "popupAngleDeg" ? input.aircraft[n]?.state?.popupLocks?.angle === true : clearFitFieldLocked(input, n, key)),
+  currentValue: (out, n, key) => out.aircraftResults[n]?.popup?.[key],
+});
+
+function popupFlightWithClearFit(rawInput, offsetFlight) {
+  return calculateWithClearFit(rawInput, (input) => popupFlight(input, offsetFlight), POPUP_CLEAR_FIT_SPEC);
 }
 
 // The output has the Offset Flight's shape (the page reuses the Offset controller): each aircraftResults[n] is the
@@ -529,9 +581,9 @@ function popupFlight(rawInput, offsetFlight) {
 // Editing session for the page's Worker (the Flight worker host contract): an Offset Flight session inside, so the
 // repeated calls reuse its sub-solves.
 export function createPopupFlightSession(options) {
-  const offset = createOffsetFlightSession(options);
+  const offset = createOffsetFlightSession({ ...options, clearFit: false });
   return {
-    calculate: (input) => popupFlight(input, (i) => offset.calculate(i)),
+    calculate: (input) => popupFlightWithClearFit(input, (i) => offset.calculate(i)),
     lastStats: () => offset.lastStats(),
     prepare(nextInput) {
       popupFlight(nextInput, (i) => offset.calculate(i));

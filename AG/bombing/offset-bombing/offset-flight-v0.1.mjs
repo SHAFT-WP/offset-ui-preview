@@ -1,3 +1,4 @@
+import { calculateWithClearFit, clearFitRange } from "./offset-clear-fit-v0.1.mjs";
 import { OFFSET_BE_V0_2, calculateOffsetWithVrpStartFull } from "./offset-be-v0.2.mjs";
 import { OFFSET_FORMATION_GEOMETRY_V0_1, calculateOffAxisOffsetFull } from "./offset-formation-geometry-v0.1.mjs";
 import {
@@ -70,7 +71,12 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // AGL) follows the element lead; csemTargetFpaDeg is optional now (blank all the way to the lead: each aircraft's
   // Dive + 10°). A blank semTurnDeg / csemTargetFpaDeg chain gives each aircraft its own Auto value (its own Run-In
   // reciprocal / Dive + 10°), never the lead's computed number (leaderView().entered).
-  version: "0.1.15",
+  // 0.1.16 (owner 2026-11-10, "offset도 같이 바꿔져야지"; SPEC "Cleared-field fit"): an emptied and committed field
+  // with a candidate list (OFFSET_CLEAR_FIT) is filled by the planner — nearest its page default that flies, else one
+  // other field (not LOCKed) changed in the order of OFFSET_CLEAR_FIT_ORDER — instead of going back to its value at the
+  // start of the edit (offset-clear-fit-v0.1, shared with the POP-UP Flight). calculateOffsetFlightUnfittedFull and
+  // createOffsetFlightSession({ clearFit: false }) keep the old rule (the POP-UP Flight fits on its own result).
+  version: "0.1.16",
   status: "work",
   schemaVersion: 2,
   components: Object.freeze({
@@ -1570,9 +1576,42 @@ function calculateFlight(input, session) {
 // Pure reference entrypoint: every call starts from nothing (no state survives between calls).
 // Inside the call, identical BDP / SEM / trajectory sub-solves are computed once (P1/P2).
 export function calculateOffsetFlightFull(input) {
+  return calculateWithClearFit(input, calculateOffsetFlightUnfittedFull, OFFSET_CLEAR_FIT_SPEC);
+}
+
+// The same without the cleared-field fit (a clear goes back to its value at the start of the edit).
+export function calculateOffsetFlightUnfittedFull(input) {
   const cache = createCalculationCache();
   return withCalculationCache(cache, () => calculateFlight(input, null)).output;
 }
+
+// Cleared-field fit (0.1.16): key → [label, Offset page default, candidates]. Fields not listed (Tracking Time, Formation,
+// bearings, wind, SEM) keep the clear rule above.
+const fitRange = clearFitRange;
+export const OFFSET_CLEAR_FIT = Object.freeze({
+  initialSpeedValue: ["Initial Speed", 350, fitRange(250, 550, 10)],
+  initialAltitudeMslFt: ["Initial Altitude", 16000, fitRange(3000, 30000, 500)],
+  offsetSpeedValue: ["Offset Speed", 350, fitRange(250, 550, 10)],
+  offsetAltitudeMslFt: ["Offset Altitude", 16000, fitRange(1000, 30000, 500)],
+  diveAngleDeg: ["Dive Angle", 45, fitRange(5, 60, 5)],
+  releaseAltitudeMslFt: ["Release Altitude", 6800, fitRange(2000, 15000, 250)],
+  releaseSpeedKcas: ["Release Speed", 450, fitRange(300, 600, 10)],
+  angleOffDeg: ["Angle Off", 70, fitRange(10, 150, 5)],
+  attackHeadingDeg: ["Attack Heading", 30, fitRange(0, 90, 5)],
+  offsetAngleDeg: ["Offset Angle", 40, fitRange(2, 90, 1)],
+  actionRangeNm: ["Action Range", 7, fitRange(3, 20, 0.5)],
+  approachRangeNm: ["Approach Range", 1, fitRange(0, 8, 0.5)],
+  vrpRangeNm: ["VRP Range", 7, fitRange(3, 20, 0.5)],
+  ipRangeNm: ["IP Range", 10, fitRange(5, 25, 1)],
+  offsetG: ["Offset G", 2, fitRange(1.5, 6, 0.5)],
+  offsetBankDeg: ["Offset Bank", 60, fitRange(30, 85, 5)],
+  offsetRadiusNm: ["Offset Radius", 1.6, fitRange(0.5, 5, 0.1)],
+  rollInAltitudeMslFt: ["Roll-in Altitude", 16000, fitRange(3000, 30000, 250)],
+  rollInG: ["Roll-in G", 4, fitRange(2, 7, 0.5)],
+});
+// Step 2's order: the POP-UP order without the Popup Angle (owner agreed 2026-11-10).
+export const OFFSET_CLEAR_FIT_ORDER = Object.freeze(["offsetAngleDeg", "rollInAltitudeMslFt", "actionRangeNm", "approachRangeNm", "offsetG"]);
+const OFFSET_CLEAR_FIT_SPEC = Object.freeze({ table: OFFSET_CLEAR_FIT, order: OFFSET_CLEAR_FIT_ORDER });
 
 // Verification reference (addendum P04): the same calculation with no reuse of any kind.
 export function calculateOffsetFlightReferenceFull(input) {
@@ -1584,8 +1623,10 @@ export function calculateOffsetFlightReferenceFull(input) {
 // aircraft's last solves keyed by their full dependencies, so a call re-solves only the aircraft
 // whose dependencies changed. Its output equals calculateOffsetFlightFull(input) for every input
 // (offset-flight-session-v0.1.test.mjs). The FE holds the session as an opaque handle (in the Worker).
-export function createOffsetFlightSession({ solveLimit = 48, cacheLimits = { "bdp-v0.4": 2048, "ballistic-trajectory": 2048, "sem-nlt": 64 } } = {}) {
-  return createFlightSession(calculateFlight, { solveLimit, cacheLimits });
+export function createOffsetFlightSession({ solveLimit = 48, cacheLimits = { "bdp-v0.4": 2048, "ballistic-trajectory": 2048, "sem-nlt": 64 }, clearFit = true } = {}) {
+  const session = createFlightSession(calculateFlight, { solveLimit, cacheLimits });
+  if (!clearFit) return session;
+  return Object.freeze({ ...session, calculate: (input) => calculateWithClearFit(input, (i) => session.calculate(i), OFFSET_CLEAR_FIT_SPEC) });
 }
 
 // Public entrypoint: results truncated to 5 decimals (docs/FE-BE-RULES.md). It carries no nextInput:

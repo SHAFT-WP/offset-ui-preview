@@ -11,17 +11,17 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // The BE runs in a Worker (offset-flight-worker-v0.1.mjs); Common calculation-client-v0.1.mjs decides when a
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
-import { FORMATION_TEMPLATES, OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, formationTemplatePositions } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.15";
+import { FORMATION_TEMPLATES, OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, formationTemplatePositions } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.16";
 // Flight Formation top view (Flight Bombing Tactics view, owner 2026-11-02): draws the BE's flightName.formation.
 import { formationTopViewSvg } from "./flight/flight-bombing-tactics/view/formation-top-view-v0.1.mjs?v=0.2.0";
 import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
-const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.9", import.meta.url);
+const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-flight-worker-v0.1.mjs?v=0.1.10", import.meta.url);
 // POP-UP page (owner 2026-10-27, POP-UP SPEC §13.1 "Offset as is, modified"): popup/index.html runs this controller
 // with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
 // climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
 const POPUP_MODE = document.body.classList.contains("popup-page");
-const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.8", import.meta.url);
-const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.8", import.meta.url);
+const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.11", import.meta.url);
+const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.11", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -410,7 +410,10 @@ function applyLeadState(lead, sentLead, activeKey, commit) {
     const own = key === activeKey;
     if (typeof value !== "number") continue;
     // A committed Run-In Heading / Tracking Time is rewritten in its display format ("030", "18.0").
-    if (sameStateValue(value, sentLead.values[key]) && !(commit && own && REFORMAT_ON_COMMIT.has(key))) continue;
+    // An emptied field committed is refilled even when the value equals the one sent (a duplicate field — the BDP
+    // tab's copy — still held it; POP-UP 2026-11-10).
+    const emptied = commit && own && fields(key).some((field) => field.value.trim() === "");
+    if (sameStateValue(value, sentLead.values[key]) && !(commit && own && REFORMAT_ON_COMMIT.has(key)) && !emptied) continue;
     const text = fieldDisplayText(key, value);
     setAutoValue(key, text, activeKey, { includeActive: commit && own });
     if (valuesEquivalent(firstField(key)?.value, text)) solvedInputValues.set(key, { text, value });
@@ -1012,7 +1015,13 @@ function renderLead(entry) {
     $("#driver-out").textContent = `DRIVER · ${driver}`;
     $("#lock-count").textContent = `LOCK ${Object.values(locks).filter(Boolean).length}`;
     // POP-UP: the Flight entry's status (the POP-UP checks merged into the Offset's).
-    renderStatus(POPUP_MODE ? { ...result, state: entry.status, errors: entry.errors ?? [], warnings: entry.warnings ?? [] } : result);
+    // Offset (2026-11-10): the entry's warnings / errors too (the cleared-field fit notes what it filled or changed).
+    renderStatus(POPUP_MODE ? { ...result, state: entry.status, errors: entry.errors ?? [], warnings: entry.warnings ?? [] } : {
+      ...result,
+      state: entry.status ?? result.state,
+      errors: [...result.errors, ...(entry.errors ?? []).filter((e) => !result.errors.includes(e))],
+      warnings: [...result.warnings, ...(entry.warnings ?? []).filter((w) => !result.warnings.includes(w))],
+    });
     renderOffsetResult(result);
     renderProfileResult(result);
     if (POPUP_MODE) {
