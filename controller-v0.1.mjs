@@ -31,6 +31,7 @@ import { createValueStateController } from "./common/ui/value-state-controller-v
 import { prepareSvgForExport, saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 // Flight HTML Save / Load (owner 2026-11-05; Flight HTML Save/Load handoff 2026-10-27 §6–§9).
 import { aircraftSetHtml, buildFlightHtml, cardHtml, dedBoxesHtml, escapeHtml, installFlightFileDialog, readFlightHtml, resultGroupsHtml, FLIGHT_FILE_FORMAT, FLIGHT_FILE_SCHEMA_VERSION } from "./shared/flight-html-file-v0.1.mjs?v=0.1.3";
+import { installFlightFileBrowser } from "./shared/flight-file-browser-v0.1.mjs?v=0.1.0";
 import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.3";
 // DED boxes, texts and PNG: bombing app shared FE (2026-10-22); the DED record is the Flight BE's.
 import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.5";
@@ -3233,8 +3234,9 @@ const workSave = createSaveRun({
   savedText: (saved) => `Saved · #1–#${saved.size} · ${savedTimeText(new Date(saved.savedAt))}`,
   failedText: (error) => `Save failed · ${error?.message || "browser storage unavailable"} · inputs stay usable`,
 });
+// With the file browser (Offset page, owner 2026-11-10) Save also writes the open file, or opens Save As.
 function saveCurrentWork() {
-  return workSave.run();
+  return flightFileBrowser ? flightFileBrowser.save() : workSave.run();
 }
 
 // Ends the edit in progress through the normal commit (change / empty-field rules) first.
@@ -3378,6 +3380,8 @@ function installSaveTab() {
   $("#work-default").addEventListener("click", () => {
     commitActiveEdit();
     applyFlightDefaults();
+    // Load Default starts new conditions: the open file is let go, so Save cannot overwrite it with the Default.
+    flightFileBrowser?.clearCurrent();
     renderSaveStatus(`${readDefaultPreset() ? "Developer preset" : "Built-in Default"} loaded · press Save to keep it`, "valid");
   });
   $("#save-as-default").addEventListener("click", async () => {
@@ -3398,7 +3402,7 @@ function installSaveTab() {
 }
 function renderLoadedSaveStatus() {
   if (loadedFile) {
-    renderSaveStatus(`File loaded · ${loadedFile.name} · #1–#${flightLayout.size}${restoredWorkSave.notice ? ` · ${restoredWorkSave.notice}` : ""} · press Save to keep it in this browser`, restoredWorkSave.notice ? "warning" : "valid");
+    renderSaveStatus(`File loaded · ${loadedFile.name} · #1–#${flightLayout.size}${restoredWorkSave.notice ? ` · ${restoredWorkSave.notice}` : ""}${loadedFile.keep ? "" : " · press Save to keep it in this browser"}`, restoredWorkSave.notice ? "warning" : "valid");
     return;
   }
   if (restoredWorkSave.notice) {
@@ -3604,11 +3608,13 @@ async function buildFlightFile() {
 // Load: the file's record is read through the work-save checks; the page then opens again with it (the same path as a
 // reload after Save, so every field, LOCK, link and S&R plan is restored and calculated once). Browser storage is not
 // written: Save keeps the loaded conditions when the user wants them.
-function applyFlightFile(envelope, name) {
+// keep (the file browser's Load, owner 2026-11-10): the page also keeps the loaded conditions in this browser once it
+// has opened with them, so a reload and the next Save start from the file that is open.
+function applyFlightFile(envelope, name, { keep = false } = {}) {
   const read = readOffsetWorkRecord(envelope.record, FILE_STORAGE_KEYS);
   if (!read.lead || !read.flight) return { ok: false, message: read.notice || "the file holds no readable conditions" };
   try {
-    sessionStorage.setItem(PENDING_FILE_KEY, JSON.stringify({ name, savedAt: envelope.savedAt ?? null, record: envelope.record }));
+    sessionStorage.setItem(PENDING_FILE_KEY, JSON.stringify({ name, savedAt: envelope.savedAt ?? null, record: envelope.record, keep: keep === true }));
   } catch (error) {
     return { ok: false, message: `this browser could not hold the file for loading (${error?.message || "storage"})` };
   }
@@ -3628,12 +3634,39 @@ function takePendingFileLoad() {
   if (!pending?.record) return null;
   const read = readOffsetWorkRecord(pending.record, FILE_STORAGE_KEYS);
   if (!read.lead || !read.flight) return null;
-  loadedFile = { name: typeof pending.name === "string" ? pending.name : "file", savedAt: pending.savedAt };
+  loadedFile = { name: typeof pending.name === "string" ? pending.name : "file", savedAt: pending.savedAt, keep: pending.keep === true };
   return read;
+}
+async function keepLoadedFile() {
+  try {
+    await settleForSave();
+    saveWorkState();
+    renderSaveStatus(`File loaded · ${loadedFile.name} · #1–#${flightLayout.size} · kept in this browser`);
+  } catch (error) {
+    renderSaveStatus(`File loaded · ${loadedFile.name} · not kept in this browser (${error?.message || "storage"}) · press Save`, "warning");
+  }
 }
 
 let flightFileDialog = null;
+let flightFileBrowser = null;
 function installFlightFile() {
+  // Offset page (owner 2026-11-10): Save / Save As / Load with the file browser. POP-UP keeps the File window for now.
+  const saveAsButton = $("#file-save-as");
+  const loadButton = $("#file-load");
+  if (saveAsButton && loadButton) {
+    flightFileBrowser = installFlightFileBrowser({
+      tool: FILE_TOOL,
+      build: buildFlightFile,
+      read: (text) => readFlightHtml(text, { tool: FILE_TOOL, scopes: ["flight"] }),
+      apply: (envelope, name) => applyFlightFile(envelope, name, { keep: true }),
+      keepInBrowser: () => workSave.run(),
+      status: renderSaveStatus,
+      currentLine: $("#file-current"),
+    });
+    saveAsButton.addEventListener("click", () => { commitActiveEdit(); flightFileBrowser?.saveAs(); });
+    loadButton.addEventListener("click", () => { commitActiveEdit(); flightFileBrowser?.load(); });
+    return;
+  }
   const trigger = $("#flight-file");
   if (!trigger) return;
   flightFileDialog = installFlightFileDialog({
@@ -3649,6 +3682,7 @@ globalThis.offsetFlightFile = Object.freeze({
   build: () => buildFlightFile(),
   read: (text) => readFlightHtml(text, { tool: FILE_TOOL, scopes: ["flight"] }),
   dialog: () => flightFileDialog,
+  browser: () => flightFileBrowser,
   loadedFile: () => loadedFile,
 });
 
@@ -3806,6 +3840,7 @@ function install() {
   persistenceReady = true;
   // The first answer draws the page (initialRender ends there).
   recalculateFresh();
+  if (loadedFile?.keep) keepLoadedFile();
 }
 
 install();
