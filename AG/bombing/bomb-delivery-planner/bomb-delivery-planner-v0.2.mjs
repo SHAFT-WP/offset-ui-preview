@@ -51,6 +51,9 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_2 = Object.freeze({
   // integrator (BDP v0.4, Roll-in v0.2). Without options the results are unchanged; version stays 0.2.13.
   // Behavior-preserving hook (2026-10-27, owner, POP-UP SPEC §13.6): options.nltAllDives (BDP v0.4) computes the
   // SEM NLT at every Dive (NLT = MINALT at 0°) instead of MINALT-only below 10°. Without it nothing changes.
+  // Behavior-preserving hook (2026-11-10, owner, SPEC §6.11): options.adjustNlt({ safety, weapon }) (BDP v0.4) may
+  // return { nltReleaseMslFt, ... } to replace the SEM NLT (the NLT after impact); the Release clamp uses it and
+  // safety.pullNltReleaseMslFt / safety.nltAfterImpact keep the record. Without it nothing changes.
   version: "0.2.13",
   flightPathReference: "GROUND",
   legacyGeometrySource: "Bomb Profile REV.1.9 · R_20260830",
@@ -187,7 +190,7 @@ export function calculateBombDeliveryV0_2(rawInput, options = {}) {
   const weapon = getWeaponById(input.weaponId);
   const nltSupported = nltAllDives || input.diveAngleDeg >= MIN_NLT_DIVE_ANGLE_DEG;
 
-  const safety = nltSupported
+  let safety = nltSupported
     ? calculateSemNltSafety({
         weapon,
         fragmentHeightMarginPercent: input.fragmentHeightMarginPercent,
@@ -204,6 +207,11 @@ export function calculateBombDeliveryV0_2(rawInput, options = {}) {
         targetElevationMslFt: input.targetElevationMslFt,
         releaseFpaDeg: input.releaseFpaDeg,
       });
+
+  if (nltSupported && typeof options.adjustNlt === "function") {
+    const adjusted = options.adjustNlt({ safety, weapon });
+    if (adjusted) safety = { ...safety, pullNltReleaseMslFt: safety.nltReleaseMslFt, nltReleaseMslFt: adjusted.nltReleaseMslFt, nltAfterImpact: adjusted };
+  }
 
   const effectiveReleaseAltitudeMslFt = nltSupported
     ? Math.max(input.enteredReleaseAltitudeMslFt, safety.nltReleaseMslFt)
@@ -308,6 +316,7 @@ export function calculateBombDeliveryV0_2(rawInput, options = {}) {
       recoverySpeedKcas: safety.recoverySpeedKcas,
       releaseFpaDeg: safety.releaseFpaDeg,
       recoveryAtNlt: safety.recoveryAtNlt,
+      ...(safety.nltAfterImpact ? { pullNltReleaseMslFt: safety.pullNltReleaseMslFt, nltAfterImpact: safety.nltAfterImpact } : {}),
     },
     diagnostics: {
       targetForwardNm: profile.targetForwardFt / FT_PER_NM,

@@ -11,6 +11,7 @@ import {
   integrateRollInV0_2,
 } from "./roll-in-v0.2.mjs";
 import { FRAGMENT_MARGIN_MODES, SEM_FRAGMENT_MODEL_V0_1, calculateSemPathAndFragment, fragmentCylinder } from "./sem-fragment-v0.1.mjs";
+import { NLT_AFTER_IMPACT_MODEL_V0_1, calculateNltAfterImpact } from "./nlt-after-impact-v0.1.mjs";
 import { SEM_TURN_MODEL_V0_1 } from "./sem-turn-v0.1.mjs";
 
 // BDP v0.4 (owner 2026-10-15, SPEC §5.1): the v0.3 facade with the Roll-in v0.2 model — technique B with linear
@@ -42,11 +43,17 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_4 = Object.freeze({
   // `csemLevelAltitudeAglFt` (the Level Altitude above the Target; absent: no CSEM turn), `csemTurnG` (absent 2),
   // `csemTurnBankDeg` (absent 90); the heading change and side are the SEM Turn's (`semTurnDeg`, `semTurnDirection`)
   // and its onsets the Roll-in's. A CSEM turn that cannot be flown makes the SEM INVALID; MINALT / NLT unchanged.
-  version: "0.4.6",
+  // 0.4.7 (2026-11-10, owner, SPEC §6.11): the NLT Release counts only the SEM altitude from bomb impact on
+  // (nlt-after-impact v0.1): LEVEL SEM unchanged (its bottom is its altitude after impact), CLIMB SEM lower when the
+  // bomb lands after the CSEM bottom. `public.pullNltReleaseMslFt` keeps the §6.3 pull NLT.
+  // 0.4.8 (2026-11-10, owner "b도 넣어", SPEC §6.11): nlt-after-impact 0.2.0 — after impact the SEM may be below MINALT
+  // while outside the full fragment radius (120% Fragment Range); every SEM (LEVEL / CLIMB, with its turn) is solved.
+  version: "0.4.8",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   rollInModel: ROLL_IN_V0_2_MODEL,
   semFragmentModel: SEM_FRAGMENT_MODEL_V0_1,
   semTurnModel: SEM_TURN_MODEL_V0_1,
+  nltAfterImpactModel: NLT_AFTER_IMPACT_MODEL_V0_1,
   officialOracle: "Bomb Profile REV.1.9 · R_20260830 (legacy path only; the v0.4 Roll-in is a new model)",
 });
 
@@ -276,9 +283,34 @@ function semTurnInput(input) {
   };
 }
 
+// §6.11: the NLT after impact replaces the pull NLT inside the core (so the Release clamp uses it). No SEM at 0°.
+function nltAfterImpactHook(input) {
+  return ({ safety, weapon }) => {
+    if (!(input.diveAngleDeg > 0)) return null;
+    return calculateNltAfterImpact({
+      weapon,
+      targetElevationMslFt: input.targetElevationMslFt,
+      fragmentHeightMarginPercent: input.fragmentHeightMarginPercent,
+      fragmentMarginAppliesTo: input.fragmentMarginAppliesTo,
+      releaseSpeedKcas: input.releaseSpeedKcas,
+      speedOvershootKcas: input.speedOvershootKcas,
+      diveAngleDeg: input.diveAngleDeg,
+      recoveryG: input.recoveryG,
+      gOnsetTimeSec: input.gOnsetTimeSec,
+      semEnd: input.semEnd,
+      csemTargetFpaDeg: input.csemTargetFpaDeg,
+      windDirectionDeg: input.windDirectionDeg,
+      windSpeedKt: input.windSpeedKt,
+      ballisticModelId: input.ballisticModelId,
+      semTurn: input.semEnd === "LEVEL" ? semTurnInput(input) : null,
+      csemTurn: csemTurnInput(input),
+    }, { pullNltReleaseMslFt: safety.nltReleaseMslFt });
+  };
+}
+
 function solveCanonical(input) {
   const rollInOnset = Object.fromEntries(ONSET_KEYS.map((key) => [key, input[key]]));
-  const calculation = calculateBombDeliveryV0_2({ ...input, rollInOnset }, { rollIn: rollInV0_2ForOneCall(popUpRollInParams(input)), nltAllDives: true });
+  const calculation = calculateBombDeliveryV0_2({ ...input, rollInOnset }, { rollIn: rollInV0_2ForOneCall(popUpRollInParams(input)), nltAllDives: true, adjustNlt: nltAfterImpactHook(input) });
   const state = buildBombDeliveryVisualizationState(calculation);
   const roll = calculation.rollIn;
   const sem = semFragment(input, calculation);
@@ -304,6 +336,8 @@ function solveCanonical(input) {
           ...(roll.milPremises ? { milPremises: roll.milPremises, performanceDomain: roll.performanceDomain } : {}),
         },
       } : {}),
+      // §6.11: the §6.3 pull NLT (the NLT is never above it).
+      pullNltReleaseMslFt: calculation.safety.pullNltReleaseMslFt ?? calculation.public.nltReleaseMslFt,
       // §6.6: display and check only.
       semMinimumAltitudeMslFt: sem.applicable ? sem.semMinimumAltitudeMslFt : null,
       semMinimumAltitudeAglFt: sem.applicable ? sem.semMinimumAltitudeAglFt : null,
