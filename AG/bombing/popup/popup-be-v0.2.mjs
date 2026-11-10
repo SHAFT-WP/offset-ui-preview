@@ -11,20 +11,23 @@ import { POPUP_CLIMB_V0_2, calculatePopupClimbFull } from "./popup-climb-v0.2.mj
 // Dive + 10°; owner 2026-10-27), "ANGLE", "GROUND_DISTANCE" (Pop Point → Roll-in Start, horizontal) or
 // "EXPOSURE_TIME" (Pop Point → Apex). The other two are results. The minimum-exposure angle is a separate call
 // (calculatePopupMinimumExposureFull), shown with an Apply (§13.5).
-// Checks: the MIL arrival speed at Roll-in Start against the entered Roll-in Speed (§13.3); the Apex speed below
-// 250 KCAS is a warning only (§13.3). No G limit check (§13.9 item 9).
+// Checks: the MIL arrival speed at Roll-in Start against the entered Roll-in Speed (§13.3); below 300 KCAS from the
+// Pop to the Apex is a LOW SPEED warning only (0.2.3; was the Apex below 250, §13.3). No G limit check (§13.9 item 9).
 export const POPUP_BE_V0_2 = Object.freeze({
   id: "popup-be-v0.2",
-  version: "0.2.1",
+  // 0.2.2 (owner 2026-11-10): the Popup angle may be 55° (inclusive upper bound, climb 0.2.1); the scan ends at 55.
+  // 0.2.3 (owner 2026-11-10, "300미만으로 떨어지는 경우 low speed warning"): LOW SPEED warning when the slowest point from
+  // the Pop to the Apex (the climb samples and the Apex) is below 300 KCAS (was: the Apex below 250 KCAS).
+  version: "0.2.3",
   status: "Work / Not Official",
   bdpModel: `${BOMB_DELIVERY_PLANNER_MODEL_V0_4.id} ${BOMB_DELIVERY_PLANNER_MODEL_V0_4.version}`,
   climbModel: `${POPUP_CLIMB_V0_2.id} ${POPUP_CLIMB_V0_2.version}`,
   // "ROLL_IN_SPEED" (owner 2026-11-03, SPEC §13.8i): the Popup angle whose MIL arrival at Roll-in Start is the
   // LOCKed Roll-in Speed (p.rollInSpeedKcas).
   drivers: Object.freeze(["DEFAULT", "ANGLE", "GROUND_DISTANCE", "EXPOSURE_TIME", "ROLL_IN_SPEED"]),
-  apexSpeedWarningKcas: 250,
+  lowSpeedWarningKcas: 300,
   // Angle search for the distance / time drivers and the minimum exposure: a scan, then refinement.
-  angleScanDeg: Object.freeze([2, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 54.9]),
+  angleScanDeg: Object.freeze([2, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]),
   angleToleranceDeg: 0.01,
 });
 
@@ -189,8 +192,8 @@ export function calculatePopupFull(input) {
   }
   const angleDeg = resolved.angleDeg;
   const [lo, hi] = POPUP_CLIMB_V0_2.angleDomainDeg;
-  if (!(angleDeg > lo && angleDeg < hi)) {
-    return { model: { ...POPUP_BE_V0_2 }, status: "INVALID", errors: [`Popup angle ${angleDeg.toFixed(1)}° is outside ${lo}°–${hi}° (not clamped)`], warnings, driver: p.driver, popupAngleDeg: angleDeg };
+  if (!(angleDeg > lo && angleDeg <= hi)) {
+    return { model: { ...POPUP_BE_V0_2 }, status: "INVALID", errors: [`Popup angle ${angleDeg.toFixed(1)}° is outside ${lo}° (exclusive)–${hi}° (not clamped)`], warnings, driver: p.driver, popupAngleDeg: angleDeg };
   }
   let fly;
   try {
@@ -224,7 +227,12 @@ export function assemblePopupAttack({ p, angleDeg, otherSolutionsDeg = [], bdp, 
     warnings.push(`MIL arrives at Roll-in Start ${Math.abs(marginKt).toFixed(0)} kt below the Roll-in Speed (${arrivalKcas.toFixed(0)} / ${rollInSpeedKcas.toFixed(0)} KCAS); whether AB reaches it is not judged (no AB performance model)`);
   }
   const apexKcas = pu.apex ? tasToCas(pu.apex.tasKt, pu.apex.altitudeMslFt) : null;
-  if (apexKcas !== null && apexKcas < POPUP_BE_V0_2.apexSpeedWarningKcas) warnings.push(`Apex speed ${apexKcas.toFixed(0)} KCAS is below ${POPUP_BE_V0_2.apexSpeedWarningKcas} KCAS`);
+  const slowest = [
+    ...climb.samples.map((x) => ({ kcas: x.casKt, at: x.phase === "climb" ? "in the climb" : "in the pull-up" })),
+    ...(apexKcas !== null ? [{ kcas: apexKcas, at: "at the Apex" }] : []),
+  ].reduce((m, x) => (!m || x.kcas < m.kcas ? x : m), null);
+  const lowSpeed = slowest && slowest.kcas < POPUP_BE_V0_2.lowSpeedWarningKcas ? { minKcas: slowest.kcas, at: slowest.at } : null;
+  if (lowSpeed) warnings.push(`LOW SPEED: ${lowSpeed.minKcas.toFixed(0)} KCAS ${lowSpeed.at}, below ${POPUP_BE_V0_2.lowSpeedWarningKcas} KCAS`);
   if (pu.apexBeforePullDown) warnings.push("The Apex comes before the Pull Down (shallow Popup angle)");
   if (resolved.otherSolutionsDeg?.length) warnings.push(`Other Popup angles with the same exposure time: ${resolved.otherSolutionsDeg.map((a) => `${a.toFixed(1)}°`).join(", ")}`);
   // A note, not a warning: BOX OUT reports its envelope the same way (the model is a research model throughout).
@@ -254,6 +262,7 @@ export function assemblePopupAttack({ p, angleDeg, otherSolutionsDeg = [], bdp, 
     popupG: p.popupG,
     speedCheck,
     apexKcas,
+    lowSpeed,
     events,
     climb,
     bdp,

@@ -14,7 +14,8 @@ import { ADOPTED_ACCELERATION_GRID_V0_1, adoptedAccelerationGrid } from "../../.
 // Pure calculation: no DOM, no storage. The Roll-in after Roll-in Start is the BDP's (v0.4.5 POP-UP option).
 export const POPUP_CLIMB_V0_2 = Object.freeze({
   id: "popup-climb-v0.2",
-  version: "0.2.0",
+  version: "0.2.1",
+  // 0.2.1 (owner 2026-11-10, "상한을 55까지 넓히자"): the upper bound is inclusive, so 55° flies (Dive 45° AUTO = 55°).
   status: "Work / MIL climb on the PW-229 research model (unofficial adoption) / Not Official",
   performanceEntry: `${ADOPTED_PERFORMANCE_MODEL_V0_1.id} ${ADOPTED_PERFORMANCE_MODEL_V0_1.version}`,
   performanceModel: ADOPTED_PERFORMANCE_MODEL.modelId,
@@ -23,7 +24,7 @@ export const POPUP_CLIMB_V0_2 = Object.freeze({
   fuelKg: (ADOPTED_PERFORMANCE_MODEL.domain.ranges.fuelKg[0] + ADOPTED_PERFORMANCE_MODEL.domain.ranges.fuelKg[1]) / 2,
   nominalAoaDeg: 5,
   stepSec: 0.05,
-  // Popup angle domain (POP-UP SPEC §11 / §13.5): above 0, below 55 (exclusive).
+  // Popup angle domain (POP-UP SPEC §11 / §13.5, owner 2026-11-10): above 0, up to and including 55.
   angleDomainDeg: Object.freeze([0, 55]),
   climbLimitSec: 300,
 });
@@ -116,7 +117,7 @@ function normalizeInput(input) {
   const gOnsetRateGSec = finite("gOnsetRateGSec", input.gOnsetRateGSec ?? 2);
   const [lo, hi] = POPUP_CLIMB_V0_2.angleDomainDeg;
   if (!(popSpeedKcas > 0)) throw new RangeError("Pop Speed must be > 0 KCAS");
-  if (!(popupAngleDeg > lo && popupAngleDeg < hi)) throw new RangeError(`Popup angle must be > ${lo}° and < ${hi}°`);
+  if (!(popupAngleDeg > lo && popupAngleDeg <= hi)) throw new RangeError(`Popup angle must be > ${lo}° and <= ${hi}°`);
   if (!(popupG > 1 && popupG <= 9)) throw new RangeError("Popup G must be > 1 and <= 9");
   if (!(gOnsetRateGSec > 0)) throw new RangeError("G Onset Rate must be > 0");
   if (!(rollInAltitudeMslFt > popAltitudeMslFt)) throw new RangeError("Roll-in Altitude must be above the Pop Point altitude");

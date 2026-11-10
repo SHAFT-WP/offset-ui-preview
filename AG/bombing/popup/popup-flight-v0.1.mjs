@@ -1,7 +1,7 @@
 import { casToTas, machToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import { OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, calculateOffsetFlightFull, createOffsetFlightSession, profileLinkStates } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.15";
-import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs?v=0.2.1";
+import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs?v=0.2.3";
 import { calculatePopupClimbFull } from "./popup-climb-v0.2.mjs";
 import { computeDropOrderDeltaFull } from "../offset-bombing/offset-formation-v0.1.mjs";
 import { dropOrderTiming } from "../../../flight/flight-bombing-tactics/flight-composition-v0.1.mjs";
@@ -43,12 +43,24 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // 0.1.8 (owner 2026-11-03, SPEC §13.8j): Offset Flight 0.1.14's profile LINK — a linked #3 / #4 flies #1's / #2's POP-UP
   // too (its settings, angle and Roll-in Speed are its source's). A POP-UP edit of a linked aircraft (a value, a LOCK, AUTO,
   // Apply) turns its LINK off, as any other edit of it does.
-  version: "0.1.8",
   status: "work",
   offsetFlight: `${OFFSET_FLIGHT_V0_1.id} ${OFFSET_FLIGHT_V0_1.version}`,
   popupBe: `${POPUP_BE_V0_2.id} ${POPUP_BE_V0_2.version}`,
+  // 0.1.9 (owner 2026-11-10, POP-UP SPEC §13.8o): when the climb does not fit, the planner fits it instead of INVALID —
+  // a Hold-Down < 0 raises the entered Roll-in Altitude (not LOCKed, height mode) to the lowest one that fits; an
+  // AUTO Popup angle whose pull-up arc passes the Roll-in Altitude is lowered to the steepest one that fits. Each is a
+  // warning naming the change; the raised Roll-in Altitude is written back. A typed / LOCKed angle or a LOCKed Roll-in
+  // Altitude stays INVALID with the value that would fit.
+  version: "0.1.9",
   defaultPopupG: 3,
   angleIterations: 12,
+  autoAngleMinDeg: 1,
+  autoAngleToleranceDeg: 0.05,
+  holdDownIterations: 8,
+  holdDownTargetNm: 0.01,
+  holdDownToleranceNm: 0.03,
+  holdDownStepFt: 2000,
+  holdDownMaxRaiseFt: 15000,
   speedSettleKt: 0.05,
   angleSettleDeg: 0.01,
 });
@@ -145,14 +157,15 @@ function popupSettings(input, number, edited, cleared, lockEdits) {
 }
 
 // The Offset input with every aircraft's Roll-in from its angle at MIL (the POP-UP edits and request left out).
-function withAngles(input, angles, speeds = {}) {
+function withAngles(input, angles, speeds = {}, rollInAltitudes = {}) {
   const aircraft = {};
   for (const [key, record] of Object.entries(input.aircraft)) {
     const angle = angles[key];
     const speed = speeds[key];
+    const rollIn = rollInAltitudes[key];
     aircraft[key] = angle === undefined
       ? record
-      : { ...record, values: { ...record.values, rollInStartFpaDeg: angle, rollInSpeedModel: "MIL", ...(Number.isFinite(speed) ? { initialSpeedValue: speed, initialSpeedMode: "CAS" } : {}) } };
+      : { ...record, values: { ...record.values, rollInStartFpaDeg: angle, rollInSpeedModel: "MIL", ...(Number.isFinite(speed) ? { initialSpeedValue: speed, initialSpeedMode: "CAS" } : {}), ...(Number.isFinite(rollIn) ? { rollInAltitudeMslFt: rollIn } : {}) } };
   }
   const { popupRequest, edit, ...rest } = input;
   const edits = (input.edits ?? []).filter((e) => !isPopupEdit(e));
@@ -175,6 +188,75 @@ const approachSpeedNmSec = (r) => r.resolved.offsetTasKt / 3600;
 
 function flownAircraft(output) {
   return Object.entries(output.aircraftResults).filter(([, r]) => r.result?.profile?.canonicalInputs && (r.status === "VALID" || r.status === "WARNING"));
+}
+
+// The pull-up arc (0.1.9): whether an angle can be flown to the Roll-in Altitude, and the steepest one that can
+// (bisection below the given angle; null when even a shallow one cannot).
+function climbFits(climbInput, angleDeg) {
+  try { calculatePopupClimbFull({ ...climbInput, popupAngleDeg: angleDeg }); return true; } catch { return false; }
+}
+function steepestFittingAngle(climbInput, upperDeg) {
+  let lo = POPUP_FLIGHT_V0_1.autoAngleMinDeg;
+  if (!(upperDeg > lo) || !climbFits(climbInput, lo)) return null;
+  let hi = upperDeg;
+  while (hi - lo > POPUP_FLIGHT_V0_1.autoAngleToleranceDeg) {
+    const mid = (lo + hi) / 2;
+    if (climbFits(climbInput, mid)) lo = mid; else hi = mid;
+  }
+  return lo;
+}
+
+// Hold-Down of aircraft n in a solve (0.1.9): Approach Range − the climb's ground distance; `short` when negative or
+// when the Offset already has its Turn End past the Roll-in Start; `failed` for any other error (no value).
+function holdDownState(sol, n, settings) {
+  const entry = sol.output.aircraftResults[n];
+  const r = entry?.result;
+  if (!r?.profile?.canonicalInputs || !(entry.status === "VALID" || entry.status === "WARNING")) {
+    const turnPassed = (entry?.errors ?? []).some((e) => /Offset Turn End has passed Roll-in Start/.test(e));
+    return { short: turnPassed, holdDownNm: null, failed: !turnPassed };
+  }
+  try {
+    const climb = calculatePopupClimbFull({ ...popState(r.resolved), rollInAltitudeMslFt: r.profile.public.resolvedInitialAltitudeMslFt, popupAngleDeg: sol.angles[n], popupG: settings.popupG, gOnsetRateGSec: r.profile.canonicalInputs.gOnsetRateGSec });
+    const holdDownNm = r.resolved.approachRangeNm - climb.groundDistanceNm;
+    return { short: holdDownNm < 0, holdDownNm, failed: false };
+  } catch {
+    return { short: false, holdDownNm: null, failed: true };
+  }
+}
+
+// The next Roll-in Altitude to try for a Hold-Down of 0 (0.1.9): false position between the highest short and the
+// lowest fitting altitude, secant above them (the Hold-Down is nearly linear in the altitude), a fixed step when a
+// value is missing; rounded up to 10 ft, never above the cap. null = nothing left to try.
+function nextRollInAltitude(tried) {
+  const cfg = POPUP_FLIGHT_V0_1;
+  const cap = tried[0].alt + cfg.holdDownMaxRaiseFt;
+  const fits = (x) => Number.isFinite(x.hd) && x.hd >= 0;
+  const shortOnes = tried.filter((x) => !fits(x) && !x.failed);
+  const fitting = tried.filter(fits);
+  const lo = shortOnes.reduce((m, x) => (!m || x.alt > m.alt ? x : m), null);
+  const hi = fitting.reduce((m, x) => (!m || x.alt < m.alt ? x : m), null);
+  const up10 = (ft) => Math.ceil(ft / 10) * 10;
+  let next;
+  if (hi && lo) {
+    if (hi.alt - lo.alt <= 10) return null;
+    next = Number.isFinite(lo.hd) ? lo.alt + (hi.alt - lo.alt) * (-lo.hd) / (hi.hd - lo.hd) : (lo.alt + hi.alt) / 2;
+    next = Math.min(Math.max(up10(next), lo.alt + 10), hi.alt - 10);
+    if (next <= lo.alt || next >= hi.alt) return null;
+    return next;
+  }
+  if (hi) return null;
+  if (lo.alt >= cap) return null;
+  // Not getting closer: two raises without a Hold-Down value, or a Hold-Down that does not grow with the altitude.
+  const last = tried.slice(-2);
+  if (last.length === 2 && last.every((x) => !Number.isFinite(x.hd))) return null;
+  const finite = shortOnes.filter((x) => Number.isFinite(x.hd)).sort((a, b) => b.alt - a.alt);
+  if (finite.length >= 2 && finite[0].hd !== finite[1].hd) {
+    const slope = (finite[0].hd - finite[1].hd) / (finite[0].alt - finite[1].alt);
+    if (!(slope > 0)) return null;
+    next = finite[0].alt + (cfg.holdDownTargetNm - finite[0].hd) / slope;
+  } else next = lo.alt + cfg.holdDownStepFt;
+  next = Math.min(Math.max(next, lo.alt + 200), lo.alt + 2 * cfg.holdDownStepFt, cap);
+  return up10(next);
 }
 
 export function calculatePopupFlightFull(input) {
@@ -201,70 +283,149 @@ function popupFlight(rawInput, offsetFlight) {
   const lockEdits = editedLocks(input);
   const settings = Object.fromEntries(numbers.map((n) => [n, popupSettings(input, n, edited, cleared, lockEdits)]));
   for (const [n, source] of Object.entries(linkedTo)) settings[n] = { ...settings[source], locks: { ...settings[source].locks } };
-  // First angles: the driver's own value or the automatic rule on the aircraft's Dive.
-  const angles = {};
-  for (const n of numbers) {
-    const s = settings[n];
-    const dive = Number(input.aircraft[n].values?.diveAngleDeg ?? input.aircraft[1].values?.diveAngleDeg);
-    angles[n] = s.driver === "ANGLE" && Number.isFinite(Number(s.popupAngleDeg)) ? Number(s.popupAngleDeg) : defaultPopupAngleDeg(dive);
-  }
-  const angleErrors = {};
-  const solved = {};
-  // Roll-in Speeds (0.1.7): a LOCKed one as entered; AUTO starts from the field and follows the MIL arrival.
-  const speeds = {};
-  for (const n of numbers) {
-    if (settings[n].conflict) angleErrors[n] = settings[n].conflict;
-    if (Number.isFinite(settings[n].rollInSpeedKcas)) speeds[n] = settings[n].rollInSpeedKcas;
-  }
-  // A linked aircraft flies its source's angle and Roll-in Speed (and its errors); it is not solved on its own.
-  const followSources = () => {
-    for (const [n, source] of Object.entries(linkedTo)) {
-      angles[n] = angles[source];
-      if (Number.isFinite(speeds[source])) speeds[n] = speeds[source];
-      if (solved[source]) solved[n] = solved[source]; else delete solved[n];
-      if (angleErrors[source]) angleErrors[n] = angleErrors[source]; else delete angleErrors[n];
-    }
-  };
-  followSources();
-  const autoSpeed = numbers.filter((n) => !linkedTo[n] && !settings[n].locks.rollInSpeed && !settings[n].conflict);
-  let output = offsetFlight(withAngles(input, angles, speeds));
-  const needsSolve = numbers.filter((n) => !linkedTo[n] && !settings[n].conflict && ["GROUND_DISTANCE", "EXPOSURE_TIME", "ROLL_IN_SPEED"].includes(settings[n].driver));
-  for (let iteration = 0; (needsSolve.length || autoSpeed.length) && iteration < POPUP_FLIGHT_V0_1.angleIterations; iteration += 1) {
-    let moved = false;
-    for (const n of needsSolve) {
-      const r = output.aircraftResults[n];
-      if (!r?.result?.profile?.canonicalInputs) continue;
+  // One solve of every aircraft's angle and AUTO Roll-in Speed, at the given Roll-in Altitudes (0.1.9: raised ones
+  // for the Hold-Down; {} = as entered).
+  const solve = (rollInAltitudes = {}) => {
+    // First angles: the driver's own value or the automatic rule on the aircraft's Dive.
+    const angles = {};
+    const ruleAngles = {};
+    const lowered = {};
+    for (const n of numbers) {
       const s = settings[n];
-      try {
-        const p = normalizePopupInput({ bdp: bdpInputOf(r.result.profile), popup: { ...popState(r.result.resolved), popupG: s.popupG, driver: s.driver, groundDistanceNm: Number(s.groundDistanceNm), exposureTimeSec: Number(s.exposureTimeSec), rollInSpeedKcas: speeds[n] } });
-        const resolved = resolvePopupAngle(p);
-        solved[n] = resolved;
-        delete angleErrors[n];
-        if (Math.abs(resolved.angleDeg - angles[n]) > POPUP_FLIGHT_V0_1.angleSettleDeg) moved = true;
-        angles[n] = resolved.angleDeg;
-      } catch (error) {
-        angleErrors[n] = error.message;
+      const dive = Number(input.aircraft[n].values?.diveAngleDeg ?? input.aircraft[1].values?.diveAngleDeg);
+      ruleAngles[n] = defaultPopupAngleDeg(dive);
+      angles[n] = s.driver === "ANGLE" && Number.isFinite(Number(s.popupAngleDeg)) ? Number(s.popupAngleDeg) : ruleAngles[n];
+    }
+    const angleErrors = {};
+    const solved = {};
+    // Roll-in Speeds (0.1.7): a LOCKed one as entered; AUTO starts from the field and follows the MIL arrival.
+    const speeds = {};
+    for (const n of numbers) {
+      if (settings[n].conflict) angleErrors[n] = settings[n].conflict;
+      if (Number.isFinite(settings[n].rollInSpeedKcas)) speeds[n] = settings[n].rollInSpeedKcas;
+    }
+    // A linked aircraft flies its source's angle and Roll-in Speed (and its errors); it is not solved on its own.
+    const followSources = () => {
+      for (const [n, source] of Object.entries(linkedTo)) {
+        angles[n] = angles[source];
+        if (Number.isFinite(speeds[source])) speeds[n] = speeds[source];
+        if (solved[source]) solved[n] = solved[source]; else delete solved[n];
+        if (angleErrors[source]) angleErrors[n] = angleErrors[source]; else delete angleErrors[n];
+        if (lowered[source]) lowered[n] = lowered[source]; else delete lowered[n];
+      }
+    };
+    followSources();
+    const autoSpeed = numbers.filter((n) => !linkedTo[n] && !settings[n].locks.rollInSpeed && !settings[n].conflict);
+    let output = offsetFlight(withAngles(input, angles, speeds, rollInAltitudes));
+    // AUTO Popup angle (0.1.9): the automatic rule's angle, lowered to the steepest one whose pull-up arc stays below
+    // the Roll-in Altitude when the rule's angle cannot be flown.
+    const autoAngle = numbers.filter((n) => !linkedTo[n] && !settings[n].conflict && settings[n].driver === "DEFAULT");
+    const needsSolve = numbers.filter((n) => !linkedTo[n] && !settings[n].conflict && ["GROUND_DISTANCE", "EXPOSURE_TIME", "ROLL_IN_SPEED"].includes(settings[n].driver));
+    for (let iteration = 0; (needsSolve.length || autoSpeed.length || autoAngle.length) && iteration < POPUP_FLIGHT_V0_1.angleIterations; iteration += 1) {
+      let moved = false;
+      for (const n of needsSolve) {
+        const r = output.aircraftResults[n];
+        if (!r?.result?.profile?.canonicalInputs) continue;
+        const s = settings[n];
+        try {
+          const p = normalizePopupInput({ bdp: bdpInputOf(r.result.profile), popup: { ...popState(r.result.resolved), popupG: s.popupG, driver: s.driver, groundDistanceNm: Number(s.groundDistanceNm), exposureTimeSec: Number(s.exposureTimeSec), rollInSpeedKcas: speeds[n] } });
+          const resolved = resolvePopupAngle(p);
+          solved[n] = resolved;
+          delete angleErrors[n];
+          if (Math.abs(resolved.angleDeg - angles[n]) > POPUP_FLIGHT_V0_1.angleSettleDeg) moved = true;
+          angles[n] = resolved.angleDeg;
+        } catch (error) {
+          angleErrors[n] = error.message;
+        }
+      }
+      for (const n of autoAngle) {
+        const r = output.aircraftResults[n]?.result;
+        if (!r?.profile?.canonicalInputs) continue;
+        const climbInput = { ...popState(r.resolved), rollInAltitudeMslFt: r.profile.public.resolvedInitialAltitudeMslFt, popupG: settings[n].popupG, gOnsetRateGSec: r.profile.canonicalInputs.gOnsetRateGSec };
+        const ruleDeg = ruleAngles[n];
+        let target = ruleDeg;
+        if (!climbFits(climbInput, ruleDeg)) {
+          const fit = steepestFittingAngle(climbInput, ruleDeg);
+          if (fit === null) continue;
+          target = fit;
+          lowered[n] = { ruleDeg, angleDeg: fit };
+        } else delete lowered[n];
+        if (Math.abs(target - angles[n]) > POPUP_FLIGHT_V0_1.angleSettleDeg) moved = true;
+        angles[n] = target;
+      }
+      // AUTO Roll-in Speed: the MIL arrival at this angle and Roll-in Altitude becomes the BDP's Roll-in Speed.
+      for (const n of autoSpeed) {
+        const r = output.aircraftResults[n]?.result;
+        if (!r?.profile?.canonicalInputs || angleErrors[n]) continue;
+        try {
+          const arrival = calculatePopupClimbFull({ ...popState(r.resolved), rollInAltitudeMslFt: r.profile.public.resolvedInitialAltitudeMslFt, popupAngleDeg: angles[n], popupG: settings[n].popupG, gOnsetRateGSec: r.profile.canonicalInputs.gOnsetRateGSec }).rollInStart.casKt;
+          if (!(Math.abs(arrival - speeds[n]) <= POPUP_FLIGHT_V0_1.speedSettleKt)) moved = true;
+          speeds[n] = arrival;
+        } catch { /* the climb error is reported below */ }
+      }
+      followSources();
+      if (!moved) break;
+      output = offsetFlight(withAngles(input, angles, speeds, rollInAltitudes));
+    }
+    return { output, angles, speeds, solved, angleErrors, lowered };
+  };
+  // Hold-Down (0.1.9, owner 2026-11-10): an aircraft whose climb is longer than its Approach (Hold-Down < 0) has its
+  // Roll-in Altitude raised to the lowest one that fits — a higher Roll-in Start is farther from the Target, so the
+  // Approach grows faster than the climb — when the Roll-in Altitude is entered (height mode) and not LOCKed.
+  let sol = solve();
+  const raised = {};
+  const raiseable = (n) => {
+    if (linkedTo[n] || settings[n].conflict) return false;
+    const record = input.aircraft[n];
+    const locked = n === "1" ? record.locks?.rollInAltitudeMslFt === true : record.options?.rollInAltitudeLocked === true;
+    const profile = sol.output.aircraftResults[n]?.result?.profile;
+    const mode = profile?.canonicalInputs?.solveMode ?? record.state?.solveMode ?? "height";
+    return !locked && mode === "height" && Number.isFinite(Number(record.values?.rollInAltitudeMslFt));
+  };
+  const short = numbers.filter((n) => raiseable(n) && holdDownState(sol, n, settings[n]).short);
+  if (short.length) {
+    const tried = Object.fromEntries(short.map((n) => [n, [{ alt: Number(input.aircraft[n].values.rollInAltitudeMslFt), hd: holdDownState(sol, n, settings[n]).holdDownNm }]]));
+    const overrides = {};
+    const done = {};
+    const best = {};
+    for (let iteration = 0; iteration < POPUP_FLIGHT_V0_1.holdDownIterations; iteration += 1) {
+      const active = short.filter((n) => !done[n]);
+      if (!active.length) break;
+      for (const n of active) {
+        const next = nextRollInAltitude(tried[n]);
+        if (next === null) { done[n] = true; continue; }
+        overrides[n] = next;
+      }
+      if (active.every((n) => done[n])) break;
+      const trial = solve({ ...overrides });
+      for (const n of active) {
+        if (done[n]) continue;
+        const state = holdDownState(trial, n, settings[n]);
+        tried[n].push({ alt: overrides[n], hd: state.holdDownNm, failed: state.failed });
+        if (Number.isFinite(state.holdDownNm) && state.holdDownNm >= 0) {
+          best[n] = overrides[n];
+          if (state.holdDownNm <= POPUP_FLIGHT_V0_1.holdDownToleranceNm) done[n] = true;
+        }
+        if (state.failed) done[n] = true;
       }
     }
-    // AUTO Roll-in Speed: the MIL arrival at this angle and Roll-in Altitude becomes the BDP's Roll-in Speed.
-    for (const n of autoSpeed) {
-      const r = output.aircraftResults[n]?.result;
-      if (!r?.profile?.canonicalInputs || angleErrors[n]) continue;
-      try {
-        const arrival = calculatePopupClimbFull({ ...popState(r.resolved), rollInAltitudeMslFt: r.profile.public.resolvedInitialAltitudeMslFt, popupAngleDeg: angles[n], popupG: settings[n].popupG, gOnsetRateGSec: r.profile.canonicalInputs.gOnsetRateGSec }).rollInStart.casKt;
-        if (!(Math.abs(arrival - speeds[n]) <= POPUP_FLIGHT_V0_1.speedSettleKt)) moved = true;
-        speeds[n] = arrival;
-      } catch { /* the climb error is reported below */ }
+    for (const n of short) {
+      // The lowest altitude tried that fits; else the solve stays as entered (its Hold-Down error stands).
+      const ok = tried[n].filter((x) => Number.isFinite(x.hd) && x.hd >= 0).sort((a, b) => a.alt - b.alt)[0];
+      if (ok) raised[n] = { fromFt: tried[n][0].alt, toFt: ok.alt };
     }
-    followSources();
-    if (!moved) break;
-    output = offsetFlight(withAngles(input, angles, speeds));
+    if (Object.keys(raised).length) sol = solve(Object.fromEntries(Object.entries(raised).map(([n, r]) => [n, r.toFt])));
   }
+  const { output, angles, speeds, solved, angleErrors, lowered } = sol;
+  // 0.1.9: how a remaining Hold-Down < 0 could be fitted.
+  const holdDownHint = (n) => (short.includes(n)
+    ? "; raising the Roll-in Altitude does not fit it: lower the Offset Angle"
+    : "; lower the Offset Angle, or raise the Roll-in Altitude (it is not raised automatically while LOCKed or solved from Tracking Time)");
   const aircraftResults = {};
   for (const n of numbers) {
     const offset = output.aircraftResults[n];
     const s = settings[n];
-    const base = { driver: s.driver, popupG: s.popupG, popupAngleDeg: angles[n], locks: s.locks, rollInSpeedSource: s.locks.rollInSpeed ? "LOCK" : "AUTO", rollInSpeedKcas: speeds[n] };
+    const base = { driver: s.driver, popupG: s.popupG, popupAngleDeg: angles[n], ...(raised[n] ? { rollInAltitudeRaised: raised[n] } : {}), ...(lowered[n] ? { autoAngleLowered: lowered[n] } : {}), locks: s.locks, rollInSpeedSource: s.locks.rollInSpeed ? "LOCK" : "AUTO", rollInSpeedKcas: speeds[n] };
     const merge = (popup, errors, warnings) => {
       const status = errors.length ? "INVALID" : offset.status === "WARNING" || warnings.length ? "WARNING" : offset.status;
       return { ...offset, status, errors: [...(offset.errors ?? []), ...errors], warnings: [...(offset.warnings ?? []), ...warnings], popup: { ...base, ...popup } };
@@ -272,7 +433,9 @@ function popupFlight(rawInput, offsetFlight) {
     if (!offset) { aircraftResults[n] = { status: "FAILED", errors: ["No Offset result"], warnings: [], popup: base }; continue; }
     if (angleErrors[n]) { aircraftResults[n] = merge({}, [angleErrors[n]], []); continue; }
     if (!offset.result?.profile?.canonicalInputs || !(offset.status === "VALID" || offset.status === "WARNING")) {
-      aircraftResults[n] = { ...offset, popup: base };
+      // 0.1.9: the Turn End past the Roll-in Start is the same shortage as a Hold-Down < 0; say how it could fit.
+      const errors = (offset.errors ?? []).map((e) => (/Offset Turn End has passed Roll-in Start/.test(e) ? `${e}${holdDownHint(n)}` : e));
+      aircraftResults[n] = { ...offset, errors, popup: base };
       continue;
     }
     const r = offset.result;
@@ -283,17 +446,23 @@ function popupFlight(rawInput, offsetFlight) {
     try {
       climb = calculatePopupClimbFull({ ...pop, rollInAltitudeMslFt: bdp.public.resolvedInitialAltitudeMslFt, popupAngleDeg: angles[n], popupG: s.popupG, gOnsetRateGSec: bdp.canonicalInputs.gOnsetRateGSec });
     } catch (error) {
-      aircraftResults[n] = merge({}, [error.message], []);
+      // 0.1.9: the angle that would fit, for a typed / LOCKed angle (an AUTO one was lowered already).
+      const fit = error.code === "ARC_PASSES_ROLL_IN"
+        ? steepestFittingAngle({ ...pop, rollInAltitudeMslFt: bdp.public.resolvedInitialAltitudeMslFt, popupG: s.popupG, gOnsetRateGSec: bdp.canonicalInputs.gOnsetRateGSec }, angles[n]) : null;
+      aircraftResults[n] = merge({}, [fit === null ? error.message : `${error.message}; at most ${fit.toFixed(1)}° fits at this Roll-in Altitude`], []);
       continue;
     }
     const errors = [];
     const warnings = s.overridden ? [s.overridden] : [];
+    // 0.1.9: what the planner changed so the climb fits.
+    if (raised[n]) warnings.push(`Roll-in Altitude raised ${Math.round(raised[n].fromFt).toLocaleString("en-US")} → ${Math.round(raised[n].toFt).toLocaleString("en-US")} ft so the climb fits the Approach (Hold-Down ≥ 0)`);
+    if (lowered[n]) warnings.push(`Popup angle (AUTO) lowered ${lowered[n].ruleDeg.toFixed(1)}° → ${lowered[n].angleDeg.toFixed(1)}°: at ${lowered[n].ruleDeg.toFixed(1)}° the pull-up arc passes the Roll-in Altitude`);
     const attack = assemblePopupAttack({ p: { ...p, driver: s.driver }, rollInSpeedSource: s.locks.rollInSpeed ? "LOCK" : "AUTO", angleDeg: angles[n], otherSolutionsDeg: solved[n]?.otherSolutionsDeg ?? [], bdp, climb, errors, warnings });
     // Pop Point on the Approach leg, ground distance before Roll-in Start.
     const approachRangeNm = r.resolved.approachRangeNm;
     const holdDownNm = approachRangeNm - climb.groundDistanceNm;
     if (!(holdDownNm >= 0)) {
-      errors.push(`Hold-Down ${holdDownNm.toFixed(2)} NM: the Popup ground distance ${climb.groundDistanceNm.toFixed(2)} NM is longer than the Approach Range ${approachRangeNm.toFixed(2)} NM`);
+      errors.push(`Hold-Down ${holdDownNm.toFixed(2)} NM: the Popup ground distance ${climb.groundDistanceNm.toFixed(2)} NM is longer than the Approach Range ${approachRangeNm.toFixed(2)} NM${holdDownHint(n)}`);
     }
     const heading = r.geometry.offsetHeadingDeg * DEG;
     const rollStart = r.geometry.points.rollStart;
