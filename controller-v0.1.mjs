@@ -2324,7 +2324,9 @@ function followerCalculatingMarkup(number) {
     tracking: `<label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"><span class="unit">Track Point → Release · 0.1 s</span></label>`,
     releaseAltitude: `<label class="field"><span>Release Altitude (ft MSL)</span><input data-flight-field="releaseAltitudeMslFt" type="text" inputmode="decimal"></label>${NLT_RELEASE_FIELD}`,
     releaseSpeed: `<label class="field"><span>Release Speed (KCAS)</span><input data-flight-field="releaseSpeedKcas" type="text" inputmode="decimal"></label>`,
-    runIn: `<label class="field"><span>Run-In Heading</span><output data-flight-readout="runInHeadingDeg">-</output><span class="unit">Follows #1 · parallel Run-In</span></label>`,
+    // Owner 2026-11-12: the Flight's one (parallel) Run-In can be edited from every aircraft. The field is another
+    // copy of #1's Run-In (data-key), so typing here is #1's Run-In edit and every copy follows the answer.
+    runIn: `<label class="field"><span>Run-In Heading</span><input data-key="runInHeadingDeg" data-flight-run-in type="text" inputmode="decimal" aria-label="Run-In Heading (the Flight's, every aircraft)"><span class="unit">MAG · Flight · parallel Run-In (all aircraft)</span></label>`,
     ipRange: `<label class="field"><span>IP Range from Target</span><output data-flight-readout="ipRangeFromTargetNm">-</output><span class="unit">NM · from Formation position</span></label>`,
     attack: `<label class="field"><span class="lock-title"><span>Attack Heading (deg)</span><button class="lock-button" type="button" data-flight-field="attackHeadingLocked" aria-label="Lock Attack Heading" aria-pressed="false">LOCK</button></span><input data-flight-field="attackHeadingDeg" type="text" inputmode="decimal"></label>`,
     angleOff: `<label class="field"><span class="lock-title"><span>Angle-Off (deg)</span><button class="lock-button" type="button" data-flight-field="angleOffLocked" aria-label="Lock Angle-Off" aria-pressed="false">LOCK</button></span><input data-flight-field="angleOffDeg" type="text" inputmode="decimal"></label>`,
@@ -2976,8 +2978,10 @@ function renderFollower(number, entry) {
   // POP-UP: the entry's errors carry the POP-UP checks merged into the Offset's.
   const errors = POPUP_MODE ? entry.errors ?? result.errors : result.errors;
   renderFollowerStatus(number, entry.status ?? result.state, errors.length ? errors.join(" / ") : warnings[0] ?? "-");
-  const runInReadout = slot.querySelector('[data-flight-readout="runInHeadingDeg"]');
-  if (runInReadout) runInReadout.textContent = fmtHeading(result.resolved.runInHeadingDeg);
+  // The Flight Run-In copy (owner 2026-11-12) shows #1's Run-In text unless it is being typed in.
+  const runInField = slot.querySelector("[data-flight-run-in]");
+  const leadRunIn = fields("runInHeadingDeg").find((field) => !field.hasAttribute("data-flight-run-in"));
+  if (runInField && document.activeElement !== runInField) runInField.value = leadRunIn?.value || fieldDisplayText("runInHeadingDeg", result.resolved.runInHeadingDeg);
   const ipRangeReadout = slot.querySelector('[data-flight-readout="ipRangeFromTargetNm"]');
   if (ipRangeReadout) ipRangeReadout.textContent = formatNm(result.resolved.ipRangeNm);
   const headingReadout = slot.querySelector('[data-flight-readout="offsetHeadingDeg"]');

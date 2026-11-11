@@ -141,6 +141,11 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
         <button class="capture-button" type="button" data-sr-undo title="Undo (Ctrl+Z)">Undo</button>
         <button class="capture-button" type="button" data-sr-redo title="Redo (Ctrl+Y)">Redo</button>
       </div>
+    </div>
+    <div class="status-message" data-sr-preview-status hidden></div>
+    <div class="top-view-shell sr-shell" data-sr-shell><svg id="sr-top-view" data-export-legend="sr-legend" viewBox="0 0 900 700" role="img" aria-label="SEM &amp; Rejoin Top View"></svg></div>
+    <!-- Owner 2026-11-12: the time slider under the picture, as on the Offset Top View. -->
+    <div class="bdp-flight-time top-view-time">
       <div class="diagram-action-row time-dial sr-time-row" role="group" aria-label="Evaluation time on the IP clock">
         <span class="diagram-control-label">Time</span>
         <input class="time-dial-range" type="range" min="0" max="1" step="0.1" value="0" data-sr-time aria-label="Seconds after IP">
@@ -148,8 +153,6 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
         <button class="capture-button" type="button" data-sr-time-auto title="Back to the selected row's end (or the edited aircraft's last row)">Row End</button>
       </div>
     </div>
-    <div class="status-message" data-sr-preview-status hidden></div>
-    <div class="top-view-shell sr-shell" data-sr-shell><svg id="sr-top-view" data-export-legend="sr-legend" viewBox="0 0 900 700" role="img" aria-label="SEM &amp; Rejoin Top View"></svg></div>
     <svg class="diagram-legend-box" id="sr-legend" role="img" aria-label="SEM &amp; Rejoin legend"></svg>
     <div class="sr-table-wrap"><table class="sr-table"><thead><tr><th>Aircraft</th><th>Step</th><th>Maneuver</th><th>End Condition</th><th>Settings</th><th>Start / End</th><th>Duration</th><th>Action</th></tr></thead><tbody data-sr-rows></tbody></table></div>
     <div class="sr-evaluation" data-sr-evaluation></div>`;

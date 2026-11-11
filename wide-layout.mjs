@@ -5,9 +5,9 @@
 // shared set of shown aircraft. This module gives the Offset tabs and what each draws.
 // SEM & Rejoin (2026-10-13): its own module, mounted once into the S&R input tab and the centre
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=6f8b1358de87";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=6f8b1358de87";
-import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=6f8b1358de87";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=88cc38acf40e";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=88cc38acf40e";
+import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=88cc38acf40e";
 import { mountWideWorkspace } from "./shared/wide-workspace-v0.1.mjs?v=0.1.2";
 
 const app = document.getElementById("offset-calculator");
@@ -18,8 +18,12 @@ let semRejoin = null;
 // first entry. #1 has no Formation tab (owner 2026-10-07): its Reference Point (VRP / VIP, IP) sits on top
 // of the Offset tab, as on the standard page. S&R (2026-10-13) follows Offset, for every aircraft.
 // The POP-UP page names the Offset tab "Pop-Up" (owner 2026-11-03).
+// Owner 2026-11-12: #1 has a Formation tab too when the Flight has two or more aircraft — the Flight Formation (Form,
+// Side) and the Formation Top View; #1 has no Formation place of its own, and its Reference Point stays in Offset.
 const OFFSET_TAB_LABEL = document.body.classList.contains("popup-page") ? "Pop-Up" : "Offset";
-const INPUT_TABS = [["bdp", "BDP"], ["offset", OFFSET_TAB_LABEL], ["sr", "S&R"], ["reference", "Formation", { hidden: (editAircraft) => editAircraft === 1 }], ["save", "Save/Load"]];
+const flightSizeSelect = document.getElementById("flight-size");
+const soloLead = (editAircraft) => editAircraft === 1 && Number(flightSizeSelect?.value ?? 1) < 2;
+const INPUT_TABS = [["bdp", "BDP"], ["offset", OFFSET_TAB_LABEL], ["sr", "S&R"], ["reference", "Formation", { hidden: soloLead }], ["save", "Save/Load"]];
 // An input tab brings its centre view with it (handoff 2026-10-13 §3): S&R → SEM & Rejoin, BDP → BDP,
 // Offset → Offset Top View. A centre tab changes the centre only (owner 2026-10-22). Formation, Save/Load
 // and the right-hand tabs keep the other panes.
@@ -29,7 +33,7 @@ const CENTER_OF_INPUT = Object.freeze({ offset: "topview", bdp: "bdp", sr: "sem"
 const workspace = mountWideWorkspace({
   app,
   followers,
-  flightSize: document.getElementById("flight-size"),
+  flightSize: flightSizeSelect,
   eyebrow: "FLIGHT SIM TOOLS  /  OFFSET",
   standardHref: "./index-standard.html",
   inputTabs: INPUT_TABS,
@@ -40,7 +44,7 @@ const workspace = mountWideWorkspace({
     if (section.dataset.tab === "formation") return "reference";
     return section.dataset.tab === "reference" && aircraft === 1 ? "offset" : section.dataset.tab;
   },
-  shownInputKey: (tab, editAircraft) => (tab === "reference" && editAircraft === 1 ? "offset" : tab),
+  shownInputKey: (tab, editAircraft) => (tab === "reference" && soloLead(editAircraft) ? "offset" : tab),
   // Centre: Offset Top View / BDP (Top View + Profile per shown aircraft) / SEM & Rejoin (2026-10-13 handoff: the
   // S&R module's view, table and evaluation).
   centerTabs: [
