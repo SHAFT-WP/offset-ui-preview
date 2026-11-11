@@ -10,6 +10,7 @@ import {
   SVG_DIAGRAM_STYLE_V0_1,
   svgNode,
 } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.5";
+import { appendNorthMark } from "../../../../common/diagram/svg-north-mark-v0.1.mjs?v=0.1.0";
 import { createSmartLabelLayout } from "../../../../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.4";
 import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.1.mjs?v=0.1.4";
 import { formatDeg, formatFt, formatG, formatKt, formatMach, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
@@ -65,7 +66,8 @@ export const BDP_TOP_VIEW_V0_2 = Object.freeze({
   // `upHeadingDeg` chooses the map's up: Offset passes the Initial heading (Initial Up) or 0 (North Up).
   // 0.2.11 (2026-10-18, owner, Offset layout): the text base follows the host's `viewportWidth` — 2× on a phone
   // (≤ 620 px or none given, unchanged), 1.2× on a PC (the former 60% is the new 100%; bdpOffsetTextBase).
-  version: "0.2.11",
+  // 0.2.12 (owner 2026-11-12): the north arrow is the Common BMS TGP north mark (N with an arrow through it).
+  version: "0.2.12",
   subject: "Roll-in",
   view: "Top View",
   orientation: "INITIAL_BOTTOM_TARGET_UP",
@@ -371,25 +373,13 @@ export function renderBdpTopView(svg, result, options = {}) {
   const remarkWidth = Math.max(...["Remark · Roll-in Point → Target", ...remarkRows.map(([name, value]) => `${name}: ${value}`)].map((text) => text.length)) * remarkSize * 0.6;
   const remarkRect = { x: remarkRight - remarkWidth, y: 14, w: remarkWidth + 8, h: remarkHeight };
 
-  // North-up map: north arrow at the top left (the Offset Top View's north arrow).
+  // North-up map (the map is placed on north: Offset / POP-UP): the BMS TGP north mark at the top left (Common
+  // svg-north-mark, owner 2026-11-12), turned with the map (upHeadingDeg) to point north; its turning square stays free.
   let northArrowRect = null;
   if (northUp) {
-    const size = SVG_DIAGRAM_STYLE_V0_1.font.lineTitlePx * textScale * 1.4;
-    const head = size * 0.45;
-    // The arrow turns about its centre: keep its whole turning circle on the canvas (0.2.10).
-    const half = (size * 3 + 8) / 2 + head;
-    const left = Math.max(36, half + 6);
-    const top = Math.max(18, upDeg ? half - (size * 3 + 8) / 2 + 6 : 18);
-    const tipY = top + size + 8;
-    const tailY = tipY + size * 2;
-    // Turned with the map (upHeadingDeg): it points to true north.
-    const northArrow = svgNode("g", { "data-top-view-role": "north-arrow", ...(upDeg ? { transform: `rotate(${-upDeg} ${left} ${(top + tailY) / 2})` } : {}) });
-    northArrow.append(svgNode("text", { x: left, y: top + size * 0.85, "text-anchor": "middle", "font-size": size, "font-weight": 900, fill: "#243240" }, "N"));
-    northArrow.append(svgNode("line", { x1: left, y1: tailY, x2: left, y2: tipY + head, stroke: "#243240", "stroke-width": 3, "stroke-linecap": "round" }));
-    northArrow.append(svgNode("polygon", { points: `${left},${tipY} ${left - head * 0.7},${tipY + head * 1.2} ${left + head * 0.7},${tipY + head * 1.2}`, fill: "#243240" }));
-    root.append(northArrow);
-    const cy = (top + tailY) / 2;
-    northArrowRect = upDeg ? { x: left - half, y: cy - half, w: half * 2, h: half * 2 } : { x: left - size, y: top, w: size * 2, h: tailY - top + 6 };
+    const size = SVG_DIAGRAM_STYLE_V0_1.font.lineTitlePx * textScale * 2.2;
+    const reach = size * 1.05 + Math.max(1.6, size * 0.075) * 2;
+    northArrowRect = appendNorthMark(root, { cx: 18 + reach, cy: 14 + reach, size, rotationDeg: -upDeg, attributes: { "data-top-view-role": "north-arrow" } }).rect;
   }
 
   // Labels: on their element, or joined to it by a leader (Common smart labels).

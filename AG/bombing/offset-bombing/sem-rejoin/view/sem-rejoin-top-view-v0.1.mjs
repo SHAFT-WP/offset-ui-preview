@@ -7,6 +7,7 @@ import {
   SVG_DIAGRAM_STYLE_V0_1,
   svgNode,
 } from "../../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
+import { appendNorthMark } from "../../../../../common/diagram/svg-north-mark-v0.1.mjs?v=0.1.0";
 import { createSmartLabelLayout } from "../../../../../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
 import { createSvgAutoCanvas } from "../../../../../common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { formatNm, formatSec } from "../../../../../common/ui/display-precision-v0.1.mjs?v=0.1.1";
@@ -18,7 +19,7 @@ import { formatHeadingDeg, offsetAircraftColors, OFFSET_VIEW_COLORS } from "../.
 // - Self-contained: fills an empty <svg>; every stroke, fill and halo is an attribute.
 // - 900-unit canvas, height fitted to the committed geometry (Common createSvgAutoCanvas); a draw
 //   preview never refits the canvas, so the picture holds still under the pointer.
-// - IP Bottom (upHeadingDeg = #1's Run-In) or north-up with a north arrow, as the Offset Top View.
+// - IP Bottom (upHeadingDeg = #1's Run-In) or north-up; the north mark (BMS TGP style) in both, as the Offset Top View.
 // - Each aircraft keeps its Offset colour family: the attack run (run), the SEM (attack), the rows
 //   (offset); derived Arc-entry rows are dashed, the selected row is drawn wider over a light band.
 // - At the evaluation time: one triangle per aircraft and, for #2–#4, the formation slot (ring) with
@@ -28,7 +29,8 @@ import { formatHeadingDeg, offsetAircraftColors, OFFSET_VIEW_COLORS } from "../.
 
 export const SEM_REJOIN_TOP_VIEW_V0_1 = Object.freeze({
   id: "sem-rejoin-top-view-v0.1",
-  version: "0.1.0",
+  // 0.1.1 (owner 2026-11-12): the BMS TGP north mark (Common) in every view, turned to north with IP Bottom.
+  version: "0.1.1",
   subject: "SEM & Rejoin",
   view: "Top View",
   canvas: Object.freeze({ width: 900, minHeight: 560, maxHeight: 1100, margins: 48, minSpanNm: 4 }),
@@ -206,18 +208,12 @@ export function renderSemRejoinTopView(svg, output, options = {}) {
   };
   const labelRequests = [];
 
-  if (options.northArrow === true) {
-    const size = titleSize;
-    const left = 36;
-    const top = 18;
-    const tipY = top + size + 8;
-    const tailY = tipY + size * 2;
-    const head = size * 0.45;
-    const arrow = svgNode("g", { "data-sr-role": "north-arrow" });
-    arrow.append(svgNode("text", { x: left, y: top + size * 0.85, "text-anchor": "middle", "font-size": size, "font-weight": 900, fill: "#243240" }, "N"));
-    arrow.append(svgNode("line", { x1: left, y1: tailY, x2: left, y2: tipY + head, stroke: "#243240", "stroke-width": 3, "stroke-linecap": "round" }));
-    arrow.append(svgNode("polygon", { points: `${left},${tipY} ${left - head * 0.7},${tipY + head * 1.2} ${left + head * 0.7},${tipY + head * 1.2}`, fill: "#243240" }));
-    root.append(arrow);
+  // North mark (owner 2026-11-12): always, top left, turned to the view's north (BMS TGP style, Common).
+  let northRect = null;
+  {
+    const size = titleSize * 2.4;
+    const reach = size * 1.05 + Math.max(1.6, size * 0.075) * 2;
+    northRect = appendNorthMark(root, { cx: 18 + reach, cy: 14 + reach, size, rotationDeg: -(Number(options.upHeadingDeg) || 0), attributes: { "data-sr-role": "north-arrow" } }).rect;
   }
 
   // Target Arc circles (all drawn aircraft), under the paths.
@@ -356,7 +352,7 @@ export function renderSemRejoinTopView(svg, output, options = {}) {
   const labels = createSmartLabelLayout(labelGroup, { width, height, labelPad: 9, pathPad: 7, charWidthEm: 0.62 });
   obstacles.points.forEach(({ point, radius }) => labels.reservePoint(point, radius));
   obstacles.segments.forEach(({ from, to, pad }) => labels.reserveSegment(from, to, pad));
-  if (options.northArrow === true) labels.reserveRect({ x: 36 - titleSize, y: 18, w: titleSize * 2, h: titleSize * 4 + 14 }, 6);
+  if (northRect) labels.reserveRect(northRect, 6);
   labels.append(target, "Target", { labelKey: "sr-target", color: BDP_VIEW_COLORS.target, background: false, leaderMarkerId: "sr-arrow-label", fontSize: titleSize, detailFontSize: detailSize, textAttributes: { "data-sr-label": "target" } });
   for (const request of labelRequests) {
     labels.append(request.point, request.title, {

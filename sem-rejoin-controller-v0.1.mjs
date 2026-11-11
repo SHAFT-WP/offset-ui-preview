@@ -17,7 +17,7 @@ import {
   semRejoinUpstreamView,
   SEM_REJOIN_COMBAT_SPREAD_BEARING_DEG,
 } from "./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-be-v0.1.mjs?v=0.3.5";
-import { renderSemRejoinTopView, semRejoinPalette, semRejoinTopViewLegend } from "./AG/bombing/offset-bombing/sem-rejoin/view/sem-rejoin-top-view-v0.1.mjs?v=0.1.0";
+import { renderSemRejoinTopView, semRejoinPalette, semRejoinTopViewLegend } from "./AG/bombing/offset-bombing/sem-rejoin/view/sem-rejoin-top-view-v0.1.mjs?v=0.1.1";
 import { installSvgViewControls, svgViewControlsMarkup } from "./common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 import { installNonNegativeInputs } from "./common/ui/formation-position-v0.1.mjs?v=0.1.2";
@@ -277,7 +277,7 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
     const anchor = drawAnchor();
     const room = anchor.start ? [{ point: anchor.start, radiusNm: DRAW_ROOM_NM }] : [];
     viewHandle = renderSemRejoinTopView(svg, output, {
-      aircraft, editAircraft, selected, evaluation, upHeadingDeg, northArrow: !ipBottom, room,
+      aircraft, editAircraft, selected, evaluation, upHeadingDeg, room,
       textScale: textScale ?? viewControls?.getTextScale?.() ?? 1, viewportWidth: globalThis.innerWidth, preview,
     });
     legendItems.splice(0, legendItems.length, ...semRejoinTopViewLegend(output, { aircraft, preview: !!preview }));

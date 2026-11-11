@@ -19,12 +19,16 @@
 // ("70도 이상은 CT(유사 trail)"), FW is 60…70°; a split 2-ship is a Pincer ("2기일 때 서로 찢어지면 핀서"). The
 // formation templates (Flight-size lists, positions) and the longitudinal / lateral range of a place (#3's fields);
 // formationName also gives every aircraft's place in #1's frame (places) for the Formation top view.
+// 0.4.0 (2026-11-12, owner "NA 대신 가장 가까운 이름"): a formation the rules do not name takes the nearest named one,
+// marked approximate ("4S_BOX~_L", approximate: true): the named formation of that Flight size whose template link
+// bearings (#2 → #1, #3 → #1, #4 → #3) are closest in total to the places' (the 3-ship has only ARW). NA stays only
+// where a place cannot be read (no side, a bearing outside 0…90°, no range).
 //
 // Pure: no DOM, storage or FE import.
 
 export const FLIGHT_FORMATION_V0_1 = Object.freeze({
   id: "flight-formation-v0.1",
-  version: "0.3.0",
+  version: "0.4.0",
   status: "work",
 });
 
@@ -121,8 +125,10 @@ function readLink(number, record) {
 }
 
 // formation: { 2: { side, bearingDeg, distanceNm }, 3: …, 4: … } (the followers' Formation records, abeam bearings).
-// Returns { flightSize, name (code or "NA"; null for one aircraft), side ("L" / "R" of #2; null for one aircraft), text
-// ("4S_BOX_L", "3S_NA_R", null for one aircraft), links, reason (why NA, or null) }.
+// Returns { flightSize, name (code, the nearest code when approximate, or "NA" for an unreadable place; null for one
+// aircraft), approximate (true when the places match no named formation), side ("L" / "R" of #2; null for one
+// aircraft), text ("4S_BOX_L", "4S_BOX~_L" approximate, "3S_NA_R", null for one aircraft), links, reason (why NA or
+// approximate, or null) }.
 // Every aircraft's place in #1's frame (every aircraft flies #1's heading): rightNm to #1's right, behindNm behind #1.
 // A follower whose link (or reference aircraft) cannot be read has none (null).
 function flightPlaces(flightSize, links) {
@@ -145,9 +151,15 @@ export function formationName({ flightSize, formation = {} }) {
   for (let number = 2; number <= flightSize; number += 1) links[number] = readLink(number, formation[number]);
   const places = flightPlaces(flightSize, links);
   const sideLetter = links[2].side === "RIGHT" ? "R" : links[2].side === "LEFT" ? "L" : null;
-  const finish = (name, reason = null) => ({
-    flightSize, name, side: sideLetter, text: sideLetter ? `${flightSize}S_${name}_${sideLetter}` : `${flightSize}S_${name}`, links, places, reason,
-  });
+  const finish = (name, reason = null, approximate = false) => {
+    const shown = approximate ? `${name}~` : name;
+    return { flightSize, name, approximate, side: sideLetter, text: sideLetter ? `${flightSize}S_${shown}_${sideLetter}` : `${flightSize}S_${shown}`, links, places, reason };
+  };
+  // 0.4.0: not a named formation → the nearest named one (approximate), with why.
+  const nearest = (reason) => {
+    const name = nearestFormationName(flightSize, links);
+    return name ? finish(name, `${reason}; nearest ${name}`, true) : finish("NA", reason);
+  };
   const unreadable = Object.values(links).find((link) => link.code === null);
   if (unreadable) return finish("NA", unreadable.reason);
   const code = (number) => links[number].code;
@@ -157,7 +169,7 @@ export function formationName({ flightSize, formation = {} }) {
     // ARW (Arrow Head): #1 ahead; #2 and #3 behind #1 on opposite sides, line abreast of each other (LAB, 0–20°).
     const between = Math.atan2(Math.abs(at[3].aft - at[2].aft), Math.abs(at[3].x - at[2].x)) / DEG;
     const arrow = at[2].aft > 0 && at[3].aft > 0 && Math.sign(at[2].x) * Math.sign(at[3].x) < 0 && formationLinkCode(between) === "LAB";
-    return arrow ? finish("ARW") : finish("NA", "Not a defined 3-ship formation (only ARW is defined)");
+    return arrow ? finish("ARW") : nearest("Not a defined 3-ship formation (only ARW is defined)");
   }
   for (const [name, inElement, elementLink] of FOUR_SHIP_RULES) {
     if (inElement.includes(code(2)) && inElement.includes(code(4)) && elementLink.includes(code(3))) return finish(name);
@@ -166,7 +178,21 @@ export function formationName({ flightSize, formation = {} }) {
   // 2026-11-02: "OBox는 1~2번 사이에 3만 있어도 됨"); #3 exactly behind #1 is BOX (above).
   const between12 = at[2].x !== 0 && Math.sign(at[3].x) === Math.sign(at[2].x) && Math.abs(at[3].x) <= Math.abs(at[2].x);
   if (code(2) === "LAB" && code(4) === "LAB" && at[3].aft > 0 && between12) return finish("OBX");
-  return finish("NA", `Not a defined 4-ship formation (#2 ${code(2)}, #3 ${code(3)}, #4 ${code(4)})`);
+  return nearest(`Not a defined 4-ship formation (#2 ${code(2)}, #3 ${code(3)}, #4 ${code(4)})`);
+}
+// The named formation (a template of this Flight size) whose link bearings are closest in total to the read links:
+// Σ |bearing − template bearing| over #2 → #1, #3 → #1, #4 → #3 (0…90° each); the first in the template list wins a
+// tie. The names are defined by those bearings (link codes), so the nearest is measured on them. Null when none.
+function nearestFormationName(flightSize, links) {
+  const templates = FORMATION_TEMPLATES[flightSize] ?? [];
+  let best = null;
+  for (const template of templates) {
+    const places = formationTemplatePositions({ flightSize, name: template.name, side: links[2].side });
+    let total = 0;
+    for (let number = 2; number <= flightSize; number += 1) total += Math.abs(links[number].bearingDeg - places[number].bearingDeg);
+    if (!best || total < best.total - 1e-9) best = { name: template.name, total };
+  }
+  return best?.name ?? null;
 }
 
 // Attack type (owner 2026-11-02) from each aircraft's attack side (LEFT / RIGHT of its Run-In): every aircraft from

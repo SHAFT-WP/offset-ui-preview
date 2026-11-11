@@ -51,7 +51,7 @@ import { createShownAircraft, installShownAircraftClicks } from "./shared/flight
 import { BDP_TAB_KEYS, NLT_RELEASE_FIELD, bdpTabMarkup, syncBdpNltRelease } from "./shared/bdp-tab-v0.1.mjs?v=0.1.5";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
-import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.11";
+import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.12";
 import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.13";
 import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.5";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.10";
@@ -871,7 +871,7 @@ function renderTopView() {
     viewportWidth: globalThis.innerWidth,
     advanced: topViewAdvanced,
     upHeadingDeg: topViewIpBottom ? upResult.resolved.runInHeadingDeg : 0,
-    northArrow: !topViewIpBottom,
+    // The north mark shows in both orientations (owner 2026-11-12), turned to north by upHeadingDeg.
     timeSec: topViewTimeSec ?? undefined,
     ...(POPUP_MODE ? { markers: popupTopViewMarkers(aircraft) } : {}),
   });
@@ -2288,7 +2288,8 @@ function renderFlightFormation(flightName) {
   if (!section) return;
   const select = section.querySelector("[data-flight-form]");
   const templates = FORMATION_TEMPLATES[flightLayout.size] ?? [];
-  if (document.activeElement !== select) select.value = templates.some((template) => template.name === formation?.name) ? formation.name : "";
+  // An approximate name (Flight Formation 0.4.0, the nearest named one) is not that template: Form reads Custom.
+  if (document.activeElement !== select) select.value = !formation?.approximate && templates.some((template) => template.name === formation?.name) ? formation.name : "";
   const sideSelect = section.querySelector("[data-flight-form-side]");
   if (document.activeElement !== sideSelect && (formation?.side === "L" || formation?.side === "R")) sideSelect.value = formation.side === "R" ? "RIGHT" : "LEFT";
   section.querySelector("[data-flight-formation-name]").textContent = formation?.text ?? "-";

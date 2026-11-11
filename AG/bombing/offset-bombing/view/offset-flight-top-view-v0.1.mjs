@@ -4,7 +4,7 @@ import {
   finishOffsetTopViewFrame,
   offsetTopViewTitle,
   offsetTopViewWorldPoints,
-} from "./offset-top-view-v0.1.mjs?v=0.1.11";
+} from "./offset-top-view-v0.1.mjs?v=0.1.12";
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { OFFSET_AIRCRAFT_PALETTES } from "./offset-view-style-v0.1.mjs?v=0.1.5";
 export { offsetAircraftColors, offsetFlightTopViewLegend } from "./offset-view-style-v0.1.mjs?v=0.1.5";

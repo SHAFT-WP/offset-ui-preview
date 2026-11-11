@@ -9,6 +9,7 @@ import {
   svgNode,
 } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { createSmartLabelLayout } from "../../../../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
+import { appendNorthMark } from "../../../../common/diagram/svg-north-mark-v0.1.mjs?v=0.1.0";
 import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { formatDeg, formatNm } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { offsetTimeline } from "./offset-time-path-v0.1.mjs";
@@ -21,7 +22,8 @@ import { formatHeadingDeg, OFFSET_PALETTE_COLORS, OFFSET_VIEW_COLORS, offsetTopV
 // - 900-unit canvas, height fitted to the plot (Common createSvgAutoCanvas).
 // - Two-line labels (title + value) placed by Common smart labels; a label placed away from its
 //   element gets a leader line to it, and long-press moves it (Common, installed by the FE).
-// - IP Bottom (upHeadingDeg = Run-In heading) or north-up with a north arrow.
+// - IP Bottom (upHeadingDeg = Run-In heading) or north-up; a BMS TGP north mark (N with an up arrow through it, Common
+//   svg-north-mark) at the top left in both, turned to point north (owner 2026-11-12).
 // - BDP-derived segments use the BDP colours (Roll-in, Track Point → Target, Target, and the
 //   approach leg, which is the BDP's Initial track); pattern segments use Offset colours.
 // A Flight Top View draws two layers into one frame (offset-flight-top-view-v0.1.mjs) through
@@ -52,7 +54,8 @@ export const OFFSET_TOP_VIEW_V0_1 = Object.freeze({
   // "Offset R" when the turn has no hold.
   // 0.1.11 (owner 2026-11-11): the Flight "IP limit" line and label (options.ipLimit) are removed. With
   // result.actionPointBeyondIp the path starts at the Action Point (VRP) and IP–VRP is dashed, no arrow (plan S2).
-  version: "0.1.11",
+  // 0.1.12 (owner 2026-11-12): the north mark in every view (BMS TGP style), turned to north; northArrow: false hides it.
+  version: "0.1.12",
   subject: "Offset",
   view: "Top View",
   canvas: Object.freeze({ width: 900, minHeight: 560, maxHeight: 1100, margins: 40 }),
@@ -209,20 +212,16 @@ export function createOffsetTopViewFrame(svg, worldPoints, options = {}) {
     placedLabels: [],
   };
 
-  // North arrow (north-up view only): top-left, arrow twice the title size pointing north with "N".
-  if (options.northArrow === true) {
-    const size = frame.titleSize;
-    const left = 36;
-    const top = 18;
-    const tipY = top + size + 8;
-    const tailY = tipY + size * 2;
-    const head = size * 0.45;
-    const northArrow = svgNode("g", { "data-top-view-role": "north-arrow" });
-    northArrow.append(svgNode("text", { x: left, y: top + size * 0.85, "text-anchor": "middle", "font-size": size, "font-weight": 900, fill: "#243240" }, "N"));
-    northArrow.append(svgNode("line", { x1: left, y1: tailY, x2: left, y2: tipY + head, stroke: "#243240", "stroke-width": 3, "stroke-linecap": "round" }));
-    northArrow.append(svgNode("polygon", { points: `${left},${tipY} ${left - head * 0.7},${tipY + head * 1.2} ${left + head * 0.7},${tipY + head * 1.2}`, fill: "#243240" }));
-    root.append(northArrow);
-    frame.obstacles.rects.push({ x: left - size, y: top, w: size * 2, h: tailY - top + 6 });
+  // North mark (owner 2026-11-12): every view, top left, turned to the view's north (IP Bottom turns the map by the
+  // Run-In); its turning square is kept free of labels.
+  if (options.northArrow !== false) {
+    const size = frame.titleSize * 2.4;
+    const reach = size * 1.05 + Math.max(1.6, size * 0.075) * 2;
+    const mark = appendNorthMark(root, {
+      cx: 18 + reach, cy: 14 + reach, size, rotationDeg: -upHeadingDeg,
+      attributes: { "data-top-view-role": "north-arrow" },
+    });
+    frame.obstacles.rects.push(mark.rect);
   }
   return frame;
 }
