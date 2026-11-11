@@ -59,7 +59,7 @@ import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-b
 import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.5";
 import { POPUP_BDP_APPROACH_V0_1, popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpHudPanelMarkup, renderBdpHudPanel, bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.0";
+import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.0";
 
 import { buildOffsetHudAircraft, offsetHudGridStep } from "./AG/bombing/offset-bombing/view/offset-hud-scene-v0.1.mjs?v=0.1.3";
 
@@ -739,7 +739,6 @@ function setOffsetClock(timeSec, { playing = false } = {}) {
   // A Play frame may skip a 3D Profile / HUD scrolled off screen (diagrams panel 0.12.3); a set clock draws them all.
   clockPlaying = playing;
   try { [1, 2, 3, 4].forEach((number) => refreshBdpDiagrams(number)); } finally { clockPlaying = false; }
-  refreshOffsetHud();
 }
 let clockPlaying = false;
 // Every dial (the Top View's and each HUD View's copy, owner R6) shows the one clock; one Play runs it.
@@ -760,16 +759,7 @@ function syncClockDials() {
 // Play mirrors every dial each frame; a window depends only on the solved results, so it is kept per result (a
 // window not known yet, before the BDP views are prepared, is not kept). Play speed, 2026-11-01.
 const dialWindows = new WeakMap();
-let offsetHudWindowKept = null;
 function flightDialWindow(dial) {
-  if (dial?.dataset.timeDial === "offset-hud") {
-    const results = [1, 2, 3, 4].map((number) => flightResultOf(number) ?? null);
-    const first = shownAircraft.visible()[0] ?? 1;
-    if (!offsetHudWindowKept || offsetHudWindowKept.first !== first || offsetHudWindowKept.results.some((r, i) => r !== results[i])) {
-      offsetHudWindowKept = { first, results, window: offsetHudWindow() };
-    }
-    return offsetHudWindowKept.window;
-  }
   const number = Number(/^(?:3d|hud)-(\d)$/.exec(dial?.dataset.timeDial ?? "")?.[1]);
   if (!number) return null;
   const result = flightResultOf(number);
@@ -831,7 +821,6 @@ installShownAircraftClicks(toggleVisibleAircraft);
 // Offset Top View (user 2026-10-05): the aircraft switched on with #1–#4, drawn together in one frame
 // fitted to all of them. One rotation for every aircraft: #1's Run-In (followers fly parallel Run-Ins).
 function renderTopView() {
-  refreshOffsetHud();
   topViewStale = false;
   topViewDrawnAt = performance.now();
   const svg = $("#offset-top-view");
@@ -1659,10 +1648,10 @@ function bdpDiagramsContainer(number) {
   return found;
 }
 
-// One cached world-space flight per result, used by both the Offset HUD and BDP observer tabs.
+// One cached world-space flight per result, used by the BDP 3D Profile / HUD View Flight context (observer tabs, fleet).
+// The separate whole-flight "Offset HUD View" under the Top View was removed (owner 2026-11-11: redundant with the
+// BDP #n HUD View).
 const hudWorldPaths = new WeakMap();
-let offsetHudHost = null;
-let offsetHudRefreshPending = false;
 function offsetHudContext(you = 1, clockSec = topViewTimeSec, { profile = false } = {}) {
   const datum = flightResultOf(1)?.profile?.canonicalInputs.targetElevationMslFt;
   const aircraft = [];
@@ -1681,31 +1670,6 @@ function offsetHudContext(you = 1, clockSec = topViewTimeSec, { profile = false 
   const start = aircraft.find(a => a.number === you)?.startSec ?? 0;
   return { you, aircraft, clockSec: clockSec ?? Math.max(start, profile ? hudStartClockSec(you) : 0),
     threeDClockSec: clockSec ?? Math.max(start, threeDStartClockSec(you)), gridStepFt: offsetHudGridStep(aircraft) };
-}
-function offsetHudWindow() {
-  const context = offsetHudContext(shownAircraft.visible()[0] ?? 1);
-  return { startSec: 0, endSec: Math.max(1, ...context.aircraft.map(a => a.endSec)) };
-}
-function refreshOffsetHud() {
-  if (POPUP_MODE || offsetHudRefreshPending) return;
-  offsetHudRefreshPending = true;
-  requestAnimationFrame(() => setTimeout(() => { offsetHudRefreshPending = false; paintOffsetHud(); }, 0));
-}
-function paintOffsetHud() {
-  if (POPUP_MODE) return;
-  if (!offsetHudHost) {
-    const section = document.querySelector('#offset-top-view')?.closest('section');
-    if (!section) return;
-    offsetHudHost = document.createElement('div');
-    offsetHudHost.dataset.offsetHud = '';
-    section.dataset.hasOffsetHud = '';
-    offsetHudHost.innerHTML = bdpHudPanelMarkup({ hudTitle: 'Offset HUD View', hudTimeMarkup: timeDialMarkup('offset-hud', 'Offset HUD') });
-    section.append(offsetHudHost);
-    installTimeDial(offsetHudHost.querySelector('[data-time-dial]'), setOffsetClock, { startSec: () => 0, endSec: () => offsetHudWindow().endSec });
-  }
-  const you = shownAircraft.visible()[0] ?? 1;
-  renderBdpHudPanel(offsetHudHost, offsetHudContext(you), 'offset-flight');
-  mirrorTimeDial(offsetHudHost.querySelector('[data-time-dial]'));
 }
 
 // Seconds after this aircraft's Release at the Top View time dial's T (null while the dial is off).
@@ -3801,7 +3765,6 @@ function install() {
     renderTopView();
     // The BDP Top View and Dive Profile text base changes across the same width (PC 1.2×, phone 2×).
     [1, 2, 3, 4].forEach((number) => refreshBdpDiagrams(number));
-    refreshOffsetHud();
   };
   globalThis.addEventListener?.("resize", syncViewportTextBase);
   globalThis.visualViewport?.addEventListener?.("resize", syncViewportTextBase);
