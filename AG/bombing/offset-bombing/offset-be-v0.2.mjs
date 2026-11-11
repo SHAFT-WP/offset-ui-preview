@@ -38,7 +38,9 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 // (the POP-UP Roll-in option); absent, nothing changes.
 // 0.2.17 (owner 2026-11-04): CSEM — Target FPA blank = Dive + 10°; the CSEM turn (BDP v0.4.6) levels at 12,000 ft AGL
 // (csemLevelAltitudeAglFt) and turns to the same heading as the Level SEM (blank: the Run-In reciprocal).
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.17", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
+// 0.2.18 (owner 2026-11-11, BMS mission plan S1): an Action Point (VRP) beyond a locked IP is a WARNING, not INVALID;
+// result.actionPointBeyondIp marks that the path starts at the Action Point. Values are unchanged.
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.18", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -301,7 +303,7 @@ export function calculateOffsetWithVrpStartFull(input) {
   const first = calculateOffsetV0_2Full(candidateInput);
   // VRP must stay at or inside IP (Target-referenced ranges). An unlocked independent IP that the
   // solved Action Point has passed is pushed back out by re-linking it (IP = VRP + lead); only a
-  // locked IP can be passed, and that result stays INVALID but fully drawn (no clamping).
+  // locked IP can be passed, and that result is a WARNING whose path starts at the Action Point.
   const relinked = !linked && !locks.ipReference && first.resolved.actionRangeNm > candidateInput.ipRangeNm + 0.001;
   const ipLinkedToVrp = linked || relinked;
   // A second, bounded composition changes reference/IP metadata only. The
@@ -417,7 +419,7 @@ export function calculateOffsetV0_2Full(input) {
 
   const speedFps = turn.offsetTasKt * KT_TO_FPS;
   // Signed IP -> Action Point leg: negative when the Action Point lies beyond IP (the turn starts
-  // before IP). That geometry is INVALID, but its real timing is reported instead of a clamped 0.
+  // before IP). That geometry is a WARNING (owner 2026-11-11) with its real, signed timing.
   const ingressDistanceNm = ipRangeNm - candidate.actionRangeNm;
   const ingressSec = ingressDistanceNm * FT_PER_NM / speedFps;
   const turnSec = candidate.offsetTurn.timeSec;
@@ -433,6 +435,8 @@ export function calculateOffsetV0_2Full(input) {
     model: { ...OFFSET_BE_V0_2 },
     state: errors.length ? "INVALID" : warnings.length ? "WARNING" : "VALID",
     errors, warnings, locks: { ...locks }, driver, turnDriver: input.turnDriver ?? "offsetG", referenceMode,
+    // True when the Action Point (VRP) lies beyond this aircraft's own IP: the path starts there.
+    actionPointBeyondIp: candidateValidation.actionPointBeyondIp,
     resolved: {
       runInHeadingDeg,
       ipToTargetBearingDeg: runInHeadingDeg,

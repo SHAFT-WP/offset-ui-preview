@@ -37,7 +37,9 @@ export const OFFSET_FORMATION_GEOMETRY_V0_1 = Object.freeze({
   // 0.1.11 (2026-10-27, owner, POP-UP step 3b): profile.rollInStartFpaDeg / rollInSpeedModel pass through to BDP
   // v0.4.5; absent, nothing changes.
   // 0.1.13 (owner 2026-11-04): the CSEM defaults of offset BE 0.2.17 (Dive + 10°, the CSEM turn at 12,000 ft AGL).
-  version: "0.1.13",
+  // 0.1.14 (owner 2026-11-11): an Action Point behind the aircraft's own IP is a WARNING (actionPointBeyondIp); the
+  // Flight IP limit (ipLimitPoint / result.ipLimit) is removed — each aircraft compares only its own IP and VRP.
+  version: "0.1.14",
   status: "work",
   purpose:
     "Off-axis Offset geometry for a Flight follower whose IP is displaced from the shared Target-through Run-In axis by its Formation position, while Target and Run-In heading stay shared with its element lead. Reuses offset-geometry-v0.2.mjs's pure heading/vector helpers without modifying offset-be-v0.2.mjs or offset-geometry-v0.2.mjs's own single-aircraft (on-axis) contract.",
@@ -238,8 +240,11 @@ export function validateOffAxisOffsetCandidate(candidate) {
   if (candidate.approachRangeNm < 0) errors.push("Offset Turn End has passed Roll-in Start");
   else if (candidate.approachRangeNm < 0.25) warnings.push("Approach Range is very short");
   if (candidate.offsetAngleDeg >= 120) warnings.push("Offset Angle is 120 deg or greater");
-  if (candidate.actionRangeFromIpNm < -0.001) errors.push("Action Point must not be behind this aircraft's own IP");
-  return { errors, warnings };
+  // Owner 2026-11-11: each aircraft compares only its own IP and its own VRP. An Action Point (VRP)
+  // behind this aircraft's own IP is a WARNING; the path starts at the Action Point.
+  const actionPointBeyondIp = candidate.actionRangeFromIpNm < -0.001;
+  if (actionPointBeyondIp) warnings.push("Action Point is behind this aircraft's own IP; the path starts at the Action Point (VRP)");
+  return { errors, warnings, actionPointBeyondIp };
 }
 
 // Composes buildOffAxisOffsetCandidate with BDP and the offset turn, mirroring
@@ -343,23 +348,10 @@ export function calculateOffAxisOffsetFull(input) {
   const candidateValidation = validateOffAxisOffsetCandidate(candidate);
   errors.push(...candidateValidation.errors);
   warnings.push(...candidateValidation.warnings);
-  // IP limit (user rule, 2026-09-27): a follower's Action Point must not lie farther out along the
-  // Run-In than the Flight's IP (#1's IP, VRP + 3 NM when linked), i.e. below that IP in the IP Bottom
-  // Top View. Optional input; the geometry is still returned (INVALID) so it can be drawn.
-  let ipLimit = null;
-  if (input.ipLimitPoint !== undefined && input.ipLimitPoint !== null) {
-    const limit = finitePoint("ipLimitPoint", input.ipLimitPoint);
-    const runVector = candidate.vectors.runVector;
-    const limitRunRangeNm = -dot(limit, runVector);
-    const actionPointRunRangeNm = -dot(candidate.points.realActionPoint, runVector);
-    const violated = actionPointRunRangeNm > limitRunRangeNm + 0.001;
-    ipLimit = { point: { ...limit }, limitRunRangeNm, actionPointRunRangeNm, violated };
-    if (violated) errors.push(`Action Point must not be below the Flight IP (${actionPointRunRangeNm.toFixed(1)} NM out along the Run-In, IP ${limitRunRangeNm.toFixed(1)} NM)`);
-  }
 
   const speedFps = turn.offsetTasKt * KT_TO_FPS;
   // Signed IP -> Action leg (negative when the Action Point is behind this aircraft's own IP):
-  // that geometry is INVALID but keeps its real timing, so drop-order deltas stay consistent.
+  // that geometry is a WARNING with its real timing, so drop-order deltas stay consistent.
   // `signedIngressSec` is kept as an alias for existing time-matching callers.
   const ingressDistanceNm = candidate.actionRangeFromIpNm;
   const ingressSec = (ingressDistanceNm * FT_PER_NM) / speedFps;
@@ -410,7 +402,7 @@ export function calculateOffAxisOffsetFull(input) {
     },
     geometry: candidate,
     profile: candidate.profile,
-    ipLimit,
+    actionPointBeyondIp: candidateValidation.actionPointBeyondIp,
     solve: { residualNm, exact },
   };
 }

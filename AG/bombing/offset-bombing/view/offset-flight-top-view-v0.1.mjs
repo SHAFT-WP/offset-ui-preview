@@ -4,7 +4,7 @@ import {
   finishOffsetTopViewFrame,
   offsetTopViewTitle,
   offsetTopViewWorldPoints,
-} from "./offset-top-view-v0.1.mjs?v=0.1.10";
+} from "./offset-top-view-v0.1.mjs?v=0.1.11";
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { OFFSET_AIRCRAFT_PALETTES } from "./offset-view-style-v0.1.mjs?v=0.1.5";
 export { offsetAircraftColors, offsetFlightTopViewLegend } from "./offset-view-style-v0.1.mjs?v=0.1.5";
@@ -38,7 +38,8 @@ export const OFFSET_FLIGHT_TOP_VIEW_V0_1 = Object.freeze({
   // else on the left, else lower on the right with a leader line.
   // 0.1.12 (2026-11-05, owner, HTML Save): options.fitResults [result] — more aircraft whose places are fitted but
   // not drawn, so several pictures of the same Flight share one frame and scale (the saved file's #1·#2 / #3·#4).
-  version: "0.1.12",
+  // 0.1.13 (owner 2026-11-11): Top View 0.1.11 token; no IP limit is passed to the layers.
+  version: "0.1.13",
   layers: Object.freeze(["offset-plot-lead-<n>", "offset-plot-companion-<k>", "offset-plot-<n>"]),
   combinedLayers: Object.freeze(["offset-plot-aircraft-<n>"]),
 });
@@ -79,7 +80,6 @@ export function renderOffsetCombinedTopView(svg, aircraft, options = {}) {
       aircraftTag: item.number === 1 ? "" : `#${item.number}`,
       crowded: drawn.length > 1,
       leadAttackHeadingDeg: isBase ? undefined : base.result.geometry.attackHeadingDeg,
-      ipLimit: !isBase && item.result.ipLimit?.violated ? item.result.ipLimit : null,
     });
     layer.group.setAttribute("data-top-view-aircraft", String(item.number));
     layer.group.setAttribute("data-labelled", String(isBase || item === top));
@@ -162,7 +162,6 @@ export function renderOffsetFlightTopView(svg, leaderResult, result, options = {
         palette: "follower",
         aircraftTag: `#${number}`,
         leadAttackHeadingDeg: leaderResult.geometry.attackHeadingDeg,
-        ipLimit: result.ipLimit?.violated ? result.ipLimit : null,
       })
     : null;
   lead.placeLabels();

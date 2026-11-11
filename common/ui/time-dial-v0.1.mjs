@@ -12,7 +12,9 @@
 //   nearest step at or below it, never above the last. A change during Play keeps the clock where it is. Every
 //   dial shows the one speed.
 
-export const TIME_DIAL_V0_1 = Object.freeze({ id: "common-time-dial-v0.1", version: "0.1.3" });
+export const TIME_DIAL_V0_1 = Object.freeze({ id: "common-time-dial-v0.1", version: "0.1.4" });
+// 0.1.4 (owner 2026-11-11, Offset own IP rule): syncDial's optional minSec (default 0) is the source dial's range start, so
+// a clock may start before 0 (a VRP beyond the IP flies before the IP's 0 s); the value is kept within [minSec, maxSec].
 // 0.1.3 (2026-11-06): a copy's window may carry restSec (the slider while off); installDial's minSec: Play from a clock
 // between it and the fresh start runs from that clock.
 // 0.1.2 (owner 2026-11-03, "Play 배속은 1x 2x 3x로 구성"): the speed steps are 1× → 2× → 3× → 1×.
@@ -114,13 +116,16 @@ export function createTimePlayer({
     });
   }
 
-  // The source dial: its range end (maxSec), the clock (timeSec, null = off) and the phase label beside T.
-  function syncDial(dial, { maxSec, timeSec, phaseLabel = null }) {
+  // The source dial: its range start (minSec, default 0) and end (maxSec), the clock (timeSec, null = off) and the phase
+  // label beside T.
+  function syncDial(dial, { minSec = 0, maxSec, timeSec, phaseLabel = null }) {
     if (!dial) return;
     const range = dial.querySelector("[data-time-range]");
     const output = dial.querySelector("[data-time-output]");
+    const floor = Number.isFinite(minSec) ? Math.min(minSec, maxSec) : 0;
+    setProp(range, "min", String(floor));
     setProp(range, "max", String(maxSec));
-    setProp(range, "value", String(Math.min(timeSec ?? 0, maxSec)));
+    setProp(range, "value", String(Math.min(Math.max(timeSec ?? floor, floor), maxSec)));
     const on = Number.isFinite(timeSec);
     if (dial.classList.contains("active") !== on) dial.classList.toggle("active", on);
     setText(output, on ? `${Math.round(Math.min(timeSec, maxSec))} s${phaseLabel ? ` · ${phaseLabel}` : ""}` : "Off");
@@ -144,6 +149,7 @@ export function createTimePlayer({
       const clock = Number.isFinite(clockSec) ? clockSec : Number.isFinite(span.restSec) ? span.restSec : span.startSec;
       setProp(range, "value", String(Math.min(Math.max(clock, span.startSec), endSec)));
     } else {
+      setProp(range, "min", sourceRange.min);
       setProp(range, "max", sourceRange.max);
       setProp(range, "value", sourceRange.value);
     }

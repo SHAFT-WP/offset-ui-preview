@@ -53,7 +53,9 @@ export const SEM_REJOIN_V0_1 = Object.freeze({
   // 0.3.4 (2026-11-02, owner): the egress Formation bearing is measured from the reference aircraft's abeam line, aft
   // positive (Flight Bombing Tactics formation-v0.1): Combat Spread is 0°, the range -90…90°. Plan schemaVersion 2;
   // a stored schemaVersion 1 plan (tail 0°: behind 0, abeam 90) is converted once by 90 - bearing.
-  version: "0.3.4",
+  // 0.3.5 (owner 2026-11-11, own IP rule): an aircraft whose VRP is beyond its own IP is available from its VRP's
+  // negative time (the time path's startSec), not only from 0 s.
+  version: "0.3.5",
   model: Object.freeze({ id: "sr-energy-neutral-point-mass-v0.1", version: "0.1.0", integrationStepSec: 0.01 }),
   components: Object.freeze({
     sem: `${CLIMB_SEM_MODEL_V0_2.id} ${CLIMB_SEM_MODEL_V0_2.version}`,
@@ -1174,10 +1176,12 @@ function extendState(end, timeSec, windKt) {
 
 function aircraftStateAt(aircraft, upstreamEntry, timeSec, windKt) {
   if (!aircraft.sem) return { available: false, phase: "unavailable", reason: aircraft.message };
-  if (timeSec < 0) return { available: false, phase: "before-ip", reason: "Before IP" };
+  // The path starts at the IP (0 s) or at a VRP beyond the IP (negative, own IP rule 2026-11-11).
+  const timeline = offsetTimeline(upstreamEntry.result);
+  if (timeSec < (timeline.startSec ?? 0)) return { available: false, phase: "before-ip", reason: "Before IP" };
   const release = aircraft.sem.release;
   if (timeSec < release.timeSec - 1e-9) {
-    const at = offsetTimeline(upstreamEntry.result).at(timeSec);
+    const at = timeline.at(timeSec);
     const track = at.heading ? headingOf(at.heading) : null;
     return { available: true, phase: "attack", state: { timeSec, x: at.aircraft.x, y: at.aircraft.y, trackDeg: track, headingDeg: null, altitudeMslFt: null, tasKt: null, fpaDeg: null }, partial: true };
   }

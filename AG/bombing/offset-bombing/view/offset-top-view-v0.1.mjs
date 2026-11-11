@@ -50,7 +50,9 @@ export const OFFSET_TOP_VIEW_V0_1 = Object.freeze({
   // 0.1.10 (2026-10-15, BDP update R2.1): the Offset turn is drawn along geometry.offsetTurnPath (onset level
   // turn); its radius guides join the hold arc's center to the hold start and end, and are left out with
   // "Offset R" when the turn has no hold.
-  version: "0.1.10",
+  // 0.1.11 (owner 2026-11-11): the Flight "IP limit" line and label (options.ipLimit) are removed. With
+  // result.actionPointBeyondIp the path starts at the Action Point (VRP) and IP–VRP is dashed, no arrow (plan S2).
+  version: "0.1.11",
   subject: "Offset",
   view: "Top View",
   canvas: Object.freeze({ width: 900, minHeight: 560, maxHeight: 1100, margins: 40 }),
@@ -262,8 +264,11 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
   const approachRangeNm = result.resolved.approachRangeNm;
   const approachInvalid = approachRangeNm < 0;
 
-  // Paths.
-  if (len(sub(points.realActionPoint, points.ip)) > 0.001) {
+  // Paths. Own IP rule (owner 2026-11-11): an Action Point (VRP) beyond the aircraft's own IP starts the path there
+  // (VRP → Target); the IP is joined to it by a dashed line without an arrow.
+  if (result.actionPointBeyondIp === true) {
+    appendDirectedLine(group, p.ip, p.realActionPoint, { color: C.run, width: 2.2, dasharray: "8 7", fromGap: 12, toGap: 9 }).setAttribute("data-top-view-role", "ip-vrp-dashed");
+  } else if (len(sub(points.realActionPoint, points.ip)) > 0.001) {
     appendDirectedLine(group, p.ip, p.realActionPoint, { color: C.run, width: 4, markerEndId: markerId("run"), fromGap: 12, toGap: 9 });
   }
   // Target-referenced Action Range guide (a follower's Action Range is Target-referenced too).
@@ -307,20 +312,6 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
       cx: p.target.x, cy: p.target.y, r: mapNm * frame.scale, fill: "none", stroke: C.attack,
       "stroke-width": 1.8, "stroke-dasharray": "9 7", "data-top-view-role": "map-circle",
     }));
-  }
-
-  // IP limit (follower rule): when the Action Point is below the Flight IP (#1's IP), draw the limit
-  // line through that IP across the Run-In so the violation is visible.
-  const ipLimit = options.ipLimit;
-  let ipLimitPoint = null;
-  if (ipLimit?.violated && finitePoint(ipLimit.point) && geometry.vectors?.runVector) {
-    const run = geometry.vectors.runVector;
-    const normal = { x: -run.y, y: run.x };
-    const across = Math.abs((geometry.points.realActionPoint.x - ipLimit.point.x) * normal.x + (geometry.points.realActionPoint.y - ipLimit.point.y) * normal.y);
-    const halfLength = across + 1.5;
-    const ends = [add(ipLimit.point, mul(normal, -halfLength)), add(ipLimit.point, mul(normal, halfLength))].map((point) => frame.project(point));
-    appendPolyline(group, ends, { color: C.invalid, width: 2.5, dasharray: "10 7" }).setAttribute("data-top-view-role", "ip-limit");
-    ipLimitPoint = frame.project(ipLimit.point);
   }
 
   // Stations (drawn after the paths).
@@ -394,9 +385,6 @@ export function drawOffsetTopViewLayer(frame, result, options = {}) {
       key: `reference-${String(result.referenceMode).toLowerCase()}`, color: C.reference,
       detail: `${formatNm(result.reference.displayRangeNm)} NM`,
       textAttributes: { "data-result-key": "referenceSummary", "data-top-view-role": "reference" },
-    });
-    if (ipLimitPoint) appendLabel(ipLimitPoint, "IP limit", {
-      key: "ip-limit", color: C.invalid, textAttributes: { "data-top-view-role": "ip-limit-label" },
     });
     appendLabel(p.realActionPoint, "Action Point", { key: "action-point", color: C.offset });
     // Action Range is Target → Action Point for the lead and followers alike.

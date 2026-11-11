@@ -5,8 +5,9 @@
 // shared set of shown aircraft. This module gives the Offset tabs and what each draws.
 // SEM & Rejoin (2026-10-13): its own module, mounted once into the S&R input tab and the centre
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=e922144bc2ad";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=e922144bc2ad";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=6f8b1358de87";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=6f8b1358de87";
+import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=6f8b1358de87";
 import { mountWideWorkspace } from "./shared/wide-workspace-v0.1.mjs?v=0.1.2";
 
 const app = document.getElementById("offset-calculator");
@@ -77,6 +78,11 @@ semRejoin = mountSemRejoin({
   getEditAircraft: () => workspace.editAircraft(),
   requestEditAircraft: (number) => workspace.selectEditAircraft(number),
 });
+// BMS Mission (DTC) and DTE (2026-11-12, plan S7 / S8): the Offset index Save/Load tab only (POP-UP later, plan S10).
+const bmsMissionRoot = document.getElementById("bms-mission");
+const bmsMission = bmsMissionRoot ? mountBmsMissionPanel({ root: bmsMissionRoot, offsetUi: offsetIndexUi }) : null;
+// Read-only hooks for the browser checks.
+if (bmsMission) globalThis.offsetBmsMission = bmsMission;
 offsetIndexUi.installSectionDisclosure();
 
 // First entry (§2): input Offset, centre Offset Top View, right Result, edit #1, shown #1. A work

@@ -8,7 +8,8 @@ export const OFFSET_GEOMETRY_V0_2 = Object.freeze({
   // path is returned; without one the instantaneous fillet R·tan(θ/2) is unchanged.
   // 0.2.8 (2026-10-18, owner handoff §3.1): the turn path samples also carry the onset turn's bankDeg (≥ 0, toward
   // the Offset direction) and loadFactorG, for the BDP HUD's Roll-in −3 s start. Display data only.
-  version: "0.2.8",
+  // 0.2.9 (owner 2026-11-11): validateOffsetCandidate reports "passed IP" as a warning with actionPointBeyondIp.
+  version: "0.2.9",
   purpose: "Pure Offset Bombing heading/action-point/reference geometry independent of DOM and rendering",
 });
 
@@ -279,12 +280,16 @@ export function validateOffsetCandidate(candidate, input = {}) {
   if (candidate.offsetAngleDeg >= 120) warnings.push("Offset Angle is 120 deg or greater");
 
   const actionPointRunRangeNm = -dot(candidate.points.realActionPoint, candidate.vectors.runVector);
+  // Owner 2026-11-11: an Action Point (VRP) beyond this aircraft's own IP is a WARNING, not INVALID.
+  // The path then starts at the Action Point (VRP -> Target) and the IP clock stays (VRP time < 0).
+  let actionPointBeyondIp = false;
   if (actionPointRunRangeNm < -0.001) {
     errors.push("Action Point must be between IP and Target; Action Point has passed Target");
   } else if (Number.isFinite(input.ipRangeNm) && actionPointRunRangeNm > input.ipRangeNm + 0.001) {
-    errors.push("Action Point must be between IP and Target; Action Point has passed IP");
+    actionPointBeyondIp = true;
+    warnings.push("Action Point has passed IP; the path starts at the Action Point (VRP)");
   }
-  return { errors, warnings };
+  return { errors, warnings, actionPointBeyondIp };
 }
 
 // Names the most frequent reason scanned candidates were rejected (Map message -> count), so a

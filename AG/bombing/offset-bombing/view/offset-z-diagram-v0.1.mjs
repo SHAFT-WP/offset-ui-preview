@@ -24,7 +24,10 @@ export const OFFSET_Z_DIAGRAM_V0_1 = Object.freeze({
   // 0.1.9 (2026-10-15, owner R7 / Q14): Roll-in Lead Angle moves under Roll-in Angle Off (Common Z 0.1.13
   // rollInLeadInGroup; no longer in the lower block). Essential lower block: Action Range, Offset Angle,
   // Attack Heading | Roll-in Bank Angle (BDP v0.4 result), Tracking Time, ΔTime.
-  version: "0.1.9",
+  // 0.1.10 (owner 2026-11-11, plan S2, own IP rule): an aircraft whose VRP (Action Point) is beyond its own IP reads
+  // "VRP-Target Heading" (Action Point → Target) for "IP-Target Heading", and "#k VRP to Impact Time" (from #k's VRP:
+  // #k's IP to Impact Time − its negative IP → Action time) for "#k IP to Impact Time". ΔTime is unchanged (IP clock).
+  version: "0.1.10",
   subject: "Offset",
   view: "Z-Diagram",
 });
@@ -71,14 +74,22 @@ export function offsetZLowerColumns(result, { deltaTime = null, advanced = false
     return { left: OFFSET_Z_ESSENTIAL_ROWS.map((label) => left.find((row) => row.label === label)).filter(Boolean), right: [...bankRow, ...trackingRow, ...deltaRow] };
   }
   const ipImpact = hasDelta && Number.isFinite(deltaTime.impactIpToImpactSec)
-    ? { number: deltaTime.impactNumber, seconds: deltaTime.impactIpToImpactSec }
-    : { number: aircraftNumber, seconds: t.offsetIpToReleaseSec + p.bombTofSec };
+    ? { number: deltaTime.impactNumber, seconds: deltaTime.impactIpToImpactSec, vrpBeyondIp: deltaTime.impactVrpBeyondIp === true, ingressSec: deltaTime.impactIngressSec }
+    : { number: aircraftNumber, seconds: t.offsetIpToReleaseSec + p.bombTofSec, vrpBeyondIp: result.actionPointBeyondIp === true, ingressSec: t.ingressSec };
+  // Own IP rule (0.1.10): the path starts at the VRP, so the start point and the time are named from it.
+  const fromVrp = ipImpact.vrpBeyondIp && Number.isFinite(ipImpact.ingressSec) && ipImpact.ingressSec < 0;
+  const impactRow = fromVrp
+    ? { label: `#${ipImpact.number} VRP to Impact Time`, value: `${formatSec(ipImpact.seconds - ipImpact.ingressSec)} s` }
+    : { label: `#${ipImpact.number} IP to Impact Time`, value: `${formatSec(ipImpact.seconds)} s` };
+  const headingRow = result.actionPointBeyondIp === true
+    ? { label: "VRP-Target Heading", value: formatHeadingDeg(bearingDeg(g.points.realActionPoint, g.points.target)) }
+    : { label: "IP-Target Heading", value: formatHeadingDeg(bearingDeg(g.points.ip, g.points.target)) };
   const right = [
-    { label: "IP-Target Heading", value: formatHeadingDeg(bearingDeg(g.points.ip, g.points.target)) },
+    headingRow,
     { label: "Approaching Heading", value: formatHeadingDeg(g.offsetHeadingDeg) },
     ...bankRow,
     ...bdp.right,
-    { label: `#${ipImpact.number} IP to Impact Time`, value: `${formatSec(ipImpact.seconds)} s` },
+    impactRow,
     ...deltaRow,
   ];
   return { left, right };

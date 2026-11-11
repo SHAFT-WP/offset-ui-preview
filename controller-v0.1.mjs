@@ -11,7 +11,7 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // The BE runs in a Worker (offset-flight-worker-v0.1.mjs); Common calculation-client-v0.1.mjs decides when a
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
-import { FORMATION_TEMPLATES, OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, formationTemplatePositions } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.16";
+import { FORMATION_TEMPLATES, OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, formationTemplatePositions } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.17";
 // Flight Formation top view (Flight Bombing Tactics view, owner 2026-11-02): draws the BE's flightName.formation.
 import { formationTopViewSvg } from "./flight/flight-bombing-tactics/view/formation-top-view-v0.1.mjs?v=0.2.0";
 import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
@@ -32,7 +32,7 @@ import { prepareSvgForExport, saveSvgAsPng } from "./common/diagram/svg-png-expo
 // Flight HTML Save / Load (owner 2026-11-05; Flight HTML Save/Load handoff 2026-10-27 §6–§9).
 import { aircraftSetHtml, buildFlightHtml, cardHtml, dedBoxesHtml, escapeHtml, installFlightFileDialog, readFlightHtml, resultGroupsHtml, FLIGHT_FILE_FORMAT, FLIGHT_FILE_SCHEMA_VERSION } from "./shared/flight-html-file-v0.1.mjs?v=0.1.3";
 import { installFlightFileBrowser } from "./shared/flight-file-browser-v0.1.mjs?v=0.1.1";
-import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.3";
+import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.4";
 // DED boxes, texts and PNG: bombing app shared FE (2026-10-22); the DED record is the Flight BE's.
 import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.5";
 // BDP Result rows and Fragment Data readouts: bombing app shared FE (2026-10-22).
@@ -51,17 +51,17 @@ import { createShownAircraft, installShownAircraftClicks } from "./shared/flight
 import { BDP_TAB_KEYS, NLT_RELEASE_FIELD, bdpTabMarkup, syncBdpNltRelease } from "./shared/bdp-tab-v0.1.mjs?v=0.1.5";
 // Offset graphs are BE-owned views (AG/bombing/offset-bombing/view/, common/diagram/SPEC.md); this
 // controller only wires their toolbars, legend and titles.
-import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.10";
-import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.12";
-import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.4";
-import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.9";
+import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.11";
+import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.13";
+import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.5";
+import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.10";
 // POP-UP Z-Diagram (POP-UP SPEC §13.8 / §13.8a; the POP-UP page only): a BE-owned view of the POP-UP Flight result.
-import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.5";
+import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.6";
 import { POPUP_BDP_APPROACH_V0_1, popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.0";
 
-import { buildOffsetHudAircraft, offsetHudGridStep } from "./AG/bombing/offset-bombing/view/offset-hud-scene-v0.1.mjs?v=0.1.3";
+import { buildOffsetHudAircraft, offsetHudGridStep } from "./AG/bombing/offset-bombing/view/offset-hud-scene-v0.1.mjs?v=0.1.4";
 
 const resultPanel = installResultPanel(document.querySelector('[data-result-panel]'));
 // Legend items and colours come from the Offset Top View (values follow each result).
@@ -696,6 +696,15 @@ function timeDialMaxSec(results) {
   });
   return Math.max(1, Math.ceil(max));
 }
+// The dial's start (owner 2026-11-11, own IP rule): 0 (the IP), or the earliest VRP of an aircraft whose VRP is beyond its
+// own IP (a negative time on the one IP clock), whole seconds.
+function timeDialMinSec(results) {
+  let min = 0;
+  results.filter(Boolean).forEach((result) => {
+    try { min = Math.min(min, timelineOf(result).startSec ?? 0); } catch (_) { /* unsolved: no time path */ }
+  });
+  return Math.floor(min);
+}
 // phase: the time phase shown beside T; by default the drawn Top View's (its time overlay).
 // One Offset timeline per solved result (a new solve is a new object): Play asks for it on every frame (2026-10-21).
 const offsetTimelines = new WeakMap();
@@ -710,7 +719,7 @@ function timelineOf(result) {
 }
 function syncTimeDial(dial, svg, results, timeSec, phase = svg?.querySelector('[data-top-view-role="time-overlay"]')?.dataset.timePhase) {
   if (!dial) return;
-  timePlayer.syncDial(dial, { maxSec: timeDialMaxSec(results), timeSec, phaseLabel: phase ? TIME_PHASE_LABELS[phase] ?? phase : null });
+  timePlayer.syncDial(dial, { minSec: timeDialMinSec(results), maxSec: timeDialMaxSec(results), timeSec, phaseLabel: phase ? TIME_PHASE_LABELS[phase] ?? phase : null });
 }
 function timeDialMarkup(number, label = `Top View #${number}`) {
   return timePlayer.markup({ id: number, groupLabel: `${label} time after IP`, rangeLabel: "Seconds after IP", outputTitle: "Seconds after IP; press to turn off" });
@@ -977,6 +986,9 @@ let lastFlightAnswer = null;
 const flightAnswerListeners = new Set();
 const saveExtensions = new Map();
 const flightDefaultsListeners = new Set();
+// BMS mission (2026-11-12, plan S7): #1's Tab Default listeners (tab key) and the file name suffix while a mission is on.
+const leadTabDefaultListeners = new Set();
+let fileNameSuffixOf = () => null;
 
 function installCalculation() {
   const transport = POPUP_MODE
@@ -1736,11 +1748,21 @@ function missingTransitionOf(number) {
 // Flight: it keeps the earliest Offset of the others.
 function offsetClockBefore(number, beforeSec, kind) {
   const missing = missingTransitionOf(number);
-  const roll = Math.max(0, rollInClockSecOf(number) ?? 0);
+  const floor = earliestPathStartClockSec();
+  const roll = Math.max(floor, rollInClockSecOf(number) ?? 0);
   if (kind === "hud" && missing) return roll;
   const offset = earliestOffsetClockSec();
-  if (Number.isFinite(offset)) return Math.max(0, offset - beforeSec);
-  return missing ? roll : 0;
+  if (Number.isFinite(offset)) return Math.max(floor, offset - beforeSec);
+  return missing ? roll : floor;
+}
+// Where the shown aircraft's paths start on the IP clock (owner 2026-11-11, own IP rule): 0, or earlier when a VRP is
+// beyond its own IP. Aircraft without the Offset → Roll-in transition do not count (as for earliestOffsetClockSec).
+function earliestPathStartClockSec() {
+  let start = 0;
+  shownAircraft.visible().filter((n) => !missingTransitionOf(n)).forEach((n) => {
+    try { start = Math.min(start, timelineOf(flightResultOf(n)).startSec ?? 0); } catch (_) { /* unsolved */ }
+  });
+  return start;
 }
 // Where Play from off or the end starts, and the view at rest: the earliest Offset −5 s.
 function threeDStartClockSec(number) { return offsetClockBefore(number, OFFSET_START_BEFORE_SEC, "3d"); }
@@ -1937,6 +1959,7 @@ function resetLeadTab(tab, section) {
   section.querySelectorAll(".value-dependent-input").forEach((node) => node.classList.remove("value-dependent-input"));
   // Edits waiting for this tab's fields are replaced by the defaults; other waiting edits stay.
   recalculateFresh((edit) => (edit.aircraft ?? 1) !== 1 || !owns(edit.key));
+  leadTabDefaultListeners.forEach((listener) => listener(section.querySelector("#vrp-pane") ? "reference" : tab));
 }
 
 // Follower tab Default: the draft keys of the fields this tab holds (plus the solve mode and entered
@@ -2820,7 +2843,9 @@ function zDeltaTime(releaseNumber) {
   const timing = lastFlightTiming[releaseNumber];
   const delta = flightTimingOf(releaseNumber);
   if (!delta) return null;
-  return { impactNumber: timing.predecessor, releaseNumber, seconds: delta.predecessorImpactToOwnReleaseSec, impactIpToImpactSec: timing.predecessorIpToImpactSec };
+  // Own IP rule (2026-11-11): the Impact aircraft's VRP beyond its IP names its time from the VRP (Z 0.1.10).
+  const impact = flightResultOf(timing.predecessor);
+  return { impactNumber: timing.predecessor, releaseNumber, seconds: delta.predecessorImpactToOwnReleaseSec, impactIpToImpactSec: timing.predecessorIpToImpactSec, impactVrpBeyondIp: impact?.actionPointBeyondIp === true, impactIngressSec: impact?.timing?.ingressSec };
 }
 
 // Z Advanced (2026-10-03): off = the Essential lower rows; per aircraft, not saved.
@@ -3517,6 +3542,9 @@ function fileSuggestedName() {
   } else {
     parts.push(`${flightLayout.size}S`);
   }
+  // A loaded BMS mission adds its suffix (owner 2026-11-11: "_DED").
+  const suffix = fileNameSuffixOf();
+  if (suffix) parts.push(suffix);
   return `${parts.join("_")}.html`;
 }
 
@@ -3683,6 +3711,11 @@ export const offsetIndexUi = Object.freeze({
   registerSaveExtension(name, extension) { saveExtensions.set(name, extension); },
   savedExtension: (name) => loadedSave?.record?.[name] ?? null,
   onFlightDefaults(listener) { flightDefaultsListeners.add(listener); },
+  // BMS mission (2026-11-12, plan S7 / S8): #1's Tab Default (tab key; "reference" for the tab with the Reference
+  // Point), the save file name suffix, and the moment every edit sent has its answer.
+  onLeadTabDefault(listener) { leadTabDefaultListeners.add(listener); },
+  registerFileNameSuffix(getter) { fileNameSuffixOf = typeof getter === "function" ? getter : () => null; },
+  whenIdle: () => calculationScheduler.whenIdle(),
   // A section added by the layout gets the same collapse controls as the others (idempotent).
   installSectionDisclosure,
 });
@@ -3781,7 +3814,8 @@ function install() {
     event.currentTarget.setAttribute("aria-pressed", String(topViewIpBottom));
     renderTopView();
   });
-  installTimeDial($("#top-view-time-dial"), setOffsetClock);
+  // Play from off starts at the dial's start: 0, or the earliest VRP beyond its IP (own IP rule).
+  installTimeDial($("#top-view-time-dial"), setOffsetClock, { startSec: () => Number($("#top-view-time-dial [data-time-range]")?.min) || 0 });
   // During Play the Top View waits while it is off screen (hidden tab or scrolled away) and catches up when it shows.
   if (globalThis.IntersectionObserver) {
     new IntersectionObserver((entries) => {

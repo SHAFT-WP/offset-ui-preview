@@ -35,7 +35,9 @@ import { formatDeg, formatG, formatNm, formatSec, formatSecTenths } from "../../
 // 보여준 결과물로 하자"): the default is the last one shown, +2 — body 17, title 29.
 export const POPUP_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "popup-z-diagram-v0.1",
-  version: "0.1.5",
+  // 0.1.6 (owner 2026-11-11, own IP rule): a VRP beyond the aircraft's own IP reads "#n VRP to Impact Time", timed from
+  // the VRP (IP to Impact Time − the negative IP → Action time).
+  version: "0.1.6",
   ticks: Object.freeze(["ROLL_IN", "PULL_DOWN"]),
   canvas: Object.freeze({ width: 650, height: 520 }),
   // 0.1.4 (owner 2026-11-03, "롤인 alt라인부터 그 아래까지 2줄 밀자", then "두줄 말고 한줄만"): the Roll-in / Pull Down line, its rule and the
@@ -147,6 +149,8 @@ function legendRows(result, popup, { advanced, aircraftNumber }) {
   const p = result.profile.public;
   const input = result.profile.canonicalInputs;
   const gText = (value) => `${formatG(value)}G`;
+  // Own IP rule (0.1.6): the path starts at a VRP beyond the IP, so the time is named from it.
+  const fromVrp = result.actionPointBeyondIp === true && Number.isFinite(t.ingressSec) && t.ingressSec < 0;
   const values = {
     attackHeading: Number.isFinite(g.attackHeadingDeg) ? formatHeadingDeg(g.attackHeadingDeg) : "-",
     angleOff: `${formatDeg(input.angleOffDeg)}°`,
@@ -160,11 +164,11 @@ function legendRows(result, popup, { advanced, aircraftNumber }) {
     rollInLead: `${formatDeg(p.leadAngleDeg)}°`,
     trackingTime: `${formatSecTenths(p.trackingTimeSec)} s`,
     bombTof: `${formatSec(p.bombTofSec)} s`,
-    ipToImpact: `${formatSec(t.offsetIpToReleaseSec + p.bombTofSec)} s`,
+    ipToImpact: `${formatSec(t.offsetIpToReleaseSec + p.bombTofSec - (fromVrp ? t.ingressSec : 0))} s`,
   };
   return POPUP_Z_LEGEND.filter((row) => advanced || !row.advanced).map((row) => ({
     key: row.key,
-    label: row.key === "ipToImpact" ? `#${aircraftNumber} ${row.label}` : row.label,
+    label: row.key === "ipToImpact" ? `#${aircraftNumber} ${fromVrp ? "VRP to Impact Time" : row.label}` : row.label,
     value: values[row.key],
   }));
 }

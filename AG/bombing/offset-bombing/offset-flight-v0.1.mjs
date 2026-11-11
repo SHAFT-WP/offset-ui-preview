@@ -76,7 +76,8 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // other field (not LOCKed) changed in the order of OFFSET_CLEAR_FIT_ORDER — instead of going back to its value at the
   // start of the edit (offset-clear-fit-v0.1, shared with the POP-UP Flight). calculateOffsetFlightUnfittedFull and
   // createOffsetFlightSession({ clearFit: false }) keep the old rule (the POP-UP Flight fits on its own result).
-  version: "0.1.16",
+  // 0.1.17 (owner 2026-11-11): followers no longer get the Flight IP limit (#1's IP); behind its own IP is a WARNING.
+  version: "0.1.17",
   status: "work",
   schemaVersion: 2,
   components: Object.freeze({
@@ -912,7 +913,7 @@ function followerInheritance(follower, leaderResult, leadNumber) {
   return { inheritance, resolved };
 }
 
-function followerOffsetInput({ number, follower, leaderResult, leadNumber, flightLead, flightLeadValues, ipLimitPoint }) {
+function followerOffsetInput({ number, follower, leaderResult, leadNumber, flightLead, flightLeadValues }) {
   const { values: v, state: s, options, formation } = follower;
   const n = (key) => requireNumber(key, v[key]);
   const wingman = WINGMEN.has(number);
@@ -950,7 +951,6 @@ function followerOffsetInput({ number, follower, leaderResult, leadNumber, fligh
     locks: { offsetAngleDeg: offsetAngleLocked, actionRangeNm: actionRangeLocked, approachRangeNm: approachRangeLocked, attackHeadingDeg: attackHeadingLocked, angleOffDeg: angleOffLocked },
     runInHeadingDeg,
     ipPoint,
-    ipLimitPoint: ipLimitPoint ?? undefined,
     attackHeadingDeg: n("attackHeadingDeg"),
     angleOffDeg: n("angleOffDeg"),
     offsetAngleDeg: n("offsetAngleDeg"),
@@ -1241,7 +1241,7 @@ function solveFollower({ number, follower, stateError, leaderResult, flightLead,
   if (!leaderResult) return fail(`Aircraft #${leadNumber} has no current result`);
   let context;
   try {
-    const built = followerOffsetInput({ number, follower, leaderResult, leadNumber, flightLead, flightLeadValues, ipLimitPoint: flightLead.geometry.points.ip });
+    const built = followerOffsetInput({ number, follower, leaderResult, leadNumber, flightLead, flightLeadValues });
     const { baseInput, angleInput, sameTimeAsLead, actionRangeLocked, approachRangeLocked, angleFixed, rangeLock } = built;
     const actionFixed = sameTimeAsLead || !!rangeLock;
     context = { ...built, follower, leaderResult, leadNumber, branch: angleFixed && actionFixed ? "pair" : sameTimeAsLead ? "sameTime" : "plain" };
@@ -1419,7 +1419,7 @@ function applyEdits(aircraft, edits, flightSize) {
 }
 
 // What a follower reads from an aircraft before it (its element lead, and #1 for the Flight-wide
-// Target / wind / IP limit / VIP): resolved values, timing, geometry points, reference mode and the
+// Target / wind / IP / VIP): resolved values, timing, geometry points, reference mode and the
 // BDP inputs it inherits. Followers are given only this, so it is exactly their dependency.
 const LEADER_PROFILE_KEYS = [...OFFSET_FLIGHT_INHERITED_KEYS, ...OFFSET_FLIGHT_INHERITED_TEXT_KEYS, ...OFFSET_FLIGHT_INHERITED_OPTIONAL_KEYS, "targetElevationMslFt", "windSpeedKt", "fragmentMarginAppliesTo"];
 // entered: the Auto keys' entries up this aircraft's chain (null: Auto), from its record and its element lead's view.

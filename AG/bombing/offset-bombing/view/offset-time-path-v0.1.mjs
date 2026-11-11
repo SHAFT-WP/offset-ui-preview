@@ -11,7 +11,9 @@
 //   roll-in  Roll-in trajectory → Track Point   profile.public.rollInTimeSec (samples every 0.1 s)
 //   tracking Track Point → Release              profile.public.trackingTimeSec (a negative value flies 0 s)
 //   bomb     Release → Target                   profile.public.bombTofSec (the bomb; the aircraft stays at Release)
-// A negative leg (an INVALID geometry) is flown in 0 s.
+// A negative leg (an INVALID geometry) is flown in 0 s. Own IP rule (0.1.5, owner 2026-11-11): an Action Point (VRP)
+// beyond the aircraft's own IP (result.actionPointBeyondIp, a negative timing.ingressSec) starts the path at the VRP at
+// T = ingressSec < 0; the clock stays on the IP (every aircraft crosses its own IP at 0 s), so ΔTime keeps one clock.
 
 export const OFFSET_TIME_PATH_V0_1 = Object.freeze({
   id: "offset-time-path-v0.1",
@@ -26,7 +28,9 @@ export const OFFSET_TIME_PATH_V0_1 = Object.freeze({
   // 0.1.4 (2026-11-06, owner: "3D / HUD를 POP-UP처럼 구분, 오프셋 포인트"): offsetApproachInBdpFrame names the leg of each
   // sample — "ingress" (IP → Offset Point), "turn" (the Offset Turn) or "approach" (after it); it was "approach" for both
   // straight legs. Positions and times unchanged.
-  version: "0.1.4",
+  // 0.1.5 (owner 2026-11-11, plan S2): the own-IP rule above — timeline.startSec (0, or the VRP's negative time) is where
+  // the path starts and at() clamps to [startSec, Impact]; offsetApproachInBdpFrame starts no earlier than it.
+  version: "0.1.5",
   phases: Object.freeze(["ingress", "turn", "approach", "roll-in", "tracking", "bomb"]),
 });
 
@@ -71,7 +75,12 @@ export function offsetTimeline(result) {
   if (!points || !timing || !profile) throw new TypeError("a solved Offset result is required");
 
   const legs = [];
-  legs.push(straightLeg("ingress", points.ip, points.realActionPoint, timing.ingressSec));
+  const beyondIp = result.actionPointBeyondIp === true && Number.isFinite(timing.ingressSec) && timing.ingressSec < 0;
+  const startSec = beyondIp ? timing.ingressSec : 0;
+  // Beyond the IP the ingress is not flown: a 0 s leg at the VRP keeps the phase list.
+  legs.push(beyondIp
+    ? straightLeg("ingress", points.realActionPoint, points.realActionPoint, 0)
+    : straightLeg("ingress", points.ip, points.realActionPoint, timing.ingressSec));
 
   const turnSec = nonNegative(timing.offsetTurnSec);
   const turnPath = (geometry.offsetTurnPath ?? []).filter(finitePoint);
@@ -113,7 +122,7 @@ export function offsetTimeline(result) {
   legs.push(straightLeg("tracking", points.trackPoint, release, trackSec));
   legs.push(straightLeg("bomb", release, points.target, profile.bombTofSec));
 
-  let clock = 0;
+  let clock = startSec;
   for (const leg of legs) {
     leg.startSec = clock;
     clock += leg.durationSec;
@@ -123,11 +132,12 @@ export function offsetTimeline(result) {
   return {
     legs,
     release,
+    startSec,
     releaseSec: bombLeg.startSec,
     impactSec: bombLeg.endSec,
-    // Aircraft (and, after Release, bomb) state at T seconds after IP. T is clamped to [0, Impact].
+    // Aircraft (and, after Release, bomb) state at T seconds after IP. T is clamped to [startSec, Impact].
     at(timeSec) {
-      const t = Math.min(Math.max(Number(timeSec) || 0, 0), bombLeg.endSec);
+      const t = Math.min(Math.max(Number(timeSec) || 0, startSec), bombLeg.endSec);
       const flown = [];
       let aircraft = null;
       let heading = null;
@@ -158,7 +168,8 @@ export function offsetTimeline(result) {
   };
 }
 
-// The `seconds` before this aircraft's Roll-in Point, every 0.1 s (not before its IP), in the BDP flight path frame:
+// The `seconds` before this aircraft's Roll-in Point, every 0.1 s (not before its path start: its IP, or its VRP
+// beyond the IP), in the BDP flight path frame:
 // ft from the Roll-in Point, y along the Initial (Approaching) heading, x to its right; heading relative to it
 // (right +), bank right wing down +, G; level at the Roll-in altitude (BDP flight path v0.1.1 `approach`).
 const FT_PER_NM = 6076.11549;
@@ -185,7 +196,7 @@ export function offsetApproachInBdpFrame(result, seconds = 3.5) {
     return { bankDeg: turnSign * mix("bankDeg", 0), loadFactor: mix("loadFactorG", 1) };
   };
   const samples = [];
-  const first = Math.max(0, rollLeg.startSec - seconds);
+  const first = Math.max(timeline.startSec, rollLeg.startSec - seconds);
   for (let k = 0; first + k * ROLL_SAMPLE_SEC < rollLeg.startSec - 1e-6; k += 1) {
     const tSec = first + k * ROLL_SAMPLE_SEC;
     const at = timeline.at(tSec);
