@@ -771,7 +771,6 @@ function leadDiagnostics(lead, result) {
 // DED pages: the reference page (VRP or VIP) and OA1, from the aircraft's own Full result.
 function dedFrom({ result, isVip, flightVip, referenceRangeNm, referenceBearingDeg, initialAltitudeMslFt }) {
   const points = result.geometry.points;
-  const targetElevationMslFt = result.profile.canonicalInputs?.targetElevationMslFt;
   const rollInAltitudeMslFt = result.profile.public.resolvedInitialAltitudeMslFt;
   const oa1Base = isVip ? flightVip : points.target;
   const oa1RangeNm = distanceNm(oa1Base, points.rollStart);
@@ -781,8 +780,8 @@ function dedFrom({ result, isVip, flightVip, referenceRangeNm, referenceBearingD
       bearingDeg: referenceBearingDeg,
       rangeNm: referenceRangeNm,
       rangeFt: referenceRangeNm * FT_PER_NM,
-      // VRP page ELEV is the aircraft's Initial Altitude; the VIP page keeps the Target elevation.
-      elevationFt: isVip ? targetElevationMslFt : isNumber(initialAltitudeMslFt) ? initialAltitudeMslFt : rollInAltitudeMslFt,
+      // VRP and VIP page ELEV are the aircraft's own Initial Altitude (VRP since 2026-10-02, VIP since owner 2026-11-11).
+      elevationFt: isNumber(initialAltitudeMslFt) ? initialAltitudeMslFt : rollInAltitudeMslFt,
     },
     oa1: { bearingDeg: bearingBetween(oa1Base, points.rollStart), rangeNm: oa1RangeNm, rangeFt: oa1RangeNm * FT_PER_NM, elevationFt: rollInAltitudeMslFt },
   };
