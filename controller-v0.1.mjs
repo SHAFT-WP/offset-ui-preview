@@ -31,7 +31,7 @@ import { createValueStateController } from "./common/ui/value-state-controller-v
 import { prepareSvgForExport, saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 // Flight HTML Save / Load (owner 2026-11-05; Flight HTML Save/Load handoff 2026-10-27 §6–§9).
 import { aircraftSetHtml, buildFlightHtml, cardHtml, dedBoxesHtml, escapeHtml, installFlightFileDialog, readFlightHtml, resultGroupsHtml, FLIGHT_FILE_FORMAT, FLIGHT_FILE_SCHEMA_VERSION } from "./shared/flight-html-file-v0.1.mjs?v=0.1.3";
-import { installFlightFileBrowser } from "./shared/flight-file-browser-v0.1.mjs?v=0.1.1";
+import { installFlightFileBrowser } from "./shared/flight-file-browser-v0.1.mjs?v=0.1.2";
 import { createTimePlayer } from "./common/ui/time-dial-v0.1.mjs?v=0.1.4";
 // DED boxes, texts and PNG: bombing app shared FE (2026-10-22); the DED record is the Flight BE's.
 import { clearDedValues, dedBoxesMarkup, installDedPngClicks, readDedCard, saveDedPng, syncDedPngButtons as syncDedPngButtonStates, writeDedValues } from "./shared/ded-v0.1.mjs?v=0.1.5";

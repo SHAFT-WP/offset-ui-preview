@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=bf2aae3f1bb2">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=bf2aae3f1bb2">
-<link rel="stylesheet" href="./wide-layout.css?v=bf2aae3f1bb2">
+<link rel="stylesheet" href="./offset.css?v=9bd6dbb01c81">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=9bd6dbb01c81">
+<link rel="stylesheet" href="./wide-layout.css?v=9bd6dbb01c81">
 </head>
 <body class="offset-wide bombing-wide">
 <main class="app" id="offset-calculator">
@@ -145,6 +145,7 @@
     </div>
     <!-- Owner 2026-11-10: Save / Save As / Load with a window inside the page (shared/flight-file-browser-v0.1.mjs). -->
     <p class="flight-draft-note" id="flight-file-note">Save: 이 브라우저에 보관하고, 열린 파일이 있으면 그 파일에도 저장합니다(없으면 Save As가 열립니다). Save As: 폴더와 이름을 골라 HTML 파일 하나로 저장합니다(편대 · Top View · Z · DED · Result). Load: 파일을 고르면 미리보기가 나오고, 확인을 누르면 불러옵니다.</p>
+    <p class="flight-draft-note" id="flight-folder-note"><b>저장 폴더</b>: 처음 Save As나 Load를 누르면 저장 폴더부터 고릅니다. Windows · Program Files · AppData 같은 시스템 폴더, 문서 · 바탕화면 · 다운로드 · 사용자 폴더 그 자체, <code>C:\</code> 같은 드라이브 맨 위는 브라우저(Chrome · Edge)가 막아서 고를 수 없습니다(“시스템 파일이 있어 열 수 없음”). 폴더 창에서 <b>새 폴더</b>를 만들어(예: 문서 안의 <code>FlightSim</code>) 그 폴더를 고르고 거기에 저장하세요.</p>
     <p class="flight-draft-note" id="file-current">현재 파일: 없음</p>
     <div class="save-developer" id="save-developer" hidden>
       <span class="save-developer-label">Developer</span>
@@ -242,7 +243,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=bf2aae3f1bb2"></script>
+<script type="module" src="./wide-layout.mjs?v=9bd6dbb01c81"></script>
 
 </body>
 </html>

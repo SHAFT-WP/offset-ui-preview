@@ -13,7 +13,10 @@
 // File contents, names, the data block and the preview come from flight-html-file-v0.1.mjs.
 import { cleanFileName, escapeHtml, openHtmlFile, readFlightHtml, saveHtmlFile, saveMethod, SAVE_METHOD_HINT } from "./flight-html-file-v0.1.mjs?v=0.1.3";
 
-export const FLIGHT_FILE_BROWSER_V0_1 = Object.freeze({ id: "bombing-flight-file-browser-v0.1", version: "0.1.1" });
+export const FLIGHT_FILE_BROWSER_V0_1 = Object.freeze({ id: "bombing-flight-file-browser-v0.1", version: "0.1.2" });
+// 0.1.2 (owner 2026-11-12): the folder step says that the browser refuses system folders and the top of Documents /
+// Desktop / Downloads / the user folder / a drive, so the user makes a new folder (FOLDER_RULE_HINT).
+export const FOLDER_RULE_HINT = "시스템 폴더(Windows · Program Files · AppData)와 문서 · 바탕화면 · 다운로드 · 사용자 폴더 그 자체, 드라이브 맨 위(C:\\)는 브라우저가 막아서 고를 수 없습니다. 새 폴더를 만들어(예: 문서 안의 FlightSim) 그 폴더를 고르세요.";
 
 // ---- Folder access ---------------------------------------------------------------------------------------------
 // Feature detection: the folder window exists and the page is not inside another site's frame (refused there).
@@ -380,7 +383,7 @@ export function installFlightFileBrowser({ tool, build, read, apply, keepInBrows
       body = '<div class="ffb-empty">준비 중…</div>';
       foot = buttons(btn("cancel", "취소"));
     } else if (view === "intro") {
-      body = `<div class="ffb-intro"><p>저장 폴더를 아직 고르지 않았습니다.</p><p class="ffb-hint">폴더를 한 번 고르면 다음부터 Save As와 Load에서 그 폴더가 바로 열립니다. 이 사이트의 다른 도구(POP-UP 등)도 같은 폴더를 씁니다. 파일이 많은 Download보다 전용 폴더(예: FlightSim)를 권합니다.</p><button type="button" class="ffb-btn primary" data-ffb="pick">폴더 선택</button></div>`;
+      body = `<div class="ffb-intro"><p>저장 폴더를 아직 고르지 않았습니다.</p><p class="ffb-hint">폴더를 한 번 고르면 다음부터 Save As와 Load에서 그 폴더가 바로 열립니다. 이 사이트의 다른 도구(POP-UP 등)도 같은 폴더를 씁니다. 파일이 많은 Download보다 전용 폴더(예: FlightSim)를 권합니다.</p><p class="ffb-hint">${escapeHtml(FOLDER_RULE_HINT)}</p><button type="button" class="ffb-btn primary" data-ffb="pick">폴더 선택</button></div>`;
       foot = `${msgHtml()}${buttons(btn("cancel", "취소"))}`;
     } else if (view === "permission") {
       body = `<div class="ffb-intro"><p>"${escapeHtml(stack[0]?.name ?? "")}" 폴더를 다시 허용해 주세요.</p><p class="ffb-hint">브라우저가 방문할 때마다 한 번 묻습니다. 다른 폴더를 쓰려면 폴더 변경을 누르세요.</p><div class="ffb-buttons" style="justify-content:flex-start"><button type="button" class="ffb-btn primary" data-ffb="allow">허용</button><button type="button" class="ffb-btn" data-ffb="pick">폴더 변경</button></div></div>`;
@@ -503,7 +506,7 @@ export function installFlightFileBrowser({ tool, build, read, apply, keepInBrows
       root = await win.showDirectoryPicker({ id: "flight-sim-tools-files", mode: "readwrite", startIn: "documents" });
     } catch (error) {
       if (error?.name === "AbortError" || quiet) return false;
-      message = { text: `폴더를 열 수 없습니다 · ${error?.message || error}`, kind: "invalid" };
+      message = { text: `폴더를 열 수 없습니다 · ${error?.message || error} · ${FOLDER_RULE_HINT}`, kind: "invalid" };
       render();
       return false;
     }

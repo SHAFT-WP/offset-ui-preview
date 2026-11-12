@@ -12,7 +12,7 @@ import {
   bmsIniTextFromBytes,
   bmsIniBytesFromText,
 } from "./AG/bombing/bms-mission/bms-dtc-v0.1.mjs?v=0.1.0";
-import { createHandleStore, fileTimeText, fileSizeText } from "./shared/flight-file-browser-v0.1.mjs?v=0.1.1";
+import { createHandleStore, fileTimeText, fileSizeText } from "./shared/flight-file-browser-v0.1.mjs?v=0.1.2";
 import { currentMagVarDeg, magVarText, trueFromMagneticDeg } from "./shared/mag-var-v0.1.mjs?v=0.1.0";
 
 export const BMS_MISSION_PANEL_V0_1 = Object.freeze({ id: "offset-bms-mission-panel-v0.1", version: "0.1.0", be: `${BMS_DTC_V0_1.id} ${BMS_DTC_V0_1.version}` });
