@@ -10,6 +10,7 @@ import {
   svgNode,
 } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { createSmartLabelLayout } from "../../../../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
+import { appendAttackFrameOverlay } from "../../pattern-view/attack-frame-overlay-v0.1.mjs?v=0.1.0";
 import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { formatDeg, formatG, formatKt, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { BOX_TOP_VIEW_LEGEND, BOX_VIEW_COLORS as C, boxTopViewTitle } from "./box-view-style-v0.1.mjs";
@@ -38,7 +39,8 @@ export const BOX_TOP_VIEW_V0_5 = Object.freeze({
   // square to the Initial heading) at the former BOX place, beside the Target on the side away from the pattern.
   // 0.5.3 (2026-10-25, owner, MIL OUT): also draws a BOX v0.4 result (box-pattern-geometry-v0.4): the OUT Turn is the
   // MIL OUT's own path, labelled with its speed, bank and G; the OUT Maneuver label gives the MIL climb.
-  version: "0.5.3",
+  // 0.5.4 (owner 2026-11-12): the BMS TGP north mark and the optional Run-In line (attack-frame overlay).
+  version: "0.5.4",
   owner: "AG/bombing/box-pattern/SPEC.md",
   subject: "BOX",
   view: "Top View",
@@ -139,7 +141,7 @@ export function renderBoxTopView(svg, boxResult, options = {}) {
   const title = boxTopViewTitle({ aircraftNumber: options.aircraftNumber });
   svg.setAttribute("aria-label", title);
   const defs = svgNode("defs");
-  [["track", C.attack], ["out", C.out], ["cross", C.crosswind], ["down", C.downwind], ["abeam", C.abeam], ["base", C.baseLeg], ["roll", C.roll], ["ref", C.reference], ["red", C.rollInTarget]]
+  [["track", C.attack], ["out", C.out], ["cross", C.crosswind], ["down", C.downwind], ["abeam", C.abeam], ["base", C.baseLeg], ["roll", C.roll], ["ref", C.reference], ["red", C.rollInTarget], ["runin", "#067a3a"]]
     .forEach(([name, color]) => defs.append(createOpenArrowMarker(`box-top-${name}`, color)));
   defs.append(createOpenArrowMarker("box-top-leader", SVG_DIAGRAM_COLORS_V0_1.helper, SVG_DIAGRAM_STYLE_V0_1.arrow.leader));
   const root = svgNode("g", { "data-view": BOX_TOP_VIEW_V0_5.id });
@@ -279,6 +281,9 @@ export function renderBoxTopView(svg, boxResult, options = {}) {
   const crossInside = fit.project(w({ alongNm: s.crossTurnEnd.alongNm, sideNm: s.crossTurnStart.sideNm }));
   const baseInside = fit.project(w({ alongNm: s.baseTurnStart.alongNm, sideNm: s.baseTurnEnd.sideNm }));
 
+  // Owner 2026-11-12: the north mark (top right) and the optional Run-In line (options.runIn: { headingDeg, ipRangeNm }),
+  // outside the fit (attack-frame overlay).
+  const overlay = appendAttackFrameOverlay(root, { project: fit.project, width: WIDTH, height: HEIGHT, attackHeadingDeg: boxResult.attackHeadingDeg, runIn: options.runIn ?? null, textScale, labels, label, markerId: "box-top-runin" });
   label(P.target, "Target", { labelKey: "target", color: C.target, fontSize: stationSize, candidates: stationCandidates(["downLeft", "left", "upLeft"]) });
   label(P.release, "Bombs Away", { labelKey: "bombs-away", color: C.attackText, fontSize: stationSize, candidates: stationCandidates(["left", "downLeft", "upLeft", "right"]) });
   label(P.trackPoint, "Track Point", { labelKey: "track-point", color: C.attackText, fontSize: stationSize, candidates: stationCandidates(["left", "upLeft", "downLeft"]) });
@@ -349,6 +354,8 @@ export function renderBoxTopView(svg, boxResult, options = {}) {
 
   applyTextHalo(root);
   scopeSvgMarkerIds(svg, options.scope ?? "box-top");
+  // The Run-In label after the view's own labels (attack-frame overlay).
+  overlay.placeLabel();
   return {
     title,
     orientation: BOX_TOP_VIEW_V0_5.orientation,

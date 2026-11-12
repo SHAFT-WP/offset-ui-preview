@@ -9,6 +9,7 @@ import {
   svgNode,
 } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { createSmartLabelLayout } from "../../../../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
+import { appendAttackFrameOverlay } from "../../pattern-view/attack-frame-overlay-v0.1.mjs?v=0.1.0";
 import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { formatDeg, formatG, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { WHEEL_ATTACK_TOP_VIEW_ADVANCED_LEGEND, WHEEL_ATTACK_TOP_VIEW_LEGEND, WHEEL_ATTACK_VIEW_COLORS as C, wheelAttackTopViewTitle } from "./wheel-attack-view-style-v0.1.mjs";
@@ -122,7 +123,7 @@ export function renderWheelAttackTopView(svg, wheelResult, options = {}) {
   const title = wheelAttackTopViewTitle({ aircraftNumber: options.aircraftNumber });
   svg.setAttribute("aria-label", title);
   const defs = svgNode("defs");
-  [["wheel", C.wheel], ["track", C.attack], ["roll", C.roll], ["axis", C.reference]]
+  [["wheel", C.wheel], ["track", C.attack], ["roll", C.roll], ["axis", C.reference], ["runin", "#067a3a"]]
     .forEach(([name, color]) => defs.append(createOpenArrowMarker(`wheel-attack-top-${name}`, color)));
   defs.append(createOpenArrowMarker("wheel-attack-top-leader", SVG_DIAGRAM_COLORS_V0_1.helper, SVG_DIAGRAM_STYLE_V0_1.arrow.leader));
   const root = svgNode("g", { "data-view": WHEEL_ATTACK_TOP_VIEW_V0_1.id });
@@ -227,6 +228,9 @@ export function renderWheelAttackTopView(svg, wheelResult, options = {}) {
     ...labelOptions,
   });
 
+  // Owner 2026-11-12: the north mark (top right) and the optional Run-In line (options.runIn: { headingDeg, ipRangeNm }),
+  // outside the fit (attack-frame overlay).
+  const overlay = appendAttackFrameOverlay(root, { project: fit.project, width: WIDTH, height: HEIGHT, attackHeadingDeg: wheelResult.attackHeadingDeg, runIn: options.runIn ?? null, textScale, labels, label, markerId: "wheel-attack-top-runin" });
   label(P.target, "Target", { labelKey: "target", color: C.target, fontSize: stationSize, candidates: stationCandidates(["downLeft", "left", "upLeft"], mirror) });
   label(P.release, "Bombs Away", { labelKey: "bombs-away", color: C.attackText, fontSize: stationSize, candidates: stationCandidates(["left", "downLeft", "upLeft", "right"], mirror) });
   label(P.trackPoint, "Track Point", { labelKey: "track-point", color: C.attackText, fontSize: stationSize, candidates: stationCandidates(["left", "upLeft", "downLeft"], mirror) });
@@ -254,6 +258,8 @@ export function renderWheelAttackTopView(svg, wheelResult, options = {}) {
 
   applyTextHalo(root);
   scopeSvgMarkerIds(svg, options.scope ?? "wheel-attack-top");
+  // The Run-In label after the view's own labels (attack-frame overlay).
+  overlay.placeLabel();
   return {
     title,
     orientation: WHEEL_ATTACK_TOP_VIEW_V0_1.orientation,

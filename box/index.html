@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BOX Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./box.css?v=9bd6dbb01c81">
-<link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=9bd6dbb01c81">
-<link rel="stylesheet" href="./wide-layout.css?v=9bd6dbb01c81">
+<link rel="stylesheet" href="./box.css?v=eef09bac3672">
+<link rel="stylesheet" href="../common/ui/result-panel-v0.1.css?v=eef09bac3672">
+<link rel="stylesheet" href="./wide-layout.css?v=eef09bac3672">
 </head>
 <body class="box-wide bombing-wide">
 <!-- BOX page (owner 2026-10-23 / 25): a separate page on the Offset FE layout (PC Wide and phone), BOX v0.3 BE through
@@ -40,6 +40,9 @@
       <div class="input-grid">
         <label class="field"><span>Attack Heading (deg)</span><input data-key="attackHeadingDeg" type="text" inputmode="decimal"><span class="unit">MAG · final attack axis</span></label>
         <label class="field advanced-only"><span>Magnetic Var <span class="adv-tag">ADV</span></span><select data-mag-var-select aria-label="Magnetic Var theater"><option value="KOREA">Korea</option><option value="ISRAEL">Israel</option><option value="BALKANS">Balkans</option></select><span class="unit" data-mag-var-value>7.5°W · BMS MAGV · DED TBRG = M − 7.5</span></label>
+        <!-- Owner 2026-11-12: Run-In (IP → Target) for the Top View only; the pattern is unchanged (shared pattern-run-in). -->
+        <label class="field"><span>Run-In Heading (deg)</span><input data-run-in="headingDeg" type="text" inputmode="decimal" placeholder="none" aria-label="Run-In Heading, IP to Target"><span class="unit">MAG · IP → Target · Top View only</span></label>
+        <label class="field"><span>IP Range (NM)</span><input data-run-in="ipRangeNm" type="text" inputmode="decimal" placeholder="edge" aria-label="IP Range from the Target"><span class="unit">IP → Target · blank: to the edge</span></label>
         <label class="field"><span>Angle-Off (deg)</span><output class="readout" data-bdp-fixed="angleOffDeg">90</output><span class="unit">BOX fixed</span></label>
         <label class="field"><span>Base Turn G (G)</span><input data-key="baseTurnG" type="text" inputmode="decimal"><span class="unit">Level Turn · 90° · onset rates of this aircraft</span></label>
         <label class="field"><span>Crosswind Turn G (G)</span><input data-key="crossTurnG" type="text" inputmode="decimal"><span class="unit">Level Turn · 90° · onset rates of this aircraft</span></label>
@@ -90,6 +93,8 @@
       <button class="btn" id="work-default" type="button">Load Default</button>
     </div>
     <output id="save-status" class="status-message valid" role="status">-</output>
+    <!-- BMS Mission (DTC) → Run-In (owner 2026-11-12; shared bms-dtc-run-in-panel). -->
+    <div class="bms-mission" id="bms-mission"></div>
   </section>
 
   <section class="section top-view-section" aria-labelledby="top-view-title">
@@ -142,6 +147,6 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=9bd6dbb01c81"></script>
+<script type="module" src="./wide-layout.mjs?v=eef09bac3672"></script>
 </body>
 </html>

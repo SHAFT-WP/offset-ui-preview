@@ -10,6 +10,7 @@ import {
   svgNode,
 } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { createSmartLabelLayout } from "../../../../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
+import { appendAttackFrameOverlay } from "../../pattern-view/attack-frame-overlay-v0.1.mjs?v=0.1.0";
 import { createSvgAutoCanvas } from "../../../../common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { formatDeg, formatG, formatKt, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { WHEEL_TOP_VIEW_ADVANCED_LEGEND, WHEEL_TOP_VIEW_LEGEND, WHEEL_VIEW_COLORS as C, wheelTopViewTitle } from "./wheel-view-style-v0.1.mjs";
@@ -37,7 +38,8 @@ import { formatWheelRadiusNm } from "../../wheel-attack/wheel-box-geometry-v0.6.
 // - Self-contained: fills an empty <svg>; every stroke, fill and text halo is an attribute.
 export const WHEEL_BOX_TOP_VIEW_V0_1 = Object.freeze({
   id: "wheel-box-top-view-v0.1",
-  version: "0.2.0",
+  // 0.2.1 (owner 2026-11-12): the BMS TGP north mark and the optional Run-In line (attack-frame overlay).
+  version: "0.2.1",
   owner: "AG/bombing/wheel-attack/SPEC.md",
   subject: "Wheel-BOX",
   view: "Top View",
@@ -145,7 +147,7 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
   const title = wheelTopViewTitle({ aircraftNumber: options.aircraftNumber });
   svg.setAttribute("aria-label", title);
   const defs = svgNode("defs");
-  [["wheel", C.wheel], ["track", C.attack], ["abeam", C.abeam], ["base", C.baseLeg], ["roll", C.roll], ["ref", C.reference], ["red", C.rollInTarget], ["sem", C.sem]]
+  [["wheel", C.wheel], ["track", C.attack], ["abeam", C.abeam], ["base", C.baseLeg], ["roll", C.roll], ["ref", C.reference], ["red", C.rollInTarget], ["sem", C.sem], ["runin", "#067a3a"]]
     .forEach(([name, color]) => defs.append(createOpenArrowMarker(`wheel-top-${name}`, color)));
   defs.append(createOpenArrowMarker("wheel-top-leader", SVG_DIAGRAM_COLORS_V0_1.helper, SVG_DIAGRAM_STYLE_V0_1.arrow.leader));
   const root = svgNode("g", { "data-view": WHEEL_BOX_TOP_VIEW_V0_1.id });
@@ -289,6 +291,9 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
   });
   const kcas = `${formatKt(v.patternSpeedKcas)} KCAS`;
 
+  // Owner 2026-11-12: the north mark (top right) and the optional Run-In line (options.runIn: { headingDeg, ipRangeNm }),
+  // outside the fit (attack-frame overlay).
+  const overlay = appendAttackFrameOverlay(root, { project: fit.project, width: WIDTH, height: HEIGHT, attackHeadingDeg: wheelResult.attackHeadingDeg, runIn: options.runIn ?? null, textScale, labels, label, markerId: "wheel-top-runin" });
   label(P.target, "Target", { labelKey: "target", color: C.target, fontSize: stationSize, candidates: stationCandidates(["downLeft", "left", "upLeft"], mirror) });
   label(P.release, "Bombs Away", { labelKey: "bombs-away", color: C.attackText, fontSize: stationSize, candidates: stationCandidates(["left", "downLeft", "upLeft", "right"], mirror) });
   label(P.trackPoint, "Track Point", { labelKey: "track-point", color: C.attackText, fontSize: stationSize, candidates: stationCandidates(["left", "upLeft", "downLeft"], mirror) });
@@ -360,6 +365,8 @@ export function renderWheelBoxTopView(svg, wheelResult, options = {}) {
 
   applyTextHalo(root);
   scopeSvgMarkerIds(svg, options.scope ?? "wheel-top");
+  // The Run-In label after the view's own labels (attack-frame overlay).
+  overlay.placeLabel();
   return {
     title,
     orientation: WHEEL_BOX_TOP_VIEW_V0_1.orientation,

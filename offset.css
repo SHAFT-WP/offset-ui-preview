@@ -1,10 +1,10 @@
-@import url("./common-ui-v0.2.css?v=9bd6dbb01c81");
+@import url("./common-ui-v0.2.css?v=eef09bac3672");
 /* Parts made common (2026-10-22) bring their CSS: input fields, DED, Flight UI, the shared BDP tab (index, 2026-10-26) (bombing app shared FE), time dial (Common UI). */
-@import url("./shared/input-fields-v0.1.css?v=9bd6dbb01c81");
-@import url("./shared/ded-v0.1.css?v=9bd6dbb01c81");
-@import url("./shared/flight-ui-v0.1.css?v=9bd6dbb01c81");
-@import url("./shared/bdp-tab-v0.1.css?v=9bd6dbb01c81");
-@import url("./common/ui/time-dial-v0.1.css?v=9bd6dbb01c81");
+@import url("./shared/input-fields-v0.1.css?v=eef09bac3672");
+@import url("./shared/ded-v0.1.css?v=eef09bac3672");
+@import url("./shared/flight-ui-v0.1.css?v=eef09bac3672");
+@import url("./shared/bdp-tab-v0.1.css?v=eef09bac3672");
+@import url("./common/ui/time-dial-v0.1.css?v=eef09bac3672");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -64,12 +64,5 @@ input[data-bdp-result]{cursor:default;border-style:dashed;border-color:var(--mut
 .popup-input-grid>.field{grid-row:span 3;grid-template-rows:subgrid;row-gap:7px}
 .popup-input-grid>.field>:first-child{align-self:end}
 .popup-input-grid>.field>.btn{align-self:stretch}
-/* BMS Mission (DTC) and DTE in the Save/Load tab (2026-11-12, plan S7 / S8). */
-.bms-mission{display:grid;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
-.bms-mission-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.bms-mission-head h3{margin:0;font-size:14px;font-weight:900}
-.bms-mission .save-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:end}.bms-mission .bms-dte-ship{min-width:88px}
-.bms-mission-messages{margin:0;padding-left:18px;font-size:12px;line-height:1.5}.bms-mission-messages:empty{display:none}.bms-mission-messages .warning{color:var(--amber)}.bms-mission-messages .invalid{color:var(--red)}
-.bms-mission-stpts{grid-template-columns:repeat(2,minmax(0,1fr))}
-.bms-mission code{font-size:11px}.bms-file-table{width:100%;border-collapse:collapse;font-size:11px;color:var(--muted)}.bms-file-table th,.bms-file-table td{padding:4px 6px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
 /* Owner 2026-11-12: the Top View (and S&R) time dial under the picture, full width like the BDP 3D / HUD dials. */
 .top-view-time{margin-top:8px}.top-view-time .time-dial{margin-top:0}

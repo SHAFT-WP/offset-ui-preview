@@ -26,9 +26,11 @@ import { installSvgViewport } from "../common/diagram/svg-viewport-v0.1.mjs?v=0.
 import { installSmartLabelDrag } from "../common/diagram/svg-smart-label-v0.1.mjs?v=0.1.5";
 import { createTimePlayer, timeDialMarkup } from "../common/ui/time-dial-v0.1.mjs?v=0.1.3";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec } from "../common/ui/display-precision-v0.1.mjs?v=0.1.1";
-import { BOX_TOP_VIEW_V0_5, boxTopViewTitle, renderBoxTopView } from "../AG/bombing/box-pattern/view/box-top-view-v0.5.mjs?v=0.5.3";
+import { BOX_TOP_VIEW_V0_5, boxTopViewTitle, renderBoxTopView } from "../AG/bombing/box-pattern/view/box-top-view-v0.5.mjs?v=0.5.4";
 import { boxAbeamText, boxZDiagramTitle, renderBoxZDiagramV0_3 } from "../AG/bombing/box-pattern/view/box-z-diagram-v0.3.mjs?v=0.3.0";
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.0";
+import { createPatternRunIn } from "../shared/pattern-run-in-v0.1.mjs?v=0.1.0";
+import { mountBmsDtcRunInPanel } from "../shared/bms-dtc-run-in-panel-v0.1.mjs?v=0.1.0";
 
 // 0.2.0 (2026-10-25, owner): Formation. #1–#4 fly #1's BDP and BOX data; #2–#4 hold only their Formation position, and
 // the BOX Top View shows each aircraft at its place. The spacing between them is the Spacer Turn's (a later step).
@@ -73,6 +75,8 @@ let bdpClockSec = null;
 let editAircraftOf = () => 1;
 let loadedSave = null;
 let legend = null;
+// Run-In (owner 2026-11-12): page state for the Top View only, saved with Save (shared pattern-run-in).
+const runIn = createPatternRunIn({ root: app, onChange: () => renderTopView() });
 
 // ---- Field texts ----------------------------------------------------------------------------------------------------
 
@@ -311,6 +315,7 @@ function installEdits() {
 // Tab Default: that tab's values (and the BDP Profile solve state / LOCKs when it holds the BDP Profile) go back to
 // the BE's defaults; other tabs keep theirs.
 function resetTab(tab) {
+  if (tab === "box") runIn.clear();
   const keys = tab === "bdp" ? BDP_TAB_KEYS : tab === "box" ? [...BOX_KEYS, ...BOX_TAB_COPY_KEYS] : [];
   if (!keys.length) return;
   keys.forEach((key) => { lead.values[key] = BOX_FLIGHT_DEFAULT_VALUES[key]; });
@@ -485,7 +490,7 @@ function renderTopView() {
   const formation = flightSize > 1
     ? shownAircraft.visible().filter((number) => lastPositions[number]).map((number) => ({ number, ...lastPositions[number], color: AIRCRAFT_COLORS[number] }))
     : [];
-  const rendered = renderBoxTopView(svg, result, { aircraftNumber: 1, textScale: topViewTextScale, formation, advanced: topViewAdvanced });
+  const rendered = renderBoxTopView(svg, result, { aircraftNumber: 1, textScale: topViewTextScale, formation, advanced: topViewAdvanced , runIn: runIn.value() });
   syncTopViewSize(rendered.canvas, `${resultSerial(result)}|${formation.map((item) => item.number).join(",")}`);
   $("#capture-top-view").disabled = false;
   legend?.render?.();
@@ -642,7 +647,7 @@ function installSaveTab() {
       build: () => ({
         schemaVersion: SAVE_SCHEMA, angleConvention: FORMATION_ANGLE_CONVENTION, savedAt: new Date().toISOString(), flightSize,
         aircraft: { 1: structuredClone(lead), ...Object.fromEntries(Object.entries(followers).map(([number, record]) => [number, structuredClone(record)])) },
-        editAircraft: editAircraftOf(), shown: shownAircraft.saved(),
+        editAircraft: editAircraftOf(), shown: shownAircraft.saved(), runIn: runIn.capture(),
       }),
     }),
     status: setSaveStatus,
@@ -651,6 +656,7 @@ function installSaveTab() {
   });
   $("#work-save").addEventListener("click", () => saveRun.run());
   $("#work-default").addEventListener("click", () => {
+    runIn.clear({ notify: false });
     lead = boxFlightDefaultLead();
     [2, 3, 4].forEach((number) => { followers[number] = boxFlightDefaultFollower(number); });
     writeAllFields();
@@ -795,10 +801,14 @@ installEdits();
 installFormationEdits();
 installCalculation();
 installSaveTab();
+// BMS Mission (DTC) → Run-In and Target Elevation (owner 2026-11-12); hooks for the browser checks.
+globalThis.patternBmsDtc = mountBmsDtcRunInPanel({ root: $("#bms-mission"), runIn, whenIdle: () => scheduler.whenIdle() });
+globalThis.patternRunIn = runIn;
 installViewControls();
 loadedSave = readSave();
 if (loadedSave) {
   lead = structuredClone(loadedSave.aircraft[1]);
+  runIn.restore(loadedSave.runIn);
   lead.values ??= {};
   lead.locks ??= {};
   lead.state ??= {};
