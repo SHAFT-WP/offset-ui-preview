@@ -1,10 +1,10 @@
-@import url("./common-ui-v0.2.css?v=9cb3c528d4f6");
+@import url("./common-ui-v0.2.css?v=7ca52e643a38");
 /* Parts made common (2026-10-22) bring their CSS: input fields, DED, Flight UI, the shared BDP tab (index, 2026-10-26) (bombing app shared FE), time dial (Common UI). */
-@import url("./shared/input-fields-v0.1.css?v=9cb3c528d4f6");
-@import url("./shared/ded-v0.1.css?v=9cb3c528d4f6");
-@import url("./shared/flight-ui-v0.1.css?v=9cb3c528d4f6");
-@import url("./shared/bdp-tab-v0.1.css?v=9cb3c528d4f6");
-@import url("./common/ui/time-dial-v0.1.css?v=9cb3c528d4f6");
+@import url("./shared/input-fields-v0.1.css?v=7ca52e643a38");
+@import url("./shared/ded-v0.1.css?v=7ca52e643a38");
+@import url("./shared/flight-ui-v0.1.css?v=7ca52e643a38");
+@import url("./shared/bdp-tab-v0.1.css?v=7ca52e643a38");
+@import url("./common/ui/time-dial-v0.1.css?v=7ca52e643a38");
 
 :root{color-scheme:dark}
 body.show-full-bdp .bdp-extra{display:grid}
@@ -64,5 +64,7 @@ input[data-bdp-result]{cursor:default;border-style:dashed;border-color:var(--mut
 .popup-input-grid>.field{grid-row:span 3;grid-template-rows:subgrid;row-gap:7px}
 .popup-input-grid>.field>:first-child{align-self:end}
 .popup-input-grid>.field>.btn{align-self:stretch}
+/* AUTO starts its own row, a set with Min. Exposure below it (owner 2026-11-10). */
+.popup-input-grid>.popup-auto-field{grid-column:1}
 /* Owner 2026-11-12: the Top View (and S&R) time dial under the picture, full width like the BDP 3D / HUD dials. */
 .top-view-time{margin-top:8px}.top-view-time .time-dial{margin-top:0}

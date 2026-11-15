@@ -12,7 +12,7 @@
 // Each fill or change is a warning naming it. Fields without a candidate list keep the Offset rule (back to the value
 // at the start of the edit; a Tracking Time to solved).
 
-export const OFFSET_CLEAR_FIT_V0_1 = Object.freeze({ id: "offset-clear-fit-v0.1", version: "0.1.1" });
+export const OFFSET_CLEAR_FIT_V0_1 = Object.freeze({ id: "offset-clear-fit-v0.1", version: "0.1.2" });
 
 export const clearFitRange = (lo, hi, step) => Array.from({ length: Math.round((hi - lo) / step) + 1 }, (_, i) => Math.round((lo + i * step) * 1000) / 1000);
 
@@ -57,7 +57,7 @@ export function nearestFit(candidates, from, fits) {
 // spec: {
 //   table: { key: [label, page default, candidates] },
 //   order: step 2's keys,
-//   autoOnClear?: { key: [edits that put it back to AUTO] }, autoLabel?: { key: label },
+//   autoOnClear?: { key: [edits that put it back to AUTO] }, autoLabel?: { key: label }, autoText?: { key: "AUTO" text },
 //   flies?(out, n, strict): a fit (default VALID / WARNING), strict?: a first pass with flies(.., true),
 //   locked?(input, n, key): LOCKed (default clearFitFieldLocked), currentValue?(out, n, key): a value not in the record,
 // }
@@ -71,7 +71,7 @@ export function calculateWithClearFit(rawInput, flight, spec) {
 }
 
 function clearFit(rawInput, flight, spec, strict) {
-  const { table, order, autoOnClear = {}, autoLabel = {} } = spec;
+  const { table, order, autoOnClear = {}, autoLabel = {}, autoText = {} } = spec;
   const flies = spec.flies ?? ((out, n) => ["VALID", "WARNING"].includes(out?.aircraftResults?.[n]?.status));
   const locked = spec.locked ?? clearFitFieldLocked;
   const all = editsOf(rawInput ?? {});
@@ -111,7 +111,7 @@ function clearFit(rawInput, flight, spec, strict) {
     const autoInput = startValue === undefined ? rawInput : setValue(rawInput, clear.key, startValue);
     atDefault = run(autoInput, autoOnClear[clear.key].map((e) => ({ aircraft: number, kind: "set", commit: true, ...e })));
     baseInput = atDefault.nextInput;
-    if (flies(atDefault, n, strict)) return { fitted: true, out: note(atDefault, `${label} cleared: AUTO`) };
+    if (flies(atDefault, n, strict)) return { fitted: true, out: note(atDefault, `${label} cleared: ${autoText[clear.key] ?? "AUTO"}`) };
   } else {
     const outs = new Map();
     const tryValue = (value) => {
@@ -137,7 +137,7 @@ function clearFit(rawInput, flight, spec, strict) {
       return flies(out, n, strict);
     });
     if (found !== null && Math.abs(found - from) > 1e-9) {
-      const first = autoOnClear[clear.key] ? `${label} cleared: AUTO` : `${label} cleared: set to ${fmt(center)}`;
+      const first = autoOnClear[clear.key] ? `${label} cleared: ${autoText[clear.key] ?? "AUTO"}` : `${label} cleared: set to ${fmt(center)}`;
       return { fitted: true, out: note(outs.get(found), `${first}; it did not fit alone, so ${otherLabel} changed ${fmt(from)} → ${fmt(found)}`) };
     }
   }
