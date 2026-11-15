@@ -48,7 +48,9 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_4 = Object.freeze({
   // bomb lands after the CSEM bottom. `public.pullNltReleaseMslFt` keeps the §6.3 pull NLT.
   // 0.4.8 (2026-11-10, owner "b도 넣어", SPEC §6.11): nlt-after-impact 0.2.0 — after impact the SEM may be below MINALT
   // while outside the full fragment radius (120% Fragment Range); every SEM (LEVEL / CLIMB, with its turn) is solved.
-  version: "0.4.8",
+  // 0.4.9 (2026-11-15, owner, BEM pop-up example): `releaseBelowNlt: "FLY"` flies the entered Release Altitude even
+  // below the NLT Release (absent: clamped up to it, as before). The NLT stays in public.nltReleaseMslFt.
+  version: "0.4.9",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   rollInModel: ROLL_IN_V0_2_MODEL,
   semFragmentModel: SEM_FRAGMENT_MODEL_V0_1,
@@ -167,6 +169,8 @@ function canonicalInput(rawInput) {
     ...onsetInput(rawInput),
     ...popUpRollInInput(rawInput),
     ballisticModelId: rawInput.ballisticModelId,
+    // 0.4.9: absent by default, so other consumers' inputs (and cache keys) are unchanged.
+    ...(rawInput.releaseBelowNlt === "FLY" ? { releaseBelowNlt: "FLY" } : {}),
   };
 }
 
@@ -310,7 +314,7 @@ function nltAfterImpactHook(input) {
 
 function solveCanonical(input) {
   const rollInOnset = Object.fromEntries(ONSET_KEYS.map((key) => [key, input[key]]));
-  const calculation = calculateBombDeliveryV0_2({ ...input, rollInOnset }, { rollIn: rollInV0_2ForOneCall(popUpRollInParams(input)), nltAllDives: true, adjustNlt: nltAfterImpactHook(input) });
+  const calculation = calculateBombDeliveryV0_2({ ...input, rollInOnset }, { rollIn: rollInV0_2ForOneCall(popUpRollInParams(input)), nltAllDives: true, adjustNlt: nltAfterImpactHook(input), flyBelowNlt: input.releaseBelowNlt === "FLY" });
   const state = buildBombDeliveryVisualizationState(calculation);
   const roll = calculation.rollIn;
   const sem = semFragment(input, calculation);

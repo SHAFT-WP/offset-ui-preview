@@ -40,7 +40,7 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 // (csemLevelAltitudeAglFt) and turns to the same heading as the Level SEM (blank: the Run-In reciprocal).
 // 0.2.18 (owner 2026-11-11, BMS mission plan S1): an Action Point (VRP) beyond a locked IP is a WARNING, not INVALID;
 // result.actionPointBeyondIp marks that the path starts at the Action Point. Values are unchanged.
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.18", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.19", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -180,6 +180,8 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirecti
     rollInG: finite("rollInG", profile.rollInG),
     // Developer option (BDP v0.4.1): the Fragment Height Margin on the radius too (default) or on the height only.
     fragmentMarginAppliesTo: profile.fragmentMarginAppliesTo,
+    // Offset / POP-UP (owner 2026-11-15, BEM pop-up example): the entered Release is flown even below the NLT (warned).
+    releaseBelowNlt: "FLY",
     // The selected SEM (BDP v0.4.2; absent: LEVEL, +30°).
     semEnd: profile.semEnd ?? undefined,
     // CSEM (owner 2026-11-04): Target FPA blank = Dive + 10°; the CSEM turn levels at csemLevelAltitudeAglFt
@@ -416,6 +418,12 @@ export function calculateOffsetV0_2Full(input) {
   const reference = buildReferenceState(candidate, { ...input, referenceMode, ipRangeNm });
   errors.push(...reference.errors);
   warnings.push(...reference.warnings);
+  // Release below NLT (owner 2026-11-15, BEM pop-up example: "입력대로 비행 + 경고"): flown as entered, with a warning.
+  const enteredReleaseMslFt = candidate.profile.public.effectiveReleaseAltitudeMslFt;
+  const nltReleaseMslFt = candidate.profile.public.nltReleaseMslFt;
+  if (Number.isFinite(enteredReleaseMslFt) && Number.isFinite(nltReleaseMslFt) && enteredReleaseMslFt < nltReleaseMslFt - 0.5) {
+    warnings.push(`Release Altitude ${Math.round(enteredReleaseMslFt).toLocaleString("en-US")} ft is below NLT ${Math.round(nltReleaseMslFt).toLocaleString("en-US")} ft (frag / recovery): flown as entered`);
+  }
 
   const speedFps = turn.offsetTasKt * KT_TO_FPS;
   // Signed IP -> Action Point leg: negative when the Action Point lies beyond IP (the turn starts

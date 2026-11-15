@@ -213,7 +213,9 @@ export function calculateBombDeliveryV0_2(rawInput, options = {}) {
     if (adjusted) safety = { ...safety, pullNltReleaseMslFt: safety.nltReleaseMslFt, nltReleaseMslFt: adjusted.nltReleaseMslFt, nltAfterImpact: adjusted };
   }
 
-  const effectiveReleaseAltitudeMslFt = nltSupported
+  // options.flyBelowNlt (BDP v0.4 releaseBelowNlt "FLY", owner 2026-11-15): the entered Release is flown even below the
+  // NLT (the caller warns); else the Release is clamped up to the NLT.
+  const effectiveReleaseAltitudeMslFt = nltSupported && options.flyBelowNlt !== true
     ? Math.max(input.enteredReleaseAltitudeMslFt, safety.nltReleaseMslFt)
     : input.enteredReleaseAltitudeMslFt;
   const releaseAglFt = effectiveReleaseAltitudeMslFt - input.targetElevationMslFt;
