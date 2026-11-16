@@ -55,7 +55,7 @@ function canonicalInput(rawInput) {
   const windSpeedKt = rawInput.windSpeedKt ?? 0;
   return {
     weaponId: rawInput.weaponId ?? "M82",
-    fragmentHeightMarginPercent: rawInput.fragmentHeightMarginPercent ?? 20,
+    fragmentHeightMarginPercent: rawInput.fragmentHeightMarginPercent ?? 10,
     targetElevationMslFt: rawInput.targetElevationMslFt,
     releaseSpeedKcas: rawInput.releaseSpeedKcas,
     speedOvershootKcas: rawInput.speedOvershootKcas ?? 50,

@@ -80,7 +80,7 @@ function normalizeInput(raw) {
   const windSpeedKt = raw.windSpeedKt ?? 0;
   return {
     weaponId: raw.weaponId ?? "M82",
-    fragmentHeightMarginPercent: raw.fragmentHeightMarginPercent ?? 20,
+    fragmentHeightMarginPercent: raw.fragmentHeightMarginPercent ?? 10,
     targetElevationMslFt: raw.targetElevationMslFt ?? raw.targetElevation,
     releaseSpeedKcas: raw.releaseSpeedKcas ?? raw.releaseSpeed,
     speedOvershootKcas: raw.speedOvershootKcas ?? raw.rnltSpeedMargin ?? 50,

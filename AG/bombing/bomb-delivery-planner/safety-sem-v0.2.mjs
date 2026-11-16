@@ -20,7 +20,7 @@ export function calculateSemNltSafety({
   targetElevationMslFt,
   releaseSpeedKcas,
   speedOvershootKcas = 50,
-  fragmentHeightMarginPercent = 20,
+  fragmentHeightMarginPercent = 10,
   releaseFpaDeg,
   recoveryG = 5,
   gOnsetTimeSec = 2,

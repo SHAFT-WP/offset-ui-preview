@@ -106,7 +106,7 @@ const OFFSET_DEFAULT_INPUT_VALUES = Object.freeze({
   releaseSpeedKcas: "450",
   recoveryG: "5",
   speedOvershootKcas: "50",
-  fragmentHeightMarginPercent: "20",
+  fragmentHeightMarginPercent: "10",
   gOnsetTimeSec: "2",
   // BDP v0.4 Roll-in / Offset Turn onset rates (owner 2026-10-15; Full BDP).
   rollInRollRateDegSec: "60",

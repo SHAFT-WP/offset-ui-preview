@@ -161,7 +161,7 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirecti
     targetElevationMslFt: finite("targetElevationMslFt", profile.targetElevationMslFt),
     releaseSpeedKcas: finite("releaseSpeedKcas", profile.releaseSpeedKcas),
     speedOvershootKcas: profile.speedOvershootKcas ?? 50,
-    fragmentHeightMarginPercent: profile.fragmentHeightMarginPercent ?? 20,
+    fragmentHeightMarginPercent: profile.fragmentHeightMarginPercent ?? 10,
     recoveryG: profile.recoveryG ?? 5,
     gOnsetTimeSec: profile.gOnsetTimeSec ?? 2,
     diveAngleDeg,

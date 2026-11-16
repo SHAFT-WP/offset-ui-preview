@@ -54,7 +54,7 @@ export const WHEEL_ATTACK_FLIGHT_DEFAULT_VALUES = Object.freeze({
   recoveryG: 5,
   gOnsetTimeSec: 2,
   speedOvershootKcas: 50,
-  fragmentHeightMarginPercent: 20,
+  fragmentHeightMarginPercent: 10,
   semTurnType: "LEVEL",
   semTurnDirection: null,
   semTurnDeg: 90,

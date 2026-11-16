@@ -133,7 +133,7 @@ function canonicalInput(rawInput) {
   }
   return {
     weaponId: rawInput.weaponId ?? "M82",
-    fragmentHeightMarginPercent: rawInput.fragmentHeightMarginPercent ?? 20,
+    fragmentHeightMarginPercent: rawInput.fragmentHeightMarginPercent ?? 10,
     fragmentMarginAppliesTo: fragmentMarginMode(rawInput.fragmentMarginAppliesTo),
     semEnd: semEndInput(rawInput.semEnd),
     csemTargetFpaDeg: rawInput.csemTargetFpaDeg ?? 30,
