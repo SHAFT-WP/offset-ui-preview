@@ -18,13 +18,16 @@ export const POPUP_BE_V0_2 = Object.freeze({
   // 0.2.2 (owner 2026-11-10): the Popup angle may be 55° (inclusive upper bound, climb 0.2.1); the scan ends at 55.
   // 0.2.3 (owner 2026-11-10, "300미만으로 떨어지는 경우 low speed warning"): LOW SPEED warning when the slowest point from
   // the Pop to the Apex (the climb samples and the Apex) is below 300 KCAS (was: the Apex below 250 KCAS).
-  version: "0.2.3",
+  // 0.2.4 (review 2026-11-16, owner "b1 수정 … b3 수정"): the minimum-exposure refinement skips an angle that cannot be
+  // flown (it threw, which failed the whole Flight answer at Dive 30°); a ground distance no angle can fly names the
+  // cause instead of "reachable Infinity–-Infinity NM".
+  version: "0.2.4",
   status: "Work / Not Official",
   bdpModel: `${BOMB_DELIVERY_PLANNER_MODEL_V0_4.id} ${BOMB_DELIVERY_PLANNER_MODEL_V0_4.version}`,
   climbModel: `${POPUP_CLIMB_V0_2.id} ${POPUP_CLIMB_V0_2.version}`,
-  // "ROLL_IN_SPEED" (owner 2026-11-03, SPEC §13.8i): the Popup angle whose MIL arrival at Roll-in Start is the
-  // LOCKed Roll-in Speed (p.rollInSpeedKcas).
-  drivers: Object.freeze(["DEFAULT", "ANGLE", "GROUND_DISTANCE", "EXPOSURE_TIME", "ROLL_IN_SPEED"]),
+  // 0.2.4: the "ROLL_IN_SPEED" angle driver (0.2.x, §13.8i) is removed — a LOCKed Roll-in Speed has solved the Pop-up
+  // Speed, not the angle, since POP-UP Flight 0.1.13.
+  drivers: Object.freeze(["DEFAULT", "ANGLE", "GROUND_DISTANCE", "EXPOSURE_TIME"]),
   lowSpeedWarningKcas: 300,
   // Angle search for the distance / time drivers and the minimum exposure: a scan, then refinement.
   angleScanDeg: Object.freeze([2, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]),
@@ -58,7 +61,6 @@ export function normalizePopupInput(input) {
     popupAngleDeg: driver === "ANGLE" ? finite("popupAngleDeg", popup.popupAngleDeg) : null,
     groundDistanceNm: driver === "GROUND_DISTANCE" ? finite("groundDistanceNm", popup.groundDistanceNm) : null,
     exposureTimeSec: driver === "EXPOSURE_TIME" ? finite("exposureTimeSec", popup.exposureTimeSec) : null,
-    rollInSpeedKcas: driver === "ROLL_IN_SPEED" ? finite("rollInSpeedKcas", popup.rollInSpeedKcas) : null,
   };
 }
 
@@ -122,25 +124,6 @@ export function resolvePopupAngle(p) {
   const rollInAltitudeAt = (angleDeg) => (heightMode
     ? finite("initialAltitudeMslFt", p.bdp.initialAltitudeMslFt)
     : calculateBombDeliveryV0_4Full({ ...p.bdp, rollInStartFpaDeg: angleDeg, rollInSpeedModel: "MIL" }).public.resolvedInitialAltitudeMslFt);
-  if (p.driver === "ROLL_IN_SPEED") {
-    // §13.8i (owner 2026-11-03): the smallest angle whose MIL arrival at Roll-in Start is the LOCKed Roll-in Speed;
-    // out of reach (no AB model) is an error with the reachable speeds.
-    if (!(p.rollInSpeedKcas > 0)) throw new RangeError("Roll-in Speed must be > 0 KCAS");
-    const f = (angleDeg) => climbAt(p, rollInAltitudeAt(angleDeg), angleDeg).rollInStart.casKt - p.rollInSpeedKcas;
-    const points = scan(f);
-    const roots = [];
-    for (let i = 1; i < points.length; i += 1) {
-      const a = points[i - 1];
-      const b = points[i];
-      if (b.value === 0) roots.push(b.angleDeg);
-      else if (a.value !== null && b.value !== null && Math.sign(a.value) !== Math.sign(b.value)) roots.push(bisectAngle(f, a.angleDeg, b.angleDeg, a.value));
-    }
-    if (!roots.length) {
-      const reachable = points.filter((x) => x.value !== null).map((x) => x.value + p.rollInSpeedKcas);
-      throw new RangeError(`Roll-in Speed LOCK: no Popup angle reaches ${p.rollInSpeedKcas.toFixed(0)} KCAS at Roll-in Start on MIL${reachable.length ? ` (reachable ${Math.min(...reachable).toFixed(0)}–${Math.max(...reachable).toFixed(0)} KCAS)` : ""}; AB is not modelled`);
-    }
-    return { angleDeg: roots[0], otherSolutionsDeg: roots.slice(1) };
-  }
   if (p.driver === "GROUND_DISTANCE") {
     if (!(p.groundDistanceNm > 0)) throw new RangeError("Popup ground distance must be > 0 NM");
     const f = (angleDeg) => groundDistanceAt(p, rollInAltitudeAt(angleDeg), angleDeg) - p.groundDistanceNm;
@@ -152,6 +135,8 @@ export function resolvePopupAngle(p) {
       if (b.value === 0) return { angleDeg: b.angleDeg };
     }
     const reachable = points.filter((x) => x.value !== null).map((x) => x.value + p.groundDistanceNm);
+    // 0.2.4: no angle on the scan flies at all — say why (the first angle's error) instead of an empty range.
+    if (!reachable.length) throw new RangeError(`No Popup angle can be flown for a ground distance of ${p.groundDistanceNm} NM${points[0]?.error ? ` (${points[0].error})` : ""}`);
     throw new RangeError(`No Popup angle gives a ground distance of ${p.groundDistanceNm} NM (reachable ${Math.min(...reachable).toFixed(2)}–${Math.max(...reachable).toFixed(2)} NM)`);
   }
   // EXPOSURE_TIME: not monotonic in the angle; the smallest angle with the time is used and the others are listed.
@@ -271,6 +256,8 @@ export function assemblePopupAttack({ p, angleDeg, otherSolutionsDeg = [], bdp, 
 
 // The Popup angle with the shortest exposure (Pop Point → Apex) and that time (§13.5; a reference result with an
 // Apply): the scan, then golden-section refinement around its best point.
+// One aircraft at the given Pop state and Roll-in Speed (the BE's own inputs). The POP-UP Flight starts from this
+// angle and then flies its own trials with the Roll-in Speed fitted per angle (Flight 0.1.15, SPEC §13.8v).
 export function calculatePopupMinimumExposureFull(input) {
   const p = normalizePopupInput({ ...input, popup: { ...(input?.popup ?? {}), driver: "DEFAULT" } });
   const exposure = (angleDeg) => {
@@ -284,16 +271,20 @@ export function calculatePopupMinimumExposureFull(input) {
   let a = points[Math.max(0, i - 1)].angleDeg;
   let b = points[Math.min(points.length - 1, i + 1)].angleDeg;
   const r = (Math.sqrt(5) - 1) / 2;
+  // 0.2.4: an angle between two scan points that cannot be flown counts as the longest exposure (it is skipped, as
+  // on the scan), so one unflyable trial no longer ends the search with an error.
+  const trial = (angleDeg) => { try { return exposure(angleDeg); } catch { return Infinity; } };
   let c = b - r * (b - a);
   let d = a + r * (b - a);
-  let fc = exposure(c);
-  let fd = exposure(d);
+  let fc = trial(c);
+  let fd = trial(d);
   while (b - a > POPUP_BE_V0_2.angleToleranceDeg * 10) {
-    if (fc < fd) { b = d; d = c; fd = fc; c = b - r * (b - a); fc = exposure(c); } else { a = c; c = d; fc = fd; d = a + r * (b - a); fd = exposure(d); }
+    if (fc < fd) { b = d; d = c; fd = fc; c = b - r * (b - a); fc = trial(c); } else { a = c; c = d; fc = fd; d = a + r * (b - a); fd = trial(d); }
   }
-  const angleDeg = fc < fd ? c : d;
-  const exposureTimeSec = Math.min(fc, fd);
-  return { status: "VALID", angleDeg, exposureTimeSec, scan: points.map(({ angleDeg: x, value }) => ({ angleDeg: x, exposureTimeSec: value })) };
+  // The scan's best point stays the answer when the refinement found nothing shorter that flies.
+  const refined = fc < fd ? { angleDeg: c, value: fc } : { angleDeg: d, value: fd };
+  const best = refined.value < points[i].value ? refined : points[i];
+  return { status: "VALID", angleDeg: best.angleDeg, exposureTimeSec: best.value, scan: points.map(({ angleDeg: x, value }) => ({ angleDeg: x, exposureTimeSec: value })) };
 }
 
 export function calculatePopup(input) {

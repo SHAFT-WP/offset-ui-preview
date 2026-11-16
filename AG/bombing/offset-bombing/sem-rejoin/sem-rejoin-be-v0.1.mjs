@@ -60,7 +60,8 @@ export const SEM_REJOIN_V0_1 = Object.freeze({
   // against each aircraft's path, and a path that ends inside the fragment radius (output.fragmentChecks).
   // 0.5.0 (owner 2026-11-16, "b는 우리 편대 표를 보면 확정 … b와 c 적용"): the egress Formation from the Flight
   // formation templates (edit applyFormationTemplate) and the automatic rejoin (edit autoRejoin).
-  version: "0.5.0",
+  // 0.5.1 (owner review 2026-11-16, S5): Auto Rejoin 0.1.1 leaves out a Straight of almost no length.
+  version: "0.5.1",
   model: Object.freeze({ id: "sr-energy-neutral-point-mass-v0.1", version: "0.1.0", integrationStepSec: 0.01 }),
   components: Object.freeze({
     sem: `${CLIMB_SEM_MODEL_V0_2.id} ${CLIMB_SEM_MODEL_V0_2.version}`,
@@ -1597,9 +1598,11 @@ function applyFormationTemplate(plan, flightSize, name, side) {
 
 export const SEM_REJOIN_AUTO_V0_1 = Object.freeze({
   id: "offset-sem-rejoin-auto-v0.1",
-  version: "0.1.0",
+  // 0.1.1 (review 2026-11-16, S5): no Straight shorter than minStraightNm (the "0.0 NM" row) when the slot is met without it.
+  version: "0.1.1",
   // Accepted slot error at the end of the last row.
   solvedNm: 0.02,
+  minStraightNm: 0.05,
   // Search: Straight heading every 10°, Straight distances (NM), then a pattern search down to 0.02° / 0.002 NM.
   headingStepDeg: 10,
   distancesNm: Object.freeze([0.3, 0.6, 1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20]),
@@ -1647,6 +1650,19 @@ function rejoinRows(start, headingDeg, distanceNm, egressHeadingDeg, driverKind,
   return rows;
 }
 
+// The rows without a Straight shorter than minStraightNm; two Turns left next to each other that turn the same way are
+// one Turn to the second heading (opposite ways stay two: an S-turn is not a single Turn).
+function withoutShortStraights(rows) {
+  const out = [];
+  for (const row of rows) {
+    if (row.kind === "STRAIGHT" && row.end.value < SEM_REJOIN_AUTO_V0_1.minStraightNm) continue;
+    const previous = out[out.length - 1];
+    if (row.kind === "TURN" && previous?.kind === "TURN" && previous.direction === row.direction) out[out.length - 1] = { ...row };
+    else out.push(row);
+  }
+  return out;
+}
+
 // One aircraft's automatic rejoin: #1 turns to the Egress Heading; a follower flies Turn + Straight + Turn so that the
 // end of its last Turn is its slot from its reference aircraft at that moment on the IP clock.
 function solveAutoRejoin(number, plan, upstream, windKt, results) {
@@ -1678,8 +1694,11 @@ function solveAutoRejoin(number, plan, upstream, windKt, results) {
   let lastFailure = null;
   const cost = (headingDeg, distanceNm, backNm) => {
     if (!(distanceNm > 0) || (backNm !== null && !(backNm >= 0))) return Infinity;
+    return costOfRows(rejoinRows(start, headingDeg, distanceNm, egressHeadingDeg, driverKind, backNm));
+  };
+  const costOfRows = (rows) => {
     trials += 1;
-    const flown = flyRejoinRows(rejoinRows(start, headingDeg, distanceNm, egressHeadingDeg, driverKind, backNm), start, ctx, settings);
+    const flown = flyRejoinRows(rows, start, ctx, settings);
     if (!flown.end) {
       lastFailure = flown.failed;
       return Infinity;
@@ -1746,8 +1765,19 @@ function solveAutoRejoin(number, plan, upstream, windKt, results) {
       longitudinalNm: error ? dot(error, forward) : null, lateralNm: error ? dot(error, { x: forward.y, y: -forward.x }) : null, atSec: timeSec,
     };
   }
+  // 0.1.1 (review 2026-11-16, S5): a Straight of almost no length is left out and the Turns around it that go the same
+  // way become one Turn — when the slot is still met; else the rows stay as solved.
+  let rows = rejoinRows(start, best.headingDeg, best.distanceNm, egressHeadingDeg, driverKind, best.backNm);
+  const simpler = withoutShortStraights(rows);
+  if (simpler.length < rows.length) {
+    const simplerCost = costOfRows(simpler);
+    if (simplerCost <= SEM_REJOIN_AUTO_V0_1.solvedNm) {
+      rows = simpler;
+      best = { ...best, cost: simplerCost };
+    }
+  }
   return {
-    rows: rejoinRows(start, best.headingDeg, best.distanceNm, egressHeadingDeg, driverKind, best.backNm),
+    rows,
     solved: best.cost <= SEM_REJOIN_AUTO_V0_1.solvedNm,
     slotErrorNm: best.cost,
     path: best.backNm === null ? "DIRECT" : "DOG_LEG",

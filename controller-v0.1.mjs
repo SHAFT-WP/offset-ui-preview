@@ -20,8 +20,8 @@ const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-fli
 // with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
 // climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
 const POPUP_MODE = document.body.classList.contains("popup-page");
-const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.14", import.meta.url);
-const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.14", import.meta.url);
+const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.15", import.meta.url);
+const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.15", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -57,6 +57,11 @@ import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bo
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.10";
 // POP-UP Z-Diagram (POP-UP SPEC §13.8 / §13.8a; the POP-UP page only): a BE-owned view of the POP-UP Flight result.
 import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.6";
+import {
+  POPUP_DEFAULT_INPUT_VALUES, POPUP_DRIVERS, POPUP_DRIVER_NOTE, POPUP_DRIVER_TEXT, POPUP_FOLLOWER_PROFILE_KEYS, POPUP_LOCK_KEYS, POPUP_VALUE_KEYS,
+  installPopupControls, markPopupDriverFields, popupApexText, popupFollowerGroupMarkup, popupRangeText, popupResultRows, popupTopViewMarkers,
+  popupZTextMarkup, popupZTickMarkup, renderPopupMinimumExposure, syncPopupSpeedFields, syncPopupSpeedNote, syncPopupZTextButtons, syncPopupZTickButtons,
+} from "./popup-page-v0.1.mjs?v=0.1.0";
 import { POPUP_BDP_APPROACH_V0_1, popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.0";
@@ -144,26 +149,6 @@ const OFFSET_DEFAULT_INPUT_VALUES = Object.freeze({
   offsetBankDeg: "60",
   offsetRadiusNm: "1.6",
 });
-// POP-UP defaults (step 3b): a low-level ingress (Offset leg 500 ft / 480 KCAS), Roll-in Altitude 4,000 ft at
-// 400 KCAS, Dive 20°, Roll-in G 3, Popup G 3 (POP-UP SPEC §13.2c); the Popup angle from the automatic rule.
-const POPUP_DEFAULT_INPUT_VALUES = Object.freeze({
-  offsetAltitudeMslFt: "500",
-  offsetSpeedValue: "480",
-  initialAltitudeMslFt: "500",
-  rollInAltitudeMslFt: "4000",
-  initialSpeedValue: "400",
-  diveAngleDeg: "20",
-  releaseAltitudeMslFt: "3300",
-  trackingTimeSec: "5.0",
-  rollInG: "3",
-  vrpRangeNm: "8.0",
-  popupG: "3",
-  popupAngleDeg: "",
-  popupGroundDistanceNm: "",
-  popupExposureTimeSec: "",
-  // Pop-up Speed (owner 2026-11-10): blank / following = the Initial Speed; typed = own (state.popupSpeedOwn).
-  popupSpeedKcas: "",
-});
 const DEFAULT_INPUT_VALUES = POPUP_MODE ? Object.freeze({ ...OFFSET_DEFAULT_INPUT_VALUES, ...POPUP_DEFAULT_INPUT_VALUES }) : OFFSET_DEFAULT_INPUT_VALUES;
 
 const locks = {};
@@ -197,10 +182,9 @@ let enteredTrackingTimeSec = DEFAULT_TRACKING_TIME_SEC;
 // POP-UP: #1's Popup angle driver (the BE's; DEFAULT = the automatic rule) and the on-demand minimum exposure.
 let popupDriver = "DEFAULT";
 // POP-UP LOCKs of #1 (owner 2026-11-03, POP-UP Flight 0.1.7): the BE returns them in state.popupLocks.
-let popupLocks = { rollInSpeed: false, angle: false, distance: false };
+let popupLocks = { rollInSpeed: false, angle: false };
 // #1's Pop-up Speed is its own (typed) rather than the Initial Speed (POP-UP Flight 0.1.12).
 let popupSpeedOwn = false;
-const POPUP_LOCK_KEYS = Object.freeze({ rollInSpeed: "popupLockRollInSpeed", angle: "popupLockAngle", distance: "popupLockDistance" });
 let popupRequest = null;
 // Minimum-exposure answers by aircraft number (each aircraft's own Calculate / Apply).
 const popupMinimumExposure = new Map();
@@ -882,7 +866,7 @@ function renderTopView() {
     upHeadingDeg: topViewIpBottom ? upResult.resolved.runInHeadingDeg : 0,
     // The north mark shows in both orientations (owner 2026-11-12), turned to north by upHeadingDeg.
     timeSec: topViewTimeSec ?? undefined,
-    ...(POPUP_MODE ? { markers: popupTopViewMarkers(aircraft) } : {}),
+    ...(POPUP_MODE ? { markers: popupTopViewMarkers(aircraft, (number) => popupFull.get(number)) } : {}),
   });
   syncTopViewViewport(svg, rendered, aircraft.map((item) => `${item.number}:${topViewResultId(item.result)}`).join(","));
   syncTimeDials(svg, aircraft.map((item) => item.result), topViewTimeSec);
@@ -890,10 +874,6 @@ function renderTopView() {
   legend.render();
 }
 
-// POP-UP: each drawn aircraft's Pop Point (the BE's popPoint) on its Approach leg.
-function popupTopViewMarkers(aircraft) {
-  return aircraft.map((item) => ({ item, popup: popupFull.get(item.number) })).filter(({ popup }) => popup?.popPoint).map(({ item, popup }) => ({ x: popup.popPoint.x, y: popup.popPoint.y, label: item.number === 1 ? "Pop Up" : `Pop Up #${item.number}`, value: Number.isFinite(popup.popToTargetNm) ? `${popup.popToTargetNm.toFixed(1)} NM` : null }));
-}
 
 const CANVAS_LABELED_LEGEND = ["Roll-in Radius", "Offset Angle", "Approaching Heading"];
 
@@ -1084,71 +1064,10 @@ function renderLead(entry) {
   lastResultSnapshot = null;
 }
 
-// POP-UP results (#1): the BE's popup record of the Flight entry; nothing is computed here.
-const POPUP_DRIVER_TEXT = Object.freeze({ DEFAULT: "AUTO · Dive ≤ 15° → +5°, else +10°", ANGLE: "Popup Angle", GROUND_DISTANCE: "Pop to Roll-in Distance", EXPOSURE_TIME: "Exposure Time (typed)", ROLL_IN_SPEED: "Roll-in Speed LOCK (angle solved)" });
-// The Pop-up Range readout of a POP-UP group (Pop-up Point → Target, NM).
-const popupRangeText = (p) => (Number.isFinite(p?.popToTargetNm) ? p.popToTargetNm.toFixed(2) : "-");
-// The field each driver comes from (the other two are results).
-const POPUP_DRIVER_KEY = Object.freeze({ ANGLE: "popupAngleDeg", GROUND_DISTANCE: "popupGroundDistanceNm", EXPOSURE_TIME: "popupExposureTimeSec" });
-// Marks the three POP-UP fields "Driver" or "result" for the current driver (fields: key -> its inputs).
-function markPopupDriverFields(driverName, inputsOf) {
-  Object.values(POPUP_DRIVER_KEY).forEach((key) => inputsOf(key).forEach((input) => {
-    const unit = input.closest(".field")?.querySelector(".unit");
-    if (!unit) return;
-    unit.dataset.base ??= unit.textContent;
-    const driving = POPUP_DRIVER_KEY[driverName] === key;
-    unit.textContent = `${unit.dataset.base} · ${driving ? "DRIVER" : "result"}`;
-    input.closest(".field").classList.toggle("popup-driver-field", driving);
-  }));
-}
-const POPUP_EVENT_TEXT = Object.freeze({ POP: "Pop Point", PULL_UP_END: "Pull-up End", ROLL_IN_START: "Roll-in Start", PULL_DOWN: "Pull Down", APEX: "Apex", TRACK_POINT: "Track Point", RELEASE: "Release" });
-// keyed: #1's rows carry result keys (result-change states); a follower's are plain.
-function popupResultRows(p, { keyed = true } = {}) {
-  const r = (label, text, key, summary = false) => row(label, text, keyed ? key : null, { summary });
-  const kt = (v) => `${Number.isFinite(v) ? Math.round(v) : "-"} KCAS`;
-  const one = (v) => (Number.isFinite(v) ? v.toFixed(1) : "-");
-  const ft = (v) => `${Number.isFinite(v) ? Math.round(v) : "-"} ft`;
-  const speed = p.speedCheck;
-  const speedText = !speed ? "-" : speed.status === "AUTO"
-    ? `AUTO · ${kt(speed.arrivalKcas)} (MIL arrival)`
-    : speed.status === "MIL_OK" && p.rollInSpeedSource === "LOCK"
-    ? `LOCK · ${kt(speed.rollInSpeedKcas)} (Popup Angle solved for it)`
-    : speed.status === "MIL_OK"
-    ? `MIL OK · ${kt(speed.arrivalKcas)} (+${Math.round(speed.marginKt)} kt over ${Math.round(speed.rollInSpeedKcas)})`
-    : `MIL SHORT · ${kt(speed.arrivalKcas)} (${Math.round(speed.marginKt)} kt) · AB not judged (no AB model)`;
-  const events = (p.events ?? []).map((e) => r(POPUP_EVENT_TEXT[e.name] ?? e.name, `${one(e.timeSec)} s · ${ft(e.altitudeMslFt)}${Number.isFinite(e.kcas) ? ` · ${kt(e.kcas)}` : ""}`, `popupEvent${e.name}`));
-  return [
-    r("Popup Angle", `${one(p.popupAngleDeg)}° · ${POPUP_DRIVER_TEXT[p.driver] ?? p.driver}`, "popupAngleDeg", true),
-    r("Pop to Roll-in Distance", `${Number.isFinite(p.groundDistanceNm) ? p.groundDistanceNm.toFixed(2) : "-"} NM`, "popupGroundDistanceNm", true),
-    r("Exposure (Pop → Apex)", `${one(p.exposureTimeSec)} s`, "popupExposureTimeSec", true),
-    r("Hold-Down", `${Number.isFinite(p.holdDownNm) ? p.holdDownNm.toFixed(2) : "-"} NM${Number.isFinite(p.holdDownSec) ? ` / ${one(p.holdDownSec)} s` : ""}`, "popupHoldDownNm", true),
-    // At the Pop Point (owner 2026-11-01): range and angle-off to the Target, and the time after IP.
-    // Pop-up Range (owner 2026-11-02): the Pop-up Point → Target distance.
-    r("Pop-up Range", `${Number.isFinite(p.popToTargetNm) ? p.popToTargetNm.toFixed(2) : "-"} NM`, "popupRange", true),
-    r("Pop-up Angle Off", Number.isFinite(p.popAngleOffDeg) ? `${Math.abs(p.popAngleOffDeg).toFixed(0)}° ${p.popAngleOffDeg >= 0 ? "R" : "L"}` : "-", "popupAngleOff", true),
-    r("Pop time", `IP +${one(p.popTimeSec)} s${Number.isFinite(p.leadPopSec) ? ` (#1 IP +${one(p.leadPopSec)} s)` : ""}`, "popupPopTime", true),
-    r("Apex", `${ft(p.events?.find((e) => e.name === "APEX")?.altitudeMslFt)} · ${kt(p.apexKcas)}`, "popupApex", true),
-    r("Roll-in Speed", speedText, "popupSpeedCheck", true),
-    r("Popup G", `${formatG(p.popupG)} G${p.climb?.pullUp && !p.climb.pullUp.reachesPopupG ? ` (peak ${formatG(p.climb.pullUp.peakG)} G)` : ""}`, "popupG"),
-    ...events,
-    ...(p.notes ?? []).map((note, i) => r("Note", note, `popupNote${i}`)),
-  ];
-}
-// The Pop-up Speed field's note: following the Initial Speed or its own value.
-// The Apex readout (owner 2026-11-10: next to Roll-in Altitude): altitude and speed of the climb's top.
-function popupApexText(p) {
-  const apex = p?.events?.find((e) => e.name === "APEX");
-  return Number.isFinite(apex?.altitudeMslFt) ? `${Math.round(apex.altitudeMslFt).toLocaleString("en-US")} ft${Number.isFinite(p.apexKcas) ? ` · ${Math.round(p.apexKcas)} kt` : ""}` : "-";
-}
-function syncPopupSpeedNote(root, own, keep = () => true, solved = false) {
-  root.querySelectorAll("[data-popup-speed-note]").forEach((note) => {
-    if (keep(note)) note.textContent = solved ? "Solved for the Roll-in Speed · result" : own ? "Own value · clear to follow Initial Speed" : "Follows Initial Speed · type to set";
-  });
-}
 function renderPopup(entry) {
   const body = $("#popup-result-body");
   const p = entry?.popup ?? null;
-  if (body) body.innerHTML = p && Number.isFinite(p.groundDistanceNm) ? popupResultRows(truncateBeOutput(p)).join("") : "";
+  if (body) body.innerHTML = p && Number.isFinite(p.groundDistanceNm) ? popupResultRows(truncateBeOutput(p), row).join("") : "";
   const driverOut = $("#popup-driver-out");
   if (driverOut) driverOut.textContent = `DRIVER · ${POPUP_DRIVER_TEXT[popupDriver] ?? popupDriver}`;
   markPopupDriverFields(popupDriver, (key) => fields(key));
@@ -1172,72 +1091,6 @@ function renderPopup(entry) {
 function syncPopupLocks(locksOf, root, keep = () => true) {
   root.querySelectorAll("[data-popup-lock]").forEach((button) => { if (keep(button)) syncToggleButton(button, locksOf[button.dataset.popupLock] === true, { texts: LOCK_TEXTS }); });
 }
-function syncPopupSpeedFields(inputs, locked) {
-  inputs.forEach((input) => {
-    const field = input.closest(".field");
-    const title = field?.querySelector(":scope > .lock-title > span:first-child") ?? field?.querySelector(":scope > span:first-child");
-    if (title && !title.dataset.popupSpeed) { title.textContent = "Roll-in Speed (kcas)"; title.dataset.popupSpeed = "true"; }
-    field?.querySelectorAll('select[data-key="initialSpeedMode"] option[value="MACH"]').forEach((option) => option.remove());
-    let unit = field?.querySelector(".unit");
-    if (field && !unit) { unit = document.createElement("span"); unit.className = "unit"; field.append(unit); }
-    if (unit) unit.textContent = locked ? "LOCK · Pop-up Speed solved for it" : "AUTO · MIL arrival at Roll-in Start · result";
-    field?.classList.toggle("popup-driver-field", locked);
-  });
-}
-function renderPopupMinimumExposure(m, out, apply) {
-  out.textContent = !m ? "-" : m.status === "VALID" ? `${m.angleDeg.toFixed(1)}° · ${m.exposureTimeSec.toFixed(1)} s` : `Unavailable · ${m.reason ?? ""}`;
-  if (apply) apply.hidden = !(m && m.status === "VALID");
-}
-function installPopupControls() {
-  $("#popup-auto")?.addEventListener("click", () => calculate({ aircraft: 1, kind: "set", key: "popupDriver", value: "DEFAULT", commit: true }));
-  $("#popup-min-exposure")?.addEventListener("click", () => {
-    popupRequest = { minimumExposure: 1 };
-    const out = $("#popup-min-exposure-out");
-    if (out) out.textContent = "Calculating…";
-    calculate();
-  });
-  $("#popup-min-apply")?.addEventListener("click", () => {
-    const m = popupMinimumExposure.get(1);
-    if (!m || m.status !== "VALID") return;
-    const text = m.angleDeg.toFixed(1);
-    setValue("popupAngleDeg", text, { includeActive: true });
-    calculate({ aircraft: 1, kind: "set", key: "popupAngleDeg", source: "minimumExposure", commit: true });
-  });
-  // #2–#4: the same three controls in each follower's POP-UP group.
-  document.addEventListener("click", (event) => {
-    const button = event.target.closest?.("[data-popup-auto], [data-popup-min], [data-popup-min-apply]");
-    const number = Number(button?.closest(".flight-slot")?.dataset.aircraft);
-    if (!button || !(number >= 2 && number <= 4)) return;
-    if (button.hasAttribute("data-popup-auto")) {
-      calculate({ aircraft: number, kind: "set", key: "popupDriver", value: "DEFAULT", commit: true });
-    } else if (button.hasAttribute("data-popup-min")) {
-      popupRequest = { minimumExposure: number };
-      const out = button.closest(".flight-slot").querySelector("[data-popup-min-out]");
-      if (out) out.textContent = "Calculating…";
-      calculate();
-    } else {
-      const m = popupMinimumExposure.get(number);
-      if (!m || m.status !== "VALID") return;
-      const text = m.angleDeg.toFixed(1);
-      const draft = flightDraft(number);
-      draft.popupAngleDeg = text;
-      dropSolvedIfEdited(draft.solved, "popupAngleDeg", text);
-      followerFields(followerSlot(number), "popupAngleDeg").forEach((field) => { field.value = text; });
-      calculate({ aircraft: number, kind: "set", key: "popupAngleDeg", source: "minimumExposure", commit: true });
-    }
-  });
-  // The POP-UP LOCKs (#1 and #2–#4): a toggle edit; the BE returns the LOCK states.
-  document.addEventListener("click", (event) => {
-    const button = event.target.closest?.("[data-popup-lock]");
-    if (!button) return;
-    event.preventDefault();
-    const number = Number(button.closest(".flight-slot")?.dataset.aircraft) || 1;
-    const kind = button.dataset.popupLock;
-    const current = (number === 1 ? popupLocks : flightDraft(number).popupLocks ?? {})[kind] === true;
-    calculate({ aircraft: number, kind: "set", key: POPUP_LOCK_KEYS[kind], value: !current, commit: true });
-  });
-}
-
 // Placeholder drawn in a view whose solve failed (no stale geometry is left on screen).
 function showCalculationFailed(svg, title, message) {
   if (!svg) return;
@@ -2023,13 +1876,9 @@ function resetFollowerTab(number, tab, section = null) {
 // placeholder; the BE resolves it (AG SPEC "Flight entrypoint").
 // Target Elevation joined them on 2026-10-26 (owner 2026-10-25; Offset Flight 0.1.8): index only has its field.
 const FOLLOWER_BDP_EXTRA_KEYS = ["fragmentHeightMarginPercent", "recoveryG", "speedOvershootKcas", "gOnsetTimeSec", "rollInG", "rollInRollRateDegSec", "rollOutRollRateDegSec", "gOnsetRateGSec", "csemTargetFpaDeg", "csemLevelAltitudeAglFt", "semTurnDeg", "semTurnG", "semTurnSpeedKcas", "semTurnBankDeg", "targetElevationMslFt"];
-// The driver line of every POP-UP group (owner 2026-11-01: what the driver is).
-const POPUP_DRIVER_NOTE = "Popup Angle · Pop to Roll-in Distance · Exposure Time 중 마지막에 입력한 값이 Driver (나머지 둘은 결과) · AUTO = 다이브 ≤15° +5°, 그 외 +10°";
 // POP-UP page (owner 2026-10-27): each follower's own POP-UP inputs (Offset tab, POP-UP group) and angle driver
 // (AUTO by default). A blank Popup G follows #1's, shown like the BDP extras.
-const POPUP_FOLLOWER_VALUE_KEYS = POPUP_MODE ? ["popupAngleDeg", "popupGroundDistanceNm", "popupExposureTimeSec", "popupG", "popupSpeedKcas"] : [];
-const POPUP_FOLLOWER_PROFILE_KEYS = ["initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "diveAngleDeg", "releaseAltitudeMslFt"];
-const POPUP_DRIVERS = ["DEFAULT", "ANGLE", "GROUND_DISTANCE", "EXPOSURE_TIME", "ROLL_IN_SPEED"];
+const POPUP_FOLLOWER_VALUE_KEYS = POPUP_MODE ? POPUP_VALUE_KEYS : [];
 const followsLeadWhenBlank = (key) => FOLLOWER_BDP_EXTRA_KEYS.includes(key) || (POPUP_MODE && key === "popupG");
 // Follower selections stored as text: blank SEM End / SEM Turn follow the element lead; a blank Turn Direction is
 // this aircraft's own Roll-in side (owner 2026-10-19).
@@ -2389,18 +2238,7 @@ function followerCalculatingMarkup(number) {
   // POP-UP page: this aircraft's POP-UP inputs (same fields and controls as #1's group). Order (owner 2026-11-09,
   // 2026-11-10): Pop-up Speed, Pop-up Range, Popup Angle, Popup G, Roll-in Speed, Roll-in Altitude, Apex (result),
   // Pop to Roll-in Distance (no LOCK), Exposure Time, then AUTO on its own row with Min. Exposure.
-  const popupGroup = !POPUP_MODE ? "" : `<details class="input-group-panel" open><summary class="input-group-title">POP-UP</summary><div class="driver"><span>${POPUP_DRIVER_NOTE}</span><output data-popup-driver-out>DRIVER · AUTO</output></div><div class="input-grid popup-input-grid">`
-    + `<label class="field"><span>Pop-up Speed (kcas)</span><input data-flight-field="popupSpeedKcas" type="text" inputmode="decimal"><span class="unit" data-popup-speed-note>Follows Initial Speed · type to set</span></label>`
-    + `<div class="field"><span>Pop-up Range (NM)</span><output class="readout" data-popup-range-out>-</output><span class="unit">Pop-up Point → Target · result</span></div>`
-    + `<label class="field"><span class="lock-title"><span>Popup Angle (deg)</span><button class="lock-button" type="button" data-popup-lock="angle" aria-label="Lock Popup Angle" aria-pressed="false">LOCK</button></span><input data-flight-field="popupAngleDeg" type="text" inputmode="decimal"><span class="unit">Climb angle · 0–55°</span></label>`
-    + `<label class="field"><span>Popup G (G)</span><input data-flight-field="popupG" type="text" inputmode="decimal"><span class="unit" data-follow-note></span></label>`
-    + `${field.initialSpeed}${rollInLocked}`
-    + `<div class="field"><span>Apex (ft MSL)</span><output class="readout" data-popup-apex-out>-</output><span class="unit">Top of the climb · result</span></div>`
-    + `<label class="field"><span>Pop to Roll-in Distance (NM)</span><input data-flight-field="popupGroundDistanceNm" type="text" inputmode="decimal"><span class="unit">Pop Point → Roll-in Start</span></label>`
-    + `<label class="field"><span>Exposure Time (sec)</span><input data-flight-field="popupExposureTimeSec" type="text" inputmode="decimal"><span class="unit">Pop Point → Apex · MIL</span></label>`
-    + `<div class="field popup-auto-field"><span>Pop-up Angle</span><button class="btn" type="button" data-popup-auto>AUTO</button><span class="unit">AUTO: Dive ≤ 15° → Dive + 5°, Dive > 15° → Dive + 10°</span></div>`
-    + `<div class="field"><span>Popup Angle Min. Exposure</span><span class="compound"><button class="btn" type="button" data-popup-min>Calculate</button><output class="readout" data-popup-min-out>-</output><button class="btn" type="button" data-popup-min-apply hidden>Apply</button></span><span class="unit">Popup angle with the shortest Pop → Apex</span></div>`
-    + `</div></details>`;
+  const popupGroup = !POPUP_MODE ? "" : popupFollowerGroupMarkup({ initialSpeed: field.initialSpeed, rollInLocked });
   const inputSections = INDEX_LAYOUT ? [
     followerBdpTabMarkup(number),
     flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${POPUP_MODE ? `${field.popInitialSpeed}${field.initialAltitude}<div class="field"><span>Apex (ft MSL)</span><output class="readout" data-popup-apex-out>-</output><span class="unit">Top of the climb · result</span></div>` : `${field.initialSpeed}${field.initialAltitude}${rollInLocked}`}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${POPUP_MODE ? MIN_ALT_FIELD : ""}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${popupGroup}${foldGroup("Roll-in Condition", `${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${statusLine}`, { calculating: true, tab: "offset" }),
@@ -2851,7 +2689,7 @@ function renderFollowerResultRows(number, slot, { result = null, delta = null, s
   const popupBody = body("popup");
   if (popupBody) {
     const p = result ? popupFull.get(number) : null;
-    popupBody.innerHTML = p && Number.isFinite(p.groundDistanceNm) ? popupResultRows(truncateBeOutput(p), { keyed: false }).join("") : "";
+    popupBody.innerHTML = p && Number.isFinite(p.groundDistanceNm) ? popupResultRows(truncateBeOutput(p), row, { keyed: false }).join("") : "";
   }
   if (!result) {
     body("offset").innerHTML = [row("State", state, null, { summary: true }), message ? row("Message", message, null, { summary: true }) : ""].join("");
@@ -2907,29 +2745,9 @@ function renderZDiagramOf(number, svg, resultFull, advanced = zAdvancedOn.has(nu
   return renderOffsetZDiagram(svg, resultFull, { aircraftNumber: number, deltaTime: zDeltaTime(Math.max(2, number)), advanced });
 }
 function zAdvancedMarkup(number) {
-  return `<button class="capture-button view-toggle" type="button" data-z-advanced="${number}" aria-pressed="false">Advanced: Off</button>${POPUP_MODE ? popupZTickMarkup() + popupZTextMarkup() : ""}`;
+  return `<button class="capture-button view-toggle" type="button" data-z-advanced="${number}" aria-pressed="false">Advanced: Off</button>${POPUP_MODE ? popupZTickMarkup(popupZTick) + popupZTextMarkup(popupZFontSize) : ""}`;
 }
 // POP-UP: every aircraft's Z carries the one climb-leg tick option (§13.8a).
-// The POP-UP Z Text control (the Common Text group's look): − / the body size (back to the default) / +.
-function popupZTextMarkup() {
-  const sizes = POPUP_Z_DIAGRAM_V0_1.fontSizes;
-  const button = (step, text, label, extra = "", disabled = false) => `<button class="capture-button${extra}" type="button" data-popup-z-text="${step}" aria-label="${label}"${disabled ? " disabled" : ""}>${text}</button>`;
-  return `<div class="font-scale-control" role="group" aria-label="Z-Diagram text size"><span class="diagram-control-label">Text</span>`
-    + button("down", "−", "Z-Diagram text smaller", "", popupZFontSize <= sizes[0])
-    + button("reset", String(popupZFontSize), `Reset Z-Diagram text size to ${POPUP_Z_DIAGRAM_V0_1.fontSize}`, " diagram-scale-output")
-    + button("up", "+", "Z-Diagram text larger", "", popupZFontSize >= sizes[sizes.length - 1])
-    + `</div>`;
-}
-function syncPopupZTextButtons() {
-  const sizes = POPUP_Z_DIAGRAM_V0_1.fontSizes;
-  $$('[data-popup-z-text="reset"]').forEach((b) => { b.textContent = String(popupZFontSize); });
-  $$('[data-popup-z-text="down"]').forEach((b) => { b.disabled = popupZFontSize <= sizes[0]; });
-  $$('[data-popup-z-text="up"]').forEach((b) => { b.disabled = popupZFontSize >= sizes[sizes.length - 1]; });
-}
-function popupZTickMarkup() {
-  const on = popupZTick === "PULL_DOWN";
-  return `<button class="capture-button view-toggle${on ? " active" : ""}" type="button" data-popup-z-tick aria-pressed="${on}" title="Climb-leg tick: Roll-in Altitude (off) or Pull Down altitude (on)">Pull Down: ${on ? "On" : "Off"}</button>`;
-}
 const zDiagramTitle = (number) => (POPUP_MODE ? popupZDiagramTitle : offsetZDiagramTitle)({ aircraftNumber: number });
 function syncZAdvancedButton(button) {
   const on = zAdvancedOn.has(Number(button.dataset.zAdvanced));
@@ -2957,12 +2775,7 @@ document.addEventListener("click", (event) => {
   const button = event.target.closest?.("[data-popup-z-tick]");
   if (!button || !POPUP_MODE) return;
   popupZTick = popupZTick === "ROLL_IN" ? "PULL_DOWN" : "ROLL_IN";
-  $$("[data-popup-z-tick]").forEach((b) => {
-    const on = popupZTick === "PULL_DOWN";
-    b.setAttribute("aria-pressed", String(on));
-    b.classList.toggle("active", on);
-    b.textContent = `Pull Down: ${on ? "On" : "Off"}`;
-  });
+  syncPopupZTickButtons(popupZTick);
   if (lastResultFull) renderZDiagramOf(1, $("#offset-z-svg"), lastResultFull);
   for (const [number, resultFull] of flightResultsFull) {
     if (number !== 1) renderZDiagramOf(number, flightOutput(number, "svg[data-flight-z]"), resultFull);
@@ -2977,7 +2790,7 @@ document.addEventListener("click", (event) => {
   const step = button.dataset.popupZText;
   const at = sizes.indexOf(popupZFontSize);
   popupZFontSize = step === "reset" ? POPUP_Z_DIAGRAM_V0_1.fontSize : sizes[Math.max(0, Math.min(sizes.length - 1, at + (step === "up" ? 1 : -1)))];
-  syncPopupZTextButtons();
+  syncPopupZTextButtons(popupZFontSize);
   if (lastResultFull) renderZDiagramOf(1, $("#offset-z-svg"), lastResultFull);
   for (const [number, resultFull] of flightResultsFull) {
     if (number !== 1) renderZDiagramOf(number, flightOutput(number, "svg[data-flight-z]"), resultFull);
@@ -3521,7 +3334,7 @@ function fileTopViewCards(host, numbers) {
     renderOffsetCombinedTopView(svg, aircraft, {
       textScale: 1, viewportWidth: 1280, advanced: false, upHeadingDeg: 0, northArrow: true,
       fitResults: all,
-      ...(POPUP_MODE ? { markers: popupTopViewMarkers(aircraft) } : {}),
+      ...(POPUP_MODE ? { markers: popupTopViewMarkers(aircraft, (number) => popupFull.get(number)) } : {}),
     });
     const legendSvg = fileSvg(host, "0 0 900 60");
     // The full legend (handoff §8.3), whatever the page's Advanced shows.
@@ -3778,7 +3591,12 @@ function install() {
   if (rev) rev.textContent = `V2 WORK · OFFSET BE ${OFFSET_FLIGHT_V0_1.components.offsetBe} · FLIGHT ${OFFSET_FLIGHT_V0_1.version}`;
   if (POPUP_MODE) {
     import(POPUP_FLIGHT_URL.href).then((m) => { if (rev) rev.textContent = `V2 WORK · POP-UP FLIGHT ${m.POPUP_FLIGHT_V0_1.version} · OFFSET FLIGHT ${OFFSET_FLIGHT_V0_1.version}`; }).catch(() => {});
-    installPopupControls();
+    installPopupControls({
+      $, calculate, setValue, flightDraft, dropSolvedIfEdited, followerFields, followerSlot,
+      minimumExposureOf: (number) => popupMinimumExposure.get(number),
+      requestMinimumExposure: (number) => { popupRequest = { minimumExposure: number }; },
+      leadLocks: () => popupLocks,
+    });
   }
   installLeadBdpTab();
   installCalculation();

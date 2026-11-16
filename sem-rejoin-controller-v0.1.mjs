@@ -17,7 +17,7 @@ import {
   semRejoinUpstreamView,
   SEM_REJOIN_COMBAT_SPREAD_BEARING_DEG,
   semRejoinFormationTemplates,
-} from "./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-be-v0.1.mjs?v=0.5.0";
+} from "./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-be-v0.1.mjs?v=0.5.1";
 import { renderSemRejoinTopView, semRejoinPalette, semRejoinTopViewLegend } from "./AG/bombing/offset-bombing/sem-rejoin/view/sem-rejoin-top-view-v0.1.mjs?v=0.1.1";
 import { installSvgViewControls, svgViewControlsMarkup } from "./common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
@@ -25,7 +25,7 @@ import { installNonNegativeInputs } from "./common/ui/formation-position-v0.1.mj
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSecTenths } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 
-const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-worker-v0.1.mjs?v=0.5.0", import.meta.url);
+const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-worker-v0.1.mjs?v=0.5.1", import.meta.url);
 export const SEM_REJOIN_FE_V0_1 = Object.freeze({ id: "sem-rejoin-controller-v0.1", version: "0.2.0" });
 // SEM End labels (owner 2026-10-13: the SEM ends level by default; the +30° CLIMB SEM stays selectable).
 // 2026-10-18 (owner handoff §6.5): the SEM End is the BDP tab's (Full BDP · SEM / Recovery); S&R shows it.
