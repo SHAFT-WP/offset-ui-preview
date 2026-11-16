@@ -20,8 +20,8 @@ const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-fli
 // with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
 // climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
 const POPUP_MODE = document.body.classList.contains("popup-page");
-const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.13", import.meta.url);
-const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.13", import.meta.url);
+const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.14", import.meta.url);
+const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.14", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -154,6 +154,7 @@ const POPUP_DEFAULT_INPUT_VALUES = Object.freeze({
   initialSpeedValue: "400",
   diveAngleDeg: "20",
   releaseAltitudeMslFt: "3300",
+  trackingTimeSec: "5.0",
   rollInG: "3",
   vrpRangeNm: "8.0",
   popupG: "3",
@@ -187,8 +188,11 @@ let rollInAltitudeLinked = !POPUP_MODE;
 // Developer option (owner Q8, 2026-10-15): Fragment Height Margin on the radius too, or on the height only.
 let fragmentMarginAppliesTo = "HEIGHT_AND_RADIUS";
 // BDP solve mode (last edited Roll-in / Initial or Tracking Time) and the last entered Tracking Time.
-let bdpSolveMode = "height";
-const DEFAULT_TRACKING_TIME_SEC = 18;
+// POP-UP (owner 2026-11-16, POP-UP SPEC §13.8u): the page starts with the Roll-in Altitude solved from a Tracking
+// Time of 5 s ("time"); typing a Roll-in Altitude switches to it as before.
+const DEFAULT_SOLVE_MODE = POPUP_MODE ? "time" : "height";
+let bdpSolveMode = DEFAULT_SOLVE_MODE;
+const DEFAULT_TRACKING_TIME_SEC = POPUP_MODE ? 5 : 18;
 let enteredTrackingTimeSec = DEFAULT_TRACKING_TIME_SEC;
 // POP-UP: #1's Popup angle driver (the BE's; DEFAULT = the automatic rule) and the on-demand minimum exposure.
 let popupDriver = "DEFAULT";
@@ -1153,6 +1157,8 @@ function renderPopup(entry) {
   syncPopupSpeedNote(document, popupSpeedOwn, (node) => !node.closest(".flight-slot"), popupLocks.rollInSpeed === true);
   const apexOut = $("#popup-apex-out");
   if (apexOut) apexOut.textContent = popupApexText(p);
+  // Owner 2026-11-16: the same Apex after #1's Initial Altitude (BDP Profile group).
+  document.querySelectorAll("[data-popup-apex-out]").forEach((out) => { if (!out.closest(".flight-slot")) out.textContent = popupApexText(p); });
   const range = $("#popup-range-out");
   if (range) range.textContent = popupRangeText(p);
   const out = $("#popup-min-exposure-out");
@@ -1513,7 +1519,7 @@ function factoryPersistedState() {
     ipLockHeadingDeg: 0,
     runInTurnDeg: 0,
     rollInAltitudeLinked: !POPUP_MODE,
-    solveMode: "height",
+    solveMode: DEFAULT_SOLVE_MODE,
     enteredTrackingTimeSec: DEFAULT_TRACKING_TIME_SEC,
     vipBearingExplicit: false,
     vipRangeExplicit: false,
@@ -2093,6 +2099,11 @@ function factoryFlightDraft(number = 2) {
       rollInAltitudeLinked: false,
       ...Object.fromEntries(POPUP_FOLLOWER_PROFILE_KEYS.map((key) => [key, POPUP_DEFAULT_INPUT_VALUES[key]])),
       ...Object.fromEntries(POPUP_FOLLOWER_VALUE_KEYS.map((key) => [key, ""])), popupDriver: "DEFAULT",
+      // Owner 2026-11-16: the Roll-in Altitude from a Tracking Time of 5 s, as #1's.
+      trackingTimeSec: "5.0", solveMode: "time", enteredTrackingTimeSec: "5",
+      // Owner 2026-11-16 ("기본은 락을 다 해제한 상태에서 하자"): no LOCK at the defaults, so a follower is not held to
+      // #1's / #3's Offset Angle (Angle #1 off) and solves its own.
+      sameAngleAsLead: false,
     } : {}),
     // Full values behind fields that show a rounded solved value ({ key: { text, value } }).
     solved: {},
@@ -2392,7 +2403,7 @@ function followerCalculatingMarkup(number) {
     + `</div></details>`;
   const inputSections = INDEX_LAYOUT ? [
     followerBdpTabMarkup(number),
-    flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${POPUP_MODE ? `${field.popInitialSpeed}${field.initialAltitude}` : `${field.initialSpeed}${field.initialAltitude}${rollInLocked}`}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${POPUP_MODE ? MIN_ALT_FIELD : ""}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${popupGroup}${foldGroup("Roll-in Condition", `${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${statusLine}`, { calculating: true, tab: "offset" }),
+    flightSection(number, "Offset", `${statusHead}${foldGroup("BDP Profile", `${POPUP_MODE ? `${field.popInitialSpeed}${field.initialAltitude}<div class="field"><span>Apex (ft MSL)</span><output class="readout" data-popup-apex-out>-</output><span class="unit">Top of the climb · result</span></div>` : `${field.initialSpeed}${field.initialAltitude}${rollInLocked}`}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${POPUP_MODE ? MIN_ALT_FIELD : ""}`)}${foldGroup("Offset Geometry", `${field.runIn}${field.ipRange}${field.angleOff}${field.attack}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}`)}${popupGroup}${foldGroup("Roll-in Condition", `${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)", { always: true })}${followerExtraField("rollInG", "Roll-in G (G)", { always: true })}`, false)}${statusLine}`, { calculating: true, tab: "offset" }),
   ] : [
     flightSection(number, "BDP", `${profileLinkMarkup(number)}<div class="input-grid">${field.weapon}${field.initialSpeed}${field.initialAltitude}${field.rollInAltitude}${field.dive}${field.tracking}${field.releaseAltitude}${field.releaseSpeed}${followerResultField("rollInBankAngleDeg", "Roll-in Bank Angle (deg)")}${followerExtraField("rollInG", "Roll-in G (G)")}${ONSET_FIELDS.map(([key, label]) => followerExtraField(key, label)).join("")}${followerExtraField("fragmentHeightMarginPercent", "Fragment Height Margin (%)")}${followerSemFields(number)}${followerExtraField("recoveryG", "Recovery G (G)")}${followerExtraField("speedOvershootKcas", "Speed Overshoot (KCAS)")}${followerExtraField("gOnsetTimeSec", "G Onset Time (sec)")}${followerSemTurnFields(number)}</div><div data-sem-readouts></div><p class="flight-draft-note">Target Elevation and Wind are shared with #1 (same Target).</p>`, { calculating: true, tab: "bdp" }),
     flightSection(number, "Offset", `${statusHead}<div class="input-grid">${field.runIn}${field.ipRange}${field.attack}${field.angleOff}${field.offsetAngle}${field.actionRange}${field.approachRange}${field.approachingHeading}</div>${popupGroup}${statusLine}`, { calculating: true, tab: "offset" }),
