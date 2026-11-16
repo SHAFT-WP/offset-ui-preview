@@ -29,6 +29,7 @@ import { computeFormationOffsetVectorFull } from "../offset-formation-v0.1.mjs";
 import { FORMATION_BEARING_MAX_DEG, FORMATION_BEARING_MIN_DEG, formationBearingFromTailDeg } from "../../../../flight/flight-bombing-tactics/formation-v0.1.mjs";
 import { add, dot, len, mul, signedHeadingDelta, sub, vecHeading } from "../offset-geometry-v0.2.mjs";
 import { OFFSET_TIME_PATH_V0_1, offsetTimeline } from "../view/offset-time-path-v0.1.mjs";
+import { SEM_REJOIN_FRAGMENT_CHECK_V0_1, checkFlightFragments } from "./sem-rejoin-fragment-check-v0.1.mjs";
 
 // Physical constants as in the CSEM core and Common turn performance.
 const G_FTPS2 = 32.174;
@@ -55,13 +56,16 @@ export const SEM_REJOIN_V0_1 = Object.freeze({
   // a stored schemaVersion 1 plan (tail 0°: behind 0, abeam 90) is converted once by 90 - bearing.
   // 0.3.5 (owner 2026-11-11, own IP rule): an aircraft whose VRP is beyond its own IP is available from its VRP's
   // negative time (the time path's startSec), not only from 0 s.
-  version: "0.3.5",
+  // 0.4.0 (owner 2026-11-16, BEM Vol 5 §5.19 / §5.20): Flight fragment checks — another aircraft's bomb fragments
+  // against each aircraft's path, and a path that ends inside the fragment radius (output.fragmentChecks).
+  version: "0.4.0",
   model: Object.freeze({ id: "sr-energy-neutral-point-mass-v0.1", version: "0.1.0", integrationStepSec: 0.01 }),
   components: Object.freeze({
     sem: `${CLIMB_SEM_MODEL_V0_2.id} ${CLIMB_SEM_MODEL_V0_2.version}`,
     levelSem: `${RECOVERY_PULL_MODEL.id} ${RECOVERY_PULL_MODEL.version}`,
     turn: `${TURN_PERFORMANCE_MODEL_V0_2.id} ${TURN_PERFORMANCE_MODEL_V0_2.version}`,
     clock: `${OFFSET_TIME_PATH_V0_1.id} ${OFFSET_TIME_PATH_V0_1.version}`,
+    fragmentCheck: `${SEM_REJOIN_FRAGMENT_CHECK_V0_1.id} ${SEM_REJOIN_FRAGMENT_CHECK_V0_1.version}`,
   }),
   // SPEC "Model": the same energy assumption as the CSEM core it continues.
   assumptions: Object.freeze([
@@ -293,6 +297,15 @@ function offsetResultView(result) {
         // The BDP's selected SEM (BDP v0.4.2, owner handoff §6.5): the record and its flown samples to the
         // level-off (LEVEL) or the CSEM End (CLIMB). S&R starts from this state.
         semMinimumAltitudeMslFt: profile.public?.semMinimumAltitudeMslFt ?? null,
+        // The bomb's planning fragment cylinder (Flight fragment checks, 0.4.0): top = MINALT, radius with the margin.
+        minAltMslFt: profile.public?.minAltMslFt ?? null,
+        fragment: profile.public?.fragment
+          ? {
+              radiusNm: profile.public.fragment.radiusNm ?? null, heightAglFt: profile.public.fragment.heightAglFt ?? null, timeSec: profile.public.fragment.timeSec ?? null,
+              marginPercent: profile.public.fragment.marginPercent ?? null, impactTimeSec: profile.public.fragment.impactTimeSec ?? null,
+              impactDownRangeNm: profile.public.fragment.impactDownRangeNm ?? null, impactCrossNm: profile.public.fragment.impactCrossNm ?? null,
+            }
+          : null,
         sem: profile.public?.sem ? JSON.parse(JSON.stringify(profile.public.sem)) : null,
       },
       visualization: {
@@ -1590,6 +1603,7 @@ export function calculateSemRejoinFull(rawInput) {
   const editResults = edits.length ? applyEdits(plan, edits, { currentOutput: () => ({ aircraft: computeAll(upstream, plan, windKt).aircraft }), windKt }) : [];
   const { aircraft, stats } = computeAll(upstream, plan, windKt);
   const evaluation = evaluateAircraftResults({ aircraft, upstream, plan, windKt, evaluation: input.evaluation, editAircraft: input.editAircraft });
+  const fragmentChecks = checkFlightFragments({ aircraft, upstream, stateAt: (number, timeSec) => aircraftStateAt(aircraft[number], upstream.aircraft[number], timeSec, windKt) });
   const times = Object.values(aircraft).flatMap((entry) => [entry.release?.timeSec, entry.sem?.endState?.timeSec, ...entry.rows.map((row) => row.end?.timeSec)]).filter(isFiniteNumber);
   return {
     model: { id: SEM_REJOIN_V0_1.id, version: SEM_REJOIN_V0_1.version, physics: SEM_REJOIN_V0_1.model, components: SEM_REJOIN_V0_1.components, assumptions: SEM_REJOIN_V0_1.assumptions },
@@ -1597,6 +1611,7 @@ export function calculateSemRejoinFull(rawInput) {
     wind: { ...upstream.wind, vectorKt: windKt },
     aircraft,
     evaluation,
+    fragmentChecks,
     timeline: { minSec: 0, maxSec: times.length ? Math.max(...times) : 0, releaseSec: Object.fromEntries(Object.entries(aircraft).map(([number, entry]) => [number, entry.release?.timeSec ?? null])) },
     nextPlan: plan,
     runInTurnDeltaDeg,

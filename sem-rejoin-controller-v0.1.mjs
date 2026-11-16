@@ -16,7 +16,7 @@ import {
   previewSemRejoinManeuver,
   semRejoinUpstreamView,
   SEM_REJOIN_COMBAT_SPREAD_BEARING_DEG,
-} from "./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-be-v0.1.mjs?v=0.3.5";
+} from "./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-be-v0.1.mjs?v=0.4.0";
 import { renderSemRejoinTopView, semRejoinPalette, semRejoinTopViewLegend } from "./AG/bombing/offset-bombing/sem-rejoin/view/sem-rejoin-top-view-v0.1.mjs?v=0.1.1";
 import { installSvgViewControls, svgViewControlsMarkup } from "./common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
@@ -24,7 +24,7 @@ import { installNonNegativeInputs } from "./common/ui/formation-position-v0.1.mj
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSecTenths } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 
-const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-worker-v0.1.mjs?v=0.3.5", import.meta.url);
+const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-worker-v0.1.mjs?v=0.4.0", import.meta.url);
 export const SEM_REJOIN_FE_V0_1 = Object.freeze({ id: "sem-rejoin-controller-v0.1", version: "0.2.0" });
 // SEM End labels (owner 2026-10-13: the SEM ends level by default; the +30° CLIMB SEM stays selectable).
 // 2026-10-18 (owner handoff §6.5): the SEM End is the BDP tab's (Full BDP · SEM / Recovery); S&R shows it.
@@ -530,6 +530,18 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
     body.innerHTML = rows.join("");
   }
 
+  // Flight fragment checks (S&R BE 0.4.0, owner 2026-11-16): another aircraft's bomb fragments against each path, and
+  // a path that ends inside the fragment radius. The whole path is checked, not only the evaluation time.
+  function fragmentCheckMarkup() {
+    const checks = output?.fragmentChecks;
+    if (!checks || checks.status === "NOT_APPLICABLE") return "";
+    const title = `<h3 class="input-group-title" data-sr-fragment-status="${checks.status}">Fragment check · other aircraft's bombs · ${checks.status === "CLEAR" ? "clear" : checks.status === "WARNING" ? "WARNING" : "not fully checked"}</h3>`;
+    const body = checks.warnings.length
+      ? checks.warnings.map((warning) => `<p class="flight-draft-note sr-fragment-warning" data-sr-fragment-warning>${escapeHtml(warning)}</p>`).join("")
+      : `<p class="flight-draft-note" data-sr-fragment-clear>No aircraft is inside another aircraft's fragment cylinder (radius ${finite(checks.areaRadiusNm) ? checks.areaRadiusNm.toFixed(2) : "-"} NM, impact to impact + fragment time).</p>`;
+    return title + body;
+  }
+
   function renderEvaluation() {
     const host = $c("[data-sr-evaluation]");
     if (!output || !evaluation || !finite(evaluation.timeSec)) {
@@ -572,6 +584,7 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
       lines.push(`<div class="sr-eval-line" data-sr-eval-aircraft="${number}" style="--aircraft-color:${color}"><span class="sr-aircraft-chip">#${number}</span> ${text}${slot ? `<br><span class="sr-eval-slot" data-sr-eval-slot="${number}">${slot}</span>` : ""}</div>`);
     }
     if (!finite(egress.headingDeg)) lines.push(`<p class="flight-draft-note">Set the Egress Heading for heading errors and formation slots.</p>`);
+    lines.push(fragmentCheckMarkup());
     host.innerHTML = lines.join("");
   }
 
