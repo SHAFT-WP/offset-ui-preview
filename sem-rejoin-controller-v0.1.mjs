@@ -16,7 +16,8 @@ import {
   previewSemRejoinManeuver,
   semRejoinUpstreamView,
   SEM_REJOIN_COMBAT_SPREAD_BEARING_DEG,
-} from "./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-be-v0.1.mjs?v=0.4.0";
+  semRejoinFormationTemplates,
+} from "./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-be-v0.1.mjs?v=0.5.0";
 import { renderSemRejoinTopView, semRejoinPalette, semRejoinTopViewLegend } from "./AG/bombing/offset-bombing/sem-rejoin/view/sem-rejoin-top-view-v0.1.mjs?v=0.1.1";
 import { installSvgViewControls, svgViewControlsMarkup } from "./common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
@@ -24,7 +25,7 @@ import { installNonNegativeInputs } from "./common/ui/formation-position-v0.1.mj
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSecTenths } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 
-const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-worker-v0.1.mjs?v=0.4.0", import.meta.url);
+const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-worker-v0.1.mjs?v=0.5.0", import.meta.url);
 export const SEM_REJOIN_FE_V0_1 = Object.freeze({ id: "sem-rejoin-controller-v0.1", version: "0.2.0" });
 // SEM End labels (owner 2026-10-13: the SEM ends level by default; the +30° CLIMB SEM stays selectable).
 // 2026-10-18 (owner handoff §6.5): the SEM End is the BDP tab's (Full BDP · SEM / Recovery); S&R shows it.
@@ -36,7 +37,7 @@ const semKindText = (sem) => (sem?.end === "CLIMB" ? "CSEM" : "Level SEM");
 const DRAW_ROOM_NM = 5;
 
 // Edits that change the plan: one Undo step per adopted request that carried any of them.
-const UNDOABLE = new Set(["addRow", "deleteRow", "updateRow", "commitDraw", "detachArcEntry", "setSettings", "setEgress", "setFormation", "setTolerance", "resetAircraft"]);
+const UNDOABLE = new Set(["applyFormationTemplate", "autoRejoin", "addRow", "deleteRow", "updateRow", "commitDraw", "detachArcEntry", "setSettings", "setEgress", "setFormation", "setTolerance", "resetAircraft"]);
 const ROW_KIND_LABEL = { STRAIGHT: "Straight", TURN: "Turn", TARGET_ARC: "Target Arc" };
 const END_LABEL = { TIME: "Time", DISTANCE: "Distance", ALTITUDE: "Target Altitude", SPEED: "Target Speed", HEADING: "Heading", HEADING_CHANGE: "Heading Change", ARC_ANGLE: "Arc Angle", END_RADIAL: "End Radial" };
 const END_UNIT = { TIME: "s", DISTANCE: "NM", ALTITUDE: "ft MSL", SPEED: "KCAS", HEADING: "°T", HEADING_CHANGE: "°", ARC_ANGLE: "°", END_RADIAL: "°T" };
@@ -116,6 +117,17 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
         <label class="field"><span>Egress Speed (KCAS)</span><input data-sr-egress="speedKcas" type="text" inputmode="decimal"><span class="unit">Shared · error only</span></label>
         <label class="field"><span>Egress Altitude (ft MSL)</span><input data-sr-egress="altitudeMslFt" type="text" inputmode="decimal"><span class="unit">Shared · error only</span></label>
       </div>
+      <h3 class="input-group-title sr-subtitle">Egress Formation (Flight)</h3>
+      <div class="input-grid" data-sr-template-row>
+        <label class="field"><span>Form</span><select data-sr-template="name"></select><span class="unit">The Formation tab's formation table: fills #2–#4 slots</span></label>
+        <label class="field"><span>#2 Side</span><select data-sr-template="side"><option value="LEFT">Left</option><option value="RIGHT">Right</option></select><span class="unit">The other aircraft follow the formation</span></label>
+      </div>
+      <div class="sr-row-actions">
+        <button class="capture-button" type="button" data-sr-template-apply>Apply Form</button>
+        <button class="capture-button" type="button" data-sr-auto-rejoin="ALL">Auto Rejoin (Flight)</button>
+        <button class="capture-button" type="button" data-sr-auto-rejoin="EDIT">Auto Rejoin (this aircraft)</button>
+      </div>
+      <p class="flight-draft-note" data-sr-auto-note>Auto Rejoin replaces the rows after the SEM: #1 turns to the Egress Heading, the others fly Turn + Straight + Turn to their slots (level, at their own speed and altitude).</p>
       <div data-sr-formation></div>
       <h3 class="input-group-title sr-subtitle">Tolerance (shared)</h3>
       <div class="input-grid">
@@ -189,7 +201,18 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
     // A drawn / added row becomes the selection, so the next draw continues from it.
     const added = (output.editResults ?? []).filter((result) => result.added?.length).at(-1);
     if (added) selected = { aircraft: added.aircraft, rowId: added.added.at(-1) };
+    // An automatic rejoin: the evaluation goes to the row that ends last, where every aircraft has arrived.
+    const autoRejoin = (output.editResults ?? []).filter((result) => result.kind === "autoRejoin" && result.added?.length).at(-1);
+    if (autoRejoin) {
+      let latest = null;
+      for (const [number, entry] of Object.entries(output.aircraft)) {
+        const lastRow = [...entry.rows].reverse().find((row) => row.end && !row.autoFor);
+        if (lastRow && (!latest || lastRow.end.timeSec > latest.timeSec)) latest = { aircraft: Number(number), rowId: lastRow.id, timeSec: lastRow.end.timeSec };
+      }
+      if (latest) selected = { aircraft: latest.aircraft, rowId: latest.rowId };
+    }
     const failedEdit = (output.editResults ?? []).find((result) => result.error);
+    const editNote = (output.editResults ?? []).find((result) => result.kind === "autoRejoin" || result.kind === "applyFormationTemplate");
     if (selected && !rowExists(selected)) selected = null;
     evaluationRequest = selected ? { mode: "ROW_END", aircraft: selected.aircraft, rowId: selected.rowId } : evaluationRequest.mode === "FREE" ? evaluationRequest : { mode: "AUTO" };
     evaluation = selected || evaluationRequest.mode === "FREE" ? reevaluate() : output.evaluation;
@@ -198,7 +221,10 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
     preview = null;
     renderAll();
     if (mode === "draw" && lastPointer && active) updateDrawPreview();
-    else showPreviewStatus(failedEdit ? `Not applied: ${failedEdit.error}` : null, "invalid");
+    else if (failedEdit) showPreviewStatus(`Not applied: ${failedEdit.error}`, "invalid");
+    else if (editNote?.kind === "autoRejoin") showPreviewStatus(editNote.warning ? `Auto Rejoin · ${editNote.warning} · turned to the Egress Heading only (no speed change in this model: try another Egress Heading or a formation behind)` : `Auto Rejoin · ${editNote.rejoined.map((entry) => `#${entry.aircraft}`).join(", ")} on the Egress Heading${editNote.rejoined.some((entry) => entry.reference) ? ", followers in their slots" : ""}`, editNote.warning ? "warning" : "valid");
+    else if (editNote?.kind === "applyFormationTemplate") showPreviewStatus(`Egress Formation · ${editNote.name} ${editNote.side === "LEFT" ? "L" : "R"} filled for ${editNote.filled.map((number) => `#${number}`).join(", ")}`, "valid");
+    else showPreviewStatus(null, "invalid");
   }
   const send = (edit) => scheduler.immediate(edit);
   // A state replaced as a whole (Undo / Redo / Load Default) goes at once; nothing waits on an answer
@@ -341,8 +367,26 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
     $in('[data-sr-note="leveloff"]').textContent = levelOff?.source === "explicit" ? (number === 1 ? "Wings-level push to level from a climb" : `Own value · clear to follow #${number === 4 ? 3 : 1}`) : levelOff?.source === "inherited" ? `Follows #${levelOff.fromAircraft}` : "Needed only to level off from a climb (CLIMB SEM, Hold FPA); no approved default";
     for (const field of inputSection.querySelectorAll("[data-sr-egress]")) if (document.activeElement !== field) field.value = fieldText(plan.egress[field.dataset.srEgress], field.dataset.srEgress === "headingDeg" ? 0 : 0);
     for (const field of inputSection.querySelectorAll("[data-sr-tolerance]")) if (document.activeElement !== field) field.value = fieldText(plan.tolerance[field.dataset.srTolerance], 2);
+    renderRejoinTools();
     renderFormationInputs();
     renderRowEditor();
+  }
+
+  // Egress Formation (Flight) and Auto Rejoin (S&R BE 0.5.0): the Flight formation templates of the current size.
+  function renderRejoinTools() {
+    const select = $in('[data-sr-template="name"]');
+    const size = upstream?.flightSize ?? 1;
+    if (select.dataset.size !== String(size)) {
+      const templates = semRejoinFormationTemplates(size);
+      select.innerHTML = templates.map((template) => `<option value="${escapeHtml(template.name)}">${escapeHtml(template.label)}</option>`).join("");
+      select.dataset.size = String(size);
+    }
+    const single = size < 2;
+    $in("[data-sr-template-row]").hidden = single;
+    $in("[data-sr-template-apply]").hidden = single;
+    $in('[data-sr-auto-rejoin="ALL"]').textContent = single ? "Auto Rejoin (turn to Egress Heading)" : "Auto Rejoin (Flight)";
+    $in('[data-sr-auto-rejoin="EDIT"]').hidden = single;
+    $in('[data-sr-auto-rejoin="EDIT"]').textContent = `Auto Rejoin (#${editAircraft} only)`;
   }
 
   function renderFormationInputs() {
@@ -690,6 +734,16 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
       send(edit);
     }
   });
+  $in("[data-sr-template-apply]").addEventListener("click", () => {
+    const name = $in('[data-sr-template="name"]').value;
+    if (name) send({ kind: "applyFormationTemplate", name, side: $in('[data-sr-template="side"]').value });
+  });
+  for (const button of inputSection.querySelectorAll("[data-sr-auto-rejoin]")) {
+    button.addEventListener("click", () => {
+      selected = null;
+      send({ kind: "autoRejoin", aircraft: button.dataset.srAutoRejoin === "ALL" ? "ALL" : editAircraft });
+    });
+  }
   $in("[data-sr-tab-default]").addEventListener("click", () => {
     if (selected?.aircraft === editAircraft) selected = null;
     send({ kind: "resetAircraft", aircraft: editAircraft });
