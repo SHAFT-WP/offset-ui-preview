@@ -17,15 +17,15 @@ import {
   semRejoinUpstreamView,
   SEM_REJOIN_COMBAT_SPREAD_BEARING_DEG,
   semRejoinFormationTemplates,
-} from "./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-be-v0.1.mjs?v=0.5.1";
-import { renderSemRejoinTopView, semRejoinPalette, semRejoinTopViewLegend } from "./AG/bombing/offset-bombing/sem-rejoin/view/sem-rejoin-top-view-v0.1.mjs?v=0.1.1";
+} from "./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-be-v0.1.mjs?v=0.6.0";
+import { renderSemRejoinTopView, semRejoinPalette, semRejoinTopViewLegend } from "./AG/bombing/offset-bombing/sem-rejoin/view/sem-rejoin-top-view-v0.1.mjs?v=0.1.2";
 import { installSvgViewControls, svgViewControlsMarkup } from "./common/diagram/svg-view-controls-v0.1.mjs?v=0.1.0";
 import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 import { installNonNegativeInputs } from "./common/ui/formation-position-v0.1.mjs?v=0.1.2";
 import { saveSvgAsPng } from "./common/diagram/svg-png-export-v0.1.mjs";
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec, formatSecTenths } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 
-const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-worker-v0.1.mjs?v=0.5.1", import.meta.url);
+const SR_WORKER_URL = new URL("./AG/bombing/offset-bombing/sem-rejoin/sem-rejoin-worker-v0.1.mjs?v=0.6.0", import.meta.url);
 export const SEM_REJOIN_FE_V0_1 = Object.freeze({ id: "sem-rejoin-controller-v0.1", version: "0.2.0" });
 // SEM End labels (owner 2026-10-13: the SEM ends level by default; the +30° CLIMB SEM stays selectable).
 // 2026-10-18 (owner handoff §6.5): the SEM End is the BDP tab's (Full BDP · SEM / Recovery); S&R shows it.
@@ -73,6 +73,8 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
   let preview = null;
   let viewHandle = null;
   let ipBottom = true;
+  // Advanced (owner 2026-11-16): the ingress from the IP is drawn too. A view choice of this page visit, not saved.
+  let advanced = false;
   let active = false;
   let dirty = true;
   let shown = [1];
@@ -127,7 +129,7 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
         <button class="capture-button" type="button" data-sr-auto-rejoin="ALL">Auto Rejoin (Flight)</button>
         <button class="capture-button" type="button" data-sr-auto-rejoin="EDIT">Auto Rejoin (this aircraft)</button>
       </div>
-      <p class="flight-draft-note" data-sr-auto-note>Auto Rejoin replaces the rows after the SEM: #1 turns to the Egress Heading, the others fly Turn + Straight + Turn to their slots (level, at their own speed and altitude).</p>
+      <p class="flight-draft-note" data-sr-auto-note>Auto Rejoin replaces the rows after the SEM: #1 turns to the Egress Heading (blank = the reciprocal of the Run-In), the others fly Turn + Straight + Turn to their slots (level, at their own speed and altitude). When a follower is behind, the aircraft ahead waits outside the target area: a Weave of at most 60° at 4 G toward the follower, a full circle when that is not enough. A 4-ship joins #2 on #1 and #4 on #3 first, then the two elements.</p>
       <div data-sr-formation></div>
       <h3 class="input-group-title sr-subtitle">Tolerance (shared)</h3>
       <div class="input-grid">
@@ -150,6 +152,7 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
         ${svgViewControlsMarkup({ title: "SEM & Rejoin Top View" })}
         <button class="capture-button" type="button" data-sr-png>PNG</button>
         <button class="capture-button view-toggle" type="button" data-sr-ip-bottom aria-pressed="true" title="#1 Run-In (IP → Target) up; off = north up">IP Bottom</button>
+        <button class="capture-button view-toggle" type="button" data-sr-advanced aria-pressed="false" title="Also draw the ingress from the IP (the Offset / POP-UP Top View path)">Advanced</button>
         <button class="capture-button" type="button" data-sr-undo title="Undo (Ctrl+Z)">Undo</button>
         <button class="capture-button" type="button" data-sr-redo title="Redo (Ctrl+Y)">Redo</button>
       </div>
@@ -222,7 +225,19 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
     renderAll();
     if (mode === "draw" && lastPointer && active) updateDrawPreview();
     else if (failedEdit) showPreviewStatus(`Not applied: ${failedEdit.error}`, "invalid");
-    else if (editNote?.kind === "autoRejoin") showPreviewStatus(editNote.warning ? `Auto Rejoin · ${editNote.warning} · turned to the Egress Heading only (no speed change in this model: try another Egress Heading or a formation behind)` : `Auto Rejoin · ${editNote.rejoined.map((entry) => `#${entry.aircraft}`).join(", ")} on the Egress Heading${editNote.rejoined.some((entry) => entry.reference) ? ", followers in their slots" : ""}`, editNote.warning ? "warning" : "valid");
+    else if (editNote?.kind === "autoRejoin") {
+      // Auto Rejoin 0.2.0: the Egress Heading it set and who waited for whom are part of the result line.
+      const heading = Number.isFinite(editNote.egressHeadingSetDeg) ? ` · Egress Heading set to ${Math.round(editNote.egressHeadingSetDeg)}° (Run-In reciprocal)` : "";
+      const waitText = (wait) => {
+        const weave = wait.weaveDeg > 0 ? `Weave ${Math.round(wait.weaveDeg)}°${wait.legNm > 0 ? ` with ${wait.legNm.toFixed(1)} NM legs` : ""}` : "";
+        const circle = wait.loops > 0 ? `${wait.loops} circle${wait.loops > 1 ? "s" : ""}` : "";
+        return `#${wait.aircraft}${wait.with?.length ? ` (with ${wait.with.map((number) => `#${number}`).join(", ")})` : ""} waits for #${wait.for}: ${[circle, weave].filter(Boolean).join(" + ")} ${wait.side === "LEFT" ? "left" : "right"}, ${wait.lossNm.toFixed(1)} NM`;
+      };
+      const waits = (editNote.waits ?? []).map(waitText).join("; ");
+      showPreviewStatus(editNote.warning
+        ? `Auto Rejoin · ${editNote.warning} · turned to the Egress Heading only (no speed change in this model: try another Egress Heading or a formation behind)${waits ? ` · ${waits}` : ""}${heading}`
+        : `Auto Rejoin · ${editNote.rejoined.map((entry) => `#${entry.aircraft}`).join(", ")} on the Egress Heading${editNote.rejoined.some((entry) => entry.reference) ? ", followers in their slots" : ""}${waits ? ` · ${waits}` : ""}${heading}`, editNote.warning ? "warning" : "valid");
+    }
     else if (editNote?.kind === "applyFormationTemplate") showPreviewStatus(`Egress Formation · ${editNote.name} ${editNote.side === "LEFT" ? "L" : "R"} filled for ${editNote.filled.map((number) => `#${number}`).join(", ")}`, "valid");
     else showPreviewStatus(null, "invalid");
   }
@@ -303,10 +318,10 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
     const anchor = drawAnchor();
     const room = anchor.start ? [{ point: anchor.start, radiusNm: DRAW_ROOM_NM }] : [];
     viewHandle = renderSemRejoinTopView(svg, output, {
-      aircraft, editAircraft, selected, evaluation, upHeadingDeg, room,
+      aircraft, editAircraft, selected, evaluation, upHeadingDeg, room, advanced,
       textScale: textScale ?? viewControls?.getTextScale?.() ?? 1, viewportWidth: globalThis.innerWidth, preview,
     });
-    legendItems.splice(0, legendItems.length, ...semRejoinTopViewLegend(output, { aircraft, preview: !!preview }));
+    legendItems.splice(0, legendItems.length, ...semRejoinTopViewLegend(output, { aircraft, preview: !!preview, advanced }));
     legend.render();
     return viewHandle;
   }
@@ -372,7 +387,7 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
     renderRowEditor();
   }
 
-  // Egress Formation (Flight) and Auto Rejoin (S&R BE 0.5.0): the Flight formation templates of the current size.
+  // Egress Formation (Flight) and Auto Rejoin (S&R BE 0.5.0; 0.6.0: the lead waits): the Flight formation templates of the current size.
   function renderRejoinTools() {
     const select = $in('[data-sr-template="name"]');
     const size = upstream?.flightSize ?? 1;
@@ -803,6 +818,11 @@ export function mountSemRejoin({ offsetUi, inputSection, centerHost, getEditAirc
   $c("[data-sr-ip-bottom]").addEventListener("click", (event) => {
     ipBottom = !ipBottom;
     event.currentTarget.setAttribute("aria-pressed", String(ipBottom));
+    viewControls.redraw();
+  });
+  $c("[data-sr-advanced]").addEventListener("click", (event) => {
+    advanced = !advanced;
+    event.currentTarget.setAttribute("aria-pressed", String(advanced));
     viewControls.redraw();
   });
   centerHost.querySelectorAll("[data-sr-undo]").forEach((button) => button.addEventListener("click", undo));

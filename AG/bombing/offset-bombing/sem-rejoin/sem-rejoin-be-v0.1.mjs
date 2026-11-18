@@ -61,7 +61,11 @@ export const SEM_REJOIN_V0_1 = Object.freeze({
   // 0.5.0 (owner 2026-11-16, "b는 우리 편대 표를 보면 확정 … b와 c 적용"): the egress Formation from the Flight
   // formation templates (edit applyFormationTemplate) and the automatic rejoin (edit autoRejoin).
   // 0.5.1 (owner review 2026-11-16, S5): Auto Rejoin 0.1.1 leaves out a Straight of almost no length.
-  version: "0.5.1",
+  // 0.5.2 (owner 2026-11-16): aircraft[n].ingressPoints (IP, Action Point, Offset Turn End, Pop Point, Roll-in Start,
+  // Track Point) for the Top View's Advanced layer; the upstream view carries the POP-UP Pop Point. No calculation change.
+  // 0.6.0 (owner 2026-11-16 "구현해보자"): Auto Rejoin 0.2.0 — the aircraft ahead waits (Weave / full circle), a blank
+  // Egress Heading is the Run-In reciprocal, a 4-ship joins by element. Rows and their calculation are unchanged.
+  version: "0.6.0",
   model: Object.freeze({ id: "sr-energy-neutral-point-mass-v0.1", version: "0.1.0", integrationStepSec: 0.01 }),
   components: Object.freeze({
     sem: `${CLIMB_SEM_MODEL_V0_2.id} ${CLIMB_SEM_MODEL_V0_2.version}`,
@@ -284,6 +288,8 @@ function offsetResultView(result) {
         ip: pickPoint(points.ip), realActionPoint: pickPoint(points.realActionPoint), turnEnd: pickPoint(points.turnEnd),
         offsetCenter: pickPoint(points.offsetCenter), rollStart: pickPoint(points.rollStart), trackPoint: pickPoint(points.trackPoint),
         target: pickPoint(points.target),
+        // POP-UP Flight only (0.5.2): the Pop Point, for the ingress drawn in the S&R Top View (Advanced).
+        popPoint: pickPoint(points.popPoint),
       },
       direction: { offsetDirection: result?.geometry?.direction?.offsetDirection ?? null },
       rollInTrajectorySamples: (result?.geometry?.rollInTrajectorySamples ?? []).map(pickPoint).filter(Boolean),
@@ -1101,6 +1107,9 @@ function computeAircraft(number, upstream, plan, windKt) {
   try {
     sem = computeSem(entry.result, windKt);
     base.attackSamples = releaseOf(entry.result).attackSamples;
+    // 0.5.2 (owner 2026-11-16): the ingress stations for the Top View's Advanced layer (drawing data, selected only).
+    const stations = entry.result.geometry?.points ?? {};
+    base.ingressPoints = { ip: stations.ip ?? null, actionPoint: stations.realActionPoint ?? null, turnEnd: stations.turnEnd ?? null, popPoint: stations.popPoint ?? null, rollStart: stations.rollStart ?? null, trackPoint: stations.trackPoint ?? null };
   } catch (error) {
     return { ...base, status: "INVALID", message: `SEM: ${error.message}` };
   }
@@ -1536,30 +1545,45 @@ function applyEdits(plan, edits, context) {
           break;
         }
         case "autoRejoin": {
-          // One aircraft, or the Flight in reference order (#1, #2, #3, #4): each replaces that aircraft's rows.
-          const numbers = edit.aircraft === "ALL" || edit.aircraft === undefined || edit.aircraft === null
-            ? Array.from({ length: context.flightSize }, (_, index) => index + 1)
-            : [number];
-          const rejoined = [];
-          for (const target of numbers) {
-            if (!plan.aircraft[target] || target > context.flightSize) throw new Error("unknown aircraft");
-            try {
-              const solution = solveAutoRejoin(target, plan, context.upstream, context.windKt, context.currentOutput().aircraft);
-              plan.aircraft[target].rows = [];
-              const ids = insertRows(plan, target, null, solution.rows);
-              rejoined.push({ aircraft: target, added: ids, solved: solution.solved, slotErrorNm: solution.slotErrorNm, path: solution.path ?? null, reference: solution.reference ?? null, trials: solution.trials ?? 0, longitudinalNm: solution.longitudinalNm ?? null, lateralNm: solution.lateralNm ?? null });
-            } catch (error) {
-              rejoined.push({ aircraft: target, added: [], solved: false, slotErrorNm: null, error: error.message });
+          // One aircraft (its rows from its SEM End against the others as they stand), or the Flight ("ALL", 0.2.0:
+          // elements first, the aircraft ahead waits — solveFlightRejoin). Each replaces the rows of its aircraft.
+          const all = edit.aircraft === "ALL" || edit.aircraft === undefined || edit.aircraft === null;
+          const numbers = all ? Array.from({ length: context.flightSize }, (_, index) => index + 1) : [number];
+          // 0.2.0: a blank Egress Heading is the reciprocal of the Run-In (the way the Flight came from).
+          let egressHeadingSetDeg = null;
+          if (!isFiniteNumber(plan.egress.headingDeg)) {
+            const runInDeg = context.upstream.aircraft[1]?.result?.resolved?.runInHeadingDeg;
+            if (isFiniteNumber(runInDeg)) {
+              egressHeadingSetDeg = norm360(runInDeg + 180);
+              plan.egress.headingDeg = egressHeadingSetDeg;
+            }
+          }
+          let rejoined = [];
+          if (all && isFiniteNumber(plan.egress.headingDeg)) rejoined = solveFlightRejoin(plan, context);
+          else {
+            for (const target of numbers) {
+              if (!plan.aircraft[target] || target > context.flightSize) throw new Error("unknown aircraft");
+              try {
+                const solution = solveAutoRejoin(target, plan, context.upstream, context.windKt, context.currentOutput().aircraft);
+                plan.aircraft[target].rows = [];
+                const ids = insertRows(plan, target, null, solution.rows);
+                rejoined.push({ aircraft: target, added: ids, solved: solution.solved, slotErrorNm: solution.slotErrorNm, path: solution.path ?? null, reference: solution.reference ?? null, trials: solution.trials ?? 0, longitudinalNm: solution.longitudinalNm ?? null, lateralNm: solution.lateralNm ?? null });
+              } catch (error) {
+                rejoined.push({ aircraft: target, added: [], solved: false, slotErrorNm: null, error: error.message });
+              }
             }
           }
           const failed = rejoined.find((entry) => entry.error);
           const open = rejoined.filter((entry) => !entry.error && !entry.solved);
+          const waits = rejoined.flatMap((entry) => (entry.wait ?? []).map((wait) => ({ aircraft: entry.aircraft, ...wait })));
           results.push({
             kind: edit.kind, aircraft: numbers.length === 1 ? numbers[0] : null, rejoined,
             added: rejoined.flatMap((entry) => entry.added),
+            ...(egressHeadingSetDeg !== null ? { egressHeadingSetDeg } : {}),
+            ...(waits.length ? { waits } : {}),
             ...(failed ? { error: `Auto Rejoin #${failed.aircraft}: ${failed.error}` } : {}),
-            ...(open.length ? { warning: open.map((entry) => (isFiniteNumber(entry.slotErrorNm)
-              ? `#${entry.aircraft} cannot reach its slot at its speed: ${Math.abs(entry.longitudinalNm).toFixed(2)} NM ${entry.longitudinalNm < 0 ? "behind" : "ahead"}, ${Math.abs(entry.lateralNm).toFixed(2)} NM ${entry.lateralNm < 0 ? "left" : "right"} of it`
+            ...(open.length ? { warning: open.map((entry) => (isFiniteNumber(entry.longitudinalNm) && isFiniteNumber(entry.lateralNm)
+              ? `#${entry.aircraft} cannot reach its slot at its speed: ${Math.abs(entry.longitudinalNm).toFixed(2)} NM ${entry.longitudinalNm < 0 ? "behind" : "ahead"}, ${Math.abs(entry.lateralNm).toFixed(2)} NM ${entry.lateralNm < 0 ? "left" : "right"} of it${isFiniteNumber(entry.waitNeededNm) && entry.waitNeededNm > SEM_REJOIN_AUTO_V0_1.waitMaxNm ? ` (#${entry.reference} would have to lose ${entry.waitNeededNm.toFixed(1)} NM; it waits for at most ${SEM_REJOIN_AUTO_V0_1.waitMaxNm} NM)` : ""}`
               : `#${entry.aircraft} cannot reach its slot`)).join("; ") } : {}),
           });
           break;
@@ -1599,7 +1623,10 @@ function applyFormationTemplate(plan, flightSize, name, side) {
 export const SEM_REJOIN_AUTO_V0_1 = Object.freeze({
   id: "offset-sem-rejoin-auto-v0.1",
   // 0.1.1 (review 2026-11-16, S5): no Straight shorter than minStraightNm (the "0.0 NM" row) when the slot is met without it.
-  version: "0.1.1",
+  // 0.2.0 (owner 2026-11-16 "구현해보자", BEM Vol 5 §5.20): the aircraft ahead waits — a Weave (S-turn, at most 60°, 4 G),
+  // a full circle when the Weave is not enough — outside the target area and toward its wingman; a blank Egress Heading
+  // is the reciprocal of the Run-In; a 4-ship joins by element (#1–#2, #3–#4) and then joins the elements.
+  version: "0.2.0",
   // Accepted slot error at the end of the last row.
   solvedNm: 0.02,
   minStraightNm: 0.05,
@@ -1607,10 +1634,24 @@ export const SEM_REJOIN_AUTO_V0_1 = Object.freeze({
   headingStepDeg: 10,
   distancesNm: Object.freeze([0.3, 0.6, 1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20]),
   dogLegDistancesNm: Object.freeze([0, 0.5, 1, 2, 3, 5, 8, 12]),
+  // The wait of the aircraft ahead (0.2.0). Distance lost = the distance it would have flown straight in the same time
+  // minus its progress along the Egress Heading.
+  waitG: 4,
+  weaveMaxDeg: 60,
+  weaveMinDeg: 5,
+  waitMaxLoops: 2,
+  waitMaxNm: 12,
+  // Tried losses: the estimate (what the follower is behind once it is on its slot's track), then these steps more (NM).
+  waitStepsNm: Object.freeze([0, 0.05, 0.15, 0.4, 1, 2.5]),
+  // The wait starts and stays outside the target area (the Flight's largest fragment radius) by this much.
+  waitAreaClearNm: 0.05,
+  syncMinSec: 0.05,
   assumptions: Object.freeze([
     "LEVEL_ROWS_AT_OWN_SPEED: Turn + Straight + Turn (or the dog-leg Turn + Straight + Turn + Straight + Turn), level, each aircraft at its own SEM End speed (no speed change, BACKLOG U1 / U2) and altitude (no descent, U3)",
-    "REFERENCE_AS_COMPUTED: the reference aircraft flies its current rows and then straight on; the follower arrives after the reference's last row; rejoin #1 first, then #2 / #3, then #4",
+    "REFERENCE_AS_COMPUTED: the reference aircraft flies its rows and then straight on; the follower arrives after the reference's last row",
     "POSITION_ONLY: the slot position is met at the end of the last Turn; speed and altitude differences remain and are shown by the evaluation",
+    "LEAD_WAITS: a follower behind its slot cannot catch up at its speed, so the aircraft ahead loses distance (Weave to 60° at 4 G, with Straight legs for more, a full circle from one circle's loss on); the wait is flown outside the target area and its first turn is toward the follower",
+    "ELEMENTS_FIRST: #2 joins #1 and #4 joins #3; then #3 joins #1 while #4 flies #3's joining rows and #2 flies #1's wait (exact when the aircraft of an element have the same speed; else that aircraft is solved again)",
   ]),
 });
 
@@ -1621,11 +1662,37 @@ const headingGapDeg = (fromDeg, toDeg) => Math.abs(signedHeadingDelta(fromDeg, t
 function flyRejoinRows(rows, start, ctx, settings) {
   let state = start;
   for (const row of rows) {
+    const quick = levelRowEnd(row, state, ctx, settings);
+    if (quick) {
+      state = quick;
+      continue;
+    }
     const result = row.kind === "TURN" ? computeTurn(row, state, ctx, rowDriver(row, settings)) : computeStraight(row, state, ctx);
     if ((result.status !== "VALID" && result.status !== "WARNING") || !result.end) return { end: null, failed: result };
     state = result.end;
   }
   return { end: state, failed: null };
+}
+
+// The end state of a level Turn or a level Straight (Time / Distance) from level flight: the same formulas as
+// computeTurn / computeStraight without their samples (0.2.0: the search flies thousands of trial rows). null: not
+// that plain case — the row's own calculation decides.
+function levelRowEnd(row, state, ctx, settings) {
+  if (Math.abs(state.fpaDeg) > 1e-9 || !isFiniteNumber(row.end?.value)) return null;
+  if (row.kind === "TURN") {
+    const driver = rowDriver(row, settings);
+    const bank = resolveTurnBank(driver.kind, driver.value);
+    if (bank.error || !row.direction) return null;
+    const change = row.end.kind === "HEADING" ? headingChangeDeg(state.headingDeg, row.end.value, row.direction) : row.end.value;
+    if (!(change > 0 && change <= 720)) return null;
+    return levelTurnEnd(state, { direction: row.direction, bankDeg: bank.bankDeg, headingChangeDeg: change }, ctx.windKt).end;
+  }
+  if (row.kind === "STRAIGHT" && (row.end.kind === "TIME" || row.end.kind === "DISTANCE") && row.end.value > 0) {
+    const durationSec = row.end.kind === "TIME" ? row.end.value : row.end.value / (len(groundVelocityLevel(state, ctx.windKt)) * NM_PER_KT_SEC);
+    if (!(durationSec >= 0) || !(durationSec <= SEM_REJOIN_V0_1.maxRowSec)) return null;
+    return levelStraight(makeState({ ...state, fpaDeg: 0 }), durationSec, ctx.windKt).end;
+  }
+  return null;
 }
 
 // The rows of a candidate. Direct: Turn to the leg heading, Straight, Turn to the Egress Heading. Dog-leg (backNm
@@ -1663,52 +1730,74 @@ function withoutShortStraights(rows) {
   return out;
 }
 
+const turnToEgressRows = (start, egressHeadingDeg, driverKind) => (headingGapDeg(start.headingDeg, egressHeadingDeg) >= 0.5
+  ? [{ kind: "TURN", source: "user", direction: shorterDirection(start.headingDeg, egressHeadingDeg), driverKind, driverValue: null, end: { kind: "HEADING", value: norm360(egressHeadingDeg) } }]
+  : []);
+// Already on the Egress Heading: a short Straight, so the path has a row to show and to draw from.
+const shortStraightRows = () => [{ kind: "STRAIGHT", source: "user", vertical: "LEVEL", end: { kind: "DISTANCE", value: 1 } }];
+
+// The egress slot of a follower as a vector from its reference aircraft (x east / y north, NM).
+function slotVectorOf(number, plan) {
+  const slot = formationSlot(plan, number);
+  if (!slot?.side || !isFiniteNumber(slot.bearingDeg) || !isFiniteNumber(slot.rangeNm)) throw new Error(`Set #${number}'s egress slot first (Formation, Side, Bearing, Range)`);
+  if (!(slot.bearingDeg >= FORMATION_BEARING_MIN_DEG && slot.bearingDeg <= FORMATION_BEARING_MAX_DEG) || !(slot.rangeNm >= 0)) throw new Error(`#${number}'s egress slot is not valid (Bearing 0–90°, Range 0 NM or more)`);
+  return { slot, vector: computeFormationOffsetVectorFull({ runInHeadingDeg: plan.egress.headingDeg, bearingDeg: slot.bearingDeg, side: slot.side, distanceNm: slot.rangeNm }).vector };
+}
+
 // One aircraft's automatic rejoin: #1 turns to the Egress Heading; a follower flies Turn + Straight + Turn so that the
 // end of its last Turn is its slot from its reference aircraft at that moment on the IP clock.
-function solveAutoRejoin(number, plan, upstream, windKt, results) {
+// from "SEM": the rows replace the aircraft's rows (start = its SEM End). from "END" (0.2.0): the rows continue its
+// current rows (start = the end of its last row). dogLeg false: only the direct path is searched.
+function solveAutoRejoin(number, plan, upstream, windKt, results, { from = "SEM", dogLeg: allowDogLeg = true } = {}) {
   const egressHeadingDeg = plan.egress.headingDeg;
   if (!isFiniteNumber(egressHeadingDeg)) throw new Error("Set the Egress Heading first");
   const entry = results[number];
   if (!entry?.sem || entry.sem.status !== "VALID") throw new Error(`#${number} has no SEM End to start from: ${entry?.message ?? "no result"}`);
-  const start = entry.sem.endState;
+  if (from === "END" && !entry.complete) throw new Error(`#${number} has no complete path to continue: ${entry.message}`);
+  const start = from === "END" ? entry.endState : entry.sem.endState;
   const settings = resolveSettings(number, plan, upstream);
   const ctx = { windKt, levelOffG: settings.levelOffG.value };
   const driverKind = settings.turnDriver.kind;
+  const headingOnlyRows = () => {
+    const rows = turnToEgressRows(start, egressHeadingDeg, driverKind);
+    return rows.length || from === "END" ? rows : shortStraightRows();
+  };
   if (number === 1) {
-    const rows = headingGapDeg(start.headingDeg, egressHeadingDeg) >= 0.5
-      ? [{ kind: "TURN", source: "user", direction: shorterDirection(start.headingDeg, egressHeadingDeg), driverKind, driverValue: null, end: { kind: "HEADING", value: norm360(egressHeadingDeg) } }]
-      // Already on the Egress Heading: a short Straight, so the path has a row to show and to draw from.
-      : [{ kind: "STRAIGHT", source: "user", vertical: "LEVEL", end: { kind: "DISTANCE", value: 1 } }];
+    const rows = headingOnlyRows();
     const flown = flyRejoinRows(rows, start, ctx, settings);
     if (flown.failed) throw new Error(`#1 Turn to the Egress Heading: ${flown.failed.errors[0]}`);
     return { rows, solved: true, slotErrorNm: null, path: "LEAD" };
   }
   const reference = elementLeadOf(number);
-  const slot = formationSlot(plan, number);
-  if (!slot?.side || !isFiniteNumber(slot.bearingDeg) || !isFiniteNumber(slot.rangeNm)) throw new Error(`Set #${number}'s egress slot first (Formation, Side, Bearing, Range)`);
-  if (!(slot.bearingDeg >= FORMATION_BEARING_MIN_DEG && slot.bearingDeg <= FORMATION_BEARING_MAX_DEG) || !(slot.rangeNm >= 0)) throw new Error(`#${number}'s egress slot is not valid (Bearing 0–90°, Range 0 NM or more)`);
+  const { vector } = slotVectorOf(number, plan);
   const refResult = results[reference];
   if (!refResult?.sem || refResult.sem.status !== "VALID" || !refResult.complete) throw new Error(`#${reference} (the reference of #${number}) has no complete path: ${refResult?.message ?? "no result"}`);
-  const vector = computeFormationOffsetVectorFull({ runInHeadingDeg: egressHeadingDeg, bearingDeg: slot.bearingDeg, side: slot.side, distanceNm: slot.rangeNm }).vector;
   let trials = 0;
-  let lastFailure = null;
   const cost = (headingDeg, distanceNm, backNm) => {
     if (!(distanceNm > 0) || (backNm !== null && !(backNm >= 0))) return Infinity;
     return costOfRows(rejoinRows(start, headingDeg, distanceNm, egressHeadingDeg, driverKind, backNm));
   };
-  const costOfRows = (rows) => {
+  // The slot error of a candidate once the reference has finished its own rows (it then flies straight on; a slot
+  // reached while the reference is still maneuvering would not hold). 0.2.0: an aircraft that ends its rows earlier
+  // flies straight on the Egress Heading until then (written as a Straight at the end of its rows).
+  const errorOfRows = (rows) => {
     trials += 1;
     const flown = flyRejoinRows(rows, start, ctx, settings);
-    if (!flown.end) {
-      lastFailure = flown.failed;
-      return Infinity;
-    }
-    // The slot is met once the reference has finished its own rows (it then flies straight on): a slot reached while
-    // the reference is still maneuvering would not hold.
-    if (flown.end.timeSec < refResult.endState.timeSec - 1e-9) return Infinity;
-    const refAt = aircraftStateAt(refResult, upstream.aircraft[reference], flown.end.timeSec, windKt);
-    if (!refAt.available || refAt.partial) return Infinity;
-    return len(sub(flown.end, add(refAt.state, vector)));
+    if (!flown.end) return null;
+    const earlySec = refResult.endState.timeSec - flown.end.timeSec;
+    const own = earlySec > 1e-9 ? levelStraight(makeState({ ...flown.end, fpaDeg: 0 }), earlySec, windKt).end : flown.end;
+    // The reference after its last row (never earlier here): its continuation.
+    const ref = extendState(refResult.endState, own.timeSec, windKt).state;
+    if (!ref) return null;
+    return { vector: sub(own, add(ref, vector)), earlySec, endSec: flown.end.timeSec };
+  };
+  const costOfRows = (rows) => {
+    const error = errorOfRows(rows);
+    return error ? len(error.vector) : Infinity;
+  };
+  const withHold = (rows) => {
+    const error = errorOfRows(rows);
+    return error && error.earlySec > SEM_REJOIN_AUTO_V0_1.syncMinSec ? [...rows, { kind: "STRAIGHT", source: "user", vertical: "LEVEL", end: { kind: "TIME", value: error.earlySec } }] : rows;
   };
   // Grid, then a pattern search from the best grid point. dogLeg: the second Straight is searched too.
   const search = (dogLeg) => {
@@ -1740,19 +1829,10 @@ function solveAutoRejoin(number, plan, upstream, windKt, results) {
     }
     return best;
   };
-  // The direct path first; the dog-leg only when the direct path cannot reach the slot.
-  let best = search(false);
-  if (!(best.cost <= SEM_REJOIN_AUTO_V0_1.solvedNm)) {
-    const dogLeg = search(true);
-    if (dogLeg.cost < best.cost) best = dogLeg;
-  }
-  if (!Number.isFinite(best.cost)) throw new Error(`#${number}: no rejoin path can be flown${lastFailure ? ` (${lastFailure.errors[0]})` : ""}`);
-  if (!(best.cost <= SEM_REJOIN_AUTO_V0_1.solvedNm)) {
-    // Not reachable at this speed (no speed change in v0.1): no long detour is written. The aircraft only turns to the
-    // Egress Heading, and the distance left to its slot is reported once the reference has finished its rows.
-    const rows = headingGapDeg(start.headingDeg, egressHeadingDeg) >= 0.5
-      ? [{ kind: "TURN", source: "user", direction: shorterDirection(start.headingDeg, egressHeadingDeg), driverKind, driverValue: null, end: { kind: "HEADING", value: norm360(egressHeadingDeg) } }]
-      : [{ kind: "STRAIGHT", source: "user", vertical: "LEVEL", end: { kind: "DISTANCE", value: 1 } }];
+  // Where the aircraft would be against its slot when it only turns to the Egress Heading (and the reference has
+  // finished its rows): the distance left along and across the Egress Heading.
+  const headingOnly = () => {
+    const rows = headingOnlyRows();
     const flown = flyRejoinRows(rows, start, ctx, settings);
     if (!flown.end) throw new Error(`#${number} Turn to the Egress Heading: ${flown.failed.errors[0]}`);
     const timeSec = Math.max(flown.end.timeSec, refResult.endState.timeSec);
@@ -1760,11 +1840,53 @@ function solveAutoRejoin(number, plan, upstream, windKt, results) {
     const refAt = aircraftStateAt(refResult, upstream.aircraft[reference], timeSec, windKt);
     const error = refAt.available && !refAt.partial ? sub(own, add(refAt.state, vector)) : null;
     const forward = vecHeading(egressHeadingDeg);
-    return {
-      rows, solved: false, slotErrorNm: error ? len(error) : null, path: "HEADING_ONLY", reference, trials,
-      longitudinalNm: error ? dot(error, forward) : null, lateralNm: error ? dot(error, { x: forward.y, y: -forward.x }) : null, atSec: timeSec,
+    const longitudinalNm = error ? dot(error, forward) : null;
+    const lateralNm = error ? dot(error, { x: forward.y, y: -forward.x }) : null;
+    return { rows, solved: false, slotErrorNm: error ? len(error) : null, path: "HEADING_ONLY", reference, trials, longitudinalNm, lateralNm, atSec: timeSec, waitNm: waitEstimate(longitudinalNm, lateralNm) };
+  };
+  // 0.2.0: the distance the reference has to lose so that this aircraft, behind its slot, reaches it: the aircraft
+  // moves onto its slot's track with the steepest leg of at most weaveMaxDeg off the Egress Heading that needs no
+  // negative Straight, and what it is then behind is the wait. null: not behind, or no such leg.
+  const waitEstimate = (longitudinalNm, lateralNm) => {
+    if (!isFiniteNumber(longitudinalNm) || !isFiniteNumber(lateralNm)) return null;
+    if (Math.abs(lateralNm) <= SEM_REJOIN_AUTO_V0_1.solvedNm / 2) return longitudinalNm < 0 ? -longitudinalNm : null;
+    const forward = vecHeading(egressHeadingDeg);
+    const parts = (legDeg, distanceNm) => {
+      const error = errorOfRows(rejoinRows(start, legDeg, distanceNm, egressHeadingDeg, driverKind));
+      return error ? { lon: dot(error.vector, forward), lat: dot(error.vector, { x: forward.y, y: -forward.x }) } : null;
     };
+    // Right of its slot (lateral > 0): the leg goes left of the Egress Heading.
+    const sign = lateralNm > 0 ? -1 : 1;
+    for (let offDeg = SEM_REJOIN_AUTO_V0_1.weaveMaxDeg; offDeg >= 5; offDeg -= 5) {
+      const near = parts(egressHeadingDeg + sign * offDeg, 0.5);
+      const far = parts(egressHeadingDeg + sign * offDeg, 1.5);
+      if (!near || !far || Math.abs(far.lat - near.lat) < 1e-9) continue;
+      // The slot error is linear in the Straight's length.
+      const distanceNm = 0.5 - near.lat / (far.lat - near.lat);
+      if (!(distanceNm >= 0)) continue;
+      const lon = near.lon + (far.lon - near.lon) * (distanceNm - 0.5);
+      return lon < 0 ? -lon : null;
+    }
+    return null;
+  };
+  // The direct path first; the dog-leg only when the direct path cannot reach the slot. 0.2.0: the dog-leg loses
+  // distance, so it is not searched for an aircraft that is behind its slot (it cannot help; the lead waits instead).
+  // 0.2.0: on the Egress Heading the aircraft is already in its slot (an element that flew its leader's rows): no leg.
+  const open = headingOnly();
+  if (open.slotErrorNm !== null && open.slotErrorNm <= SEM_REJOIN_AUTO_V0_1.solvedNm) {
+    return { rows: withHold(open.rows), endSec: open.atSec, solved: true, slotErrorNm: open.slotErrorNm, path: "DIRECT", reference, trials };
   }
+  let best = search(false);
+  if (!(best.cost <= SEM_REJOIN_AUTO_V0_1.solvedNm)) {
+    const behind = isFiniteNumber(open.longitudinalNm) && open.longitudinalNm < -SEM_REJOIN_AUTO_V0_1.solvedNm;
+    if (allowDogLeg && !behind) {
+      const dogLeg = search(true);
+      if (dogLeg.cost < best.cost) best = dogLeg;
+    }
+  }
+  // Not reachable at this speed (no speed change in v0.1): no long detour is written. The aircraft only turns to the
+  // Egress Heading, and the distance left to its slot is reported once the reference has finished its rows.
+  if (!(best.cost <= SEM_REJOIN_AUTO_V0_1.solvedNm)) return { ...open, trials };
   // 0.1.1 (review 2026-11-16, S5): a Straight of almost no length is left out and the Turns around it that go the same
   // way become one Turn — when the slot is still met; else the rows stay as solved.
   let rows = rejoinRows(start, best.headingDeg, best.distanceNm, egressHeadingDeg, driverKind, best.backNm);
@@ -1776,14 +1898,325 @@ function solveAutoRejoin(number, plan, upstream, windKt, results) {
       best = { ...best, cost: simplerCost };
     }
   }
+  const flownEnd = errorOfRows(rows);
   return {
-    rows,
+    rows: withHold(rows),
+    endSec: flownEnd ? Math.max(flownEnd.endSec, refResult.endState.timeSec) : null,
     solved: best.cost <= SEM_REJOIN_AUTO_V0_1.solvedNm,
     slotErrorNm: best.cost,
     path: best.backNm === null ? "DIRECT" : "DOG_LEG",
     reference,
     trials,
   };
+}
+
+// ---- Auto Rejoin 0.2.0: the aircraft ahead waits (owner 2026-11-16, BEM Vol 5 §5.20) -------------------------------
+
+const otherSide = (direction) => (direction === "LEFT" ? "RIGHT" : "LEFT");
+const waitTurn = (direction, end) => ({ kind: "TURN", source: "user", direction, driverKind: "G", driverValue: SEM_REJOIN_AUTO_V0_1.waitG, end });
+const waitStraight = (nm) => ({ kind: "STRAIGHT", source: "user", vertical: "LEVEL", end: { kind: "DISTANCE", value: nm } });
+
+// The rows of a wait flown from the Egress Heading back onto it: `loops` full circles toward `side`, then the Weave
+// (Turn weaveDeg toward `side`, Turn 2 × weaveDeg back, Turn onto the Egress Heading; legNm = a Straight on each slant).
+function waitRowsOf({ side, loops, weaveDeg, legNm }, egressHeadingDeg) {
+  const rows = [];
+  const first = 360 * loops + weaveDeg;
+  if (!(weaveDeg > 0)) return first > 0 ? [waitTurn(side, { kind: "HEADING_CHANGE", value: first })] : rows;
+  rows.push(waitTurn(side, { kind: "HEADING_CHANGE", value: first }));
+  if (legNm > 0) rows.push(waitStraight(legNm));
+  rows.push(waitTurn(otherSide(side), { kind: "HEADING_CHANGE", value: 2 * weaveDeg }));
+  if (legNm > 0) rows.push(waitStraight(legNm));
+  rows.push(waitTurn(side, { kind: "HEADING", value: norm360(egressHeadingDeg) }));
+  return rows;
+}
+
+// The wait that loses `lossNm` from `start` (level, on the Egress Heading): the Weave up to weaveMaxDeg, Straight
+// legs on the slants for more, full circles from one circle's loss on. null when no wait of that size exists.
+function solveWait(lossNm, side, start, egressHeadingDeg, ctx, settings) {
+  const auto = SEM_REJOIN_AUTO_V0_1;
+  const forward = vecHeading(egressHeadingDeg);
+  const lossOf = (shape) => {
+    const rows = waitRowsOf({ side, ...shape }, egressHeadingDeg);
+    const flown = flyRejoinRows(rows, start, ctx, settings);
+    if (!flown.end) return { rows, lossNm: null, failed: flown.failed };
+    const dt = flown.end.timeSec - start.timeSec;
+    // In the air mass (the wind moves both paths alike).
+    const progress = dot(sub(sub(flown.end, start), mul(ctx.windKt, dt * NM_PER_KT_SEC)), forward);
+    return { rows, lossNm: start.tasKt * dt * NM_PER_KT_SEC - progress, endSec: flown.end.timeSec };
+  };
+  const circle = lossOf({ loops: 1, weaveDeg: 0, legNm: 0 });
+  const fullWeave = lossOf({ loops: 0, weaveDeg: auto.weaveMaxDeg, legNm: 0 });
+  const minWeave = lossOf({ loops: 0, weaveDeg: auto.weaveMinDeg, legNm: 0 });
+  if (!isFiniteNumber(circle.lossNm) || !isFiniteNumber(fullWeave.lossNm) || !isFiniteNumber(minWeave.lossNm)) return null;
+  if (!(lossNm > 0) || lossNm > auto.waitMaxNm) return null;
+  const loops = Math.min(auto.waitMaxLoops, Math.floor((lossNm + 1e-9) / circle.lossNm));
+  const rest = lossNm - loops * circle.lossNm;
+  let shape;
+  if (rest <= minWeave.lossNm) shape = loops > 0 ? { loops, weaveDeg: 0, legNm: 0 } : { loops: 0, weaveDeg: auto.weaveMinDeg, legNm: 0 };
+  else if (rest <= fullWeave.lossNm) {
+    let low = auto.weaveMinDeg, high = auto.weaveMaxDeg;
+    for (let index = 0; index < 30; index += 1) {
+      const mid = (low + high) / 2;
+      if (lossOf({ loops: 0, weaveDeg: mid, legNm: 0 }).lossNm < rest) low = mid;
+      else high = mid;
+    }
+    shape = { loops, weaveDeg: (low + high) / 2, legNm: 0 };
+  } else {
+    // Each NM on a slant loses 1 − cos(weaveMaxDeg); two slants. One correction for the wind (a ground distance).
+    let legNm = (rest - fullWeave.lossNm) / (2 * (1 - Math.cos(auto.weaveMaxDeg * DEG)));
+    const flown = lossOf({ loops: 0, weaveDeg: auto.weaveMaxDeg, legNm });
+    if (isFiniteNumber(flown.lossNm) && flown.lossNm > fullWeave.lossNm) legNm *= (rest - fullWeave.lossNm) / (flown.lossNm - fullWeave.lossNm);
+    shape = { loops, weaveDeg: auto.weaveMaxDeg, legNm };
+  }
+  const result = lossOf(shape);
+  if (!isFiniteNumber(result.lossNm)) return null;
+  const kind = shape.loops > 0 ? (shape.weaveDeg > 0 ? "CIRCLE_WEAVE" : "CIRCLE") : "WEAVE";
+  return { rows: result.rows, kind, side, lossNm: result.lossNm, loops: shape.loops, weaveDeg: shape.weaveDeg, legNm: shape.legNm };
+}
+
+// The Flight's target area for the wait: the largest fragment radius around the Target (the fragment check's area).
+function targetAreaOf(upstream, number) {
+  const radii = Object.values(upstream.aircraft).map((entry) => entry?.result?.profile?.public?.fragment?.radiusNm).filter(isFiniteNumber);
+  const target = upstream.aircraft[number]?.result?.geometry?.points?.target ?? null;
+  return radii.length && target ? { target, radiusNm: Math.max(...radii) } : null;
+}
+
+// The Straight (NM) flown on the Egress Heading before `waitRows` so that the whole wait stays outside the target area.
+function clearStraightNm(waitRows, start, area, ctx, settings) {
+  if (!area) return 0;
+  const need = area.radiusNm + SEM_REJOIN_AUTO_V0_1.waitAreaClearNm;
+  const closest = (aheadNm) => {
+    let state = aheadNm > 0 ? computeStraight(waitStraight(aheadNm), start, ctx).end : start;
+    if (!state) return null;
+    let min = Math.hypot(state.x - area.target.x, state.y - area.target.y);
+    for (const row of waitRows) {
+      const result = row.kind === "TURN" ? computeTurn(row, state, ctx, rowDriver(row, settings)) : computeStraight(row, state, ctx);
+      if (!result.end) return null;
+      for (const sample of result.samples) min = Math.min(min, Math.hypot(sample.x - area.target.x, sample.y - area.target.y));
+      state = result.end;
+    }
+    return min;
+  };
+  let aheadNm = 0;
+  for (let index = 0; index < 24; index += 1) {
+    const min = closest(aheadNm);
+    if (min === null || min >= need) break;
+    aheadNm += need - min + 0.02;
+  }
+  return aheadNm;
+}
+
+// The side of `point` from an aircraft flying the Egress Heading at `state` (null when it is dead ahead / astern).
+function sideOf(state, point, egressHeadingDeg) {
+  const value = cross(vecHeading(egressHeadingDeg), sub(point, state));
+  return Math.abs(value) < 0.01 ? null : value > 0 ? "LEFT" : "RIGHT";
+}
+
+// The Flight's automatic rejoin (edit autoRejoin "ALL", 0.2.0). Elements first: #2 joins #1, #4 joins #3 (each from
+// its SEM End); then #3 joins #1 from where its element was formed, #4 flying #3's joining rows. When a follower is
+// behind its slot the aircraft ahead waits (solveWait) and the aircraft already in its element fly the same wait.
+function solveFlightRejoin(plan, context) {
+  const auto = SEM_REJOIN_AUTO_V0_1;
+  const { upstream, windKt, flightSize } = context;
+  const egressHeadingDeg = plan.egress.headingDeg;
+  const compute = () => context.currentOutput().aircraft;
+  const report = {};
+  for (let number = 1; number <= flightSize; number += 1) report[number] = { aircraft: number, added: [], solved: false, slotErrorNm: null };
+  const setRows = (number, rows) => {
+    plan.aircraft[number].rows = [];
+    insertRows(plan, number, null, rows);
+  };
+  const appendRows = (number, rows) => {
+    const list = plan.aircraft[number].rows;
+    insertRows(plan, number, list.length ? list[list.length - 1].id : null, rows);
+  };
+  const snapshot = (numbers) => Object.fromEntries(numbers.map((number) => [number, clone(plan.aircraft[number].rows)]));
+  const restore = (saved) => {
+    for (const [number, rows] of Object.entries(saved)) plan.aircraft[number].rows = clone(rows);
+  };
+  const slotError = (number, results) => {
+    const reference = elementLeadOf(number);
+    const own = results[number];
+    if (!own?.complete || !results[reference]?.complete) return null;
+    const refAt = aircraftStateAt(results[reference], upstream.aircraft[reference], own.endState.timeSec, windKt);
+    if (!refAt.available || refAt.partial) return null;
+    return len(slotErrorVector(own.endState, refAt.state, number));
+  };
+  const slotErrorVector = (own, ref, number) => sub(own, add(ref, slotVectorOf(number, plan).vector));
+  // A Straight to `timeSec` for every aircraft of `numbers` that ends earlier: they then maneuver together.
+  const syncTo = (numbers, results) => {
+    const timeSec = Math.max(...numbers.map((number) => results[number].endState.timeSec));
+    for (const number of numbers) {
+      const waitSec = timeSec - results[number].endState.timeSec;
+      if (waitSec > auto.syncMinSec) appendRows(number, [{ kind: "STRAIGHT", source: "user", vertical: "LEVEL", end: { kind: "TIME", value: waitSec } }]);
+    }
+  };
+  // An aircraft that flew copied rows and is off its slot (another speed) is solved again from before those rows.
+  const holdsOrSolve = (number, before, results) => {
+    const error = slotError(number, results);
+    if (error !== null && error <= auto.solvedNm) return true;
+    plan.aircraft[number].rows = clone(before);
+    const again = solveAutoRejoin(number, plan, upstream, windKt, compute(), { from: "END" });
+    if (!again.solved) return false;
+    appendRows(number, again.rows);
+    return true;
+  };
+
+  // `wing` onto its slot from `lead`. waiters: the lead and the aircraft already in its element (they fly the wait);
+  // followers: the aircraft already in the wing's element (they fly the wing's rows).
+  const rejoinOnto = ({ wing, lead, from, waiters, followers = [] }) => {
+    const base = snapshot([wing, ...waiters, ...followers]);
+    const write = (solution) => {
+      if (from === "SEM") setRows(wing, solution.rows);
+      else appendRows(wing, solution.rows);
+      report[wing] = {
+        ...report[wing], solved: solution.solved, slotErrorNm: solution.slotErrorNm, path: solution.path, reference: lead, trials: solution.trials ?? 0,
+        longitudinalNm: solution.longitudinalNm ?? null, lateralNm: solution.lateralNm ?? null,
+        // When it is in its slot (IP clock); for an aircraft left off its slot, the wait its reference would need.
+        joinedSec: solution.solved ? solution.endSec : null, waitNeededNm: solution.solved ? null : solution.waitNm ?? null,
+      };
+      if (!solution.solved) return;
+      // The wing's element flies the same rows; an aircraft that cannot hold its slot through them keeps its rows.
+      for (const number of followers) {
+        const before = clone(plan.aircraft[number].rows);
+        appendRows(number, solution.rows);
+        if (!holdsOrSolve(number, before, compute())) {
+          plan.aircraft[number].rows = before;
+          report[number] = { ...report[number], solved: false };
+        }
+      }
+    };
+    let results = compute();
+    const open = solveAutoRejoin(wing, plan, upstream, windKt, results, { from });
+    if (open.solved) {
+      write(open);
+      return open;
+    }
+    // The lead waits: only for a follower behind its slot.
+    if (isFiniteNumber(open.waitNm) && open.waitNm > 0) {
+      const estimateNm = open.waitNm;
+      syncTo(waiters, results);
+      results = compute();
+      const synced = snapshot(waiters);
+      const leadStart = results[lead].endState;
+      const settings = resolveSettings(lead, plan, upstream);
+      const ctx = { windKt, levelOffG: settings.levelOffG.value };
+      const wingAt = aircraftStateAt(results[wing], upstream.aircraft[wing], leadStart.timeSec, windKt);
+      const side = (wingAt.available ? sideOf(leadStart, wingAt.state, egressHeadingDeg) : null) ?? formationSlot(plan, wing).side;
+      const area = targetAreaOf(upstream, lead);
+      // One tried wait: the lead (and its element) fly it, then the wing is solved against the lead's new path.
+      const tryWait = (stepNm, commit) => {
+        const wait = solveWait(estimateNm + stepNm, side, leadStart, egressHeadingDeg, ctx, settings);
+        if (!wait) return null;
+        const aheadNm = clearStraightNm(wait.rows, leadStart, area, ctx, settings);
+        const rows = [...(aheadNm >= auto.minStraightNm ? [waitStraight(aheadNm)] : []), ...wait.rows];
+        restore(base);
+        restore(synced);
+        appendRows(lead, rows);
+        let held = true;
+        for (const number of waiters) {
+          if (number === lead) continue;
+          const before = clone(plan.aircraft[number].rows);
+          appendRows(number, rows);
+          if (!holdsOrSolve(number, before, compute())) held = false;
+        }
+        const flown = compute();
+        if (!held || !waiters.every((number) => flown[number].complete)) return null;
+        const solution = solveAutoRejoin(wing, plan, upstream, windKt, flown, { from, dogLeg: false });
+        if (!solution.solved) return null;
+        if (commit) {
+          write(solution);
+          report[lead].wait = [...(report[lead].wait ?? []), { for: wing, kind: wait.kind, side: wait.side, lossNm: wait.lossNm, loops: wait.loops, weaveDeg: wait.weaveDeg, legNm: wait.legNm, aheadNm, with: waiters.filter((number) => number !== lead) }];
+        }
+        return { solution, completeSec: solution.endSec };
+      };
+      // The wait after which the Flight is together soonest (a wait that is only just enough leaves the wing a long,
+      // shallow leg).
+      let best = null;
+      for (const stepNm of auto.waitStepsNm) {
+        const tried = tryWait(stepNm, false);
+        if (tried && (!best || tried.completeSec < best.completeSec - 1)) best = { stepNm, completeSec: tried.completeSec };
+        else if (tried && best) break;
+      }
+      if (best) {
+        const done = tryWait(best.stepNm, true);
+        if (done) return done.solution;
+      }
+      restore(base);
+      results = compute();
+    }
+    write(open);
+    return open;
+  };
+
+  // #1 turns to the Egress Heading (the wait, when one is needed, follows it).
+  const leadTurn = (number) => {
+    const results = compute();
+    const entry = results[number];
+    if (!entry?.sem || entry.sem.status !== "VALID") throw new Error(`#${number} has no SEM End to start from: ${entry?.message ?? "no result"}`);
+    const settings = resolveSettings(number, plan, upstream);
+    const rows = turnToEgressRows(entry.sem.endState, egressHeadingDeg, settings.turnDriver.kind);
+    setRows(number, rows.length ? rows : shortStraightRows());
+    const flown = compute()[number];
+    if (!flown.complete) throw new Error(`#${number} Turn to the Egress Heading: ${flown.message}`);
+  };
+  const attempt = (number, work) => {
+    try {
+      work();
+    } catch (error) {
+      report[number] = { ...report[number], solved: false, error: error.message };
+    }
+  };
+  const formed = (number) => report[number].solved === true && !report[number].error;
+  for (let number = 1; number <= flightSize; number += 1) plan.aircraft[number].rows = [];
+  attempt(1, () => {
+    leadTurn(1);
+    report[1] = { ...report[1], solved: true, path: "LEAD" };
+  });
+  if (flightSize >= 2 && !report[1].error) attempt(2, () => rejoinOnto({ wing: 2, lead: 1, from: "SEM", waiters: [1] }));
+  else if (flightSize >= 2) report[2].error = `#1 (the reference of #2) has no complete path`;
+  const element1 = () => [1, ...(flightSize >= 2 && formed(2) ? [2] : [])];
+  if (flightSize === 3) {
+    if (report[1].error) report[3].error = `#1 (the reference of #3) has no complete path`;
+    else attempt(3, () => rejoinOnto({ wing: 3, lead: 1, from: "SEM", waiters: element1() }));
+  }
+  if (flightSize === 4) {
+    attempt(3, () => leadTurn(3));
+    if (report[3].error) report[4].error = `#3 (the reference of #4) has no complete path`;
+    else {
+      attempt(4, () => rejoinOnto({ wing: 4, lead: 3, from: "SEM", waiters: [3] }));
+      if (report[1].error) report[3].error = `#1 (the reference of #3) has no complete path`;
+      else attempt(3, () => {
+        const element2 = [3, ...(formed(4) ? [4] : [])];
+        // The element moves together from the moment it is formed.
+        if (element2.length > 1) syncTo(element2, compute());
+        rejoinOnto({ wing: 3, lead: 1, from: "END", waiters: element1(), followers: element2.slice(1) });
+      });
+    }
+  }
+  // What stands at the end: every row id, and each follower's slot error at the end of its own last row.
+  const results = compute();
+  const rejoined = [];
+  for (let number = 1; number <= flightSize; number += 1) {
+    const entry = { ...report[number], added: plan.aircraft[number].rows.map((row) => row.id) };
+    const reference = elementLeadOf(number);
+    if (number > 1 && !entry.error && results[number]?.complete && results[reference]?.complete && (entry.solved || !isFiniteNumber(entry.longitudinalNm))) {
+      // At the end of its own last row, or once its reference has finished (an aircraft left off its slot).
+      const timeSec = entry.solved ? results[number].endState.timeSec : Math.max(results[number].endState.timeSec, results[reference].endState.timeSec);
+      const own = aircraftStateAt(results[number], upstream.aircraft[number], timeSec, windKt);
+      const refAt = aircraftStateAt(results[reference], upstream.aircraft[reference], timeSec, windKt);
+      if (own.available && refAt.available && !refAt.partial) {
+        const error = slotErrorVector(own.state, refAt.state, number);
+        const forward = vecHeading(egressHeadingDeg);
+        entry.slotErrorNm = len(error);
+        entry.reference = reference;
+        entry.solved = entry.solved && entry.slotErrorNm <= auto.solvedNm + 1e-9;
+        if (!entry.solved) Object.assign(entry, { longitudinalNm: dot(error, forward), lateralNm: dot(error, { x: forward.y, y: -forward.x }) });
+      }
+    }
+    rejoined.push(entry);
+  }
+  return rejoined;
 }
 
 // ---- entrypoint --------------------------------------------------------------------------------

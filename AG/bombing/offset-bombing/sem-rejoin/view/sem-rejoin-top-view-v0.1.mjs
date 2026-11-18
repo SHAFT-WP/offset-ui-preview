@@ -30,7 +30,10 @@ import { formatHeadingDeg, offsetAircraftColors, OFFSET_VIEW_COLORS } from "../.
 export const SEM_REJOIN_TOP_VIEW_V0_1 = Object.freeze({
   id: "sem-rejoin-top-view-v0.1",
   // 0.1.1 (owner 2026-11-12): the BMS TGP north mark (Common) in every view, turned to north with IP Bottom.
-  version: "0.1.1",
+  // 0.1.2 (owner 2026-11-16): options.advanced draws the Offset / POP-UP ingress of each drawn aircraft from its IP
+  // (path, Run-In line, IP / Offset / Pop / Roll-in stations); the moving aircraft never leaves the drawn path —
+  // after the last step (or the SEM) a dashed continuation runs to it, and the attack-run context reaches back to it.
+  version: "0.1.2",
   subject: "SEM & Rejoin",
   view: "Top View",
   canvas: Object.freeze({ width: 900, minHeight: 560, maxHeight: 1100, margins: 48, minSpanNm: 4 }),
@@ -39,6 +42,18 @@ export const SEM_REJOIN_TOP_VIEW_V0_1 = Object.freeze({
 });
 
 const SELECTED_BAND = "#ffe066";
+const CONTINUATION_DASH = "7 6";
+// The end of an aircraft's drawn path: its last step with an end, else its SEM End.
+function pathEnd(entry) {
+  const last = [...(entry?.rows ?? [])].reverse().find((row) => row.end && row.samples?.length >= 2);
+  return last?.end ?? (entry?.sem?.status === "VALID" ? entry.sem.endState : null) ?? null;
+}
+// Where the attack-run context starts: 30 s before Release, earlier when the aircraft at T is before that, the IP with Advanced.
+function attackContextStartSec(entry, at, advanced) {
+  if (advanced) return -Infinity;
+  const start = entry.release.timeSec - SEM_REJOIN_TOP_VIEW_V0_1.attackContextSec;
+  return at?.available && at.phase === "attack" && Number.isFinite(at.state?.timeSec) ? Math.min(start, at.state.timeSec) : start;
+}
 const PREVIEW_DASH = "10 7";
 // Several aircraft's stations crowd around the Target: the wider candidate ring of the Offset Flight
 // Top View (offset-top-view-v0.1.mjs, crowded / follower labels), so a label moves out before it
@@ -71,17 +86,19 @@ export function semRejoinPalette(number) {
 }
 
 // Legend items (fixed footer, Common installSvgLegend): per drawn aircraft, then the shared items.
-export function semRejoinTopViewLegend(output = null, { aircraft = [1], preview = false } = {}) {
+export function semRejoinTopViewLegend(output = null, { aircraft = [1], preview = false, advanced = false } = {}) {
   const items = [];
   for (const number of aircraft) {
     const P = semRejoinPalette(number);
     const entry = output?.aircraft?.[number];
+    if (advanced) items.push({ label: `#${number} Ingress (IP → Release)`, color: P.attack });
     const sem = entry?.sem?.status === "VALID" ? ` · ${formatSec(entry.sem.durationSec)} s` : "";
     items.push({ label: `#${number} SEM${sem}`, color: P.sem });
     items.push({ label: `#${number} Rejoin`, color: P.row });
   }
   items.push({ label: "Arc entry (auto)", color: OFFSET_VIEW_COLORS.reference, dashed: true });
   items.push({ label: "Formation slot", color: OFFSET_VIEW_COLORS.reference, dashed: true });
+  items.push({ label: "After the last step (not a planned step)", color: OFFSET_VIEW_COLORS.reference, dashed: true });
   if (preview) items.push({ label: "Draw preview", color: OFFSET_VIEW_COLORS.time, dashed: true });
   return items;
 }
@@ -112,19 +129,20 @@ function shownRows(entry) {
 // World points of the committed geometry (the preview is not a fit point). `room` adds drawing space
 // (presentation only): [{ point, radiusNm }] squares the FE wants on the canvas, e.g. around the
 // draw anchor, so the next maneuver can be drawn without zooming out first.
-export function semRejoinTopViewWorldPoints(output, { aircraft = [1], evaluation = null, room = [] } = {}) {
+export function semRejoinTopViewWorldPoints(output, { aircraft = [1], evaluation = null, room = [], advanced = false } = {}) {
   const points = [];
   for (const { point, radiusNm } of room) {
     if (!finitePoint(point) || !(radiusNm > 0)) continue;
     points.push({ x: point.x - radiusNm, y: point.y - radiusNm }, { x: point.x + radiusNm, y: point.y + radiusNm });
   }
-  const contextSec = SEM_REJOIN_TOP_VIEW_V0_1.attackContextSec;
   for (const number of aircraft) {
     const entry = output?.aircraft?.[number];
     if (!entry) continue;
     if (entry.release) {
       points.push(entry.release.point);
-      for (const sample of entry.attackSamples ?? []) if (sample.t >= entry.release.timeSec - contextSec) points.push(sample);
+      const fromSec = attackContextStartSec(entry, evaluation?.aircraft?.[number], advanced);
+      for (const sample of entry.attackSamples ?? []) if (sample.t >= fromSec) points.push(sample);
+      if (advanced) points.push(...Object.values(entry.ingressPoints ?? {}).filter(Boolean));
     }
     for (const sample of entry.sem?.samples ?? []) points.push(sample);
     for (const row of shownRows(entry)) {
@@ -173,10 +191,11 @@ export function renderSemRejoinTopView(svg, output, options = {}) {
   const aircraft = (options.aircraft ?? [1]).filter((number) => output?.aircraft?.[number]);
   const title = semRejoinTopViewTitle({ aircraft });
   const evaluation = options.evaluation ?? output?.evaluation ?? null;
+  const advanced = options.advanced === true;
   const { width, minHeight, maxHeight, margins, minSpanNm } = SEM_REJOIN_TOP_VIEW_V0_1.canvas;
   const upHeadingDeg = Number.isFinite(Number(options.upHeadingDeg)) ? Number(options.upHeadingDeg) : 0;
   const rotation = worldRotation(upHeadingDeg);
-  const fit = createSvgAutoCanvas(semRejoinTopViewWorldPoints(output, { aircraft, evaluation, room: options.room ?? [] }).map(rotation.forward), { width, minHeight, maxHeight, margins, minSpan: minSpanNm, flipY: true });
+  const fit = createSvgAutoCanvas(semRejoinTopViewWorldPoints(output, { aircraft, evaluation, room: options.room ?? [], advanced }).map(rotation.forward), { width, minHeight, maxHeight, margins, minSpan: minSpanNm, flipY: true });
   const height = fit.height;
   const project = (point) => fit.project(rotation.forward(point));
   const unproject = (point) => {
@@ -237,8 +256,33 @@ export function renderSemRejoinTopView(svg, output, options = {}) {
     const group = svgNode("g", { "data-sr-aircraft-layer": String(number) });
     paths.append(group);
     if (entry.release) {
-      const context = (entry.attackSamples ?? []).filter((sample) => sample.t >= entry.release.timeSec - SEM_REJOIN_TOP_VIEW_V0_1.attackContextSec).map(project);
-      if (context.length >= 2) polyline(group, context, { stroke: P.attack, "stroke-width": 2.2, opacity: 0.35, "stroke-dasharray": "2 5", "data-sr-role": "attack-run" });
+      const at = evaluation?.aircraft?.[number];
+      const fromSec = attackContextStartSec(entry, at, advanced);
+      const context = (entry.attackSamples ?? []).filter((sample) => sample.t >= fromSec).map(project);
+      if (advanced) {
+        // Advanced (0.1.2): the whole Offset / POP-UP ingress from the IP, with its stations.
+        const stations = entry.ingressPoints ?? {};
+        if (number === aircraft[0] && stations.ip) {
+          const ip = project(stations.ip);
+          group.append(svgNode("line", { x1: ip.x, y1: ip.y, x2: target.x, y2: target.y, stroke: OFFSET_VIEW_COLORS.reference, "stroke-width": 1.4, "stroke-dasharray": "3 7", opacity: 0.7, "data-sr-role": "run-in" }));
+        }
+        if (context.length >= 2) {
+          polyline(group, context, { stroke: P.attack, "stroke-width": 2.8, opacity: 0.85, "data-sr-role": "ingress", "data-sr-aircraft": String(number) });
+          reservePath(context, 5);
+        }
+        const station = (point, key, name, shape = "circle") => {
+          if (!finitePoint(point)) return;
+          const p = project(point);
+          if (shape === "square") group.append(svgNode("rect", { x: p.x - 4.5, y: p.y - 4.5, width: 9, height: 9, fill: "#ffffff", stroke: P.attack, "stroke-width": 2, "data-sr-role": "ingress-station", "data-sr-station": key }));
+          else group.append(svgNode("circle", { cx: p.x, cy: p.y, r: 4.2, fill: "#ffffff", stroke: P.attack, "stroke-width": 2, "data-sr-role": "ingress-station", "data-sr-station": key }));
+          obstacles.points.push({ point: p, radius: 7 });
+          labelRequests.push({ point: p, key: `${key}-${number}`, title: `#${number} ${name}`, detail: "", color: P.attack });
+        };
+        station(stations.ip, "ip", "IP", "square");
+        station(stations.actionPoint, "offset", "Offset");
+        station(stations.popPoint, "pop", "Pop");
+        station(stations.rollStart, "roll-in", "Roll-in");
+      } else if (context.length >= 2) polyline(group, context, { stroke: P.attack, "stroke-width": 2.2, opacity: 0.35, "stroke-dasharray": "2 5", "data-sr-role": "attack-run" });
     }
     if (entry.sem?.samples?.length >= 2) {
       const sem = entry.sem.samples.map(project);
@@ -284,6 +328,21 @@ export function renderSemRejoinTopView(svg, output, options = {}) {
       labelRequests.push({ point: at, key: `stopped-${number}`, title: `#${number} Step ${stopped.step} ${stopped.status}`, detail: stopped.errors?.[0]?.slice(0, 48) ?? "", color: OFFSET_VIEW_COLORS.invalid });
     } else if (lastEnd && !(selected && selected.aircraft === number && selected.rowId === (lastEnd.row.autoFor ?? lastEnd.row.id))) {
       labelRequests.push({ point: lastEnd.end, key: `end-${number}`, title: `#${number} End`, detail: `${clockText(lastEnd.row.end.timeSec)} · ${formatHeadingDeg(lastEnd.row.end.headingDeg)}`, color: P.row });
+    }
+  }
+
+  // After the last step (0.1.2, owner 2026-11-16: "이동 시 경로가 비어 있는데 … 점선으로"): the aircraft at T keeps flying
+  // straight on (the BE's continuation), which is not a planned step; a dashed line from the path end to it.
+  if (evaluation && Number.isFinite(evaluation.timeSec)) {
+    for (const number of aircraft) {
+      const at = evaluation.aircraft?.[number];
+      const end = pathEnd(output.aircraft[number]);
+      if (!at?.available || at.phase !== "continuation" || !finitePoint(end) || !finitePoint(at.state)) continue;
+      const from = project(end);
+      const to = project(at.state);
+      if (Math.hypot(to.x - from.x, to.y - from.y) < 2) continue;
+      polyline(paths, [from, to], { stroke: semRejoinPalette(number).row, "stroke-width": 2.4, opacity: 0.75, "stroke-dasharray": CONTINUATION_DASH, "data-sr-role": "continuation", "data-sr-aircraft": String(number) });
+      reservePath([from, to], 5);
     }
   }
 
