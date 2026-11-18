@@ -21,7 +21,8 @@ export const POPUP_BE_V0_2 = Object.freeze({
   // 0.2.4 (review 2026-11-16, owner "b1 수정 … b3 수정"): the minimum-exposure refinement skips an angle that cannot be
   // flown (it threw, which failed the whole Flight answer at Dive 30°); a ground distance no angle can fly names the
   // cause instead of "reachable Infinity–-Infinity NM".
-  version: "0.2.4",
+  // 0.2.5 (owner 2026-11-17, "기본값은 4G"): a missing Popup G defaults to 4 G (was 3 G).
+  version: "0.2.5",
   status: "Work / Not Official",
   bdpModel: `${BOMB_DELIVERY_PLANNER_MODEL_V0_4.id} ${BOMB_DELIVERY_PLANNER_MODEL_V0_4.version}`,
   climbModel: `${POPUP_CLIMB_V0_2.id} ${POPUP_CLIMB_V0_2.version}`,
@@ -57,7 +58,7 @@ export function normalizePopupInput(input) {
     driver,
     popAltitudeMslFt: finite("popAltitudeMslFt", popup.popAltitudeMslFt),
     popSpeedKcas: finite("popSpeedKcas", popup.popSpeedKcas),
-    popupG: finite("popupG", popup.popupG ?? 3),
+    popupG: finite("popupG", popup.popupG ?? 4),
     popupAngleDeg: driver === "ANGLE" ? finite("popupAngleDeg", popup.popupAngleDeg) : null,
     groundDistanceNm: driver === "GROUND_DISTANCE" ? finite("groundDistanceNm", popup.groundDistanceNm) : null,
     exposureTimeSec: driver === "EXPOSURE_TIME" ? finite("exposureTimeSec", popup.exposureTimeSec) : null,

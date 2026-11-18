@@ -113,7 +113,7 @@ function normalizeInput(input) {
   const popSpeedKcas = finite("popSpeedKcas", input.popSpeedKcas);
   const rollInAltitudeMslFt = finite("rollInAltitudeMslFt", input.rollInAltitudeMslFt);
   const popupAngleDeg = finite("popupAngleDeg", input.popupAngleDeg);
-  const popupG = finite("popupG", input.popupG ?? 3);
+  const popupG = finite("popupG", input.popupG ?? 4); // owner 2026-11-17: default 4 G (was 3 G)
   const gOnsetRateGSec = finite("gOnsetRateGSec", input.gOnsetRateGSec ?? 2);
   const [lo, hi] = POPUP_CLIMB_V0_2.angleDomainDeg;
   if (!(popSpeedKcas > 0)) throw new RangeError("Pop Speed must be > 0 KCAS");

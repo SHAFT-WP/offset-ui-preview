@@ -475,7 +475,7 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
   const xFt = end[0];
   const yFt = end[1];
   const rollInBankAngleDeg = bankRad / DEG;
-  return {
+  const result = {
     model: ROLL_IN_V0_2_MODEL,
     mode: "SLICE_TURN",
     onset,
@@ -506,6 +506,22 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
     samples: out,
     ...(popUpOutputs ? popUpResult() : {}),
   };
+  // The research-envelope report (MIL) is made when it is first read (2026-11-17): a solver that flies the Roll-in
+  // several times to find an altitude reads it only from the Roll-in it keeps, and the report costs about as much as
+  // the flight itself. Same key, place and value as before; a copy ({ ...roll }, structuredClone) holds the value.
+  if (popUpOutputs && dyn.mil) {
+    let report = null;
+    Object.defineProperty(result, "performanceDomain", {
+      enumerable: true,
+      configurable: true,
+      get() {
+        // The flown integration steps, checked with the exact model.
+        report ??= dyn.performanceDomainOf(samples.map((x) => [x.s, x.loadFactor]));
+        return report;
+      },
+    });
+  }
+  return result;
 
   // POP-UP outputs (0.2.2). A point: time from Roll-in Start, altitude, TAS, FPA, position and heading change.
   function point(tSec, st) {
@@ -542,8 +558,7 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
       apexBeforePullDown: apex !== null && apex.timeSec < pullDownState.t,
       ...(dyn.mil ? {
         milPremises: { ...ROLL_IN_MIL_PREMISES, accelerationGrid: `${ADOPTED_ACCELERATION_GRID_V0_1.id} ${ADOPTED_ACCELERATION_GRID_V0_1.version}` },
-        // The flown integration steps, checked with the exact model.
-        performanceDomain: dyn.performanceDomainOf(samples.map((x) => [x.s, x.loadFactor])),
+        // performanceDomain follows as the last key (added lazily by the caller of popUpResult).
       } : {}),
     };
   }

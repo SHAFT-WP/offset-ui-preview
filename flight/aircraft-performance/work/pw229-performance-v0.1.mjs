@@ -10,7 +10,16 @@ export class Pw229Error extends Error {
 const fail=(code,details)=>{throw new Pw229Error(code,details);};
 const stateKeys=['altitudeMslFt','casKt','fuelKg','loadFactorG','aoaDeg','verticalSpeedMps'];
 const controlKeys=['timeSec','altitudeMslFt','fuelKg','loadFactorG','aoaDeg'];
+// A deep-frozen model that passed once cannot change, so it is not checked again (2026-11-17; the adopted model is
+// deep-frozen and evaluated per trajectory state). Any other model is checked on every call, as before.
+const validatedFrozenModels=new WeakSet();
+const deepFrozen=x=>x===null||typeof x!=='object'||(Object.isFrozen(x)&&Object.values(x).every(deepFrozen));
 export function validatePw229Model(m) {
+  if(m&&typeof m==='object'&&validatedFrozenModels.has(m))return;
+  checkPw229Model(m);
+  if(deepFrozen(m))validatedFrozenModels.add(m);
+}
+function checkPw229Model(m) {
   if(!m||m.schemaVersion!==1||m.modelId!=='pw229-manual-bms-performance-v0.1'
     ||m.engineModel!=='F100-PW-229'||m.powerSetting!=='MIL'
     ||m.thrustAlignment!=='VELOCITY_ALIGNED_REFERENCE'

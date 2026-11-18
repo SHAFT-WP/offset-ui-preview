@@ -5,14 +5,17 @@
 // shared set of shown aircraft. This module gives the Offset tabs and what each draws.
 // SEM & Rejoin (2026-10-13): its own module, mounted once into the S&R input tab and the centre
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=e4f45d6042a5";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=e4f45d6042a5";
-import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=e4f45d6042a5";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=d9d5e4a1edc2";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=d9d5e4a1edc2";
+import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=d9d5e4a1edc2";
 import { mountWideWorkspace } from "./shared/wide-workspace-v0.1.mjs?v=0.1.2";
+import { mountPopupDesignGraph } from "./popup-design-graph-v0.1.mjs?v=0.1.1";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
 let semRejoin = null;
+let designGraph = null;
+const POPUP_PAGE = document.body.classList.contains("popup-page");
 
 // Tab order (owner 2026-10-07): BDP, Offset, Formation (#2-#4), Save/Load (renamed from Save 2026-10-11). Offset stays the tab shown on
 // first entry. #1 has no Formation tab (owner 2026-10-07): its Reference Point (VRP / VIP, IP) sits on top
@@ -51,6 +54,8 @@ const workspace = mountWideWorkspace({
     ["topview", "Offset Top View", { section: document.getElementById("offset-top-view")?.closest("section") }],
     ["bdp", "BDP", { title: "BDP", blocks: true }],
     ["sem", "SEM & Rejoin", { title: "SEM & Rejoin", host: true }],
+    // POP-UP Design tab (owner 2026-11-18): the dependency graph of #1 (popup-design-graph-v0.1).
+    ...(POPUP_PAGE ? [["design", "Design", { title: "Design · Graph (#1)", host: true }]] : []),
   ],
   centerOfInput: CENTER_OF_INPUT,
   inputOfCenter: INPUT_OF_CENTER,
@@ -71,6 +76,8 @@ const workspace = mountWideWorkspace({
     // S&R is mounted once; entering shows its latest result (one request if the Offset changed).
     if (key === "sem") semRejoin.activate();
     else semRejoin.deactivate();
+    if (key === "design") designGraph?.activate();
+    else designGraph?.deactivate();
   },
   onEditAircraft: (number) => semRejoin.setEditAircraft(number),
 });
@@ -82,6 +89,8 @@ semRejoin = mountSemRejoin({
   getEditAircraft: () => workspace.editAircraft(),
   requestEditAircraft: (number) => workspace.selectEditAircraft(number),
 });
+designGraph = POPUP_PAGE ? mountPopupDesignGraph({ host: workspace.centerHost("design"), offsetUi: offsetIndexUi }) : null;
+if (designGraph) globalThis.popupDesignGraph = designGraph;
 // BMS Mission (DTC) and DTE (2026-11-12, plan S7 / S8): the Offset index Save/Load tab only (POP-UP later, plan S10).
 const bmsMissionRoot = document.getElementById("bms-mission");
 const bmsMission = bmsMissionRoot ? mountBmsMissionPanel({ root: bmsMissionRoot, offsetUi: offsetIndexUi }) : null;

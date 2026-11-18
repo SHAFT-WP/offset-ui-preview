@@ -1,0 +1,25 @@
+/* POP-UP Design tab graph (popup-design-graph-v0.1.mjs, owner 2026-11-18). */
+.design-graph{display:grid;gap:10px}
+.design-graph-controls{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px 10px}
+.design-graph-field{display:grid;gap:4px;font-size:11px;font-weight:800;color:var(--muted);min-width:0}
+.design-graph-field select,.design-graph-field input{min-height:36px;border:1px solid var(--line);border-radius:8px;background:var(--field);color:var(--text);padding:0 8px;font:inherit;font-size:13px;font-weight:700;min-width:0;width:100%;box-sizing:border-box}
+.design-graph-field input:disabled{opacity:.45}
+.design-graph-actions{display:flex;flex-wrap:wrap;gap:8px}
+.design-graph-status{margin:0;font-size:12px;color:var(--muted)}
+.design-graph-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--text)}
+.design-graph-key{display:inline-flex;align-items:center;gap:6px}
+.design-graph-key i{display:inline-block;width:22px;height:3px;border-radius:2px}
+.design-graph-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#1f1f1e;border:2px solid #fff}
+.design-graph-shell{position:relative;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.design-graph-svg{display:block;width:100%;height:auto;touch-action:none;cursor:grab;font-family:inherit;user-select:none}
+.design-graph-tip{position:absolute;max-width:260px;padding:6px 8px;border-radius:8px;background:#1f1f1e;color:#fff;font-size:12px;line-height:1.4;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.design-graph-tip-msg{color:#ffbd62;margin-top:2px}
+[data-center-panel="design"] .wide-show-aircraft,[data-center-panel="design"] .wide-empty{display:none}
+@media(max-width:620px){.design-graph-controls{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Step by Step (0.1.1). */
+.design-steps{display:grid;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.design-steps-title{margin:0;font-size:14px;font-weight:800;color:var(--text)}
+.design-steps-list{margin:0;padding-left:22px;display:grid;gap:6px;font-size:13px;line-height:1.45;color:var(--text)}
+.design-steps-list b{font-weight:800}
+.design-steps-shell{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.design-steps-svg{display:block;width:100%;height:auto;font-family:inherit}

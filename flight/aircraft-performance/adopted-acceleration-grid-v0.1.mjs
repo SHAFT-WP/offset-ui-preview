@@ -9,6 +9,8 @@ import { ADOPTED_PERFORMANCE_MODEL_V0_1, evaluateAdoptedPerformance } from "./ad
 // The envelope report is not made here: callers check their flown states with the exact model.
 export const ADOPTED_ACCELERATION_GRID_V0_1 = Object.freeze({
   id: "adopted-acceleration-grid-v0.1",
+  // 2026-11-17: the last cell's nodes are kept between calls (same values, fewer lookups). The version is not
+  // raised: results carry it (milPremises.accelerationGrid) and no value changes.
   version: "0.1.0",
   performanceEntry: `${ADOPTED_PERFORMANCE_MODEL_V0_1.id} ${ADOPTED_PERFORMANCE_MODEL_V0_1.version}`,
   altitudeStepFt: 50,
@@ -58,21 +60,35 @@ export function adoptedAccelerationGrid({ fuelKg, aoaDeg }) {
     nodes.set(k, value);
     return value;
   };
+  // The four nodes of the last cell asked for are kept (2026-11-17): a trajectory solver stays in one cell for many calls.
+  // Only a cell whose four nodes are all available is kept, so a failing cell is looked up (and fails) every time.
+  let cellI = null;
+  let cellJ = null;
+  let n00 = null;
+  let n10 = null;
+  let n01 = null;
+  let n11 = null;
   grid = (altitudeMslFt, tasFps, loadFactorG) => {
     const x = altitudeMslFt / dh;
     const y = tasFps / KT_TO_FPS / dv;
     const i = Math.floor(x);
     const j = Math.floor(y);
+    if (i !== cellI || j !== cellJ) {
+      cellI = null;
+      n00 = node(i, j);
+      n10 = node(i + 1, j);
+      n01 = node(i, j + 1);
+      n11 = node(i + 1, j + 1);
+      const failed = n00.error ? n00 : n10.error ? n10 : n01.error ? n01 : n11.error ? n11 : null;
+      if (failed) throw new AccelerationUnavailableError(failed.error);
+      cellI = i;
+      cellJ = j;
+    }
     const fx = x - i;
     const fy = y - j;
-    const n00 = node(i, j);
-    const n10 = node(i + 1, j);
-    const n01 = node(i, j + 1);
-    const n11 = node(i + 1, j + 1);
-    const failed = [n00, n10, n01, n11].find((n) => n.error);
-    if (failed) throw new AccelerationUnavailableError(failed.error);
-    const lerp = (field) => (n00[field] * (1 - fx) + n10[field] * fx) * (1 - fy) + (n01[field] * (1 - fx) + n11[field] * fx) * fy;
-    return lerp("a") - lerp("b") * loadFactorG * loadFactorG;
+    const a = (n00.a * (1 - fx) + n10.a * fx) * (1 - fy) + (n01.a * (1 - fx) + n11.a * fx) * fy;
+    const b = (n00.b * (1 - fx) + n10.b * fx) * (1 - fy) + (n01.b * (1 - fx) + n11.b * fx) * fy;
+    return a - b * loadFactorG * loadFactorG;
   };
   grids.set(key, grid);
   return grid;

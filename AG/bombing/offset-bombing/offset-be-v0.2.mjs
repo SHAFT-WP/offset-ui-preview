@@ -40,7 +40,9 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 // (csemLevelAltitudeAglFt) and turns to the same heading as the Level SEM (blank: the Run-In reciprocal).
 // 0.2.18 (owner 2026-11-11, BMS mission plan S1): an Action Point (VRP) beyond a locked IP is a WARNING, not INVALID;
 // result.actionPointBeyondIp marks that the path starts at the Action Point. Values are unchanged.
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.19", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
+// 0.2.20 (owner 2026-11-18, speed): the VRP second pass tries the first pass's Offset Angle first (offsetAngleRootHintDeg);
+// with geometry 0.2.10's coarse scan the answers are the same, with about a third of the BDP solves.
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.20", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -225,10 +227,10 @@ function resolveHeadingForOffset({ input, locks, driver, direction, runInHeading
   return { attackHeadingDeg, angleOffDeg: angleOffFromOffsetHeading(offsetHeadingDeg, attackHeadingDeg, direction) };
 }
 
-function solveOffsetAngleForMetric({ targetValue, evaluate, metric, minOffsetAngleDeg = 0.05, maxOffsetAngleDeg = 120, tolerance = 0.002 }) {
+function solveOffsetAngleForMetric({ targetValue, evaluate, metric, minOffsetAngleDeg = 0.05, maxOffsetAngleDeg = 120, tolerance = 0.002, hintAngleDeg = null }) {
   finite("targetValue", targetValue);
   if (!(targetValue >= 0)) throw new RangeError("Range constraint must be >= 0 NM");
-  const solved = scanOffsetAngleRoot({ targetValue, evaluate, metric, minAngleDeg: minOffsetAngleDeg, maxAngleDeg: maxOffsetAngleDeg, tolerance, refineIterations: 40 });
+  const solved = scanOffsetAngleRoot({ targetValue, evaluate, metric, minAngleDeg: minOffsetAngleDeg, maxAngleDeg: maxOffsetAngleDeg, tolerance, refineIterations: 40, hintAngleDeg });
   return { candidate: solved.candidate, residualNm: solved.residual, exact: solved.exact, failureCause: solved.failureCause };
 }
 
@@ -312,6 +314,8 @@ export function calculateOffsetWithVrpStartFull(input) {
   // delivery and turn solution is unchanged; linked IP follows the solved AP.
   const result = calculateOffsetV0_2Full({
     ...candidateInput,
+    // 2026-11-18 (speed): the delivery and turn are those of the first pass, so its Offset Angle is tried first.
+    offsetAngleRootHintDeg: first.resolved.offsetAngleDeg,
     ipRangeNm: ipLinkedToVrp ? first.resolved.actionRangeNm + ipLinkLeadNm : candidateInput.ipRangeNm,
     vrpBearingDeg: holdVrp ? input.vrpBearingDeg : norm(runIn + 180),
     vrpRangeNm: holdVrp ? input.vrpRangeNm : first.resolved.actionRangeNm,
@@ -385,7 +389,7 @@ export function calculateOffsetV0_2Full(input) {
   if (range.fixed && offsetCanVary) {
     const maxAngle = offsetAngleScanMaxDeg({ locks, driver, direction });
     const metric = range.kind === "approach" ? (item) => item.approachRangeNm : (item) => item.actionRangeNm;
-    const solved = solveOffsetAngleForMetric({ targetValue: range.targetRangeNm, evaluate, metric, maxOffsetAngleDeg: maxAngle, tolerance: 0.002 });
+    const solved = solveOffsetAngleForMetric({ targetValue: range.targetRangeNm, evaluate, metric, maxOffsetAngleDeg: maxAngle, tolerance: 0.002, hintAngleDeg: Number.isFinite(input.offsetAngleRootHintDeg) ? input.offsetAngleRootHintDeg : null });
     candidate = solved.candidate;
     residualNm = solved.residualNm;
     exact = solved.exact;

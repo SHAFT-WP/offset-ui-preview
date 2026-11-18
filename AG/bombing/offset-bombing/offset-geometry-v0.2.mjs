@@ -9,7 +9,9 @@ export const OFFSET_GEOMETRY_V0_2 = Object.freeze({
   // 0.2.8 (2026-10-18, owner handoff §3.1): the turn path samples also carry the onset turn's bankDeg (≥ 0, toward
   // the Offset direction) and loadFactorG, for the BDP HUD's Roll-in −3 s start. Display data only.
   // 0.2.9 (owner 2026-11-11): validateOffsetCandidate reports "passed IP" as a warning with actionPointBeyondIp.
-  version: "0.2.9",
+  // 0.2.10 (2026-11-18, owner "Offset Angle 탐색 속도"): scanOffsetAngleRoot walks a coarse grid first and takes a
+  // known solving angle (hintAngleDeg) first; same contract and the same answers.
+  version: "0.2.10",
   purpose: "Pure Offset Bombing heading/action-point/reference geometry independent of DOM and rendering",
 });
 
@@ -302,13 +304,19 @@ export function candidateFailureCause(errors) {
 
 // Offset Angle root scan shared by the single-aircraft (offset-be-v0.2.mjs) and off-axis
 // (offset-formation-geometry-v0.1.mjs) solves. `evaluate(angle)` returns a candidate or throws for a
-// rejected one; `metric(candidate)` is compared with `targetValue`. 1° scan from `minAngleDeg`, the
-// end boundary `maxAngleDeg` included; a sign change between two successive accepted candidates is a
-// bracket (a rejected candidate between them is a gap, never bridged); each bracket is bisected and
-// the first one whose bisection reaches `tolerance` wins. A bisection step that is rejected abandons
-// that bracket and the scan continues after it. Without a match the closest accepted candidate is
-// returned (`exact` false) with the most frequent rejection cause.
-export function scanOffsetAngleRoot({ targetValue, evaluate, metric, minAngleDeg = 0.05, maxAngleDeg = 120, tolerance, refineIterations }) {
+// rejected one; `metric(candidate)` is compared with `targetValue`. The contract is the 1° grid from
+// `minAngleDeg`, the end boundary `maxAngleDeg` included; a sign change between two successive accepted
+// grid candidates is a bracket (a rejected candidate between them is a gap, never bridged); each bracket
+// is refined and the first one whose refinement reaches `tolerance` wins. A refinement step that is
+// rejected abandons that bracket and the scan continues after it. Without a match the closest accepted
+// candidate is returned (`exact` false) with the most frequent rejection cause.
+// 0.2.10 (speed, 2026-11-18): the grid is walked coarse first (every `coarseStepDeg` grid point) and the
+// 1° grid is filled in only inside the first coarse interval with a sign change; any rejected coarse point
+// or no coarse bracket falls back to the full 1° walk (samples reused), so gaps behave as before.
+// The bracket bisection is unchanged, so every answer is the one the full 1° walk gives.
+// `hintAngleDeg`: an angle already known to solve the same scan (e.g. the first VRP pass) is tried first and
+// taken when it is within `tolerance`.
+export function scanOffsetAngleRoot({ targetValue, evaluate, metric, minAngleDeg = 0.05, maxAngleDeg = 120, tolerance, refineIterations, coarseStepDeg = 4, hintAngleDeg = null }) {
   requireFinite("targetValue", targetValue);
   requireFinite("tolerance", tolerance);
   if (typeof evaluate !== "function") throw new TypeError("evaluate must be a function");
@@ -324,35 +332,77 @@ export function scanOffsetAngleRoot({ targetValue, evaluate, metric, minAngleDeg
       return null;
     }
   };
+  let best = null;
+  const keep = (item) => { if (item && Number.isFinite(item.residual) && (!best || Math.abs(item.residual) < Math.abs(best.residual))) best = item; };
+  const done = (match) => ({ candidate: match.candidate, residual: match.residual, exact: Math.abs(match.residual) <= tolerance, failureCause: null });
+  if (Number.isFinite(hintAngleDeg) && hintAngleDeg >= minAngleDeg - 1e-9 && hintAngleDeg <= maxAngleDeg + 1e-9) {
+    const hinted = sample(hintAngleDeg);
+    if (hinted && Number.isFinite(hinted.residual) && Math.abs(hinted.residual) <= tolerance) return done(hinted);
+    keep(hinted);
+  }
   const angles = [];
   for (let angle = minAngleDeg; angle <= maxAngleDeg + 1e-9; angle += 1) angles.push(angle);
   if (!angles.length || angles[angles.length - 1] < maxAngleDeg - 1e-9) angles.push(maxAngleDeg);
-
-  let best = null;
-  const keep = (item) => { if (item && Number.isFinite(item.residual) && (!best || Math.abs(item.residual) < Math.abs(best.residual))) best = item; };
-  let previous = null;
-  for (const angle of angles) {
-    const current = sample(angle);
-    keep(current);
-    if (!current || !Number.isFinite(current.residual)) { previous = null; continue; }
-    if (previous && previous.residual * current.residual <= 0) {
-      let lo = previous.angle;
-      let hi = current.angle;
-      let flo = previous.residual;
-      let match = null;
-      for (let index = 0; index < refineIterations; index += 1) {
-        const mid = sample((lo + hi) / 2);
-        if (!mid || !Number.isFinite(mid.residual)) { match = null; break; }
-        keep(mid);
-        if (Math.abs(mid.residual) <= tolerance) { match = mid; break; }
-        if (flo * mid.residual <= 0) hi = mid.angle;
-        else { lo = mid.angle; flo = mid.residual; }
-        match = mid;
-      }
-      if (match) return { candidate: match.candidate, residual: match.residual, exact: Math.abs(match.residual) <= tolerance, failureCause: null };
+  // Grid samples by index, each evaluated once.
+  const grid = new Map();
+  const at = (index) => {
+    if (!grid.has(index)) { const item = sample(angles[index]); keep(item); grid.set(index, item); }
+    return grid.get(index);
+  };
+  const usable = (item) => !!item && Number.isFinite(item.residual);
+  // Refine one bracket (a, b accepted grid neighbours of opposite sign): bisection, so the answer depends only
+  // on the signs met and two solves of the same bracket agree exactly. null when a step is rejected.
+  const refine = (a, b) => {
+    let lo = a.angle;
+    let hi = b.angle;
+    let flo = a.residual;
+    let match = null;
+    for (let index = 0; index < refineIterations; index += 1) {
+      const mid = sample((lo + hi) / 2);
+      if (!usable(mid)) return null;
+      keep(mid);
+      if (Math.abs(mid.residual) <= tolerance) return mid;
+      if (flo * mid.residual <= 0) hi = mid.angle;
+      else { lo = mid.angle; flo = mid.residual; }
+      match = mid;
     }
-    previous = current;
+    return match;
+  };
+  // The 1° walk from grid index `from` to `to`: the first bracket refined, or null.
+  const walk = (from, to) => {
+    let previous = null;
+    for (let index = from; index <= to; index += 1) {
+      const current = at(index);
+      if (!usable(current)) { previous = null; continue; }
+      if (previous && previous.residual * current.residual <= 0) {
+        const match = refine(previous, current);
+        if (match) return match;
+      }
+      previous = current;
+    }
+    return null;
+  };
+  // Coarse pass: every `step`-th grid point and the last one; it stops at the first coarse interval with a
+  // sign change, provided every coarse point before it was accepted.
+  const step = Math.max(1, Math.round(coarseStepDeg));
+  const coarse = [];
+  for (let index = 0; index < angles.length; index += step) coarse.push(index);
+  if (coarse[coarse.length - 1] !== angles.length - 1) coarse.push(angles.length - 1);
+  if (step > 1) {
+    let previousIndex = null;
+    for (const index of coarse) {
+      const current = at(index);
+      if (!usable(current)) break;
+      if (previousIndex !== null && grid.get(previousIndex).residual * current.residual <= 0) {
+        const match = walk(previousIndex, index);
+        if (match) return done(match);
+        break;
+      }
+      previousIndex = index;
+    }
   }
+  const match = walk(0, angles.length - 1);
+  if (match) return done(match);
   return { candidate: best?.candidate ?? null, residual: best?.residual ?? null, exact: !!best && Math.abs(best.residual) <= tolerance, failureCause: candidateFailureCause(errors) };
 }
 

@@ -20,8 +20,8 @@ const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-fli
 // with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
 // climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
 const POPUP_MODE = document.body.classList.contains("popup-page");
-const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.15", import.meta.url);
-const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.15", import.meta.url);
+const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.19", import.meta.url);
+const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.19", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -61,7 +61,7 @@ import {
   POPUP_DEFAULT_INPUT_VALUES, POPUP_DRIVERS, POPUP_DRIVER_NOTE, POPUP_DRIVER_TEXT, POPUP_FOLLOWER_PROFILE_KEYS, POPUP_LOCK_KEYS, POPUP_VALUE_KEYS,
   installPopupControls, markPopupDriverFields, popupApexText, popupFollowerGroupMarkup, popupRangeText, popupResultRows, popupTopViewMarkers,
   popupZTextMarkup, popupZTickMarkup, renderPopupMinimumExposure, syncPopupSpeedFields, syncPopupSpeedNote, syncPopupZTextButtons, syncPopupZTickButtons,
-} from "./popup-page-v0.1.mjs?v=0.1.0";
+} from "./popup-page-v0.1.mjs?v=0.1.3";
 import { POPUP_BDP_APPROACH_V0_1, popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.0";

@@ -2,7 +2,7 @@ import { casToTas, machToTas, tasToCas } from "../../../common/airspeed/airspeed
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import { OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, calculateOffsetFlightUnfittedFull as calculateOffsetFlightFull, createOffsetFlightSession, profileLinkStates } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.17";
 import { calculateWithClearFit, clearFitFieldLocked, clearFitRange } from "../offset-bombing/offset-clear-fit-v0.1.mjs";
-import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs?v=0.2.4";
+import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs?v=0.2.5";
 import { calculatePopupClimbFull } from "./popup-climb-v0.2.mjs";
 import { computeDropOrderDeltaFull } from "../offset-bombing/offset-formation-v0.1.mjs";
 import { dropOrderTiming } from "../../../flight/flight-bombing-tactics/flight-composition-v0.1.mjs";
@@ -11,12 +11,12 @@ import { leadImpactToWingmanReleaseSec } from "../../../flight/flight-bombing-ta
 // POP-UP Flight v0.1 (owner 2026-10-27, POP-UP SPEC §13.1, step 3b): the Offset Flight (as is) with each aircraft's
 // Roll-in flown from its Popup angle at MIL (BDP v0.4.5 POP-UP option), and the POP-UP climb in front of it.
 //   Pop Point: on the Approach leg (Offset Turn End → Roll-in Start, the Offset heading), the Popup ground distance
-//   before Roll-in Start; Hold-Down = Approach Range − ground distance, which must be ≥ 0 (an error, never clipped).
+//   before Roll-in Start; Offset-Popup Range (was Hold-Down, 0.1.18) = Approach Range − ground distance, which must be ≥ 0 (an error, never clipped).
 //   The Pop Point state is the Offset leg's: Offset Altitude and Offset Speed (§13.5); 0.1.12: the Pop-up Speed when typed.
 // Per aircraft (values / state of the Offset record; blank follows #1, then the defaults):
 //   state.popupDriver "DEFAULT" (automatic rule) | "ANGLE" | "GROUND_DISTANCE" | "EXPOSURE_TIME" (the last typed);
 //   state.popupLocks { rollInSpeed, angle }: a LOCKed angle holds the ANGLE driver; a LOCKed Roll-in Speed solves the Pop-up Speed;
-//   values.popupAngleDeg / popupGroundDistanceNm / popupExposureTimeSec (the driver's value); values.popupG (3 G).
+//   values.popupAngleDeg / popupGroundDistanceNm / popupExposureTimeSec (the driver's value); values.popupG (4 G; 3 G before 0.1.16).
 // The angle for a distance or a time is solved on the aircraft's BDP input from an Offset Flight at the previous
 // angle, repeated until the angle settles (the Offset solve moves the Roll-in a little with the angle).
 export const POPUP_FLIGHT_V0_1 = Object.freeze({
@@ -68,8 +68,21 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // path is removed — #3 / #4 follow #1 / #2 through the profile LINK only); the Distance LOCK, LOCK conflict and
   // "ROLL_IN_SPEED" / "LEAD_POP_TIME" driver remnants are removed (a stored one reads as AUTO); the minimum-exposure
   // request cannot fail the Flight answer and flies each trial angle as the Apply would (B2); each climb of a call is flown once (memo).
-  version: "0.1.15",
-  defaultPopupG: 3,
+  // 0.1.16 (owner 2026-11-17, "전반적으로 매우 느려졌어. 특히 락버튼"; SPEC §13.8w): the AUTO Roll-in Speed returned is the
+  // one the result was flown with. Before, the last round's MIL arrival (within speedSettleKt of it, never flown) was
+  // returned, so a returned state sent back gave another speed in the last digits every time and nothing was reused:
+  // every request and every idle preparation solved the whole Flight again. Now a returned state is its own answer.
+  // 0.1.17 (owner 2026-11-17, "기본값은 4G"; SPEC §13.8x): the default Popup G is 4 G (was 3 G), for a blank field and the
+  // emptied-field fill. POP-UP BE 0.2.5 / climb default the same.
+  // 0.1.18 (owner 2026-11-18, "더 직관적으로"; SPEC §13.8y): Hold-Down is called Offset-Popup Range (NM) / Offset-Popup
+  // Time (s) in the messages: "Offset-Popup Range … NM: …" (error), "SHORT OFFSET-POPUP TIME" (warning). The result keys
+  // (holdDownNm, holdDownSec, timing.popupHoldDownSec, minHoldDownSec) keep their names.
+  // 0.1.19 (owner 2026-11-18; SPEC §13.8aa): the AUTO Popup angle keeps the slowest speed Pop → Apex at or above the
+  // LOW SPEED line (300 KCAS) when an angle with an Offset-Popup Range ≥ 0 does ("최대한 수정하고 안되면 경고"): the
+  // raise's angle, or the rule's, is held at the steepest such angle (popup.autoAngleApexGuard); none: LOW SPEED as
+  // before. The emptied-field fill of Offset G is 3 G (was 2 G; owner "Offset 기본값 3G").
+  version: "0.1.19",
+  defaultPopupG: 4,
   angleIterations: 12,
   autoAngleMinDeg: 1,
   autoAngleToleranceDeg: 0.05,
@@ -81,6 +94,8 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // 0.1.15 (owner 2026-11-16, "hold down time이 0인 것은 피할 수 있으면 피하는게 좋다"): the AUTO raise aims at this
   // Hold-Down time (wings level after the Offset Turn) instead of 0; shorter than it is a warning.
   minHoldDownSec: 2,
+  // 0.1.19: the Apex guard's search (secant on the slowest speed, 0.5° grid; whole Flight solves).
+  apexGuardTrials: 4,
   speedSettleKt: 0.05,
   angleSettleDeg: 0.01,
 });
@@ -301,7 +316,11 @@ function holdDownState(climbFull, sol, n, settings) {
   try {
     const climb = climbFull({ ...popState(r.resolved, settings.popupSpeedKcas), rollInAltitudeMslFt: r.profile.public.resolvedInitialAltitudeMslFt, popupAngleDeg: sol.angles[n], popupG: settings.popupG, gOnsetRateGSec: r.profile.canonicalInputs.gOnsetRateGSec });
     const holdDownNm = r.resolved.approachRangeNm - climb.groundDistanceNm;
-    return { short: holdDownNm < 0, holdDownNm, failed: false, needNm: POPUP_FLIGHT_V0_1.minHoldDownSec * approachSpeedNmSec(r) };
+    // 0.1.19: the slowest speed Pop → Apex (the climb and the Apex), as the POP-UP BE's LOW SPEED check measures it.
+    const apex = r.profile.public?.rollInPopUp?.apex;
+    const speeds = [...climb.samples.map((x) => x.casKt), ...(apex ? [tasToCas(apex.tasKt, apex.altitudeMslFt)] : [])].filter(Number.isFinite);
+    const slowKcas = speeds.length ? Math.min(...speeds) : null;
+    return { short: holdDownNm < 0, holdDownNm, failed: false, needNm: POPUP_FLIGHT_V0_1.minHoldDownSec * approachSpeedNmSec(r), slowKcas };
   } catch {
     return { short: false, holdDownNm: null, failed: true };
   }
@@ -367,12 +386,12 @@ export const POPUP_CLEAR_FIT = Object.freeze({
   approachRangeNm: ["Approach Range", 3, range(0.5, 8, 0.5)],
   vrpRangeNm: ["VRP Range", 8, range(4, 15, 0.5)],
   ipRangeNm: ["IP Range", 10, range(5, 20, 1)],
-  offsetG: ["Offset G", 2, range(1.5, 6, 0.5)],
+  offsetG: ["Offset G", 3, range(1.5, 6, 0.5)],
   offsetBankDeg: ["Offset Bank", 60, range(30, 85, 5)],
   offsetRadiusNm: ["Offset Radius", 2, range(0.5, 4, 0.25)],
   rollInAltitudeMslFt: ["Roll-in Altitude", 4000, range(2000, 12000, 250)],
   rollInG: ["Roll-in G", 3, range(2, 6, 0.5)],
-  popupG: ["Popup G", 3, range(2, 6, 0.5)],
+  popupG: ["Popup G", 4, range(2, 6, 0.5)],
   popupAngleDeg: ["Popup Angle", 30, range(5, 55, 2.5)],
 });
 // Step 2's order (owner agreed 2026-11-10): the fields that change the fit most first.
@@ -457,7 +476,10 @@ function popupFlight(rawInput, offsetFlight) {
     const autoSpeed = numbers.filter((n) => !linkedTo[n] && !settings[n].locks.rollInSpeed);
     const backSolve = numbers.filter((n) => !linkedTo[n] && settings[n].locks.rollInSpeed && Number.isFinite(speeds[n]));
     const speedErrors = {};
-    let output = offsetFlight(withAngles(input, angles, speeds));
+    // 0.1.16: the Roll-in Speeds of the last Offset Flight flown (the ones `output` was calculated with).
+    let flownSpeeds = {};
+    const fly = () => { flownSpeeds = { ...speeds }; return offsetFlight(withAngles(input, angles, speeds)); };
+    let output = fly();
     // AUTO Popup angle (0.1.9): the automatic rule's angle, lowered to the steepest one whose pull-up arc stays below
     // the Roll-in Altitude when the rule's angle cannot be flown.
     const autoAngle = numbers.filter((n) => !linkedTo[n] && settings[n].driver === "DEFAULT");
@@ -492,7 +514,9 @@ function popupFlight(rawInput, offsetFlight) {
           target = fit;
         }
         // Below the rule's angle: the pull-up arc limits it (0.1.9's warning).
-        if (target < ruleDeg - POPUP_FLIGHT_V0_1.autoAngleToleranceDeg * 2) lowered[n] = { ruleDeg, angleDeg: target }; else delete lowered[n];
+        // 0.1.19: only what the arc lowered (an Apex-guard angle asked below the rule is not "lowered").
+        const floorDeg = Math.min(askedDeg, ruleDeg);
+        if (target < floorDeg - POPUP_FLIGHT_V0_1.autoAngleToleranceDeg * 2) lowered[n] = { ruleDeg: floorDeg, angleDeg: target }; else delete lowered[n];
         if (Math.abs(target - angles[n]) > POPUP_FLIGHT_V0_1.angleSettleDeg) moved = true;
         angles[n] = target;
       }
@@ -518,9 +542,15 @@ function popupFlight(rawInput, offsetFlight) {
           speeds[n] = arrival;
         } catch { /* the climb error is reported below */ }
       }
+      if (!moved) {
+        // Settled (0.1.16): the AUTO Roll-in Speed returned is the one flown, not the arrival of this last round
+        // (within speedSettleKt of it, never flown). The returned state is then its own answer when it comes back.
+        for (const n of autoSpeed) if (Number.isFinite(flownSpeeds[n])) speeds[n] = flownSpeeds[n];
+        followSources();
+        break;
+      }
       followSources();
-      if (!moved) break;
-      output = offsetFlight(withAngles(input, angles, speeds));
+      output = fly();
     }
     return { output, angles, speeds, solved, angleErrors, lowered };
   };
@@ -529,15 +559,18 @@ function popupFlight(rawInput, offsetFlight) {
   // Altitude is not changed (0.1.9 raised it; removed).
   let sol = solve();
   const raisedAngle = {};
+  // The raise's trials (0.1.19: the Apex guard reuses them).
+  const raiseTried = {};
   const autoRaiseable = (n) => !linkedTo[n] && settings[n].driver === "DEFAULT";
   // 0.1.15: the raise aims at the minimum Hold-Down time, so an AUTO angle whose Hold-Down is 0 … 2 s is raised too.
   // `hd` in the trials is the Hold-Down beyond that minimum (the search's zero); `real` the Hold-Down itself.
   const firstStates = Object.fromEntries(numbers.filter(autoRaiseable).map((n) => [n, holdDownState(climbFull, sol, n, settings[n])]));
   const short = Object.keys(firstStates).filter((n) => firstStates[n].short || (Number.isFinite(firstStates[n].holdDownNm) && firstStates[n].holdDownNm < firstStates[n].needNm));
   if (short.length) {
-    const entry = (deg, flown, state, needNm) => ({ deg, flown, real: state.holdDownNm, hd: Number.isFinite(state.holdDownNm) ? state.holdDownNm - needNm : state.holdDownNm, failed: state.failed });
+    const entry = (deg, flown, state, needNm) => ({ deg, flown, real: state.holdDownNm, hd: Number.isFinite(state.holdDownNm) ? state.holdDownNm - needNm : state.holdDownNm, failed: state.failed, slow: state.slowKcas });
     const need = Object.fromEntries(short.map((n) => [n, firstStates[n].needNm ?? 0]));
     const tried = Object.fromEntries(short.map((n) => [n, [entry(sol.angles[n], sol.angles[n], firstStates[n], need[n])]]));
+    Object.assign(raiseTried, tried);
     // The angle to fly of the ones tried: the lowest with the minimum Hold-Down; else the one with the longest
     // Hold-Down ≥ 0 (the minimum is out of reach); else none (the rule's angle and its Hold-Down error stand).
     const pick = (n) => {
@@ -575,6 +608,63 @@ function popupFlight(rawInput, offsetFlight) {
       if (!(sol.angles[n] > raisedAngle[n].ruleDeg)) delete raisedAngle[n];
     }
   }
+  // Apex guard (0.1.19, owner 2026-11-18, "최대한 수정하고 안되면 경고"; SPEC §13.8aa): an AUTO angle whose slowest speed
+  // Pop → Apex is below the LOW SPEED line (300 KCAS) is lowered to the steepest angle that keeps it at or above the
+  // line with an Offset-Popup Range ≥ 0 (a shallower climb is faster but longer). None such: the angle stays, warned.
+  const apexGuard = {};
+  const lowLine = POPUP_BE_V0_2.lowSpeedWarningKcas;
+  const grid = POPUP_FLIGHT_V0_1.autoAngleRaiseGridDeg;
+  const guardAngles = () => Object.fromEntries(numbers.filter(autoRaiseable).map((k) => [k, apexGuard[k]?.angleDeg ?? raisedAngle[k]?.angleDeg ?? sol.angles[k]]));
+  for (const n of numbers.filter(autoRaiseable)) {
+    const state = holdDownState(climbFull, sol, n, settings[n]);
+    const fromDeg = sol.angles[n];
+    if (state.failed || !Number.isFinite(state.slowKcas) || state.slowKcas >= lowLine || !Number.isFinite(fromDeg)) continue;
+    // Points known so far: { deg (flown), slow, real }; good = at or above the line with a Range ≥ 0.
+    const isGood = (x) => Number.isFinite(x.slow) && x.slow >= lowLine && Number.isFinite(x.real) && x.real >= 0;
+    const known = [{ deg: fromDeg, slow: state.slowKcas, real: state.holdDownNm }, ...(raiseTried[n] ?? []).filter((x) => !x.failed && Number.isFinite(x.flown)).map((x) => ({ deg: x.flown, slow: x.slow, real: x.real }))];
+    const tryAngle = (deg) => {
+      const trial = solve({ ...guardAngles(), [n]: deg });
+      const st = holdDownState(climbFull, trial, n, settings[n]);
+      const point = { deg: trial.angles[n], slow: st.failed ? null : st.slowKcas, real: st.failed ? null : st.holdDownNm, sol: trial };
+      known.push(point);
+      return point;
+    };
+    // Steepest good below the current angle, and the shallowest slow one above it.
+    for (let round = 0; round < POPUP_FLIGHT_V0_1.apexGuardTrials; round += 1) {
+      const lo = known.filter((x) => x.deg < fromDeg + 1e-9 && isGood(x)).sort((a, b) => b.deg - a.deg)[0] ?? null;
+      const hi = known.filter((x) => x.deg <= fromDeg + 1e-9 && Number.isFinite(x.slow) && x.slow < lowLine && (!lo || x.deg > lo.deg)).sort((a, b) => a.deg - b.deg)[0];
+      if (!hi || (lo && hi.deg - lo.deg <= grid + 1e-9)) break;
+      // A shallower angle only shortens the Offset-Popup Range: below a Range < 0 nothing good is left.
+      if (!lo && known.some((x) => x.deg < hi.deg && !(Number.isFinite(x.real) && x.real >= 0))) break;
+      // Where the slowest speed reaches the line: the secant of the two nearest, else about 4 KCAS per degree.
+      const below = lo ?? known.filter((x) => x.deg < hi.deg && Number.isFinite(x.slow)).sort((a, b) => b.deg - a.deg)[0];
+      let at = below && below.slow !== hi.slow ? below.deg + (hi.deg - below.deg) * (lowLine - below.slow) / (hi.slow - below.slow) : hi.deg - (lowLine - hi.slow) / 4;
+      if (!lo) at = Math.min(at, hi.deg - grid);
+      let deg = Math.floor(at / grid + 1e-9) * grid;
+      if (lo) deg = Math.min(Math.max(deg, lo.deg + grid), hi.deg - grid);
+      if (!(deg >= POPUP_FLIGHT_V0_1.autoAngleMinDeg) || known.some((x) => Math.abs(x.deg - deg) < 1e-6)) break;
+      tryAngle(deg);
+    }
+    const best = known.filter((x) => x.deg < fromDeg + 1e-9 && isGood(x)).sort((a, b) => b.deg - a.deg)[0];
+    if (best) apexGuard[n] = { fromDeg, angleDeg: best.deg, slowKcas: state.slowKcas, sol: best.sol ?? null, lowered: sol.lowered[n] ?? null };
+  }
+  if (Object.keys(apexGuard).length) {
+    // A trial already flown with every final angle is the answer (one aircraft guarded: its best trial).
+    const final = guardAngles();
+    const same = (trial) => trial && Object.entries(final).every(([k, deg]) => Math.abs(trial.angles[k] - deg) < 1e-9);
+    const reuse = Object.values(apexGuard).map((g) => g.sol).find(same);
+    sol = reuse ?? solve(final);
+    for (const n of Object.keys(apexGuard)) {
+      delete apexGuard[n].sol;
+      // What the arc lowered before the guard stays reported.
+      if (apexGuard[n].lowered) sol.lowered[n] = apexGuard[n].lowered;
+      delete apexGuard[n].lowered;
+      apexGuard[n].angleDeg = sol.angles[n];
+      if (raisedAngle[n]) {
+        if (sol.angles[n] > raisedAngle[n].ruleDeg) raisedAngle[n].angleDeg = sol.angles[n]; else delete raisedAngle[n];
+      }
+    }
+  }
   const { output, angles, speeds, solved, angleErrors, lowered } = sol;
   // 0.1.14: how a remaining Hold-Down < 0 could be fitted.
   const holdDownHint = (n) => (short.includes(n)
@@ -584,7 +674,7 @@ function popupFlight(rawInput, offsetFlight) {
   for (const n of numbers) {
     const offset = output.aircraftResults[n];
     const s = settings[n];
-    const base = { driver: s.driver, popupG: s.popupG, popupSpeedKcas: s.popupSpeedKcas, popupAngleDeg: angles[n], ...(raisedAngle[n] ? { autoAngleRaised: raisedAngle[n] } : {}), ...(lowered[n] ? { autoAngleLowered: lowered[n] } : {}), locks: s.locks, rollInSpeedSource: s.locks.rollInSpeed ? "LOCK" : "AUTO", rollInSpeedKcas: speeds[n] };
+    const base = { driver: s.driver, popupG: s.popupG, popupSpeedKcas: s.popupSpeedKcas, popupAngleDeg: angles[n], ...(raisedAngle[n] ? { autoAngleRaised: raisedAngle[n] } : {}), ...(lowered[n] ? { autoAngleLowered: lowered[n] } : {}), ...(apexGuard[n] ? { autoAngleApexGuard: apexGuard[n] } : {}), locks: s.locks, rollInSpeedSource: s.locks.rollInSpeed ? "LOCK" : "AUTO", rollInSpeedKcas: speeds[n] };
     const merge = (popup, errors, warnings) => {
       const status = errors.length ? "INVALID" : offset.status === "WARNING" || warnings.length ? "WARNING" : offset.status;
       return { ...offset, status, errors: [...(offset.errors ?? []), ...errors], warnings: [...(offset.warnings ?? []), ...warnings], popup: { ...base, ...popup } };
@@ -614,14 +704,15 @@ function popupFlight(rawInput, offsetFlight) {
     const errors = [];
     const warnings = s.overridden ? [s.overridden] : [];
     // 0.1.9: what the planner changed so the climb fits.
-    if (raisedAngle[n]) warnings.push(`Popup angle (AUTO) raised ${raisedAngle[n].ruleDeg.toFixed(1)}° → ${raisedAngle[n].angleDeg.toFixed(1)}° so the climb fits the Approach (Hold-Down aimed at ${POPUP_FLIGHT_V0_1.minHoldDownSec} s or more)`);
+    if (raisedAngle[n]) warnings.push(`Popup angle (AUTO) raised ${raisedAngle[n].ruleDeg.toFixed(1)}° → ${raisedAngle[n].angleDeg.toFixed(1)}° so the climb fits the Approach (Offset-Popup Time aimed at ${POPUP_FLIGHT_V0_1.minHoldDownSec} s or more)`);
+    if (apexGuard[n]) warnings.push(`Popup angle (AUTO) held at ${apexGuard[n].angleDeg.toFixed(1)}° (not ${apexGuard[n].fromDeg.toFixed(1)}°) so the speed Pop → Apex stays at or above ${lowLine} KCAS`);
     if (lowered[n]) warnings.push(`Popup angle (AUTO) lowered ${lowered[n].ruleDeg.toFixed(1)}° → ${lowered[n].angleDeg.toFixed(1)}°: at ${lowered[n].ruleDeg.toFixed(1)}° the pull-up arc passes the Roll-in Altitude`);
     const attack = assemblePopupAttack({ p: { ...p, driver: s.driver }, rollInSpeedSource: s.locks.rollInSpeed ? "LOCK" : "AUTO", angleDeg: angles[n], otherSolutionsDeg: solved[n]?.otherSolutionsDeg ?? [], bdp, climb, errors, warnings });
     // Pop Point on the Approach leg, ground distance before Roll-in Start.
     const approachRangeNm = r.resolved.approachRangeNm;
     const holdDownNm = approachRangeNm - climb.groundDistanceNm;
     if (!(holdDownNm >= 0)) {
-      errors.push(`Hold-Down ${holdDownNm.toFixed(2)} NM: the Popup ground distance ${climb.groundDistanceNm.toFixed(2)} NM is longer than the Approach Range ${approachRangeNm.toFixed(2)} NM${holdDownHint(n)}`);
+      errors.push(`Offset-Popup Range ${holdDownNm.toFixed(2)} NM: the Popup ground distance ${climb.groundDistanceNm.toFixed(2)} NM is longer than the Approach Range ${approachRangeNm.toFixed(2)} NM${holdDownHint(n)}`);
     }
     const heading = r.geometry.offsetHeadingDeg * DEG;
     const rollStart = r.geometry.points.rollStart;
@@ -630,7 +721,7 @@ function popupFlight(rawInput, offsetFlight) {
     const holdDownSec = Math.max(0, holdDownNm) / approachSpeedNmSec(r);
     // 0.1.15: a Hold-Down shorter than the minimum (the Pop right after the Offset Turn) is a warning, whatever the driver.
     if (holdDownNm >= 0 && holdDownSec < POPUP_FLIGHT_V0_1.minHoldDownSec - 1e-9) {
-      warnings.push(`SHORT HOLD-DOWN: ${holdDownSec.toFixed(1)} s (${holdDownNm.toFixed(2)} NM) after the Offset Turn, under ${POPUP_FLIGHT_V0_1.minHoldDownSec} s${s.driver === "DEFAULT" ? "; no AUTO Popup angle gives more: lower the Offset Angle" : "; raise the Popup Angle or lower the Offset Angle"}`);
+      warnings.push(`SHORT OFFSET-POPUP TIME: ${holdDownSec.toFixed(1)} s (${holdDownNm.toFixed(2)} NM) after the Offset Turn, under ${POPUP_FLIGHT_V0_1.minHoldDownSec} s${s.driver === "DEFAULT" ? "; no AUTO Popup angle gives more: lower the Offset Angle" : "; raise the Popup Angle or lower the Offset Angle"}`);
     }
     const popTimeSec = r.timing.ingressSec + r.timing.offsetTurnSec + holdDownSec;
     // At the Pop Point (heading = the Approaching Heading): range to the Target and the angle-off, the Target's
