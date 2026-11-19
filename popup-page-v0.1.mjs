@@ -5,7 +5,7 @@
 import { formatG } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { POPUP_Z_DIAGRAM_V0_1 } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.6";
 
-export const POPUP_PAGE_V0_1 = Object.freeze({ id: "popup-page-v0.1", version: "0.1.4" });
+export const POPUP_PAGE_V0_1 = Object.freeze({ id: "popup-page-v0.1", version: "0.1.5" });
 // 0.1.4 (owner 2026-11-19, MIL dive): Release Speed blank by default (no cap: the BE's Release speed is shown in the
 // field, greyed); typed, the BE's Release speed is written in the field note. The layout is unchanged.
 // 0.1.1 (owner 2026-11-17, "기본값은 4G"): the default Popup G is 4 G (was 3 G).
@@ -51,6 +51,8 @@ export function popupTopViewMarkers(aircraft, popupOf) {
 // POP-UP results (#1): the BE's popup record of the Flight entry; nothing is computed here.
 export const POPUP_DRIVER_TEXT = Object.freeze({ DEFAULT: "AUTO · Dive ≤ 15° → +5°, else +10°", ANGLE: "Popup Angle", GROUND_DISTANCE: "Pop to Roll-in Distance", EXPOSURE_TIME: "Exposure Time (typed)" });
 // The Pop-up Range readout of a POP-UP group (Pop-up Point → Target, NM).
+// Approach-Pop Range (owner 2026-11-19): Approach start (Offset Turn End) → Pop Point, horizontal, the BE's holdDownNm.
+export const popupApproachPopText = (p) => (Number.isFinite(p?.holdDownNm) ? p.holdDownNm.toFixed(2) : "-");
 export const popupRangeText = (p) => (Number.isFinite(p?.popToTargetNm) ? p.popToTargetNm.toFixed(2) : "-");
 // The field each driver comes from (the other two are results).
 const POPUP_DRIVER_KEY = Object.freeze({ ANGLE: "popupAngleDeg", GROUND_DISTANCE: "popupGroundDistanceNm", EXPOSURE_TIME: "popupExposureTimeSec" });
@@ -206,10 +208,11 @@ export function popupFollowerGroupMarkup({ initialSpeed, rollInLocked }) {
     + `<label class="field"><span>Popup G (G)</span><input data-flight-field="popupG" type="text" inputmode="decimal"><span class="unit" data-follow-note></span></label>`
     + `${initialSpeed}${rollInLocked}`
     + `<div class="field"><span>Apex (ft MSL)</span><output class="readout" data-popup-apex-out>-</output><span class="unit">Top of the climb · result</span></div>`
+    + `<div class="field"><span>Approach-Pop Range (NM)</span><output class="readout" data-popup-app-pop-out>-</output><span class="unit">Approach start → Pop Point · result</span></div>`
     + `<label class="field"><span>Pop to Roll-in Distance (NM)</span><input data-flight-field="popupGroundDistanceNm" type="text" inputmode="decimal"><span class="unit">Pop Point → Roll-in Start</span></label>`
     + `<label class="field"><span>Exposure Time (sec)</span><input data-flight-field="popupExposureTimeSec" type="text" inputmode="decimal"><span class="unit">Pop Point → Apex · MIL</span></label>`
     + `<div class="field popup-auto-field"><span>Pop-up Angle</span><button class="btn" type="button" data-popup-auto>AUTO</button><span class="unit">AUTO: Dive ≤ 15° → Dive + 5°, Dive > 15° → Dive + 10°</span></div>`
-    + `<div class="field"><span>Popup Angle Min. Exposure</span><span class="compound"><button class="btn" type="button" data-popup-min>Calculate</button><output class="readout" data-popup-min-out>-</output><button class="btn" type="button" data-popup-min-apply hidden>Apply</button></span><span class="unit">Popup angle with the shortest Pop → Apex</span></div>`
+    + `<div class="field"><span>Popup Angle Min. Exposure</span><span class="compound popup-min-row"><button class="btn" type="button" data-popup-min>Calculate</button><output class="readout" data-popup-min-out>-</output><button class="btn" type="button" data-popup-min-apply hidden>Apply</button></span><span class="unit">Popup angle with the shortest Pop → Apex</span></div>`
     + `</div></details>`;
 }
 

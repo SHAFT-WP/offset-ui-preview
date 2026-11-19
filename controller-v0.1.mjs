@@ -59,9 +59,9 @@ import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-b
 import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.6";
 import {
   POPUP_DEFAULT_INPUT_VALUES, POPUP_DRIVERS, POPUP_DRIVER_NOTE, POPUP_DRIVER_TEXT, POPUP_FOLLOWER_PROFILE_KEYS, POPUP_LOCK_KEYS, POPUP_VALUE_KEYS,
-  installPopupControls, markPopupDriverFields, popupApexText, popupFollowerGroupMarkup, popupRangeText, popupResultRows, popupTopViewMarkers,
+  installPopupControls, markPopupDriverFields, popupApexText, popupApproachPopText, popupFollowerGroupMarkup, popupRangeText, popupResultRows, popupTopViewMarkers,
   popupZTextMarkup, popupZTickMarkup, renderPopupMinimumExposure, syncPopupSpeedFields, syncPopupSpeedNote, syncReleaseSpeedFields, syncPopupZTextButtons, syncPopupZTickButtons,
-} from "./popup-page-v0.1.mjs?v=0.1.4";
+} from "./popup-page-v0.1.mjs?v=0.1.5";
 import { POPUP_BDP_APPROACH_V0_1, popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.0";
@@ -1079,6 +1079,7 @@ function renderPopup(entry) {
   if (apexOut) apexOut.textContent = popupApexText(p);
   // Owner 2026-11-16: the same Apex after #1's Initial Altitude (BDP Profile group).
   document.querySelectorAll("[data-popup-apex-out]").forEach((out) => { if (!out.closest(".flight-slot")) out.textContent = popupApexText(p); });
+  document.querySelectorAll("[data-popup-app-pop-out]").forEach((out) => { if (!out.closest(".flight-slot")) out.textContent = popupApproachPopText(entry?.result ? p : null); });
   const range = $("#popup-range-out");
   if (range) range.textContent = popupRangeText(p);
   const out = $("#popup-min-exposure-out");
@@ -2865,6 +2866,7 @@ function renderFollowerPopupControls(number, slot, entry) {
   markPopupDriverFields(draft.popupDriver, (key) => followerFields(slot, key));
   slot.querySelectorAll("[data-popup-range-out]").forEach((out) => { out.textContent = popupRangeText(entry.result ? entry.popup : null); });
   slot.querySelectorAll("[data-popup-apex-out]").forEach((out) => { out.textContent = popupApexText(entry.result ? entry.popup : null); });
+  slot.querySelectorAll("[data-popup-app-pop-out]").forEach((out) => { out.textContent = popupApproachPopText(entry.result ? entry.popup : null); });
   syncPopupLocks(draft.popupLocks ?? {}, slot);
   syncPopupSpeedFields(followerFields(slot, "initialSpeedValue"), draft.popupLocks?.rollInSpeed === true);
   syncPopupSpeedNote(slot, draft.popupSpeedOwn === true, () => true, draft.popupLocks?.rollInSpeed === true);
