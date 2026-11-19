@@ -11,7 +11,7 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // The BE runs in a Worker (offset-flight-worker-v0.1.mjs); Common calculation-client-v0.1.mjs decides when a
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
-import { FORMATION_TEMPLATES, OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, formationTemplatePositions } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.18";
+import { FORMATION_TEMPLATES, OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, formationTemplatePositions } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.19";
 // Flight Formation top view (Flight Bombing Tactics view, owner 2026-11-02): draws the BE's flightName.formation.
 import { formationTopViewSvg } from "./flight/flight-bombing-tactics/view/formation-top-view-v0.1.mjs?v=0.2.0";
 import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";

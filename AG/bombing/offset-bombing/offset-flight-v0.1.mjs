@@ -79,7 +79,9 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // 0.1.17 (owner 2026-11-11): followers no longer get the Flight IP limit (#1's IP); behind its own IP is a WARNING.
   // 0.1.18 (owner 2026-11-19, POP-UP MIL dive): values.diveSpeedModel / semSpeedModel "MIL" pass to the BDP (v0.4.10);
   // the Release Speed may then be blank (no cap). Without them nothing changes.
-  version: "0.1.18",
+  // 0.1.19 (owner 2026-11-19, VIP mode for the BMS DTE): a VIP not set separately is the IP (Run-In / IP Range, it was
+  // 10 NM); OA1 is read from the Target in VIP mode too (as VRP).
+  version: "0.1.19",
   status: "work",
   schemaVersion: 2,
   components: Object.freeze({
@@ -571,13 +573,14 @@ function applyTypedOverElementLead(options, key) {
 
 // ---- #1 ------------------------------------------------------------------------------------------
 
-// Reference fallbacks (implicit VIP = Run-In / 10 NM, implicit VRP = reciprocal / 7 NM).
+// Reference fallbacks (implicit VIP = the IP: Run-In / IP Range, owner 2026-11-19 "VIP는 따로 정하지 않는한 ip를 사용한다";
+// implicit VRP = reciprocal / 7 NM).
 function prepareLead(lead) {
   const { values: v, state: s } = lead;
   if (isNumber(v.runInHeadingDeg)) {
     const runIn = norm(v.runInHeadingDeg);
     if (!s.vipBearingExplicit || !isNumber(v.vipToTargetBearingDeg)) v.vipToTargetBearingDeg = runIn;
-    if (!s.vipRangeExplicit || !isNumber(v.vipRangeNm)) v.vipRangeNm = DEFAULT_VIP_RANGE_NM;
+    if (!s.vipRangeExplicit || !isNumber(v.vipRangeNm)) v.vipRangeNm = isNumber(v.ipRangeNm) ? v.ipRangeNm : DEFAULT_VIP_RANGE_NM;
     if (!s.vrpBearingExplicit || !isNumber(v.vrpBearingDeg)) v.vrpBearingDeg = norm(runIn + 180);
   }
   if (!s.vrpRangeExplicit || !isNumber(v.vrpRangeNm)) v.vrpRangeNm = DEFAULT_VRP_RANGE_NM;
@@ -779,11 +782,12 @@ function leadDiagnostics(lead, result) {
   return out;
 }
 
-// DED pages: the reference page (VRP or VIP) and OA1, from the aircraft's own Full result.
+// DED pages: the reference page (VRP or VIP) and OA1, from the aircraft's own Full result. OA1 is read from the Target in
+// both modes (owner 2026-11-19: "OA1,OA2는 VRP와 동일하다 TARGET 위치에서 계산한다"; it was the VIP in VIP mode).
 function dedFrom({ result, isVip, flightVip, referenceRangeNm, referenceBearingDeg, initialAltitudeMslFt }) {
   const points = result.geometry.points;
   const rollInAltitudeMslFt = result.profile.public.resolvedInitialAltitudeMslFt;
-  const oa1Base = isVip ? flightVip : points.target;
+  const oa1Base = points.target;
   const oa1RangeNm = distanceNm(oa1Base, points.rollStart);
   return {
     page: isVip ? "VIP" : "VRP",
