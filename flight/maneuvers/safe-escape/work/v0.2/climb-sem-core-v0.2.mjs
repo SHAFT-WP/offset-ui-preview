@@ -95,14 +95,16 @@ function invalidResult(input, errors, warnings) {
   };
 }
 
-function integrateStep(state, loadFactor, dt) {
+// `thrustMinusDrag` (optional, 2026-11-19 POP-UP "SEM at MIL"): (T − D)/m in ft/s² of (altitude ft MSL, TAS ft/s, load
+// factor G), added to the speed rate (also passed to the Common recovery pull). Absent: energy-neutral, as before.
+function integrateStep(state, loadFactor, dt, thrustMinusDrag = null) {
   const velocity = state.velocityFps;
   const fpa = state.fpaRad;
-  const speedRate = -G_FTPS2 * Math.sin(fpa);
+  const speedRate = -G_FTPS2 * Math.sin(fpa) + (thrustMinusDrag ? thrustMinusDrag(state.altitudeMslFt, velocity, loadFactor) : 0);
   const fpaRate = (G_FTPS2 / velocity) * (loadFactor - Math.cos(fpa));
   const midVelocity = Math.max(80, velocity + (speedRate * dt) / 2);
   const midFpa = fpa + (fpaRate * dt) / 2;
-  const midSpeedRate = -G_FTPS2 * Math.sin(midFpa);
+  const midSpeedRate = -G_FTPS2 * Math.sin(midFpa) + (thrustMinusDrag ? thrustMinusDrag(state.altitudeMslFt + (velocity * Math.sin(fpa) * dt) / 2, midVelocity, loadFactor) : 0);
   const midFpaRate = (G_FTPS2 / midVelocity) * (loadFactor - Math.cos(midFpa));
   state.velocityFps = Math.max(80, velocity + midSpeedRate * dt);
   state.fpaRad = fpa + midFpaRate * dt;
@@ -113,7 +115,7 @@ function integrateStep(state, loadFactor, dt) {
   state.minAltitudeMslFt = Math.min(state.minAltitudeMslFt, state.altitudeMslFt);
 }
 
-function runRelaxation(startState, input, durationSec, onStep = null) {
+function runRelaxation(startState, input, durationSec, onStep = null, thrustMinusDrag = null) {
   const state = { ...startState };
   let localElapsed = 0;
   const terminalEquilibriumG = Math.cos(input.terminalFpaDeg * DEG_TO_RAD);
@@ -121,7 +123,7 @@ function runRelaxation(startState, input, durationSec, onStep = null) {
     const dt = Math.min(CLIMB_SEM_MODEL_V0_2.integrationStepSec, durationSec - localElapsed);
     const fraction = (localElapsed + dt / 2) / durationSec;
     const loadFactor = input.recoveryG + (terminalEquilibriumG - input.recoveryG) * fraction;
-    integrateStep(state, loadFactor, dt);
+    integrateStep(state, loadFactor, dt, thrustMinusDrag);
     localElapsed += dt;
     onStep?.(state, loadFactor);
   }
@@ -138,6 +140,7 @@ function validSampleInterval(value) {
 
 export function calculateClimbSemV0_2(rawInput) {
   const input = normalizeInput(rawInput);
+  const thrustMinusDrag = typeof rawInput?.thrustMinusDrag === "function" ? rawInput.thrustMinusDrag : null;
   const { errors, warnings } = validateInput(input);
   const sampleIntervalSec = rawInput?.sampleIntervalSec;
   if (!validSampleInterval(sampleIntervalSec)) errors.push("SAMPLE_INTERVAL_OUT_OF_RANGE");
@@ -154,6 +157,7 @@ export function calculateClimbSemV0_2(rawInput) {
       gOnsetTimeSec: input.gOnsetTimeSec,
       maneuverInitiationDelaySec: 0,
       ...(sampleIntervalSec === undefined ? {} : { sampleIntervalSec }),
+      ...(thrustMinusDrag ? { thrustMinusDrag } : {}),
     });
   } catch (error) {
     return invalidResult(input, [error.message || String(error)], warnings);
@@ -174,11 +178,11 @@ export function calculateClimbSemV0_2(rawInput) {
   const terminalFpaRad = input.terminalFpaDeg * DEG_TO_RAD;
   let lowDuration = 0.05;
   let highDuration = 12;
-  while (runRelaxation(relaxationStart, input, highDuration).fpaRad < terminalFpaRad && highDuration < 30) highDuration *= 1.5;
-  if (runRelaxation(relaxationStart, input, highDuration).fpaRad < terminalFpaRad) return invalidResult(input, ["TERMINAL_FPA_NOT_REACHED"], warnings);
+  while (runRelaxation(relaxationStart, input, highDuration, null, thrustMinusDrag).fpaRad < terminalFpaRad && highDuration < 30) highDuration *= 1.5;
+  if (runRelaxation(relaxationStart, input, highDuration, null, thrustMinusDrag).fpaRad < terminalFpaRad) return invalidResult(input, ["TERMINAL_FPA_NOT_REACHED"], warnings);
   for (let i = 0; i < 35; i += 1) {
     const mid = (lowDuration + highDuration) / 2;
-    if (runRelaxation(relaxationStart, input, mid).fpaRad < terminalFpaRad) lowDuration = mid;
+    if (runRelaxation(relaxationStart, input, mid, null, thrustMinusDrag).fpaRad < terminalFpaRad) lowDuration = mid;
     else highDuration = mid;
   }
   let relaxationSampler = null;
@@ -186,7 +190,7 @@ export function calculateClimbSemV0_2(rawInput) {
     const firstSampleSec = Math.ceil(relaxationStart.elapsedTimeSec / sampleIntervalSec - 1e-9) * sampleIntervalSec;
     relaxationSampler = createRecoveryPullSampler(sampleIntervalSec, { firstSampleSec });
   }
-  const termination = runRelaxation(relaxationStart, input, (lowDuration + highDuration) / 2, relaxationSampler ? (state, loadFactor) => relaxationSampler.record(state, loadFactor) : null);
+  const termination = runRelaxation(relaxationStart, input, (lowDuration + highDuration) / 2, relaxationSampler ? (state, loadFactor) => relaxationSampler.record(state, loadFactor) : null, thrustMinusDrag);
   const residualDeg = Math.abs(termination.fpaRad - terminalFpaRad) / DEG_TO_RAD;
   if (!(residualDeg < TERMINAL_FPA_TOLERANCE_DEG) || !Number.isFinite(termination.velocityFps)) return invalidResult(input, ["TERMINAL_FPA_NOT_CONVERGED"], warnings);
   // Converged: the terminal state is reported at the target FPA (residual < TERMINAL_FPA_TOLERANCE_DEG).

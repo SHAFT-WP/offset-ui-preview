@@ -5,7 +5,9 @@
 import { formatG } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { POPUP_Z_DIAGRAM_V0_1 } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.6";
 
-export const POPUP_PAGE_V0_1 = Object.freeze({ id: "popup-page-v0.1", version: "0.1.3" });
+export const POPUP_PAGE_V0_1 = Object.freeze({ id: "popup-page-v0.1", version: "0.1.4" });
+// 0.1.4 (owner 2026-11-19, MIL dive): Release Speed blank by default (no cap: the BE's Release speed is shown in the
+// field, greyed); typed, the BE's Release speed is written in the field note. The layout is unchanged.
 // 0.1.1 (owner 2026-11-17, "기본값은 4G"): the default Popup G is 4 G (was 3 G).
 // 0.1.2 (owner 2026-11-18, "더 직관적으로"): the Hold-Down row is two rows, Offset-Popup Range (NM) and Offset-Popup Time (s).
 
@@ -30,10 +32,12 @@ export const POPUP_DEFAULT_INPUT_VALUES = Object.freeze({
   popupExposureTimeSec: "",
   // Pop-up Speed (owner 2026-11-10): blank / following = the Initial Speed; typed = own (state.popupSpeedOwn).
   popupSpeedKcas: "",
+  // Owner 2026-11-19 (MIL dive): blank = no cap, the Release speed is the BE's.
+  releaseSpeedKcas: "",
 });
 export const POPUP_LOCK_KEYS = Object.freeze({ rollInSpeed: "popupLockRollInSpeed", angle: "popupLockAngle" });
 export const POPUP_DRIVERS = ["DEFAULT", "ANGLE", "GROUND_DISTANCE", "EXPOSURE_TIME"];
-export const POPUP_FOLLOWER_PROFILE_KEYS = ["initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "diveAngleDeg", "releaseAltitudeMslFt"];
+export const POPUP_FOLLOWER_PROFILE_KEYS = ["initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "diveAngleDeg", "releaseAltitudeMslFt", "releaseSpeedKcas"];
 // Each follower's own POP-UP inputs (Offset tab, POP-UP group).
 export const POPUP_VALUE_KEYS = Object.freeze(["popupAngleDeg", "popupGroundDistanceNm", "popupExposureTimeSec", "popupG", "popupSpeedKcas"]);
 // The driver line of every POP-UP group (owner 2026-11-01: what the driver is).
@@ -101,6 +105,24 @@ export function popupResultRows(p, row, { keyed = true } = {}) {
 export function popupApexText(p) {
   const apex = p?.events?.find((e) => e.name === "APEX");
   return Number.isFinite(apex?.altitudeMslFt) ? `${Math.round(apex.altitudeMslFt).toLocaleString("en-US")} ft${Number.isFinite(p.apexKcas) ? ` · ${Math.round(p.apexKcas)} kt` : ""}` : "-";
+}
+// The Release Speed field (owner 2026-11-19, MIL dive): the BE's Release speed (popup.releaseSpeedKcas) as the blank
+// field's placeholder, and in the field note either way. Only text changes (the note line is the field's own).
+export function syncReleaseSpeedFields(inputs, p) {
+  const kcas = Number.isFinite(p?.releaseSpeedKcas) ? Math.round(p.releaseSpeedKcas) : null;
+  const cap = Number.isFinite(p?.releaseSpeedCapKcas) ? p.releaseSpeedCapKcas : null;
+  // One line, as the field's own note (owner: no layout change).
+  const text = kcas === null ? "MIL dive · Release speed · result"
+    : cap === null ? `MIL dive · Release ${kcas} KCAS · result`
+    : p.releaseSpeedCapReached ? `MIL · Release ${kcas} KCAS · held`
+    : `MIL · Release ${kcas} KCAS · not reached`;
+  inputs.forEach((input) => {
+    input.placeholder = kcas === null ? "" : String(kcas);
+    const field = input.closest(".field");
+    let unit = field?.querySelector(".unit");
+    if (field && !unit) { unit = document.createElement("span"); unit.className = "unit"; field.append(unit); }
+    if (unit) unit.textContent = text;
+  });
 }
 export function syncPopupSpeedNote(root, own, keep = () => true, solved = false) {
   root.querySelectorAll("[data-popup-speed-note]").forEach((note) => {

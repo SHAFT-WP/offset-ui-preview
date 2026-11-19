@@ -77,7 +77,9 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // start of the edit (offset-clear-fit-v0.1, shared with the POP-UP Flight). calculateOffsetFlightUnfittedFull and
   // createOffsetFlightSession({ clearFit: false }) keep the old rule (the POP-UP Flight fits on its own result).
   // 0.1.17 (owner 2026-11-11): followers no longer get the Flight IP limit (#1's IP); behind its own IP is a WARNING.
-  version: "0.1.17",
+  // 0.1.18 (owner 2026-11-19, POP-UP MIL dive): values.diveSpeedModel / semSpeedModel "MIL" pass to the BDP (v0.4.10);
+  // the Release Speed may then be blank (no cap). Without them nothing changes.
+  version: "0.1.18",
   status: "work",
   schemaVersion: 2,
   components: Object.freeze({
@@ -177,7 +179,7 @@ const PROFILE_LINK_VALUE_KEYS = Object.freeze([
   "weaponId", "diveAngleDeg", "initialSpeedValue", "initialAltitudeMslFt", "rollInAltitudeMslFt", "trackingTimeSec", "releaseAltitudeMslFt", "releaseSpeedKcas",
   ...PROFILE_LINK_INHERITED_KEYS, "semTurnDirection",
   // POP-UP (the POP-UP Flight gives the linked aircraft its source's POP-UP settings as well).
-  "rollInStartFpaDeg", "rollInSpeedModel", "popupAngleDeg", "popupGroundDistanceNm", "popupExposureTimeSec", "popupG",
+  "rollInStartFpaDeg", "rollInSpeedModel", "diveSpeedModel", "semSpeedModel", "popupAngleDeg", "popupGroundDistanceNm", "popupExposureTimeSec", "popupG",
 ]);
 const PROFILE_LINK_FORMATION_KEYS = new Set(["side", "bearingDeg", "distanceNm", "longitudinalNm", "lateralNm"]);
 // Does this edit of a linked follower turn its LINK off? Every edit but its Formation place and the LINK toggle itself.
@@ -620,7 +622,7 @@ function leadOffsetInput(lead) {
     profile: {
       weaponId: v.weaponId ?? "M82",
       targetElevationMslFt: n("targetElevationMslFt"),
-      releaseSpeedKcas: n("releaseSpeedKcas"),
+      releaseSpeedKcas: releaseSpeedOf(v, n),
       speedOvershootKcas: n("speedOvershootKcas"),
       fragmentHeightMarginPercent: n("fragmentHeightMarginPercent"),
       recoveryG: n("recoveryG"),
@@ -662,7 +664,15 @@ function popUpProfile(v) {
   return {
     ...(blank(v.rollInStartFpaDeg) ? {} : { rollInStartFpaDeg: requireNumber("rollInStartFpaDeg", v.rollInStartFpaDeg) }),
     ...(blank(v.rollInSpeedModel) ? {} : { rollInSpeedModel: v.rollInSpeedModel }),
+    // 0.1.x (2026-11-19, POP-UP MIL dive, BDP v0.4.10): the Release Speed is then a cap, blank = none.
+    ...(v.diveSpeedModel === "MIL" ? { diveSpeedModel: "MIL" } : {}),
+    ...(v.semSpeedModel === "MIL" ? { semSpeedModel: "MIL" } : {}),
   };
+}
+
+// The Release Speed: required, except with the MIL dive (POP-UP), where blank means no cap.
+function releaseSpeedOf(v, n) {
+  return v.diveSpeedModel === "MIL" && blank(v.releaseSpeedKcas) ? null : n("releaseSpeedKcas");
 }
 
 // BDP solve-mode coupling: height mode derives Tracking Time; time mode (or a level delivery, which
@@ -983,7 +993,7 @@ function followerOffsetInput({ number, follower, leaderResult, leadNumber, fligh
       trackingTimeSec: solveMode === "time" ? n("trackingTimeSec") : s.enteredTrackingTimeSec,
       trackingTimeStepSec: OFFSET_FLIGHT_TRACKING_TIME_STEP_SEC,
       releaseAltitudeMslFt: n("releaseAltitudeMslFt"),
-      releaseSpeedKcas: n("releaseSpeedKcas"),
+      releaseSpeedKcas: releaseSpeedOf(v, n),
       rollInG: inherited.rollInG,
       ...Object.fromEntries(OFFSET_FLIGHT_ONSET_KEYS.map((key) => [key, inherited[key]])),
       semEnd: inherited.semEnd,

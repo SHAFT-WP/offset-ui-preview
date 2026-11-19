@@ -1,10 +1,12 @@
 import { RECOVERY_PULL_MODEL, calculateWingsLevelRecoveryPull } from "../../../common/maneuvers/recovery-pull/recovery-pull-v0.1.mjs";
 import { calculateFragmentData } from "./safety-legacy-v0.1.mjs";
 import { cachedCalculation } from "../../../common/calculation/calculation-cache-v0.1.mjs";
+import { milThrustMinusDragFps2 } from "./dive-track-mil-v0.1.mjs";
 
 export const SEM_NLT_MODEL_V0_2 = Object.freeze({
   id: "sem-g-onset-nlt-v0.2",
-  version: "0.2.2",
+  // 0.2.3 (2026-11-19, POP-UP "SEM at MIL"): `semSpeedModel: "MIL"` flies the NLT recovery pull at MIL; absent, 0.2.2.
+  version: "0.2.3",
 });
 
 function requireFinite(name, value) {
@@ -24,8 +26,9 @@ export function calculateSemNltSafety({
   releaseFpaDeg,
   recoveryG = 5,
   gOnsetTimeSec = 2,
+  semSpeedModel,
 }) {
-  const args = { weapon, targetElevationMslFt, releaseSpeedKcas, speedOvershootKcas, fragmentHeightMarginPercent, releaseFpaDeg, recoveryG, gOnsetTimeSec };
+  const args = { weapon, targetElevationMslFt, releaseSpeedKcas, speedOvershootKcas, fragmentHeightMarginPercent, releaseFpaDeg, recoveryG, gOnsetTimeSec, ...(semSpeedModel === "MIL" ? { semSpeedModel: "MIL" } : {}) };
   return cachedCalculation("sem-nlt", { model: SEM_NLT_MODEL_V0_2, recoveryPull: RECOVERY_PULL_MODEL, args }, () => computeSemNltSafety(args));
 }
 
@@ -38,7 +41,9 @@ function computeSemNltSafety({
   releaseFpaDeg,
   recoveryG,
   gOnsetTimeSec,
+  semSpeedModel,
 }) {
+  const thrust = semSpeedModel === "MIL" ? { thrustMinusDrag: milThrustMinusDragFps2() } : {};
   [
     ["fragmentHeightMarginPercent", fragmentHeightMarginPercent],
     ["targetElevationMslFt", targetElevationMslFt],
@@ -88,6 +93,7 @@ function computeSemNltSafety({
       gOnsetTimeSec,
       // V2 NLT starts G onset immediately at Release. There is no pre-onset delay.
       maneuverInitiationDelaySec: 0,
+      ...thrust,
     });
     return {
       recovery,

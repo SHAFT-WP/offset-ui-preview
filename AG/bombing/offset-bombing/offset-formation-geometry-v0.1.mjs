@@ -83,7 +83,8 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirecti
   return {
     weaponId: profile.weaponId ?? "M82",
     targetElevationMslFt: finite("targetElevationMslFt", profile.targetElevationMslFt),
-    releaseSpeedKcas: finite("releaseSpeedKcas", profile.releaseSpeedKcas),
+    // With the MIL dive (POP-UP, BDP v0.4.10) the Release Speed is a cap; absent / null = none.
+    releaseSpeedKcas: profile.diveSpeedModel === "MIL" && (profile.releaseSpeedKcas === undefined || profile.releaseSpeedKcas === null) ? null : finite("releaseSpeedKcas", profile.releaseSpeedKcas),
     speedOvershootKcas: profile.speedOvershootKcas ?? 50,
     fragmentHeightMarginPercent: profile.fragmentHeightMarginPercent ?? 10,
     recoveryG: profile.recoveryG ?? 5,
@@ -126,6 +127,8 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirecti
     // POP-UP Roll-in option (0.1.11, BDP v0.4.5): only when the profile has it.
     ...(profile.rollInStartFpaDeg === undefined ? {} : { rollInStartFpaDeg: finite("rollInStartFpaDeg", profile.rollInStartFpaDeg) }),
     ...(profile.rollInSpeedModel === undefined ? {} : { rollInSpeedModel: profile.rollInSpeedModel }),
+    ...(profile.diveSpeedModel === "MIL" ? { diveSpeedModel: "MIL" } : {}),
+    ...(profile.semSpeedModel === "MIL" ? { semSpeedModel: "MIL" } : {}),
   };
 }
 

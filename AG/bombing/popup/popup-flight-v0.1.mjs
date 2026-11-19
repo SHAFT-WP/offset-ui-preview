@@ -1,6 +1,6 @@
 import { casToTas, machToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
-import { OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, calculateOffsetFlightUnfittedFull as calculateOffsetFlightFull, createOffsetFlightSession, profileLinkStates } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.17";
+import { OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, calculateOffsetFlightUnfittedFull as calculateOffsetFlightFull, createOffsetFlightSession, profileLinkStates } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.18";
 import { calculateWithClearFit, clearFitFieldLocked, clearFitRange } from "../offset-bombing/offset-clear-fit-v0.1.mjs";
 import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs?v=0.2.5";
 import { calculatePopupClimbFull } from "./popup-climb-v0.2.mjs";
@@ -81,7 +81,11 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // LOW SPEED line (300 KCAS) when an angle with an Offset-Popup Range ≥ 0 does ("최대한 수정하고 안되면 경고"): the
   // raise's angle, or the rule's, is held at the steepest such angle (popup.autoAngleApexGuard); none: LOW SPEED as
   // before. The emptied-field fill of Offset G is 3 G (was 2 G; owner "Offset 기본값 3G").
-  version: "0.1.19",
+  // 0.1.20 (owner 2026-11-19, "popup에서는 다이브할 때 military power를 쓸 것이다 … 지정된 속도에 도달하면 그 속도를
+  // 유지한다 … 지정하지 않았다면 계산된 속도를 보여준다"): every aircraft dives at MIL (BDP v0.4.10 diveSpeedModel); the
+  // Release Speed is a cap (blank: none; no longer filled when emptied) and popup.releaseSpeedKcas the speed flown. The
+  // SEM after Release (Level or CSEM) is flown at MIL too (semSpeedModel; owner "release이후에는 mil power로 …").
+  version: "0.1.20",
   defaultPopupG: 4,
   angleIterations: 12,
   autoAngleMinDeg: 1,
@@ -250,6 +254,14 @@ function withAngles(input, angles, speeds = {}) {
   return { ...rest, aircraft, ...(input.edits ? { edits } : {}), ...(edit && !isPopupEdit(edit) ? { edit } : {}) };
 }
 
+// 0.1.20: the Release speed of the MIL dive (BDP v0.4.10) for the page: the speed flown, the cap entered (null: none)
+// and whether the dive reached it.
+function releaseSpeedOf(offset) {
+  const pub = offset?.result?.profile?.public;
+  if (!pub?.diveTrack) return {};
+  return { releaseSpeedKcas: pub.releaseSpeedKcas, releaseSpeedCapKcas: pub.diveTrack.capKcas, releaseSpeedCapReached: pub.diveTrack.capReached };
+}
+
 // The BDP input of the Roll-in onward without the POP-UP option (the POP-UP BE adds it per trial angle).
 function bdpInputOf(profile) {
   const { rollInStartFpaDeg, rollInSpeedModel, ...rest } = profile.canonicalInputs;
@@ -378,7 +390,6 @@ export const POPUP_CLEAR_FIT = Object.freeze({
   offsetAltitudeMslFt: ["Offset Altitude", 500, range(100, 3000, 100)],
   diveAngleDeg: ["Dive Angle", 20, range(5, 45, 5)],
   releaseAltitudeMslFt: ["Release Altitude", 3300, range(2000, 8000, 250)],
-  releaseSpeedKcas: ["Release Speed", 450, range(350, 550, 10)],
   angleOffDeg: ["Angle Off", 45, range(20, 120, 5)],
   attackHeadingDeg: ["Attack Heading", 30, range(0, 90, 5)],
   offsetAngleDeg: ["Offset Angle", 20, range(2, 60, 1)],
@@ -429,6 +440,20 @@ function popupFlight(rawInput, offsetFlight) {
   // not see those), goes down with the records; a linked aircraft takes its source's POP-UP below.
   const linkStates = profileLinkStates(rawInput);
   const input = { ...rawInput, aircraft: { ...rawInput.aircraft } };
+  // 0.1.20 (owner 2026-11-19, "다이브할 때 military power"): every aircraft dives at MIL (BDP v0.4.10); its Release
+  // Speed is a cap (blank: none) and the Release speed flown is a result. Its SEM is flown at MIL as well.
+  for (const [n, record] of Object.entries(input.aircraft)) {
+    if (record?.values && (record.values.diveSpeedModel !== "MIL" || record.values.semSpeedModel !== "MIL")) input.aircraft[n] = { ...record, values: { ...record.values, diveSpeedModel: "MIL", semSpeedModel: "MIL" } };
+  }
+  // An emptied Release Speed stays empty (no cap: the dive's own Release speed), not refilled as other fields are.
+  const releaseCleared = (e) => e?.kind === "clear" && e.key === "releaseSpeedKcas";
+  for (const e of editsOf(input).filter(releaseCleared)) {
+    const n = String(e.aircraft ?? 1);
+    if (input.aircraft[n]?.values) input.aircraft[n] = { ...input.aircraft[n], values: { ...input.aircraft[n].values, releaseSpeedKcas: null } };
+  }
+  const asSet = (e) => (releaseCleared(e) ? { ...e, kind: "set" } : e);
+  if (input.edit) input.edit = asSet(input.edit);
+  if (input.edits) input.edits = input.edits.map(asSet);
   for (const [n, on] of Object.entries(linkStates)) {
     const record = input.aircraft[n];
     if (record && (record.options?.profileLinked === true) !== on) input.aircraft[n] = { ...record, options: { ...record.options, profileLinked: on } };
@@ -674,7 +699,7 @@ function popupFlight(rawInput, offsetFlight) {
   for (const n of numbers) {
     const offset = output.aircraftResults[n];
     const s = settings[n];
-    const base = { driver: s.driver, popupG: s.popupG, popupSpeedKcas: s.popupSpeedKcas, popupAngleDeg: angles[n], ...(raisedAngle[n] ? { autoAngleRaised: raisedAngle[n] } : {}), ...(lowered[n] ? { autoAngleLowered: lowered[n] } : {}), ...(apexGuard[n] ? { autoAngleApexGuard: apexGuard[n] } : {}), locks: s.locks, rollInSpeedSource: s.locks.rollInSpeed ? "LOCK" : "AUTO", rollInSpeedKcas: speeds[n] };
+    const base = { driver: s.driver, popupG: s.popupG, popupSpeedKcas: s.popupSpeedKcas, popupAngleDeg: angles[n], ...(raisedAngle[n] ? { autoAngleRaised: raisedAngle[n] } : {}), ...(lowered[n] ? { autoAngleLowered: lowered[n] } : {}), ...(apexGuard[n] ? { autoAngleApexGuard: apexGuard[n] } : {}), locks: s.locks, rollInSpeedSource: s.locks.rollInSpeed ? "LOCK" : "AUTO", rollInSpeedKcas: speeds[n], ...releaseSpeedOf(offset) };
     const merge = (popup, errors, warnings) => {
       const status = errors.length ? "INVALID" : offset.status === "WARNING" || warnings.length ? "WARNING" : offset.status;
       return { ...offset, status, errors: [...(offset.errors ?? []), ...errors], warnings: [...(offset.warnings ?? []), ...warnings], popup: { ...base, ...popup } };
@@ -760,6 +785,8 @@ function popupFlight(rawInput, offsetFlight) {
     if (!values || !Number.isFinite(a.popupAngleDeg)) continue;
     delete values.rollInStartFpaDeg;
     delete values.rollInSpeedModel;
+    delete values.diveSpeedModel;
+    delete values.semSpeedModel;
     values.popupAngleDeg = a.popupAngleDeg;
     if (Number.isFinite(a.groundDistanceNm)) values.popupGroundDistanceNm = a.groundDistanceNm;
     if (Number.isFinite(a.exposureTimeSec)) values.popupExposureTimeSec = a.exposureTimeSec;

@@ -27,14 +27,16 @@ function validate(input) {
   if (!(input.maneuverInitiationDelaySec >= 0)) throw new RangeError("maneuverInitiationDelaySec must be >= 0");
 }
 
-function integrateStep(state, loadFactorG, dt) {
+// `thrustMinusDrag` (optional, 2026-11-19 POP-UP "SEM at MIL"): (T − D)/m in ft/s² of (altitude ft MSL, TAS ft/s, load
+// factor G), added to the speed rate. Absent, the pull is energy-neutral (no thrust, no drag) exactly as before.
+function integrateStep(state, loadFactorG, dt, thrustMinusDrag = null) {
   const velocity = state.velocityFps;
   const fpa = state.fpaRad;
-  const speedRate = -G_FTPS2 * Math.sin(fpa);
+  const speedRate = -G_FTPS2 * Math.sin(fpa) + (thrustMinusDrag ? thrustMinusDrag(state.altitudeMslFt, velocity, loadFactorG) : 0);
   const fpaRate = (G_FTPS2 / velocity) * (loadFactorG - Math.cos(fpa));
   const midVelocity = Math.max(80, velocity + (speedRate * dt) / 2);
   const midFpa = fpa + (fpaRate * dt) / 2;
-  const midSpeedRate = -G_FTPS2 * Math.sin(midFpa);
+  const midSpeedRate = -G_FTPS2 * Math.sin(midFpa) + (thrustMinusDrag ? thrustMinusDrag(state.altitudeMslFt + (velocity * Math.sin(fpa) * dt) / 2, midVelocity, loadFactorG) : 0);
   const midFpaRate = (G_FTPS2 / midVelocity) * (loadFactorG - Math.cos(midFpa));
 
   state.velocityFps = Math.max(80, velocity + midSpeedRate * dt);
@@ -76,7 +78,9 @@ export function createRecoveryPullSampler(intervalSec, { firstSampleSec = 0 } = 
   };
 }
 
+// rawInput.thrustMinusDrag (optional): see integrateStep. It is not part of `inputs`; the caller records its model.
 export function calculateWingsLevelRecoveryPull(rawInput) {
+  const thrustMinusDrag = typeof rawInput.thrustMinusDrag === "function" ? rawInput.thrustMinusDrag : null;
   const input = {
     startAltitudeMslFt: rawInput.startAltitudeMslFt,
     startSpeedKcas: rawInput.startSpeedKcas,
@@ -113,7 +117,7 @@ export function calculateWingsLevelRecoveryPull(rawInput) {
 
   while (delayElapsed < input.maneuverInitiationDelaySec - 1e-12) {
     const dt = Math.min(RECOVERY_PULL_MODEL.integrationStepSec, input.maneuverInitiationDelaySec - delayElapsed);
-    integrateStep(state, baselineG, dt);
+    integrateStep(state, baselineG, dt, thrustMinusDrag);
     delayElapsed += dt;
     sampler?.record(state, baselineG);
   }
@@ -129,7 +133,7 @@ export function calculateWingsLevelRecoveryPull(rawInput) {
     }).loadFactorG;
     const previousFpa = state.fpaRad;
     const previous = { ...state };
-    integrateStep(state, loadFactorG, dt);
+    integrateStep(state, loadFactorG, dt, thrustMinusDrag);
     onsetElapsed += dt;
     lastLoadFactorG = loadFactorG;
     if (state.fpaRad >= targetFpaRad) {
@@ -154,7 +158,7 @@ export function calculateWingsLevelRecoveryPull(rawInput) {
     const dt = RECOVERY_PULL_MODEL.integrationStepSec;
     const previousFpa = state.fpaRad;
     const previous = { ...state };
-    integrateStep(state, input.recoveryG, dt);
+    integrateStep(state, input.recoveryG, dt, thrustMinusDrag);
     steadyElapsed += dt;
     guard += 1;
     lastLoadFactorG = input.recoveryG;

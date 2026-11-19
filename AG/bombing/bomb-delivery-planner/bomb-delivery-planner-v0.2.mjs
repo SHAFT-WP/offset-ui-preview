@@ -190,40 +190,46 @@ export function calculateBombDeliveryV0_2(rawInput, options = {}) {
   const weapon = getWeaponById(input.weaponId);
   const nltSupported = nltAllDives || input.diveAngleDeg >= MIN_NLT_DIVE_ANGLE_DEG;
 
-  let safety = nltSupported
-    ? calculateSemNltSafety({
-        weapon,
-        fragmentHeightMarginPercent: input.fragmentHeightMarginPercent,
-        targetElevationMslFt: input.targetElevationMslFt,
-        releaseSpeedKcas: input.releaseSpeedKcas,
-        speedOvershootKcas: input.speedOvershootKcas,
-        releaseFpaDeg: input.releaseFpaDeg,
-        recoveryG: input.recoveryG,
-        gOnsetTimeSec: input.gOnsetTimeSec,
-      })
-    : calculateMinAltOnlySafety({
-        weapon,
-        fragmentHeightMarginPercent: input.fragmentHeightMarginPercent,
-        targetElevationMslFt: input.targetElevationMslFt,
-        releaseFpaDeg: input.releaseFpaDeg,
-      });
-
-  if (nltSupported && typeof options.adjustNlt === "function") {
-    const adjusted = options.adjustNlt({ safety, weapon });
-    if (adjusted) safety = { ...safety, pullNltReleaseMslFt: safety.nltReleaseMslFt, nltReleaseMslFt: adjusted.nltReleaseMslFt, nltAfterImpact: adjusted };
-  }
-
+  // options.diveTrack (BDP v0.4.10, owner 2026-11-19, POP-UP): { model: "MIL", capKcas } — the Track at MIL, so the
+  // Release speed is a result. The NLT (and so the Release clamp) depends on it: solved again with each Release speed
+  // until the effective Release Altitude repeats (at once with flyBelowNlt) or the speed settles. `input` then carries
+  // the Release speed flown, so every later use (NLT, SEM, legacy safety, outputs) has it.
+  const diveTrack = options.diveTrack?.model === "MIL" ? options.diveTrack : null;
+  const safetyFor = (releaseSpeedKcas) => {
+    let result = nltSupported
+      ? calculateSemNltSafety({
+          weapon,
+          fragmentHeightMarginPercent: input.fragmentHeightMarginPercent,
+          targetElevationMslFt: input.targetElevationMslFt,
+          releaseSpeedKcas,
+          speedOvershootKcas: input.speedOvershootKcas,
+          releaseFpaDeg: input.releaseFpaDeg,
+          recoveryG: input.recoveryG,
+          gOnsetTimeSec: input.gOnsetTimeSec,
+          // BDP v0.4.10 (POP-UP): the NLT recovery pull at MIL.
+          ...(options.semSpeedModel === "MIL" ? { semSpeedModel: "MIL" } : {}),
+        })
+      : calculateMinAltOnlySafety({
+          weapon,
+          fragmentHeightMarginPercent: input.fragmentHeightMarginPercent,
+          targetElevationMslFt: input.targetElevationMslFt,
+          releaseFpaDeg: input.releaseFpaDeg,
+        });
+    if (nltSupported && typeof options.adjustNlt === "function") {
+      const adjusted = options.adjustNlt({ safety: result, weapon, releaseSpeedKcas });
+      if (adjusted) result = { ...result, pullNltReleaseMslFt: result.nltReleaseMslFt, nltReleaseMslFt: adjusted.nltReleaseMslFt, nltAfterImpact: adjusted };
+    }
+    return result;
+  };
   // options.flyBelowNlt (BDP v0.4 releaseBelowNlt "FLY", owner 2026-11-15): the entered Release is flown even below the
   // NLT (the caller warns); else the Release is clamped up to the NLT.
-  const effectiveReleaseAltitudeMslFt = nltSupported && options.flyBelowNlt !== true
-    ? Math.max(input.enteredReleaseAltitudeMslFt, safety.nltReleaseMslFt)
-    : input.enteredReleaseAltitudeMslFt;
-  const releaseAglFt = effectiveReleaseAltitudeMslFt - input.targetElevationMslFt;
-  const releaseTasKt = casToTas(input.releaseSpeedKcas, effectiveReleaseAltitudeMslFt);
-  const bomb = calculateBombTrajectory({
+  const effectiveReleaseFor = (result) => (nltSupported && options.flyBelowNlt !== true
+    ? Math.max(input.enteredReleaseAltitudeMslFt, result.nltReleaseMslFt)
+    : input.enteredReleaseAltitudeMslFt);
+  const bombAt = (releaseTasKt, effectiveReleaseAltitudeMslFt) => calculateBombTrajectory({
     params: {
       diveAngleDeg: input.diveAngleDeg,
-      releaseAglFt,
+      releaseAglFt: effectiveReleaseAltitudeMslFt - input.targetElevationMslFt,
       windDirectionDeg: input.windDirectionDeg,
       // Ballistics keeps SI wind internally; BDP canonical/user-facing unit is knots.
       windSpeedMps: input.windSpeedKt * MPS_PER_KT,
@@ -233,7 +239,43 @@ export function calculateBombDeliveryV0_2(rawInput, options = {}) {
     releaseTasKt,
     modelId: input.ballisticModelId,
   });
-  const profile = calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitudeMslFt, ...(rollIn ? { rollIn: rollIn.integrate } : {}) });
+  const rollInOption = rollIn ? { rollIn: rollIn.integrate } : {};
+
+  let safety;
+  let effectiveReleaseAltitudeMslFt;
+  let bomb;
+  let profile;
+  if (diveTrack) {
+    let speedKcas = input.releaseSpeedKcas;
+    let flownAltitudeMslFt = null;
+    for (let iteration = 0; iteration < 12; iteration += 1) {
+      safety = safetyFor(speedKcas);
+      effectiveReleaseAltitudeMslFt = effectiveReleaseFor(safety);
+      if (profile && effectiveReleaseAltitudeMslFt === flownAltitudeMslFt) break;
+      const altitude = effectiveReleaseAltitudeMslFt;
+      profile = calculateDeliveryGeometry({
+        input: { ...input, releaseSpeedKcas: speedKcas },
+        bomb: (releaseTasKt) => (bomb = bombAt(releaseTasKt, altitude)),
+        effectiveReleaseAltitudeMslFt: altitude,
+        diveTrack,
+        ...rollInOption,
+      });
+      flownAltitudeMslFt = altitude;
+      const flownKcas = tasToCas(profile.releaseTasKt, altitude);
+      const settled = Math.abs(flownKcas - speedKcas) < 1e-9;
+      speedKcas = flownKcas;
+      if (settled && iteration > 0) {
+        safety = safetyFor(speedKcas);
+        break;
+      }
+    }
+    input.releaseSpeedKcas = speedKcas;
+  } else {
+    safety = safetyFor(input.releaseSpeedKcas);
+    effectiveReleaseAltitudeMslFt = effectiveReleaseFor(safety);
+    bomb = bombAt(casToTas(input.releaseSpeedKcas, effectiveReleaseAltitudeMslFt), effectiveReleaseAltitudeMslFt);
+    profile = calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitudeMslFt, ...rollInOption });
+  }
   const turnRadius = rollInTurnRadius(profile.roll.samples);
   const resolvedInitialSpeedKcas =
     input.initialSpeedMode === "CAS"
@@ -287,6 +329,8 @@ export function calculateBombDeliveryV0_2(rawInput, options = {}) {
       rollInAngleOffDeg: Math.abs(profile.targetBearingDeg),
       minAltMslFt: safety.minAltMslFt,
       nltReleaseMslFt: safety.nltReleaseMslFt,
+      // The Track at MIL (options.diveTrack): the Release speed flown and the Track's speed history.
+      ...(profile.track ? { releaseSpeedKcas: input.releaseSpeedKcas, diveTrack: { model: "MIL", ...profile.track } } : {}),
     },
     local: {
       aimOffPointRangeNm: profile.aimOffRangeFt === null ? null : profile.aimOffRangeFt / FT_PER_NM,

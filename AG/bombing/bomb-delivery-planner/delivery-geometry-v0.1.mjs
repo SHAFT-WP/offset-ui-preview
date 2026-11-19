@@ -1,16 +1,21 @@
 import { casToTas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { groundSpeedAlongPath, windComponents } from "./flight-path-wind-v0.1.mjs";
 import { integrateRollIn } from "./roll-in-v0.1.mjs";
+import { flyDiveTrackMilForPath, flyDiveTrackMilForTime } from "./dive-track-mil-v0.1.mjs";
 
 const KT_TO_FPS = 1.687809857;
 
 // `rollIn` (optional, BDP v0.4 2026-10-15): another Roll-in integrator with the same contract, e.g. Roll-in v0.2.
 // Omitted, the v0.1 integrator runs exactly as before.
-export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitudeMslFt, rollIn = integrateRollIn }) {
+// `diveTrack` (optional, BDP v0.4.10 2026-11-19, POP-UP): { model: "MIL", capKcas } — the Track flown at MIL from the
+// Roll-out speed (dive-track-mil v0.1), so the Release TAS is a result (`releaseTasKt`, `track`). `bomb` may then be
+// a function of the Release TAS, called once the Track is flown. Omitted, the Track is the straight-line speed change
+// from the Roll-out to the entered Release Speed, exactly as before.
+export function calculateDeliveryGeometry({ input, bomb: bombIn, effectiveReleaseAltitudeMslFt, rollIn = integrateRollIn, diveTrack = null }) {
   const angleRad = (input.diveAngleDeg * Math.PI) / 180;
   const levelDelivery = Math.abs(input.diveAngleDeg) < 1e-9;
   const releaseAglFt = effectiveReleaseAltitudeMslFt - input.targetElevationMslFt;
-  const releaseTasKt = casToTas(input.releaseSpeedKcas, effectiveReleaseAltitudeMslFt);
+  let releaseTasKt = casToTas(input.releaseSpeedKcas, effectiveReleaseAltitudeMslFt);
   // Tracking flies the ground-referenced Dive Angle line (SPEC §8): its length is geometric and it is
   // covered at ground speed, the mean of the roll-out and release ground speeds (still air: TAS).
   const wind = windComponents(input.windDirectionDeg ?? 0, input.windSpeedKt ?? 0);
@@ -19,6 +24,12 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
   });
   const meanTrackSpeedFps = (rolloutTasKt) =>
     ((trackGroundSpeedKt(rolloutTasKt) + trackGroundSpeedKt(releaseTasKt)) / 2) * KT_TO_FPS;
+  const mil = diveTrack?.model === "MIL";
+  const trackGeometry = mil ? { diveAngleDeg: input.diveAngleDeg, windAlongKt: wind.along, windCrossKt: wind.cross, capKcas: diveTrack.capKcas ?? null } : null;
+  // The Track's path for a Tracking Time from a Roll-out (speed, Track Point altitude).
+  const trackForTime = (rollout, trackMslFt, timeSec) => flyDiveTrackMilForTime({ startTasKt: rollout.finalTasKt, startAltitudeMslFt: trackMslFt, timeSec, ...trackGeometry });
+  const pathForTime = (rollout, trackMslFt, timeSec) => (mil ? trackForTime(rollout, trackMslFt, timeSec).pathFt : meanTrackSpeedFps(rollout.finalTasKt) * timeSec);
+  let track = null;
   let initialAglFt;
   let initialMslFt;
   let trackAglFt;
@@ -47,7 +58,10 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
     initialMslFt = input.targetElevationMslFt + initialAglFt;
     roll = rollIn(rollParams, initialMslFt);
     trackAglFt = initialAglFt - roll.altitudeLossFt;
-    pathFt = meanTrackSpeedFps(roll.finalTasKt) * trackingTimeSec;
+    if (mil) {
+      track = trackForTime(roll, input.targetElevationMslFt + trackAglFt, trackingTimeSec);
+      pathFt = track.pathFt;
+    } else pathFt = meanTrackSpeedFps(roll.finalTasKt) * trackingTimeSec;
   } else if (input.solveMode === "height") {
     initialMslFt = input.enteredInitialAltitudeMslFt;
     initialAglFt = initialMslFt - input.targetElevationMslFt;
@@ -57,7 +71,10 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
     // Tracking Time — the shortfall the pilot adds to the Roll-in Altitude.
     if (!(trackAglFt > releaseAglFt) && !input.allowNegativeTrackingTime) throw new Error("Initial altitude minus roll-in loss is below effective Release altitude");
     pathFt = (trackAglFt - releaseAglFt) / Math.sin(angleRad);
-    trackingTimeSec = pathFt / meanTrackSpeedFps(roll.finalTasKt);
+    if (mil) {
+      track = flyDiveTrackMilForPath({ startTasKt: roll.finalTasKt, startAltitudeMslFt: input.targetElevationMslFt + trackAglFt, pathFt, ...trackGeometry });
+      trackingTimeSec = track.timeSec;
+    } else trackingTimeSec = pathFt / meanTrackSpeedFps(roll.finalTasKt);
   } else {
     trackingTimeSec = input.enteredTrackingTimeSec;
     initialAglFt = releaseAglFt + trackingTimeSec * releaseTasKt * KT_TO_FPS * Math.sin(angleRad) + 2500;
@@ -68,7 +85,7 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
     // the damped iteration.
     const nextInitial = (aglFt) => {
       const step = rollIn(rollParams, input.targetElevationMslFt + aglFt);
-      return releaseAglFt + meanTrackSpeedFps(step.finalTasKt) * trackingTimeSec * Math.sin(angleRad) + step.altitudeLossFt;
+      return releaseAglFt + pathForTime(step, input.targetElevationMslFt + aglFt - step.altitudeLossFt, trackingTimeSec) * Math.sin(angleRad) + step.altitudeLossFt;
     };
     let previous = initialAglFt;
     let previousResidual = nextInitial(previous) - previous;
@@ -84,9 +101,14 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
     initialAglFt = current;
     initialMslFt = input.targetElevationMslFt + initialAglFt;
     roll = rollIn(rollParams, initialMslFt);
-    pathFt = meanTrackSpeedFps(roll.finalTasKt) * trackingTimeSec;
     trackAglFt = initialAglFt - roll.altitudeLossFt;
+    if (mil) {
+      track = trackForTime(roll, input.targetElevationMslFt + trackAglFt, trackingTimeSec);
+      pathFt = track.pathFt;
+    } else pathFt = meanTrackSpeedFps(roll.finalTasKt) * trackingTimeSec;
   }
+  if (track) releaseTasKt = track.endTasKt;
+  const bomb = typeof bombIn === "function" ? bombIn(releaseTasKt) : bombIn;
 
   const downRangeTravelFt = pathFt * Math.cos(angleRad);
   const groundRangeFt = downRangeTravelFt + bomb.bombRangeFt;
@@ -115,6 +137,7 @@ export function calculateDeliveryGeometry({ input, bomb, effectiveReleaseAltitud
     releaseAglFt,
     effectiveReleaseAltitudeMslFt,
     releaseTasKt,
+    ...(track ? { track } : {}),
     trackingTimeSec,
     downRangeTravelFt,
     groundRangeFt,

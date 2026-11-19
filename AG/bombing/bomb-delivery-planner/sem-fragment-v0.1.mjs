@@ -4,6 +4,7 @@ import { SEM_TURN_MODEL_V0_1, calculateSemTurn } from "./sem-turn-v0.1.mjs";
 import { CSEM_TURN_MODEL_V0_1, calculateCsemTurn } from "./csem-turn-v0.1.mjs";
 import { calculateFragmentData } from "./safety-legacy-v0.1.mjs";
 import { CLIMB_SEM_MODEL_V0_2, calculateClimbSemV0_2 } from "../../../flight/maneuvers/safe-escape/work/v0.2/climb-sem-core-v0.2.mjs";
+import { SEM_SPEED_MODELS, milThrustMinusDragFps2 } from "./dive-track-mil-v0.1.mjs";
 
 // SEM path and fragment cylinder v0.1 (owner 2026-10-15, BDP update R3 / R5, SPEC §6.6). Display and check only:
 // MINALT, NLT and the Z-diagram are unchanged.
@@ -30,7 +31,11 @@ export const SEM_FRAGMENT_MODEL_V0_1 = Object.freeze({
   // 0.1.3 (2026-11-04, owner, SPEC §6.10): `csemTurn` — after the CSEM End a straight climb, a 90° bank 2 G slice
   // to level at the Level Altitude (12,000 ft AGL), a level turn to the heading asked, then level flight
   // (csem-turn v0.1). Placed on the ground like the Level SEM turn. Without `csemTurn` every result is unchanged.
-  version: "0.1.3",
+  // 0.1.4 (2026-11-19, owner POP-UP: "release이후에는 mil power로 level이던 csem을 한다"): `semSpeedModel` "MIL" flies the
+  // recovery pull (Level SEM to level-off, CSEM to its End) at MIL — (T − D)/m of the adopted model added to the
+  // energy-neutral speed rate (dive-track-mil v0.1 premises). After the level-off / CSEM End nothing changes (level at
+  // the reached speed, the turns speed-held). Absent ("ENERGY_NEUTRAL"): every result is 0.1.3's.
+  version: "0.1.4",
   semEnds: Object.freeze(["LEVEL", "CLIMB"]),
   csemGReleaseStartFpaDeg: 20,
   peakAfterImpactSec: 1,
@@ -96,7 +101,10 @@ export function calculateSemPathAndFragment({
   csemTargetFpaDeg = 30,
   semTurn = null,
   csemTurn = null,
+  semSpeedModel = "ENERGY_NEUTRAL",
 }) {
+  if (!SEM_SPEED_MODELS.includes(semSpeedModel)) throw new RangeError(`semSpeedModel must be one of ${SEM_SPEED_MODELS.join(", ")}`);
+  const thrust = semSpeedModel === "MIL" ? { thrustMinusDrag: milThrustMinusDragFps2() } : {};
   if (!SEM_FRAGMENT_MODEL_V0_1.semEnds.includes(semEnd)) throw new RangeError(`semEnd must be one of ${SEM_FRAGMENT_MODEL_V0_1.semEnds.join(", ")}`);
   const climb = semEnd === "CLIMB";
   [
@@ -120,6 +128,7 @@ export function calculateSemPathAndFragment({
       gRelaxationFpaDeg: SEM_FRAGMENT_MODEL_V0_1.csemGReleaseStartFpaDeg,
       terminalFpaDeg: csemTargetFpaDeg,
       sampleIntervalSec: SAMPLE_SEC,
+      ...thrust,
     });
     if (!csem.validation.valid) {
       const error = new RangeError(`CSEM: ${csem.validation.errors.join(", ")}`);
@@ -137,6 +146,7 @@ export function calculateSemPathAndFragment({
       gOnsetTimeSec,
       maneuverInitiationDelaySec: 0,
       sampleIntervalSec: SAMPLE_SEC,
+      ...thrust,
     });
     flown = { samples: pull.path.samples, gateSec: Infinity, minAltitudeMslFt: pull.minAltitudeMslFt };
   }
@@ -327,6 +337,7 @@ export function calculateSemPathAndFragment({
     // The SEM flown and its conditions (handoff §4.5 / §6.6): one record every view, the Result and S&R read.
     sem: {
       end: semEnd,
+      ...(semSpeedModel === "MIL" ? { speedModel: "MIL" } : {}),
       model: climb ? { ...CLIMB_SEM_MODEL_V0_2 } : { id: "common-recovery-pull-level-sem" },
       recoveryG,
       gOnsetTimeSec,

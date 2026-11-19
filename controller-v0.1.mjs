@@ -11,7 +11,7 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // The BE runs in a Worker (offset-flight-worker-v0.1.mjs); Common calculation-client-v0.1.mjs decides when a
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
-import { FORMATION_TEMPLATES, OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, formationTemplatePositions } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.17";
+import { FORMATION_TEMPLATES, OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, formationTemplatePositions } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.18";
 // Flight Formation top view (Flight Bombing Tactics view, owner 2026-11-02): draws the BE's flightName.formation.
 import { formationTopViewSvg } from "./flight/flight-bombing-tactics/view/formation-top-view-v0.1.mjs?v=0.2.0";
 import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
@@ -20,8 +20,8 @@ const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-fli
 // with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
 // climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
 const POPUP_MODE = document.body.classList.contains("popup-page");
-const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.19", import.meta.url);
-const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.19", import.meta.url);
+const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.20", import.meta.url);
+const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.20", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -60,8 +60,8 @@ import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from ".
 import {
   POPUP_DEFAULT_INPUT_VALUES, POPUP_DRIVERS, POPUP_DRIVER_NOTE, POPUP_DRIVER_TEXT, POPUP_FOLLOWER_PROFILE_KEYS, POPUP_LOCK_KEYS, POPUP_VALUE_KEYS,
   installPopupControls, markPopupDriverFields, popupApexText, popupFollowerGroupMarkup, popupRangeText, popupResultRows, popupTopViewMarkers,
-  popupZTextMarkup, popupZTickMarkup, renderPopupMinimumExposure, syncPopupSpeedFields, syncPopupSpeedNote, syncPopupZTextButtons, syncPopupZTickButtons,
-} from "./popup-page-v0.1.mjs?v=0.1.3";
+  popupZTextMarkup, popupZTickMarkup, renderPopupMinimumExposure, syncPopupSpeedFields, syncPopupSpeedNote, syncReleaseSpeedFields, syncPopupZTextButtons, syncPopupZTickButtons,
+} from "./popup-page-v0.1.mjs?v=0.1.4";
 import { POPUP_BDP_APPROACH_V0_1, popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.0";
@@ -1074,6 +1074,7 @@ function renderPopup(entry) {
   syncPopupLocks(popupLocks, document, (button) => !button.closest(".flight-slot"));
   syncPopupSpeedFields(fields("initialSpeedValue"), popupLocks.rollInSpeed);
   syncPopupSpeedNote(document, popupSpeedOwn, (node) => !node.closest(".flight-slot"), popupLocks.rollInSpeed === true);
+  syncReleaseSpeedFields(fields("releaseSpeedKcas"), entry?.result ? p : null);
   const apexOut = $("#popup-apex-out");
   if (apexOut) apexOut.textContent = popupApexText(p);
   // Owner 2026-11-16: the same Apex after #1's Initial Altitude (BDP Profile group).
@@ -2867,6 +2868,7 @@ function renderFollowerPopupControls(number, slot, entry) {
   syncPopupLocks(draft.popupLocks ?? {}, slot);
   syncPopupSpeedFields(followerFields(slot, "initialSpeedValue"), draft.popupLocks?.rollInSpeed === true);
   syncPopupSpeedNote(slot, draft.popupSpeedOwn === true, () => true, draft.popupLocks?.rollInSpeed === true);
+  syncReleaseSpeedFields(followerFields(slot, "releaseSpeedKcas"), entry.result ? entry.popup : null);
   const out = slot.querySelector("[data-popup-min-out]");
   if (out) renderPopupMinimumExposure(popupMinimumExposure.get(number), out, slot.querySelector("[data-popup-min-apply]"));
   const g = entry.popup?.popupG;

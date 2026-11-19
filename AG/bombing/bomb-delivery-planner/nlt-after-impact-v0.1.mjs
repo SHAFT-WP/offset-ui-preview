@@ -99,6 +99,8 @@ export function evaluateNltTrial(args, releaseAltitudeMslFt) {
       csemTargetFpaDeg: args.csemTargetFpaDeg,
       semTurn: args.semTurn ?? null,
       csemTurn: args.csemTurn ?? null,
+      // 2026-11-19 (POP-UP): the SEM at MIL when asked (sem-fragment 0.1.4); args carry it, so the cache key does.
+      ...(args.semSpeedModel === "MIL" ? { semSpeedModel: "MIL" } : {}),
     });
   } catch (error) {
     if (error?.semErrors) return null;

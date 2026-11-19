@@ -1,4 +1,5 @@
 import { casToTas, machToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
+import { capTasTable } from "./speed-cap-v0.1.mjs";
 import { ADOPTED_PERFORMANCE_MODEL, ADOPTED_PERFORMANCE_MODEL_V0_1, evaluateAdoptedPerformance } from "../../../flight/aircraft-performance/adopted-performance-model-v0.1.mjs";
 import { ADOPTED_ACCELERATION_GRID_V0_1, adoptedAccelerationGrid } from "../../../flight/aircraft-performance/adopted-acceleration-grid-v0.1.mjs";
 
@@ -19,10 +20,15 @@ import { ADOPTED_ACCELERATION_GRID_V0_1, adoptedAccelerationGrid } from "../../.
 // With either option the result adds the Pull Down (end of the roll at 1 G, where the pull to Roll-in G starts;
 // POP-UP SPEC §13.2a), the Apex (FPA crosses 0 from above; null when the Roll-in never climbs) and, with MIL,
 // the performance domain report.
+// 0.2.3 (2026-11-19, owner, POP-UP: "다이브할 때 military power … 지정된 속도에 도달하면 그 속도를 유지한다"): with MIL,
+// `speedCapKcas` (optional) — once the speed reaches that KCAS it is held there (the power is taken off as needed);
+// below it the MIL acceleration is unchanged. A Roll-in that starts above the cap (the climb's end speed) is not
+// slowed: it decelerates at MIL as before and, if it would gain speed at or above the cap, holds its speed instead.
+// Absent: every result is 0.2.2's.
 
 export const ROLL_IN_V0_2_MODEL = Object.freeze({
   id: "bdp-roll-in-v0.2-model-b-rate-onset",
-  version: "0.2.2",
+  version: "0.2.3",
   technique: "B",
   onsetShape: "LINEAR",
   speedHold: "ENTERED_MODE",
@@ -102,8 +108,10 @@ function createDynamics(params, initialAltitudeMslFt) {
   };
   const mil = params.speedModel === "MIL";
   const n = mil ? 7 : 6;
-  // (T − D)/m from the adopted model's acceleration grid (exact in G, bilinear in altitude and TAS; 0.2.2), minus
-  // g·sin(gamma). The envelope report is made on the flown states with the exact model (performanceDomainOf).
+  // 0.2.3: the speed cap (MIL only): [cap TAS, d(cap TAS)/d(altitude)] at an altitude.
+  const capKcas = mil && Number.isFinite(params.speedCapKcas) ? params.speedCapKcas : null;
+  const capAt = capKcas === null ? null : capTasTable(capKcas);
+  const capValues = capAt !== null;
   const accel = mil ? adoptedAccelerationGrid({ fuelKg: ROLL_IN_MIL_PREMISES.fuelKg, aoaDeg: ROLL_IN_MIL_PREMISES.nominalAoaDeg }) : null;
   const speedRateFps2 = (tasFps, altitudeMslFt, gamma, loadFactor) => {
     if (!(tasFps > 1)) throw new RollInSolveError("SPEED", "Roll-in speed reaches zero at MIL");
@@ -129,7 +137,15 @@ function createDynamics(params, initialAltitudeMslFt) {
     out[3] = (G_FTPS2 / v) * (c.loadFactor * Math.cos(bank) - cosG);
     out[4] = headingRate;
     out[5] = c.bankRad === undefined ? headingRate * Math.sin(gamma) : 0;
-    if (mil) out[6] = speedRateFps2(v, altitude, gamma, c.loadFactor);
+    if (mil) {
+      let rate = speedRateFps2(v, altitude, gamma, c.loadFactor);
+      if (capValues) {
+        // At (or over) the cap the speed follows it: the cap's TAS change with altitude, never faster than MIL.
+        const [capTas, slope] = capAt(altitude);
+        if (v >= capTas - 1e-9) rate = Math.min(rate, slope * out[2]);
+      }
+      out[6] = rate;
+    }
     return out;
   }
   const derivative = (s, c) => derivativeInto(new Array(n), s, c);
@@ -149,6 +165,8 @@ function createDynamics(params, initialAltitudeMslFt) {
     derivativeInto(k4, tmp, controls(tau + dt, tmp));
     const next = new Array(n);
     for (let i = 0; i < n; i += 1) next[i] = s[i] + (dt / 6) * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]);
+    // Reaching the cap from below: held at it (a start above the cap is held where it is by the derivative).
+    if (capValues && s[6] <= capAt(s[2])[0] + 1e-9) next[6] = Math.min(next[6], capAt(next[2])[0]);
     const c = controls(tau + dt, next);
     if (c.bankRad !== undefined) next[5] = c.bankRad;
     return next;
@@ -552,6 +570,7 @@ export function integrateRollInV0_2(params, initialAltitudeMslFt) {
     return {
       startFpaDeg,
       speedModel,
+      ...(dyn.mil && Number.isFinite(params.speedCapKcas) ? { speedCapKcas: params.speedCapKcas } : {}),
       // Pull Down (POP-UP SPEC §13.2a): the end of the 1 G roll, where the G onset starts.
       pullDown: point(pullDownState.t, pullDownState.s),
       apex,

@@ -50,7 +50,16 @@ export const BOMB_DELIVERY_PLANNER_MODEL_V0_4 = Object.freeze({
   // while outside the full fragment radius (120% Fragment Range); every SEM (LEVEL / CLIMB, with its turn) is solved.
   // 0.4.9 (2026-11-15, owner, BEM pop-up example): `releaseBelowNlt: "FLY"` flies the entered Release Altitude even
   // below the NLT Release (absent: clamped up to it, as before). The NLT stays in public.nltReleaseMslFt.
-  version: "0.4.9",
+  // 0.4.10 (2026-11-19, owner, POP-UP: "다이브할 때 military power … 지정된 속도에 도달하면 그 속도를 유지 … 지정하지
+  // 않았다면 계산된 속도"): `diveSpeedModel: "MIL"`, off by default (every consumer's result unchanged without it). The
+  // dive is flown at MIL: the Roll-in (with rollInSpeedModel MIL) and the Track (dive-track-mil v0.1) accelerate at MIL;
+  // `releaseSpeedKcas` is then a cap (null / absent: none) — once reached the speed is held there. The Release speed
+  // flown is a result: `public.releaseSpeedKcas`, `public.diveTrack`, and `canonicalInputs.releaseSpeedKcas` (so every
+  // reader — Bomb, NLT, SEM, views — has it) with the cap in `canonicalInputs.releaseSpeedCapKcas`. An input carrying
+  // `releaseSpeedCapKcas` (a result's canonicalInputs fed back) takes the cap from it. With it (owner "release이후에는 mil
+  // power로 level이던 csem을 한다") `semSpeedModel: "MIL"` flies the SEM recovery pull — the NLT, the SEM path / minimum,
+  // the NLT after impact — at MIL (sem-fragment 0.1.4, SEM NLT 0.2.3); absent, energy-neutral as before.
+  version: "0.4.10",
   calculationSource: "bomb-delivery-planner-v0.2-sem-nlt",
   rollInModel: ROLL_IN_V0_2_MODEL,
   semFragmentModel: SEM_FRAGMENT_MODEL_V0_1,
@@ -75,7 +84,9 @@ const ONSET_KEYS = Object.freeze(["rollInRollRateDegSec", "rollOutRollRateDegSec
 
 function requireCanonicalInput(rawInput) {
   if (!rawInput || typeof rawInput !== "object") throw new TypeError("rawInput must be an object");
+  const milDive = rawInput.diveSpeedModel === "MIL";
   for (const field of REQUIRED_CANONICAL_FIELDS) {
+    if (milDive && field === "releaseSpeedKcas") continue;
     if (rawInput[field] === undefined || rawInput[field] === null) {
       throw new TypeError(`${field} is required by the BDP v0.4 canonical input contract`);
     }
@@ -147,7 +158,7 @@ function canonicalInput(rawInput) {
     csemTurnG: optionalNumber("csemTurnG", rawInput.csemTurnG),
     csemTurnBankDeg: optionalNumber("csemTurnBankDeg", rawInput.csemTurnBankDeg),
     targetElevationMslFt: rawInput.targetElevationMslFt,
-    releaseSpeedKcas: rawInput.releaseSpeedKcas,
+    releaseSpeedKcas: releaseSpeedInput(rawInput),
     speedOvershootKcas: rawInput.speedOvershootKcas ?? 50,
     maneuverInitiationDelaySec: rawInput.maneuverInitiationDelaySec ?? 0,
     recoveryG: rawInput.recoveryG ?? 5,
@@ -168,11 +179,33 @@ function canonicalInput(rawInput) {
     rollInG: rawInput.rollInG,
     ...onsetInput(rawInput),
     ...popUpRollInInput(rawInput),
+    ...(rawInput.diveSpeedModel === "MIL" ? { diveSpeedModel: "MIL" } : {}),
+    ...semSpeedModelInput(rawInput.semSpeedModel),
     ballisticModelId: rawInput.ballisticModelId,
     // 0.4.9: absent by default, so other consumers' inputs (and cache keys) are unchanged.
     ...(rawInput.releaseBelowNlt === "FLY" ? { releaseBelowNlt: "FLY" } : {}),
   };
 }
+
+// 0.4.10: with the MIL dive the Release Speed is a cap (null: none); a fed-back result's cap wins.
+export const DIVE_SPEED_MODELS = Object.freeze(["ENTERED", "MIL"]);
+function releaseSpeedInput(rawInput) {
+  const model = rawInput.diveSpeedModel ?? "ENTERED";
+  if (!DIVE_SPEED_MODELS.includes(model)) throw new RangeError(`diveSpeedModel must be one of ${DIVE_SPEED_MODELS.join(", ")}`);
+  if (model !== "MIL") return rawInput.releaseSpeedKcas;
+  const cap = Object.prototype.hasOwnProperty.call(rawInput, "releaseSpeedCapKcas") ? rawInput.releaseSpeedCapKcas : rawInput.releaseSpeedKcas;
+  if (cap === undefined || cap === null) return null;
+  if (typeof cap !== "number" || !Number.isFinite(cap) || !(cap > 0)) throw new RangeError("releaseSpeedKcas (the MIL dive cap) must be finite and > 0");
+  return cap;
+}
+// 0.4.10: the SEM at MIL (absent / "ENERGY_NEUTRAL": as before, kept out of the input).
+function semSpeedModelInput(value) {
+  const model = value ?? "ENERGY_NEUTRAL";
+  if (!["ENERGY_NEUTRAL", "MIL"].includes(model)) throw new RangeError("semSpeedModel must be one of ENERGY_NEUTRAL, MIL");
+  return model === "MIL" ? { semSpeedModel: "MIL" } : {};
+}
+// The Release speed the MIL dive starts its solve from when no cap is entered (the result does not depend on it).
+const MIL_DIVE_SPEED_GUESS_KCAS = 450;
 
 // POP-UP Roll-in option (0.4.5): kept out of the canonical input at its defaults, so other consumers' inputs (and
 // their cache keys) are unchanged.
@@ -193,6 +226,8 @@ function popUpRollInParams(input) {
   return {
     ...(input.rollInStartFpaDeg === undefined ? {} : { startFpaDeg: input.rollInStartFpaDeg }),
     ...(input.rollInSpeedModel === undefined ? {} : { speedModel: input.rollInSpeedModel }),
+    // 0.4.10: the MIL dive's cap holds the Roll-in speed too.
+    ...(input.diveSpeedModel === "MIL" && input.releaseSpeedKcas !== null ? { speedCapKcas: input.releaseSpeedKcas } : {}),
   };
 }
 
@@ -259,6 +294,7 @@ function semPath(input, calculation, windFps, windRad) {
       semTurn: input.semEnd === "LEVEL" ? semTurnInput(input) : null,
       // §6.9: the CSEM turn, only with a Level Altitude.
       csemTurn: csemTurnInput(input),
+      ...(input.semSpeedModel === "MIL" ? { semSpeedModel: "MIL" } : {}),
     }),
   };
 }
@@ -289,14 +325,14 @@ function semTurnInput(input) {
 
 // §6.11: the NLT after impact replaces the pull NLT inside the core (so the Release clamp uses it). No SEM at 0°.
 function nltAfterImpactHook(input) {
-  return ({ safety, weapon }) => {
+  return ({ safety, weapon, releaseSpeedKcas = input.releaseSpeedKcas }) => {
     if (!(input.diveAngleDeg > 0)) return null;
     return calculateNltAfterImpact({
       weapon,
       targetElevationMslFt: input.targetElevationMslFt,
       fragmentHeightMarginPercent: input.fragmentHeightMarginPercent,
       fragmentMarginAppliesTo: input.fragmentMarginAppliesTo,
-      releaseSpeedKcas: input.releaseSpeedKcas,
+      releaseSpeedKcas,
       speedOvershootKcas: input.speedOvershootKcas,
       diveAngleDeg: input.diveAngleDeg,
       recoveryG: input.recoveryG,
@@ -308,13 +344,28 @@ function nltAfterImpactHook(input) {
       ballisticModelId: input.ballisticModelId,
       semTurn: input.semEnd === "LEVEL" ? semTurnInput(input) : null,
       csemTurn: csemTurnInput(input),
+      ...(input.semSpeedModel === "MIL" ? { semSpeedModel: "MIL" } : {}),
     }, { pullNltReleaseMslFt: safety.nltReleaseMslFt });
   };
 }
 
-function solveCanonical(input) {
-  const rollInOnset = Object.fromEntries(ONSET_KEYS.map((key) => [key, input[key]]));
-  const calculation = calculateBombDeliveryV0_2({ ...input, rollInOnset }, { rollIn: rollInV0_2ForOneCall(popUpRollInParams(input)), nltAllDives: true, adjustNlt: nltAfterImpactHook(input), flyBelowNlt: input.releaseBelowNlt === "FLY" });
+function solveCanonical(canonical) {
+  const rollInOnset = Object.fromEntries(ONSET_KEYS.map((key) => [key, canonical[key]]));
+  const milDive = canonical.diveSpeedModel === "MIL";
+  const capKcas = milDive ? canonical.releaseSpeedKcas : null;
+  const calculation = calculateBombDeliveryV0_2(
+    { ...canonical, rollInOnset, ...(milDive ? { releaseSpeedKcas: capKcas ?? MIL_DIVE_SPEED_GUESS_KCAS } : {}) },
+    {
+      rollIn: rollInV0_2ForOneCall(popUpRollInParams(canonical)),
+      nltAllDives: true,
+      adjustNlt: nltAfterImpactHook(canonical),
+      flyBelowNlt: canonical.releaseBelowNlt === "FLY",
+      ...(milDive ? { diveTrack: { model: "MIL", capKcas } } : {}),
+      ...(canonical.semSpeedModel === "MIL" ? { semSpeedModel: "MIL" } : {}),
+    },
+  );
+  // 0.4.10: from here on the Release speed is the one flown (the entered one without the MIL dive).
+  const input = milDive ? { ...canonical, releaseSpeedKcas: calculation.inputs.releaseSpeedKcas, releaseSpeedCapKcas: capKcas } : canonical;
   const state = buildBombDeliveryVisualizationState(calculation);
   const roll = calculation.rollIn;
   const sem = semFragment(input, calculation);
@@ -334,6 +385,7 @@ function solveCanonical(input) {
         rollInPopUp: {
           startFpaDeg: roll.startFpaDeg,
           speedModel: roll.speedModel,
+          ...(roll.speedCapKcas === undefined ? {} : { speedCapKcas: roll.speedCapKcas }),
           pullDown: roll.pullDown,
           apex: roll.apex,
           apexBeforePullDown: roll.apexBeforePullDown,
