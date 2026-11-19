@@ -5,12 +5,15 @@
 // - parseBmsDtc(text): the [STPT] steerpoints (route, user targets, PPT) and the [NAV OFFSETS] lines.
 // - resolveBmsMission(parsed, { targetStpt, ipStpt }): the TGT and IP steerpoints by the owner's rules, the IP → TGT
 //   true bearing and range, the Target elevation, a route summary, messages and warnings.
-// - patchBmsNavOffsets(text, { mode, targetStpt, reference, oa1 }): delete every VIP / VIPPUP / VRP / VRPPUP / OA1-* /
+// - patchBmsNavOffsets(text, { mode, targetStpt, reference, popUp?, oa1, oa2? }): delete every VIP / VIPPUP / VRP / VRPPUP / OA1-* /
 //   OA2-* line of [NAV OFFSETS], then write Modesel, the VRP or VIP page and OA1 of the TGT steerpoint. Other lines,
 //   other sections and the line endings are kept.
 // - clearBmsNavOffsets(text): delete those lines only (Modesel kept).
 // - bmsIniTextFromBytes / bmsIniBytesFromText: byte-preserving (Latin-1) text for the FE's file read and write.
-export const BMS_DTC_V0_1 = Object.freeze({ id: "bms-dtc-v0.1", version: "0.1.0", status: "work" });
+// 0.1.1 (owner 2026-11-19, plan S10, "offset에 있는 DED 로드 세이브 기능 Popup에도"): the POP-UP page's DTE also writes
+//   its POP-UP page (VRPPUP / VIPPUP, after the VRP / VIP line) and OA2 (after OA1) when they are given. Offset passes
+//   neither, so its lines are unchanged.
+export const BMS_DTC_V0_1 = Object.freeze({ id: "bms-dtc-v0.1", version: "0.1.1", status: "work" });
 
 const FT_PER_NM = 6076.11549;
 
@@ -244,8 +247,9 @@ function pageValue(name, page) {
 
 // The lines a DTE write puts in [NAV OFFSETS] (owner 2026-11-11, plan §2.2-3/4): Modesel, the page of the mode with the
 // TGT steerpoint number, and OA1-<TGT>. Offset's OA2 is N/A and is not written (no 0 ft point).
-// reference / oa1: { tbrgDeg (true), rangeFt, elevationFt } — the DED values.
-export function bmsNavOffsetLines({ mode, targetStpt, reference, oa1 }) {
+// POP-UP (0.1.1, plan S10): popUp adds VRPPUP / VIPPUP after the page line, oa2 adds OA2-<TGT> after OA1.
+// reference / popUp / oa1 / oa2: { tbrgDeg (true), rangeFt, elevationFt } — the DED values.
+export function bmsNavOffsetLines({ mode, targetStpt, reference, popUp = null, oa1, oa2 = null }) {
   const page = String(mode ?? "").toUpperCase();
   if (page !== "VRP" && page !== "VIP") throw new RangeError("mode must be VRP or VIP");
   const stpt = Number(targetStpt);
@@ -253,7 +257,9 @@ export function bmsNavOffsetLines({ mode, targetStpt, reference, oa1 }) {
   return [
     `Modesel=${page.toLowerCase()}`,
     `${page}=${stpt},${pageValue(page, reference)}`,
+    ...(popUp ? [`${page}PUP=${stpt},${pageValue(`${page}PUP`, popUp)}`] : []),
     `OA1-${stpt}=${pageValue("OA1", oa1)}`,
+    ...(oa2 ? [`OA2-${stpt}=${pageValue("OA2", oa2)}`] : []),
   ];
 }
 

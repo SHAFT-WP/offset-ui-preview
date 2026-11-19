@@ -5,9 +5,9 @@
 // shared set of shown aircraft. This module gives the Offset tabs and what each draws.
 // SEM & Rejoin (2026-10-13): its own module, mounted once into the S&R input tab and the centre
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=8fea63f1ff5c";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=8fea63f1ff5c";
-import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=8fea63f1ff5c";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=9554f923c7c3";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=9554f923c7c3";
+import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=9554f923c7c3";
 import { mountWideWorkspace } from "./shared/wide-workspace-v0.1.mjs?v=0.1.2";
 import { mountPopupDesignGraph } from "./popup-design-graph-v0.1.mjs?v=0.1.1";
 
@@ -91,9 +91,10 @@ semRejoin = mountSemRejoin({
 });
 designGraph = POPUP_PAGE ? mountPopupDesignGraph({ host: workspace.centerHost("design"), offsetUi: offsetIndexUi }) : null;
 if (designGraph) globalThis.popupDesignGraph = designGraph;
-// BMS Mission (DTC) and DTE (2026-11-12, plan S7 / S8): the Offset index Save/Load tab only (POP-UP later, plan S10).
+// BMS Mission (DTC) and DTE (2026-11-12, plan S7 / S8): the Offset index Save/Load tab; the POP-UP page too (owner
+// 2026-11-19, plan S10), whose DTE also writes VRPPUP / VIPPUP and OA2.
 const bmsMissionRoot = document.getElementById("bms-mission");
-const bmsMission = bmsMissionRoot ? mountBmsMissionPanel({ root: bmsMissionRoot, offsetUi: offsetIndexUi }) : null;
+const bmsMission = bmsMissionRoot ? mountBmsMissionPanel({ root: bmsMissionRoot, offsetUi: offsetIndexUi, tool: POPUP_PAGE ? "popup" : "offset" }) : null;
 // Read-only hooks for the browser checks.
 if (bmsMission) globalThis.offsetBmsMission = bmsMission;
 offsetIndexUi.installSectionDisclosure();

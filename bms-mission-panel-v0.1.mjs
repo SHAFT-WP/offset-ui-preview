@@ -3,6 +3,9 @@
 // "BMS mission and DTE — owner 2026-11-12"). The BE (AG/bombing/bms-mission/bms-dtc-v0.1.mjs) reads the callsign ini and
 // writes its [NAV OFFSETS]; this module only reads and writes the file, shows the mission and puts it on #1 through
 // the page's own fields (the same edits a user makes), so nothing here calculates.
+// 0.1.1 (owner 2026-11-19, plan S10, "offset에 있는 DED 로드 세이브 기능 Popup에도 추가해 줘라"): the POP-UP page mounts the
+// same panel ({ tool: "popup" }); its DTE also writes the POP-UP page (VRPPUP / VIPPUP) and OA2 from that aircraft's
+// DED (the four pages the page shows). Offset is unchanged.
 import {
   BMS_DTC_V0_1,
   parseBmsDtc,
@@ -11,11 +14,11 @@ import {
   clearBmsNavOffsets,
   bmsIniTextFromBytes,
   bmsIniBytesFromText,
-} from "./AG/bombing/bms-mission/bms-dtc-v0.1.mjs?v=0.1.0";
+} from "./AG/bombing/bms-mission/bms-dtc-v0.1.mjs?v=0.1.1";
 import { createHandleStore, fileTimeText, fileSizeText } from "./shared/flight-file-browser-v0.1.mjs?v=0.1.2";
 import { currentMagVarDeg, magVarText, trueFromMagneticDeg } from "./shared/mag-var-v0.1.mjs?v=0.1.0";
 
-export const BMS_MISSION_PANEL_V0_1 = Object.freeze({ id: "offset-bms-mission-panel-v0.1", version: "0.1.0", be: `${BMS_DTC_V0_1.id} ${BMS_DTC_V0_1.version}` });
+export const BMS_MISSION_PANEL_V0_1 = Object.freeze({ id: "offset-bms-mission-panel-v0.1", version: "0.1.1", be: `${BMS_DTC_V0_1.id} ${BMS_DTC_V0_1.version}` });
 
 const HANDLE_KEY = "bms-dtc";
 const BACKUP_KEY = "bms-dtc.backup";
@@ -48,7 +51,13 @@ async function filePermission(handle, mode, request) {
   }
 }
 
-export function bmsMissionPanelMarkup() {
+const TOOL_TEXT = Object.freeze({
+  offset: { save: "Offset save (.html)", dte: "DTE 적용은 고른 기체의 DED(VRP 또는 VIP, OA1)를 DTC의 <code>[NAV OFFSETS]</code>에 씁니다. 그 전에 이전 VIP · VIPPUP · VRP · VRPPUP · OA1 · OA2 줄을 모두 지웁니다(OA2는 Offset에서 N/A라 쓰지 않음)." },
+  popup: { save: "POP-UP save (.html)", dte: "DTE 적용은 고른 기체의 DED 네 페이지(VRP 또는 VIP, POP-UP → VRPPUP 또는 VIPPUP, OA1, OA2)를 DTC의 <code>[NAV OFFSETS]</code>에 씁니다. 그 전에 이전 VIP · VIPPUP · VRP · VRPPUP · OA1 · OA2 줄을 모두 지웁니다." },
+});
+
+export function bmsMissionPanelMarkup({ tool = "offset" } = {}) {
+  const text = TOOL_TEXT[tool] ?? TOOL_TEXT.offset;
   return `<div class="bms-mission-head"><h3 id="bms-mission-title">BMS Mission (DTC)</h3><span class="mode" id="bms-mission-state">DTC 없음</span></div>
 <p class="flight-draft-note">BMS에서 DTC SAVE를 누른 뒤, <code>User\\Config\\&lt;콜사인&gt;.ini</code>(DTC)를 고르세요. 경로·표적을 읽어 TGT와 IP STPT를 정하고, <b>Apply to #1</b>은 #1의 IP(Run-In · Range, IP LOCK)와 Target Elevation을 바꿉니다. Attack Heading은 미션이 정하지 않습니다(Run-In이 바뀌면 지금처럼 형상 전체가 같이 돌아가니, 적용 뒤 Attack Heading을 확인하세요).</p>
 <div class="save-actions">
@@ -69,7 +78,7 @@ export function bmsMissionPanelMarkup() {
 </div>
 <p class="flight-draft-note" id="bms-mission-applied">미션: 적용 안 됨</p>
 <div class="bms-mission-head"><h3 id="bms-dte-title">DTE (NAV OFFSETS)</h3></div>
-<p class="flight-draft-note">DTE 적용은 고른 기체의 DED(VRP 또는 VIP, OA1)를 DTC의 <code>[NAV OFFSETS]</code>에 씁니다. 그 전에 이전 VIP · VIPPUP · VRP · VRPPUP · OA1 · OA2 줄을 모두 지웁니다(OA2는 Offset에서 N/A라 쓰지 않음). 다른 줄은 그대로 둡니다. 쓰기 전 파일을 한 번 보관해 두고 Undo로 되돌립니다.</p>
+<p class="flight-draft-note">${text.dte} 다른 줄은 그대로 둡니다. 쓰기 전 파일을 한 번 보관해 두고 Undo로 되돌립니다.</p>
 <div class="save-actions">
   <label class="field bms-dte-ship"><span>Ship</span><select id="bms-dte-ship" aria-label="Ship number for the DTE"><option value="1">#1</option></select></label>
   <button class="btn" id="bms-dte-write" type="button" disabled>Write DTE</button>
@@ -80,8 +89,8 @@ export function bmsMissionPanelMarkup() {
 <table class="bms-file-table" aria-label="Files each Save/Load item reads and writes">
   <thead><tr><th>Item</th><th>Reads</th><th>Writes</th></tr></thead>
   <tbody>
-    <tr><td>Save / Save As</td><td>-</td><td>Offset save (.html) + this browser</td></tr>
-    <tr><td>Load</td><td>Offset save (.html)</td><td>this browser</td></tr>
+    <tr><td>Save / Save As</td><td>-</td><td>${text.save} + this browser</td></tr>
+    <tr><td>Load</td><td>${text.save}</td><td>this browser</td></tr>
     <tr><td>Load Default</td><td>-</td><td>- (this browser after Save)</td></tr>
     <tr><td>Open DTC / Apply to #1</td><td>callsign ini (DTC)</td><td>-</td></tr>
     <tr><td>Write / Clear / Undo DTE</td><td>callsign ini (DTC)</td><td>callsign ini <code>[NAV OFFSETS]</code> only</td></tr>
@@ -90,10 +99,11 @@ export function bmsMissionPanelMarkup() {
 }
 
 // root: the panel's container in the Save/Load tab. offsetUi: the controller's index hooks (offsetIndexUi).
-export function mountBmsMissionPanel({ root, offsetUi, doc = globalThis.document, win = globalThis, store = createHandleStore({ win }) }) {
+export function mountBmsMissionPanel({ root, offsetUi, tool = "offset", doc = globalThis.document, win = globalThis, store = createHandleStore({ win }) }) {
   if (!root || root.dataset.mounted) return null;
   root.dataset.mounted = "true";
-  root.innerHTML = bmsMissionPanelMarkup();
+  root.innerHTML = bmsMissionPanelMarkup({ tool });
+  const popupPage = tool === "popup";
   const $ = (selector) => root.querySelector(selector);
   const page = (selector) => doc.querySelector(selector);
   const access = dtcFileAccess(win);
@@ -318,7 +328,11 @@ export function mountBmsMissionPanel({ root, offsetUi, doc = globalThis.document
     if (!ded?.reference || !ded?.oa1) return { error: `#${number} has no DED` };
     const magVar = currentMagVarDeg();
     const dtePage = (record) => ({ tbrgDeg: trueFromMagneticDeg(record.bearingDeg, magVar), rangeFt: record.rangeFt, elevationFt: record.elevationFt });
-    return { mode: ded.page === "VIP" ? "VIP" : "VRP", reference: dtePage(ded.reference), oa1: dtePage(ded.oa1) };
+    const mode = ded.page === "VIP" ? "VIP" : "VRP";
+    if (!popupPage) return { mode, reference: dtePage(ded.reference), oa1: dtePage(ded.oa1) };
+    // POP-UP (0.1.1): the POP-UP page and OA2 are written too; a DED without them is not written half.
+    if (!ded.popUp || !ded.oa2) return { error: `#${number} has no POP-UP / OA2 DED page` };
+    return { mode, reference: dtePage(ded.reference), popUp: dtePage(ded.popUp), oa1: dtePage(ded.oa1), oa2: dtePage(ded.oa2) };
   }
 
   async function writeText(text, label) {
