@@ -85,7 +85,12 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // 유지한다 … 지정하지 않았다면 계산된 속도를 보여준다"): every aircraft dives at MIL (BDP v0.4.10 diveSpeedModel); the
   // Release Speed is a cap (blank: none; no longer filled when emptied) and popup.releaseSpeedKcas the speed flown. The
   // SEM after Release (Level or CSEM) is flown at MIL too (semSpeedModel; owner "release이후에는 mil power로 …").
-  version: "0.1.20",
+  // 0.1.21 (owner 2026-11-20, "initial 고도와 옵셋 고도는 같아야 해" / "둘이 링크되게 하고 오프셋 고도를 유저가 바꾸면
+  // 바뀐값이 들어가게 하자"; DESIGN-STEPS.md, SPEC §13.8ae): the Initial Altitude is the Offset (Pop) Altitude, both
+  // ways. An Initial Altitude edit (any aircraft) is an edit of #1's Offset Altitude (the Flight's Offset leg is #1's);
+  // every aircraft's Initial Altitude goes back as the Offset Altitude flown. A record whose two differ (an older file)
+  // takes the Offset Altitude. The Roll-in Altitude LINK is off on this page (rollInAltitudeLinked false).
+  version: "0.1.21",
   defaultPopupG: 4,
   angleIterations: 12,
   autoAngleMinDeg: 1,
@@ -427,7 +432,42 @@ const POPUP_CLEAR_FIT_SPEC = Object.freeze({
 });
 
 function popupFlightWithClearFit(rawInput, offsetFlight) {
-  return calculateWithClearFit(rawInput, (input) => popupFlight(input, offsetFlight), POPUP_CLEAR_FIT_SPEC);
+  const result = calculateWithClearFit(linkInitialAltitude(rawInput), (input) => popupFlight(input, offsetFlight), POPUP_CLEAR_FIT_SPEC);
+  return withLinkedInitialAltitude(result);
+}
+
+// Initial Altitude = Offset Altitude (0.1.21). In: an Initial Altitude edit becomes #1's Offset Altitude edit (its
+// value moved to #1's record); every record's Initial Altitude is then #1's Offset Altitude; the Roll-in LINK is off.
+export function linkInitialAltitude(rawInput) {
+  if (!rawInput?.aircraft?.[1]?.values) return rawInput;
+  const input = { ...rawInput, aircraft: { ...rawInput.aircraft } };
+  const copyRecord = (n) => { input.aircraft[n] = { ...input.aircraft[n], values: { ...input.aircraft[n].values }, state: { ...(input.aircraft[n].state ?? {}) } }; return input.aircraft[n]; };
+  const lead = copyRecord("1");
+  const asOffset = (edit) => {
+    if (edit?.key === "rollInAltitudeLinked") return null;
+    if (edit?.key !== "initialAltitudeMslFt") return edit;
+    const from = input.aircraft[String(edit.aircraft ?? 1)]?.values;
+    if (from && Object.hasOwn(from, "initialAltitudeMslFt")) lead.values.offsetAltitudeMslFt = from.initialAltitudeMslFt;
+    return { ...edit, aircraft: 1, key: "offsetAltitudeMslFt" };
+  };
+  if (input.edit) { const e = asOffset(input.edit); if (e) input.edit = e; else delete input.edit; }
+  if (input.edits) input.edits = input.edits.map(asOffset).filter(Boolean);
+  for (const n of Object.keys(input.aircraft)) {
+    const record = n === "1" ? lead : input.aircraft[n]?.values ? copyRecord(n) : null;
+    if (!record) continue;
+    record.values.initialAltitudeMslFt = lead.values.offsetAltitudeMslFt;
+    record.state.rollInAltitudeLinked = false;
+  }
+  return input;
+}
+// Out: every aircraft's Initial Altitude is the Offset Altitude flown (#1's resolved one, else #1's record).
+function withLinkedInitialAltitude(result) {
+  const aircraft = result?.nextInput?.aircraft;
+  if (!aircraft?.[1]?.values) return result;
+  const flown = result.aircraftResults?.[1]?.result?.resolved?.offsetAltitudeMslFt;
+  const altitude = Number.isFinite(flown) ? flown : aircraft[1].values.offsetAltitudeMslFt;
+  for (const record of Object.values(aircraft)) if (record?.values) record.values.initialAltitudeMslFt = altitude;
+  return result;
 }
 
 // The output has the Offset Flight's shape (the page reuses the Offset controller): each aircraftResults[n] is the

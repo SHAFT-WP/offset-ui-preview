@@ -20,8 +20,8 @@ const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-fli
 // with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
 // climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
 const POPUP_MODE = document.body.classList.contains("popup-page");
-const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.20", import.meta.url);
-const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.20", import.meta.url);
+const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.21", import.meta.url);
+const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.21", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
 import { SVG_DIAGRAM_TEXT_SCALE_V0_1, svgNode } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
@@ -59,9 +59,9 @@ import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-b
 import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.6";
 import {
   POPUP_DEFAULT_INPUT_VALUES, POPUP_DRIVERS, POPUP_DRIVER_NOTE, POPUP_DRIVER_TEXT, POPUP_FOLLOWER_PROFILE_KEYS, POPUP_LOCK_KEYS, POPUP_VALUE_KEYS,
-  installPopupControls, markPopupDriverFields, popupApexText, popupApproachPopText, popupFollowerGroupMarkup, popupRangeText, popupResultRows, popupTopViewMarkers,
+  installPopupControls, markPopupDriverFields, popupApexText, popupApproachPopText, popupApproachPopTimeText, popupPullDownText, popupFollowerGroupMarkup, popupRangeText, popupResultRows, popupTopViewMarkers,
   popupZTextMarkup, popupZTickMarkup, renderPopupMinimumExposure, syncPopupSpeedFields, syncPopupSpeedNote, syncReleaseSpeedFields, syncPopupZTextButtons, syncPopupZTickButtons,
-} from "./popup-page-v0.1.mjs?v=0.1.5";
+} from "./popup-page-v0.1.mjs?v=0.1.6";
 import { POPUP_BDP_APPROACH_V0_1, popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.1";
@@ -1080,6 +1080,8 @@ function renderPopup(entry) {
   // Owner 2026-11-16: the same Apex after #1's Initial Altitude (BDP Profile group).
   document.querySelectorAll("[data-popup-apex-out]").forEach((out) => { if (!out.closest(".flight-slot")) out.textContent = popupApexText(p); });
   document.querySelectorAll("[data-popup-app-pop-out]").forEach((out) => { if (!out.closest(".flight-slot")) out.textContent = popupApproachPopText(entry?.result ? p : null); });
+  document.querySelectorAll("[data-popup-app-pop-time-out]").forEach((out) => { if (!out.closest(".flight-slot")) out.textContent = popupApproachPopTimeText(entry?.result ? p : null); });
+  document.querySelectorAll("[data-popup-pull-down-out]").forEach((out) => { if (!out.closest(".flight-slot")) out.textContent = popupPullDownText(entry?.result ? p : null); });
   const range = $("#popup-range-out");
   if (range) range.textContent = popupRangeText(p);
   const out = $("#popup-min-exposure-out");
@@ -2210,7 +2212,8 @@ function followerCalculatingMarkup(number) {
     initialSpeed: POPUP_MODE
       ? `<label class="field"><span class="lock-title"><span>Roll-in Speed (kcas)</span><button class="lock-button" type="button" data-popup-lock="rollInSpeed" aria-label="Lock Roll-in Speed" aria-pressed="false">LOCK</button></span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"><span class="unit"></span></label>`
       : `<label class="field"><span>Initial Speed (KCAS)</span><input data-flight-field="initialSpeedValue" type="text" inputmode="decimal"></label>`,
-    initialAltitude: `<label class="field"><span class="lock-title"><span>Initial Altitude (ft MSL)</span><button class="lock-button" type="button" data-flight-field="rollInAltitudeLinked" aria-label="Link Initial Altitude to Roll-in Altitude" aria-pressed="true">LINKED</button></span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"><span class="unit" data-initial-link-note>Linked to Roll-in Altitude</span></label>`,
+    // POP-UP (owner 2026-11-20): Initial Altitude = the Flight's Offset (Pop) Altitude, no Roll-in LINK (POP-UP Flight 0.1.21).
+    initialAltitude: POPUP_MODE ? `<label class="field"><span>Initial Altitude (ft MSL)</span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">= #1 Offset Altitude (Pop) · linked</span></label>` : `<label class="field"><span class="lock-title"><span>Initial Altitude (ft MSL)</span><button class="lock-button" type="button" data-flight-field="rollInAltitudeLinked" aria-label="Link Initial Altitude to Roll-in Altitude" aria-pressed="true">LINKED</button></span><input data-flight-field="initialAltitudeMslFt" type="text" inputmode="decimal"><span class="unit" data-initial-link-note>Linked to Roll-in Altitude</span></label>`,
     rollInAltitude: `<label class="field"><span>Roll-in Altitude (ft MSL)</span><input data-flight-field="rollInAltitudeMslFt" type="text" inputmode="decimal"><span class="unit">BDP entry altitude</span></label>`,
     dive: `<label class="field"><span class="lock-title"><span>Dive Angle (deg)</span><button class="lock-button" type="button" data-flight-field="diveAngleLocked" aria-label="Lock Dive Angle" aria-pressed="false">LOCK</button></span><input data-flight-field="diveAngleDeg" type="text" inputmode="decimal"></label>`,
     tracking: `<label class="field"><span>Tracking Time (sec)</span><input data-flight-field="trackingTimeSec" type="text" inputmode="decimal"><span class="unit">Track Point → Release · 0.1 s</span></label>`,
@@ -2867,6 +2870,8 @@ function renderFollowerPopupControls(number, slot, entry) {
   slot.querySelectorAll("[data-popup-range-out]").forEach((out) => { out.textContent = popupRangeText(entry.result ? entry.popup : null); });
   slot.querySelectorAll("[data-popup-apex-out]").forEach((out) => { out.textContent = popupApexText(entry.result ? entry.popup : null); });
   slot.querySelectorAll("[data-popup-app-pop-out]").forEach((out) => { out.textContent = popupApproachPopText(entry.result ? entry.popup : null); });
+  slot.querySelectorAll("[data-popup-app-pop-time-out]").forEach((out) => { out.textContent = popupApproachPopTimeText(entry.result ? entry.popup : null); });
+  slot.querySelectorAll("[data-popup-pull-down-out]").forEach((out) => { out.textContent = popupPullDownText(entry.result ? entry.popup : null); });
   syncPopupLocks(draft.popupLocks ?? {}, slot);
   syncPopupSpeedFields(followerFields(slot, "initialSpeedValue"), draft.popupLocks?.rollInSpeed === true);
   syncPopupSpeedNote(slot, draft.popupSpeedOwn === true, () => true, draft.popupLocks?.rollInSpeed === true);

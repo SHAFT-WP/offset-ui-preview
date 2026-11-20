@@ -5,7 +5,9 @@
 import { formatG } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { POPUP_Z_DIAGRAM_V0_1 } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.6";
 
-export const POPUP_PAGE_V0_1 = Object.freeze({ id: "popup-page-v0.1", version: "0.1.5" });
+export const POPUP_PAGE_V0_1 = Object.freeze({ id: "popup-page-v0.1", version: "0.1.6" });
+// 0.1.6 (owner 2026-11-20, DESIGN-STEPS.md S1): Approach-Pop Time (s) after Approach-Pop Range and Pull Down Alt after
+// Roll-in Altitude (readouts of the BE's holdDownSec and PULL_DOWN event); a follower's group the same.
 // 0.1.4 (owner 2026-11-19, MIL dive): Release Speed blank by default (no cap: the BE's Release speed is shown in the
 // field, greyed); typed, the BE's Release speed is written in the field note. The layout is unchanged.
 // 0.1.1 (owner 2026-11-17, "기본값은 4G"): the default Popup G is 4 G (was 3 G).
@@ -53,6 +55,13 @@ export const POPUP_DRIVER_TEXT = Object.freeze({ DEFAULT: "AUTO · Dive ≤ 15°
 // The Pop-up Range readout of a POP-UP group (Pop-up Point → Target, NM).
 // Approach-Pop Range (owner 2026-11-19): Approach start (Offset Turn End) → Pop Point, horizontal, the BE's holdDownNm.
 export const popupApproachPopText = (p) => (Number.isFinite(p?.holdDownNm) ? p.holdDownNm.toFixed(2) : "-");
+// Approach-Pop Time (owner 2026-11-20): the same leg in seconds (holdDownSec); under 0 s INVALID, under 2 s a warning.
+export const popupApproachPopTimeText = (p) => (Number.isFinite(p?.holdDownSec) ? `${p.holdDownSec.toFixed(1)}${p.holdDownSec < 0 ? " · INVALID" : p.holdDownSec < 2 ? " · under 2 s" : ""}` : "-");
+// Pull Down Alt (owner 2026-11-20, "롤하고 나서 스틱을 당기는 고도"): the BE's PULL_DOWN event altitude.
+export const popupPullDownText = (p) => {
+  const e = p?.events?.find((x) => x.name === "PULL_DOWN");
+  return Number.isFinite(e?.altitudeMslFt) ? Math.round(e.altitudeMslFt).toLocaleString("en-US") : "-";
+};
 export const popupRangeText = (p) => (Number.isFinite(p?.popToTargetNm) ? p.popToTargetNm.toFixed(2) : "-");
 // The field each driver comes from (the other two are results).
 const POPUP_DRIVER_KEY = Object.freeze({ ANGLE: "popupAngleDeg", GROUND_DISTANCE: "popupGroundDistanceNm", EXPOSURE_TIME: "popupExposureTimeSec" });
@@ -207,8 +216,10 @@ export function popupFollowerGroupMarkup({ initialSpeed, rollInLocked }) {
     + `<label class="field"><span class="lock-title"><span>Popup Angle (deg)</span><button class="lock-button" type="button" data-popup-lock="angle" aria-label="Lock Popup Angle" aria-pressed="false">LOCK</button></span><input data-flight-field="popupAngleDeg" type="text" inputmode="decimal"><span class="unit">Climb angle · 0–55°</span></label>`
     + `<label class="field"><span>Popup G (G)</span><input data-flight-field="popupG" type="text" inputmode="decimal"><span class="unit" data-follow-note></span></label>`
     + `${initialSpeed}${rollInLocked}`
+    + `<div class="field"><span>Pull Down Alt (ft MSL)</span><output class="readout" data-popup-pull-down-out>-</output><span class="unit">Roll done, pull starts · result</span></div>`
     + `<div class="field"><span>Apex (ft MSL)</span><output class="readout" data-popup-apex-out>-</output><span class="unit">Top of the climb · result</span></div>`
     + `<div class="field"><span>Approach-Pop Range (NM)</span><output class="readout" data-popup-app-pop-out>-</output><span class="unit">Approach start → Pop Point · result</span></div>`
+    + `<div class="field"><span>Approach-Pop Time (sec)</span><output class="readout" data-popup-app-pop-time-out>-</output><span class="unit">Approach start → Pop Point · result · 2 s recommended</span></div>`
     + `<label class="field"><span>Pop to Roll-in Distance (NM)</span><input data-flight-field="popupGroundDistanceNm" type="text" inputmode="decimal"><span class="unit">Pop Point → Roll-in Start</span></label>`
     + `<label class="field"><span>Exposure Time (sec)</span><input data-flight-field="popupExposureTimeSec" type="text" inputmode="decimal"><span class="unit">Pop Point → Apex · MIL</span></label>`
     + `<div class="field popup-auto-field"><span>Pop-up Angle</span><button class="btn" type="button" data-popup-auto>AUTO</button><span class="unit">AUTO: Dive ≤ 15° → Dive + 5°, Dive > 15° → Dive + 10°</span></div>`

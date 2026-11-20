@@ -11,7 +11,10 @@
 //   Step 5  Once more: when the page's Offset Angle is past that limit, the Popup window again at the limit's angle.
 //   Step 6  What to change when a window is empty or the page's value is outside it.
 // Pure calculation: no DOM, no storage. Curves are read between grid points by straight-line interpolation.
-export const POPUP_DESIGN_STEPS_V0_1 = Object.freeze({ id: "popup-design-steps-v0.1", version: "0.1.0" });
+// 0.1.1 (owner 2026-11-20, DESIGN-STEPS.md S2): popupAngleRange (the step-2 Popup Angle range = AUTO angle and the
+// Apex 300–350 KCAS area together, min..max, with the Min Pop-up Distance at its two ends) and popupProfileLine (the
+// flown pop-up as one side-view line: Pop → Roll-in Start → Release, ground distance along the path).
+export const POPUP_DESIGN_STEPS_V0_1 = Object.freeze({ id: "popup-design-steps-v0.1", version: "0.1.1" });
 
 export const POPUP_DESIGN_LIMITS = Object.freeze({
   minOffsetPopupSec: 2,
@@ -145,4 +148,58 @@ export function designSteps({ current, popup, offset, popup2 = null, limits = PO
     suggestion: { popupAngleDeg: w.recommended?.centreDeg ?? null },
     hints,
   };
+}
+
+// Step 2 (DESIGN-STEPS.md §2, owner 2026-11-20): the Popup Angle range = the AUTO angle and the Apex 300–350 KCAS area
+// together (min .. max), never past the last angle that flies (the pull-up arc). Min Pop-up Distance (Pop → Roll-in
+// Start, horizontal) and the Approach-Pop Distance / Time are read at both ends. `autoDeg`: the AUTO angle (the angle
+// flown when the driver is AUTO, else the rule's).
+export function popupAngleRange(points, autoDeg, limits = POPUP_DESIGN_LIMITS) {
+  const w = popupAngleWindow(points, limits);
+  const apexArea = w.minExposure && finite(w.minExposure.fromDeg) && finite(w.minExposure.toDeg) && w.minExposure.fromDeg <= w.minExposure.toDeg
+    ? { fromDeg: w.minExposure.fromDeg, toDeg: w.minExposure.toDeg } : null;
+  const ends = [...(apexArea ? [apexArea.fromDeg, apexArea.toDeg] : []), ...(finite(autoDeg) ? [autoDeg] : [])];
+  if (!ends.length) return { apexArea, autoDeg: finite(autoDeg) ? autoDeg : null, fromDeg: null, toDeg: null, ends: null, arcLimitDeg: w.arcLimitDeg };
+  let fromDeg = Math.min(...ends);
+  let toDeg = Math.max(...ends);
+  if (finite(w.arcLimitDeg)) toDeg = Math.min(toDeg, w.arcLimitDeg);
+  fromDeg = Math.min(fromDeg, toDeg);
+  const at = (x) => ({
+    angleDeg: x,
+    minPopupNm: valueAt(points, "popToRollInNm", x),
+    approachPopNm: valueAt(points, "offsetPopupRangeNm", x),
+    approachPopSec: valueAt(points, "offsetPopupTimeSec", x),
+    apexKcas: valueAt(points, "apexKcas", x),
+    exposureSec: valueAt(points, "exposureTimeSec", x),
+  });
+  return { apexArea, autoDeg: finite(autoDeg) ? autoDeg : null, fromDeg, toDeg, ends: { from: at(fromDeg), to: at(toDeg) }, arcLimitDeg: w.arcLimitDeg };
+}
+
+// The flown pop-up as one side view (#1's Flight entry): x = ground distance along the path from the Pop Point (NM),
+// y = altitude (ft MSL). The climb (Pop → Roll-in Start), the Roll-in, the tracking to Release; the bomb's fall
+// after it separately. Marks: Pop, Roll-in Start, Apex (highest point), Release.
+export function popupProfileLine(entry) {
+  const climb = entry?.popup?.climb?.samples;
+  const paths = entry?.result?.profile?.visualization?.semanticState?.paths;
+  if (!Array.isArray(climb) || !climb.length) return null;
+  const line = climb.map((s) => ({ distNm: s.groundNm, altFt: s.altitudeMslFt }));
+  let dist = line[line.length - 1].distNm;
+  const follow = (path) => {
+    const out = [];
+    let prev = null;
+    for (const p of path ?? []) {
+      if (prev) dist += Math.hypot(p.forwardNm - prev.forwardNm, p.turnSideNm - prev.turnSideNm);
+      out.push({ distNm: dist, altFt: p.altitudeMslFt });
+      prev = p;
+    }
+    return out;
+  };
+  const rollInStart = { ...line[line.length - 1] };
+  line.push(...follow(paths?.rollIn).slice(1));
+  const tracking = follow(paths?.tracking);
+  line.push(...tracking.slice(1));
+  const release = line[line.length - 1];
+  const bomb = follow(paths?.bomb);
+  const apex = line.reduce((a, b) => (b.altFt > a.altFt ? b : a), line[0]);
+  return { line, bomb, marks: { pop: line[0], rollInStart, apex, release } };
 }

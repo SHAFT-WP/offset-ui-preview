@@ -5,16 +5,21 @@
 // (popup-dependency-sweep-v0.1); VALID points solid, WARNING dashed, INVALID dashed and faded. Mouse wheel zooms at the
 // cursor (Shift: X only, Alt: Y only), drag pans, double-click resets; on a phone two fingers pinch. Points are solved
 // in Web Workers side by side (in-thread when a Worker cannot start). Nothing is saved.
-import { POPUP_SWEEP_INPUTS, POPUP_SWEEP_OUTPUTS, sweepBaseline, sweepInputValue, sweepModeOf, sweepValues } from "./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.1";
-import { OFFSET_ANGLE_GRID, POPUP_ANGLE_GRID, POPUP_DESIGN_LIMITS, designSteps, offsetAngleRange, popupAngleWindow } from "./AG/bombing/popup/popup-design-steps-v0.1.mjs?v=0.1.0";
+import { POPUP_SWEEP_INPUTS, POPUP_SWEEP_OUTPUTS, sweepBaseline, sweepInputValue, sweepModeOf, sweepValues } from "./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.2";
+import { mountPopupDesignSteps } from "./popup-design-steps-ui-v0.1.mjs?v=0.1.3";
+import { OFFSET_ANGLE_GRID, POPUP_ANGLE_GRID, POPUP_DESIGN_LIMITS, designSteps, offsetAngleRange, popupAngleWindow } from "./AG/bombing/popup/popup-design-steps-v0.1.mjs?v=0.1.1";
 
 // 0.1.1 (owner 2026-11-18, the planning procedure): Step by Step above the graph — BDP, Popup Angle window (Offset-Popup
 // 2 s / Apex 300 KCAS / arc), Min Exposure window (Apex 300–350 KCAS), Offset Angle range, one more pass, what to change,
 // and a centring chart (popup-design-steps-v0.1). "Popup Angle에 넣기" types the suggestion into #1's Popup Angle.
-export const POPUP_DESIGN_GRAPH_V0_1 = Object.freeze({ id: "popup-design-graph-v0.1", version: "0.1.1" });
+// 0.1.2 (owner 2026-11-20, DESIGN-STEPS.md S1): the four planning steps (popup-design-steps-ui-v0.1) on top; the
+// Step by Step box folds inside step 2 as "범위 계산" until S2 replaces it; the graph stays below.
+export const POPUP_DESIGN_GRAPH_V0_1 = Object.freeze({ id: "popup-design-graph-v0.1", version: "0.1.2" });
 
-const WORKER_URL = new URL("./AG/bombing/popup/popup-dependency-worker-v0.1.mjs?v=0.1.1", import.meta.url);
-const SWEEP_URL = new URL("./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.1", import.meta.url);
+const WORKER_URL = new URL("./AG/bombing/popup/popup-dependency-worker-v0.1.mjs?v=0.1.4", import.meta.url);
+const FINE_TUNE_URL = new URL("./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=0.1.0", import.meta.url);
+const REGION_URL = new URL("./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.0", import.meta.url);
+const SWEEP_URL = new URL("./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.2", import.meta.url);
 const COLORS = ["#2a78d6", "#e34948", "#1baf7a", "#eb6834", "#8e5bd6"];
 const MAX_CONDITIONS = 5;
 // Default X range and condition values per input (the owner's charts so far); `v` = the current value.
@@ -88,21 +93,24 @@ function createPool() {
       if (!queue.length || busy.size) return;
       const job = queue.shift();
       busy.set("thread", job);
-      setTimeout(() => inThread.then((m) => { job.resolve(m.sweepPoint(job.base, job.assignments)); busy.delete("thread"); pump(); }), 0);
+      setTimeout(() => (job.kind === "region" ? import(REGION_URL.href).then((m) => m.regionPoint(job.base, job.assignments.angleOffDeg))
+        : job.kind === "fineTune" ? import(FINE_TUNE_URL.href).then((m) => m.fineTune(job.base, job.assignments)) : inThread.then((m) => m.sweepPoint(job.base, job.assignments)))
+        .then((point) => { job.resolve(point); busy.delete("thread"); pump(); }), 0);
       return;
     }
     for (const w of workers ?? []) {
       if (busy.has(w) || !queue.length) continue;
       const job = queue.shift();
       busy.set(w, job);
-      w.postMessage({ id: ++seq, base: job.base, assignments: job.assignments });
+      w.postMessage({ id: ++seq, base: job.base, assignments: job.assignments, kind: job.kind });
     }
   }
   return {
     size: () => (workers ? workers.length : 1),
-    point(base, assignments) {
+    // kind "region": a step-3 region point (popup-offset-region-v0.1); else a sweep point.
+    point(base, assignments, kind = "sweep") {
       start();
-      return new Promise((resolve) => { queue.push({ base, assignments, resolve }); pump(); });
+      return new Promise((resolve) => { queue.push({ base, assignments, kind, resolve }); pump(); });
     },
     // Drops the points not started yet (a new graph replaces the old one).
     clear() { queue.splice(0).forEach((job) => job.resolve(null)); },
@@ -148,8 +156,8 @@ export function mountPopupDesignGraph({ host, offsetUi }) {
     el("div", { class: "design-graph-actions" }, stepsBtn, applyBtn),
     stepsStatus, stepsList, el("div", { class: "design-steps-shell" }, centreSvg),
     el("p", { class: "flight-draft-note", text: "옅은 파랑 = Popup Angle 범위 (Offset-Popup 2 s ~ Apex 300 KCAS·상승 호) · 진한 파랑 = 추천 (Min EXP, Apex 300–350 KCAS) · 점선 = 가운데 · 초록 = Offset-Popup 2 s 이상인 Offset Angle · 빨간 삼각형 = 현재 값. 모든 점은 #1을 현재 조건으로 직접 계산합니다 (AUTO 조정 없음)." }));
+  stepsBox.querySelector(".design-steps-title")?.remove();
   host.replaceChildren(
-    stepsBox,
     el("h3", { class: "design-steps-title", text: "Graph" }),
     el("div", { class: "design-graph-controls" },
       field("X axis", xSel), field("From", fromIn), field("To", toIn), field("Points", countIn),
@@ -160,6 +168,7 @@ export function mountPopupDesignGraph({ host, offsetUi }) {
     el("p", { class: "flight-draft-note", text: "휠: 확대·축소 (Shift+휠 X만, Alt+휠 Y만) · 드래그: 이동 · 더블클릭: 원래대로 · 휴대폰: 두 손가락으로 확대·이동. #1을 현재 화면 조건으로 계산합니다: Offset Angle과 Popup Angle은 현재 값으로 고정(AUTO 조정 없음), VALID가 아니어도 그립니다. 실선 VALID · 점선 WARNING · 흐린 점선 INVALID · 검은 점 = 현재 값." }),
   );
 
+  const wizard = mountPopupDesignSteps({ host, offsetUi, rangeTools: stepsBox, pool: createPool(), regionPool: createPool(), tunePool: createPool() });
   let answer = null;
   let base = null;
   let mode = "time";
@@ -581,6 +590,7 @@ export function mountPopupDesignGraph({ host, offsetUi }) {
   return {
     activate() {
       active = true;
+      wizard.activate();
       takeAnswer(offsetUi.flightAnswer());
       if (!drawnOnce) {
         fillSelectors();
@@ -593,8 +603,8 @@ export function mountPopupDesignGraph({ host, offsetUi }) {
         if (base) { drawnOnce = true; draw(); } else renderStatus();
       } else renderStatus();
     },
-    deactivate() { active = false; },
+    deactivate() { active = false; wizard.deactivate(); },
     // Read-only hooks for the browser checks.
-    state: () => ({ active, graph, view, mode, steps }),
+    state: () => ({ active, graph, view, mode, steps, wizard: wizard.state() }),
   };
 }

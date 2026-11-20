@@ -23,3 +23,31 @@
 .design-steps-list b{font-weight:800}
 .design-steps-shell{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
 .design-steps-svg{display:block;width:100%;height:auto;font-family:inherit}
+/* Four planning steps (popup-design-steps-ui-v0.1, owner 2026-11-20). */
+.design-wizard{display:grid;gap:10px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.design-wizard-busy{opacity:.7;pointer-events:none}
+.design-step{border:1px solid var(--line);border-radius:12px;padding:8px 12px 12px;background:var(--panel,#fff);display:grid;gap:8px}
+.design-step-head{display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:800;font-size:14px;list-style:none}
+.design-step-head::-webkit-details-marker{display:none}
+.design-step-title{flex:1;min-width:0}
+.design-step-pill{font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;background:#f0efeb;color:#5f5e5a}
+.design-step-pill[data-on="true"]{background:#1baf7a;color:#fff}
+.design-step-grid{margin:0}
+.design-step-fold>summary{cursor:pointer;font-size:12.5px;font-weight:800;color:var(--muted);padding:4px 0}
+.design-wizard output[data-level="ok"]{color:#1baf7a}
+.design-wizard output[data-level="warn"]{color:#e08a1e;background:rgba(235,154,52,.14)}
+.design-wizard output[data-level="bad"]{color:#e34948;background:rgba(227,73,72,.14)}
+.design-wizard .design-graph-status[data-level="warn"]{color:#e08a1e}
+.design-wizard .design-graph-status[data-level="bad"]{color:#e34948}
+/* Step 2 charts (popup-design-popup-chart-v0.1, S2). */
+.design-angle-charts{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px}
+.design-angle-chart{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:10px;overflow:hidden;font-family:inherit}
+.design-chart-key{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:12px;color:var(--muted)}
+.design-chart-key i{display:inline-block;width:18px;height:10px;border-radius:2px;vertical-align:middle}
+.design-chart-key .key-apex{background:#d9e7f8}
+.design-chart-key .key-range{border:2px solid #1baf7a;box-sizing:border-box}
+.design-chart-key .key-auto{height:0;border-top:2px dashed #8e5bd6}
+.design-chart-key .key-current{height:0;border-top:2px solid #e34948}
+.design-region-note{margin:0;font-size:12.5px;line-height:1.45}
+.design-region-note[data-level="warn"]{color:#e08a1e}
+.design-topview-svg{max-width:640px;margin:0 auto}
