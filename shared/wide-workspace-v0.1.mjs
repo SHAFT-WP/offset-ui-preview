@@ -10,7 +10,16 @@ import { AIRCRAFT_COLORS, AIRCRAFT_NUMBERS, showAircraftRow } from "./flight-ui-
 // 0.1.2 (2026-11-02, Offset Flight Formation): a page section marked data-flight-wide is the Flight's, not one
 // aircraft's: it shows in its tab whichever aircraft is edited; data-flight-wide="after" places it after the followers'
 // sections (the Formation top view under the edited aircraft's own Formation fields).
-export const WIDE_WORKSPACE_V0_1 = Object.freeze({ id: "bombing-wide-workspace-v0.1", version: "0.1.2" });
+// 0.1.3 (owner 2026-11-20, Offset / POP-UP): `resizable` puts a drag bar between the panes (PC ≥1100px). A side pane's
+// content shrinks with it down to 80 % of its default width, then keeps that size and is cut, with a horizontal scroll
+// bar (DED, Z-Diagram, Result and inputs never squeeze their text). Widths are kept per page in this browser only
+// (never in a save); double-click a bar or "Reset panels" returns to the default widths.
+export const WIDE_WORKSPACE_V0_1 = Object.freeze({ id: "bombing-wide-workspace-v0.1", version: "0.1.3" });
+
+// Pane resize limits (px): a side pane's narrowest width and the centre's narrowest width.
+const RESIZE_SIDE_MIN_PX = 200;
+const RESIZE_CENTER_MIN_PX = 420;
+const RESIZE_KEY_STEP_PX = 16;
 
 const make = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -43,12 +52,13 @@ const button = (className, text, attributes = {}) => {
 // - onShown(visible, centerTab), onCenterTab(key, previous), onEditAircraft(number): what the page draws.
 // - fullBdpOnEditLine (default true, Offset): the BDP tab's Full BDP toggle on the Edit aircraft line; false (BOX,
 //   shared BDP tab, owner 2026-10-25) leaves it in the tab head, immediately before Tab Default.
+// - resizable (default false; Offset and POP-UP): drag bars between the panes (0.1.3).
 export function mountWideWorkspace(options) {
   const {
     app, followers, flightSize, eyebrow, standardHref, inputTabs, inputPanes = [], centerTabs, reviewTabs,
     centerOfInput = {}, inputOfCenter = {}, sectionTab = (section) => section.dataset.tab, shownInputKey = (tab) => tab,
     statePill, statusMessage, statusSelector, ui, onShown = () => {}, onCenterTab = () => {}, onEditAircraft = () => {},
-    fullBdpOnEditLine = true,
+    fullBdpOnEditLine = true, resizable = false,
   } = options;
   if (!fullBdpOnEditLine) app.dataset.fullBdpPlacement = "head";
   let editAircraft = 1;
@@ -379,6 +389,144 @@ export function mountWideWorkspace(options) {
       focusButton.focus();
     }
   });
+
+  // ---- resizable panes (0.1.3) ---------------------------------------------------------------------------------
+  // The bars sit over the grid gaps (absolute, so the grid and every breakpoint stay as they were). A width is a
+  // custom property on the workspace (--wide-input-user / --wide-review-user) that only the ≥1100px grid reads; the
+  // body's --wide-input-width / --wide-review-width stay the defaults the content's 80 % floor is measured from.
+  if (resizable) installPaneResize();
+  function installPaneResize() {
+    workspace.classList.add("wide-resizable");
+    const storeKey = "bombing-wide-panes-v1:" + location.pathname.replace(/[^/]*$/, "");
+    const readStore = () => {
+      try { return JSON.parse(localStorage.getItem(storeKey) || "{}") || {}; } catch { return {}; }
+    };
+    const writeStore = (value) => {
+      try {
+        if (value.input || value.review) localStorage.setItem(storeKey, JSON.stringify(value));
+        else localStorage.removeItem(storeKey);
+      } catch { /* private window: widths last until the page closes */ }
+    };
+    const saved = readStore();
+    const widths = { input: Number(saved.input) > 0 ? Number(saved.input) : null, review: Number(saved.review) > 0 ? Number(saved.review) : null };
+    const panes = { input: inputs, review };
+    const property = { input: "--wide-input-user", review: "--wide-review-user" };
+    const label = { input: "Resize inputs and diagrams", review: "Resize diagrams and review" };
+    const bars = {};
+    for (const side of ["input", "review"]) {
+      const bar = make("div", "wide-splitter");
+      bar.dataset.wideSplitter = side;
+      bar.tabIndex = 0;
+      bar.setAttribute("role", "separator");
+      bar.setAttribute("aria-orientation", "vertical");
+      bar.setAttribute("aria-label", label[side]);
+      bar.title = "Drag to resize · double-click to reset";
+      workspace.append(bar);
+      bars[side] = bar;
+    }
+    const resetButton = button("btn wide-reset-panels", "Reset panels", { "data-wide-reset-panels": "", title: "Return the panels to their default widths" });
+    focusButton.before(resetButton);
+
+    const active = () => getComputedStyle(bars.input).display !== "none";
+    const gapPx = () => parseFloat(getComputedStyle(workspace).columnGap) || 0;
+    // The widest a side pane may be now: the centre keeps RESIZE_CENTER_MIN_PX.
+    const maxWidth = (side) => {
+      const other = side === "input" ? "review" : "input";
+      const otherWidth = panes[other].getBoundingClientRect().width;
+      return Math.max(RESIZE_SIDE_MIN_PX, workspace.clientWidth - otherWidth - 2 * gapPx() - RESIZE_CENTER_MIN_PX);
+    };
+    const clampWidth = (side, value) => Math.round(Math.min(Math.max(value, RESIZE_SIDE_MIN_PX), maxWidth(side)));
+    let notifyFrame = 0;
+    const notifyResize = () => {
+      cancelAnimationFrame(notifyFrame);
+      notifyFrame = requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+    };
+    // Each bar centred on its gap.
+    function place() {
+      if (!active()) return;
+      const box = workspace.getBoundingClientRect();
+      const left = inputs.getBoundingClientRect();
+      const mid = center.getBoundingClientRect();
+      const right = review.getBoundingClientRect();
+      bars.input.style.left = ((left.right + mid.left) / 2 - box.left) + "px";
+      bars.review.style.left = ((mid.right + right.left) / 2 - box.left) + "px";
+    }
+    function apply() {
+      for (const side of ["input", "review"]) {
+        if (widths[side]) workspace.style.setProperty(property[side], widths[side] + "px");
+        else workspace.style.removeProperty(property[side]);
+      }
+      resetButton.hidden = !(widths.input || widths.review);
+      place();
+    }
+    function reset(side) {
+      for (const key of side ? [side] : ["input", "review"]) widths[key] = null;
+      writeStore(widths);
+      apply();
+      notifyResize();
+    }
+    function setWidth(side, value) {
+      widths[side] = clampWidth(side, value);
+      apply();
+    }
+    for (const side of ["input", "review"]) {
+      const bar = bars[side];
+      // The input bar grows the left pane to the right; the review bar grows the right pane to the left.
+      const sign = side === "input" ? 1 : -1;
+      let drag = null;
+      let frame = 0;
+      bar.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0 || !active()) return;
+        event.preventDefault();
+        drag = { x: event.clientX, width: panes[side].getBoundingClientRect().width, next: null };
+        bar.setPointerCapture?.(event.pointerId);
+        bar.classList.add("dragging");
+        document.body.classList.add("wide-resizing");
+      });
+      bar.addEventListener("pointermove", (event) => {
+        if (!drag) return;
+        drag.next = drag.width + sign * (event.clientX - drag.x);
+        if (frame) return;
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          if (drag?.next != null) setWidth(side, drag.next);
+        });
+      });
+      const end = (event) => {
+        if (!drag) return;
+        if (drag.next != null) setWidth(side, drag.next);
+        drag = null;
+        bar.releasePointerCapture?.(event.pointerId);
+        bar.classList.remove("dragging");
+        document.body.classList.remove("wide-resizing");
+        writeStore(widths);
+        notifyResize();
+      };
+      bar.addEventListener("pointerup", end);
+      bar.addEventListener("pointercancel", end);
+      bar.addEventListener("dblclick", () => reset(side));
+      bar.addEventListener("keydown", (event) => {
+        const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+        if (!step) return;
+        event.preventDefault();
+        setWidth(side, panes[side].getBoundingClientRect().width + sign * step * RESIZE_KEY_STEP_PX);
+        writeStore(widths);
+        notifyResize();
+      });
+    }
+    resetButton.addEventListener("click", () => reset());
+    // A narrower window: the centre keeps its minimum (only what is applied changes, not the kept widths).
+    const fit = () => {
+      if (!active()) return;
+      for (const side of ["input", "review"]) {
+        if (widths[side]) workspace.style.setProperty(property[side], clampWidth(side, widths[side]) + "px");
+      }
+      place();
+    };
+    window.addEventListener("resize", fit);
+    for (const node of [workspace, inputs, center, review]) new ResizeObserver(place).observe(node);
+    apply();
+  }
 
   // Slot replacement (Flight Size) only, not calculator/SVG value changes.
   new MutationObserver(syncFollowers).observe(followers, { childList: true });

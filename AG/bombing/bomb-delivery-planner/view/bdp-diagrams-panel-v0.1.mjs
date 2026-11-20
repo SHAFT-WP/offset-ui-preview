@@ -91,9 +91,13 @@ export const BDP_DIAGRAMS_PANEL_V0_1 = Object.freeze({
   // 0.16.0 (owner 2026-11-06, Offset / POP-UP): flightView.keyPoints — the host's own key points ({ key, label, t } in
   // seconds from the Roll-in Point, e.g. the Offset Point, the Pop Point and a "start" that replaces Roll-in −3 s) join
   // the play bar marks and buttons; 3D 0.1.26 draws the approach by leg with Offset / Pop marks.
-  version: "0.16.0",
+  // 0.16.1 (owner 2026-11-20): the 3D Bank line starts at 0.25× (new choice; 1× / 0.5× / 0.2× / Off stay).
+  version: "0.16.1",
   views: Object.freeze([BDP_TOP_VIEW_V0_2.id, BDP_PROFILE_VIEW_V0_2.id, BDP_3D_VIEW_V0_1.id, BDP_HUD_VIEW_V0_1.id]),
 });
+
+// The 3D Bank line length a view starts with (owner 2026-11-20).
+const BANK_LINE_DEFAULT = 0.25;
 
 function escapeText(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
@@ -163,7 +167,7 @@ function flightViewsMarkup({ aircraftNumber, threeDTitle, hudTitle, hudTimeMarku
     + `<div class="diagram-actions bdp-flight-menus"><div class="diagram-action-row" data-bdp-3d-controls>`
     + `<label data-bdp-fleet-label hidden>Show aircraft <select data-bdp-3d="fleet" aria-label="3D aircraft selection" style="${CONTROL_STYLE};width:auto"><option value="all">All</option></select></label><span data-bdp-fleet-status role="status"></span>`
     + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Aircraft <select data-bdp-3d="aircraft-scale" style="${CONTROL_STYLE};width:auto" aria-label="Aircraft size (times actual)" title="Aircraft size relative to the real F-16. Auto sizes it to the flight path."><option value="auto" selected>Auto</option>${aircraftScales}</select></label>`
-    + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Bank line <select data-bdp-3d="bank-line" style="${CONTROL_STYLE};width:auto" aria-label="Bank line length (the wing line every 1 s)" title="The wing line drawn every 1 s along the path; its tilt is the bank."><option value="1" selected>1×</option><option value="0.5">0.5×</option><option value="0.2">0.2×</option><option value="0">Off</option></select></label>`
+    + `<label class="diagram-control-label" style="display:inline-flex;align-items:center;gap:6px">Bank line <select data-bdp-3d="bank-line" style="${CONTROL_STYLE};width:auto" aria-label="Bank line length (the wing line every 1 s)" title="The wing line drawn every 1 s along the path; its tilt is the bank."><option value="1">1×</option><option value="0.5">0.5×</option><option value="0.25" selected>0.25×</option><option value="0.2">0.2×</option><option value="0">Off</option></select></label>`
     + `<span class="diagram-control-label">Drag: turn · Hold 0.5 s, then drag: pan · Pinch / wheel: zoom · Double-click: centre on it</span></div></div>`
     + `<div class="bdp-diagram-canvas bdp-flight-canvas"><svg class="bdp-3d-svg" viewBox="0 0 ${w3} ${h3}" role="img" aria-label="${t3}" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none"></svg></div>`
     + `<div class="bdp-flight-time" data-bdp-time="3d">${threeDTimeMarkup}</div></div>`
@@ -432,7 +436,7 @@ const flightStates = new WeakMap();
 function flightState(container) {
   let state = flightStates.get(container);
   if (!state) {
-    state = { hudContext: null, fleetChoice: "all", observer: "you", pair: null, lockTarget: null, lockOwner: null, path: null, timeSec: null, orbit: null, zoom3d: 1, aircraftScale: null, bankLineScale: 1, pan3d: { x: 0, y: 0 }, panHint: false, resetGesture: null, hudZoom: 1, progressDeg: 0, holding: false, frame: 0, lastFrame: null };
+    state = { hudContext: null, fleetChoice: "all", observer: "you", pair: null, lockTarget: null, lockOwner: null, path: null, timeSec: null, orbit: null, zoom3d: 1, aircraftScale: null, bankLineScale: BANK_LINE_DEFAULT, pan3d: { x: 0, y: 0 }, panHint: false, resetGesture: null, hudZoom: 1, progressDeg: 0, holding: false, frame: 0, lastFrame: null };
     flightStates.set(container, state);
   }
   return state;
@@ -708,7 +712,7 @@ function installFlightControls(container, scope) {
   });
   container.querySelector('[data-bdp-3d="bank-line"]')?.addEventListener("change", (event) => {
     const value = Number(event.currentTarget.value);
-    state.bankLineScale = Number.isFinite(value) && value >= 0 ? value : 1;
+    state.bankLineScale = Number.isFinite(value) && value >= 0 ? value : BANK_LINE_DEFAULT;
     draw3d(container, scope);
   });
   const zoom3dBy = (factor) => {

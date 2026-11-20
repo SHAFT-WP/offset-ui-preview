@@ -64,7 +64,7 @@ import {
 } from "./popup-page-v0.1.mjs?v=0.1.5";
 import { POPUP_BDP_APPROACH_V0_1, popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
-import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.0";
+import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.1";
 
 import { buildOffsetHudAircraft, offsetHudGridStep } from "./AG/bombing/offset-bombing/view/offset-hud-scene-v0.1.mjs?v=0.1.4";
 

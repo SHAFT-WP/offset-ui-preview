@@ -2,8 +2,8 @@
 // controller's live nodes. Left = Edit aircraft + input tabs, centre = BOX Top View / BDP / Spacer Turn, right =
 // Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft (owner 2026-10-23 / 25: the
 // Offset FE layout).
-import { boxIndexUi } from "./controller-v0.1.mjs?v=68c1046a5a20";
-import { mountWideWorkspace } from "../shared/wide-workspace-v0.1.mjs?v=0.1.2";
+import { boxIndexUi } from "./controller-v0.1.mjs?v=e0afcbf89dc2";
+import { mountWideWorkspace } from "../shared/wide-workspace-v0.1.mjs?v=0.1.3";
 
 const app = document.getElementById("box-calculator");
 

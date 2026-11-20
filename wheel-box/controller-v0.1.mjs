@@ -28,7 +28,7 @@ import { createTimePlayer, timeDialMarkup } from "../common/ui/time-dial-v0.1.mj
 import { formatDeg, formatFt, formatG, formatKt, formatNm, formatSec } from "../common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { WHEEL_BOX_TOP_VIEW_V0_1, renderWheelBoxTopView, wheelRadiusText, wheelTopViewTitle } from "../AG/bombing/wheel-box/view/wheel-box-top-view-v0.1.mjs?v=0.2.1";
 import { renderWheelBoxZDiagramV0_1, wheelAbeamText, wheelZDiagramTitle } from "../AG/bombing/wheel-box/view/wheel-box-z-diagram-v0.1.mjs?v=0.1.2";
-import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.0";
+import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "../AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.1";
 import { createPatternRunIn } from "../shared/pattern-run-in-v0.1.mjs?v=0.1.0";
 import { mountBmsDtcRunInPanel } from "../shared/bms-dtc-run-in-panel-v0.1.mjs?v=0.1.0";
 
