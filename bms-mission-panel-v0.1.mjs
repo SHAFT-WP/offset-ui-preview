@@ -11,6 +11,8 @@
 // [NAV OFFSETS] VRP or VIP page (Modesel's) in #1's VRP / VIP fields (TBRG true → magnetic, RNG ft → NM), the same edits
 // a user types. "ded 탭에서 ded save 버튼 만들 것": DED Save in each DED #n head is Write DTE for ship n (Open DTC first
 // when none). Each shows its result under the button's head; the Save/Load panel's status says the same.
+// 0.1.3 (owner's VIP-mode callsign ini, 2026-11-22): in VIP mode the DTE lines are keyed by the IP STPT (VIP = IP; BMS
+// writes `VIP=6,…`, `VIPPUP=6,…`, `OA1-6=…` from the VIP's steerpoint), and Reload checks the VIP page against it.
 import {
   BMS_DTC_V0_1,
   parseBmsDtc,
@@ -20,11 +22,11 @@ import {
   bmsIniTextFromBytes,
   bmsIniBytesFromText,
   readBmsNavReference,
-} from "./AG/bombing/bms-mission/bms-dtc-v0.1.mjs?v=0.1.2";
+} from "./AG/bombing/bms-mission/bms-dtc-v0.1.mjs?v=0.1.3";
 import { createHandleStore, fileTimeText, fileSizeText } from "./shared/flight-file-browser-v0.1.mjs?v=0.1.2";
 import { currentMagVarDeg, magVarText, trueFromMagneticDeg } from "./shared/mag-var-v0.1.mjs?v=0.1.0";
 
-export const BMS_MISSION_PANEL_V0_1 = Object.freeze({ id: "offset-bms-mission-panel-v0.1", version: "0.1.2", be: `${BMS_DTC_V0_1.id} ${BMS_DTC_V0_1.version}` });
+export const BMS_MISSION_PANEL_V0_1 = Object.freeze({ id: "offset-bms-mission-panel-v0.1", version: "0.1.3", be: `${BMS_DTC_V0_1.id} ${BMS_DTC_V0_1.version}` });
 
 const HANDLE_KEY = "bms-dtc";
 const BACKUP_KEY = "bms-dtc.backup";
@@ -59,8 +61,8 @@ async function filePermission(handle, mode, request) {
 }
 
 const TOOL_TEXT = Object.freeze({
-  offset: { save: "Offset save (.html)", dte: "DTE 적용은 고른 기체의 DED(VRP 또는 VIP, OA1)를 DTC의 <code>[NAV OFFSETS]</code>에 씁니다. 그 전에 이전 VIP · VIPPUP · VRP · VRPPUP · OA1 · OA2 줄을 모두 지웁니다(OA2는 Offset에서 N/A라 쓰지 않음)." },
-  popup: { save: "POP-UP save (.html)", dte: "DTE 적용은 고른 기체의 DED 네 페이지(VRP 또는 VIP, POP-UP → VRPPUP 또는 VIPPUP, OA1, OA2)를 DTC의 <code>[NAV OFFSETS]</code>에 씁니다. 그 전에 이전 VIP · VIPPUP · VRP · VRPPUP · OA1 · OA2 줄을 모두 지웁니다." },
+  offset: { save: "Offset save (.html)", dte: "DTE 적용은 고른 기체의 DED(VRP 또는 VIP, OA1)를 DTC의 <code>[NAV OFFSETS]</code>에 씁니다. 그 전에 이전 VIP · VIPPUP · VRP · VRPPUP · OA1 · OA2 줄을 모두 지웁니다(OA2는 Offset에서 N/A라 쓰지 않음). VIP 모드는 VIP(=IP) STPT 번호로, VIP에서 잰 값으로 씁니다(BMS 방식)." },
+  popup: { save: "POP-UP save (.html)", dte: "DTE 적용은 고른 기체의 DED 네 페이지(VRP 또는 VIP, POP-UP → VRPPUP 또는 VIPPUP, OA1, OA2)를 DTC의 <code>[NAV OFFSETS]</code>에 씁니다. 그 전에 이전 VIP · VIPPUP · VRP · VRPPUP · OA1 · OA2 줄을 모두 지웁니다. VIP 모드는 VIP(=IP) STPT 번호로, VIP에서 잰 값으로 씁니다(BMS 방식)." },
 });
 
 export function bmsMissionPanelMarkup({ tool = "offset" } = {}) {
@@ -389,8 +391,12 @@ export function mountBmsMissionPanel({ root, offsetUi, tool = "offset", doc = gl
       const current = dteValues(number);
       if (current.error) throw new Error(current.error);
       const before = await freshText();
+      // VIP mode (0.1.3, owner's ini 2026-11-22): the lines are keyed by the VIP's steerpoint (VIP = IP: the IP STPT).
+      const vipMode = current.mode === "VIP";
+      if (vipMode && !mission.ip) throw new Error("VIP 모드는 IP STPT가 있어야 합니다(VIP = IP STPT)");
       const targetStpt = mission.target.stpt;
-      const { text, removed, written } = patchBmsNavOffsets(before, { ...current, targetStpt });
+      const keyStpt = vipMode ? mission.ip.stpt : targetStpt;
+      const { text, removed, written } = patchBmsNavOffsets(before, { ...current, targetStpt: keyStpt });
       await keepBackup(before);
       const message = await writeText(text, `DTE #${number} · ${written.join(" · ")} (지운 줄 ${removed.length})`);
       const unapplied = !applied || applied.targetStpt !== targetStpt ? " · 주의: 이 미션이 #1에 적용되지 않았습니다(Run-In이 미션 IP와 다를 수 있음)" : "";
@@ -466,7 +472,7 @@ export function mountBmsMissionPanel({ root, offsetUi, tool = "offset", doc = gl
   async function reloadReference(button) {
     if (busy) return;
     if (!(await currentDtc())) { shortcutStatus(button, `Reload 안 됨 · ${panelStatus().text}`, "invalid"); return; }
-    const read = readBmsNavReference(parsed, { targetStpt: mission?.target?.stpt ?? null });
+    const read = readBmsNavReference(parsed, { targetStpt: mission?.target?.stpt ?? null, vipStpt: mission?.ip?.stpt ?? null });
     if (read.errors.length || !read.mode) {
       shortcutStatus(button, `Reload 안 됨 · ${dtc.name} · ${[...read.errors, ...read.warnings].join(" · ")}`, "invalid");
       return;

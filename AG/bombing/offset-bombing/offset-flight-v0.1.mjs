@@ -86,7 +86,9 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // (values.iaaDeg, offset-iaa-edit-v0.1) becomes the Release Altitude that flies it (Tracking Time held, Roll-in
   // Altitude follows; Roll-in LOCK: Roll-in held, Tracking Time follows). Every nextInput carries values.iaaDeg = the
   // IAA flown. Every entrypoint (Full, Unfitted, Reference, the page session) does this.
-  version: "0.1.20",
+  // 0.1.21 (owner's VIP-mode callsign ini, 2026-11-22): in VIP mode OA1 is read from the VIP again (the same point as
+  // in VRP mode, measured from the VIP), as BMS stores OA1-<VIP STPT>; 0.1.19's Target basis is undone.
+  version: "0.1.21",
   status: "work",
   schemaVersion: 2,
   components: Object.freeze({
@@ -787,12 +789,12 @@ function leadDiagnostics(lead, result) {
   return out;
 }
 
-// DED pages: the reference page (VRP or VIP) and OA1, from the aircraft's own Full result. OA1 is read from the Target in
-// both modes (owner 2026-11-19: "OA1,OA2는 VRP와 동일하다 TARGET 위치에서 계산한다"; it was the VIP in VIP mode).
+// DED pages: the reference page (VRP or VIP) and OA1, from the aircraft's own Full result. OA1 is the same point in both
+// modes (the Roll-in Start, owner 2026-11-19); VIP mode reads it from the VIP, as BMS stores it (owner's ini, 2026-11-22).
 function dedFrom({ result, isVip, flightVip, referenceRangeNm, referenceBearingDeg, initialAltitudeMslFt }) {
   const points = result.geometry.points;
   const rollInAltitudeMslFt = result.profile.public.resolvedInitialAltitudeMslFt;
-  const oa1Base = points.target;
+  const oa1Base = isVip ? flightVip : points.target;
   const oa1RangeNm = distanceNm(oa1Base, points.rollStart);
   return {
     page: isVip ? "VIP" : "VRP",

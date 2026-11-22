@@ -16,7 +16,10 @@
 // 0.1.2 (owner 2026-11-22, "vip vrp설정 탭에 리로드 버튼 만들 것 (ded data reload)"): readBmsNavReference(parsed,
 //   { targetStpt }) reads back the VRP and VIP pages (STPT, TBRG true, RNG ft / NM, ELEV ft) and Modesel of
 //   [NAV OFFSETS], so the page can put them in its VRP / VIP fields.
-export const BMS_DTC_V0_1 = Object.freeze({ id: "bms-dtc-v0.1", version: "0.1.2", status: "work" });
+// 0.1.3 (owner's VIP-mode callsign ini, 2026-11-22): in VIP mode every line (VIP, VIPPUP, OA1-, OA2-) is keyed by the
+//   VIP's steerpoint and measured from it (`VIP=6,…`, `OA1-6=…`); the FE passes that number as targetStpt.
+//   readBmsNavReference takes vipStpt, the number the VIP page is checked against.
+export const BMS_DTC_V0_1 = Object.freeze({ id: "bms-dtc-v0.1", version: "0.1.3", status: "work" });
 
 const FT_PER_NM = 6076.11549;
 
@@ -252,6 +255,7 @@ function pageValue(name, page) {
 // The lines a DTE write puts in [NAV OFFSETS] (owner 2026-11-11, plan §2.2-3/4): Modesel, the page of the mode with the
 // TGT steerpoint number, and OA1-<TGT>. Offset's OA2 is N/A and is not written (no 0 ft point).
 // POP-UP (0.1.1, plan S10): popUp adds VRPPUP / VIPPUP after the page line, oa2 adds OA2-<TGT> after OA1.
+// VIP mode (0.1.3): targetStpt is the VIP's steerpoint (the IP STPT); BMS keys and measures every VIP-mode line from it.
 // reference / popUp / oa1 / oa2: { tbrgDeg (true), rangeFt, elevationFt } — the DED values.
 export function bmsNavOffsetLines({ mode, targetStpt, reference, popUp = null, oa1, oa2 = null }) {
   const page = String(mode ?? "").toUpperCase();
@@ -306,7 +310,7 @@ function rewriteNavOffsets(text, write) {
 
 // The VRP / VIP pages of [NAV OFFSETS] (0.1.2): `VRP=<stpt>,<TBRG true>,<RNG ft>,<ELEV ft>`, the same for VIP.
 // mode = Modesel (VRP / VIP), else the only page present. A page of another STPT than targetStpt is a warning.
-export function readBmsNavReference(parsed, { targetStpt = null } = {}) {
+export function readBmsNavReference(parsed, { targetStpt = null, vipStpt = null } = {}) {
   const entries = parsed?.navOffsets ?? [];
   const warnings = [];
   const errors = [];
@@ -318,8 +322,10 @@ export function readBmsNavReference(parsed, { targetStpt = null } = {}) {
       errors.push(`${name} line is not readable: ${entry.value}`);
       return null;
     }
-    if (Number.isFinite(Number(targetStpt)) && Number(targetStpt) > 0 && stpt !== Number(targetStpt)) {
-      warnings.push(`${name} is set on STPT ${stpt}, not the TGT STPT ${targetStpt}`);
+    // VRP is keyed by the TGT STPT, VIP by the VIP's (IP) STPT (0.1.3).
+    const expected = name === "VIP" && vipStpt !== null ? vipStpt : targetStpt;
+    if (Number.isFinite(Number(expected)) && Number(expected) > 0 && stpt !== Number(expected)) {
+      warnings.push(`${name} is set on STPT ${stpt}, not the ${name === "VIP" && vipStpt !== null ? "IP" : "TGT"} STPT ${expected}`);
     }
     return { stpt, tbrgDeg: tbrgDeg >= 0 && tbrgDeg < 360 ? tbrgDeg : ((tbrgDeg % 360) + 360) % 360, rangeFt, rangeNm: rangeFt / FT_PER_NM_DTC, elevationFt: Number.isFinite(elevationFt) ? elevationFt : null };
   };
