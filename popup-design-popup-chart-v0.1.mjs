@@ -1,7 +1,7 @@
 // POP-UP Design tab, step 2 pictures (owner 2026-11-20, DESIGN-STEPS.md §2, S2). Drawing only: the numbers are the
 // BE's (a Popup Angle sweep of #1, popupAngleRange, popupProfileLine in AG/bombing/popup/popup-design-steps-v0.1).
 //   Angle charts: X = Popup Angle; one small chart each for Exposure, Apex speed, Min Pop-up Distance, Approach-Pop
-//     Distance and Approach-Pop Time. Blue band = Apex 300–350 KCAS area, dashed line = AUTO angle, green outline =
+//     Distance and Approach-Pop Time. Blue band = Apex 300–350 KCAS area, dashed line = AUTO angle, green area =
 //     the Popup Angle range, red = the angle flown now.
 //   Profile: the flown pop-up (Pop → Roll-in Start → Release) as a red line, the bomb's fall dashed; before the Pop,
 //     the level Approach-Pop leg (grey). The red part from the Pop is the minimum pop-up at that Popup Angle (Min
@@ -10,7 +10,9 @@
 // scale (finite differences of the drawn points, hidden by the caller's button: options.derivative = false); the
 // values are read with the mouse (installChartHover: a crosshair and a box with x, the value and the derivative);
 // the svg nodes are kept between renders (fixed canvas) so a zoom set by the caller survives a redraw.
-export const POPUP_DESIGN_POPUP_CHART_V0_1 = Object.freeze({ id: "popup-design-popup-chart-v0.1", version: "0.1.1" });
+// 0.1.2 (owner 2026-11-22): the Popup Angle range is a filled green area (Approach-Pop 2 s .. Apex 300 KCAS or the arc
+// limit), with the 0–2 s lead-in drawn light (marks.possibleFromDeg); the Apex 300–350 band stays as a reference.
+export const POPUP_DESIGN_POPUP_CHART_V0_1 = Object.freeze({ id: "popup-design-popup-chart-v0.1", version: "0.1.2" });
 
 const NS = "http://www.w3.org/2000/svg";
 const svgEl = (tag, attrs = {}, text = null) => {
@@ -116,7 +118,14 @@ function angleChart(svg, chart, points, marks, showDerivative) {
   // Bands: Apex 300–350 area (blue), the range (green outline).
   const a = marks.apexArea;
   if (a && finite(a.fromDeg) && finite(a.toDeg)) svg.append(svgEl("rect", { x: X(a.fromDeg), y: T, width: Math.max(1, X(a.toDeg) - X(a.fromDeg)), height: ph, fill: "#d9e7f8", "data-band": "apex" }));
-  if (finite(marks.fromDeg) && finite(marks.toDeg)) svg.append(svgEl("rect", { x: X(marks.fromDeg), y: T + 1, width: Math.max(1, X(marks.toDeg) - X(marks.fromDeg)), height: ph - 2, fill: "none", stroke: "#1baf7a", "stroke-width": 2, "data-band": "range" }));
+  // 0.1.2: the range is a green area (Approach-Pop 2 s .. Apex 300 KCAS / arc limit); its 0–2 s lead-in light.
+  if (finite(marks.possibleFromDeg) && finite(marks.fromDeg) && marks.fromDeg > marks.possibleFromDeg) {
+    svg.append(svgEl("rect", { x: X(Math.max(x0, marks.possibleFromDeg)), y: T + 1, width: Math.max(1, X(marks.fromDeg) - X(Math.max(x0, marks.possibleFromDeg))), height: ph - 2, fill: "#1baf7a", opacity: 0.08, stroke: "#1baf7a", "stroke-dasharray": "3 3", "data-band": "range-warn" }));
+  }
+  if (finite(marks.fromDeg) && finite(marks.toDeg)) {
+    svg.append(svgEl("rect", { x: X(marks.fromDeg), y: T + 1, width: Math.max(1, X(marks.toDeg) - X(marks.fromDeg)), height: ph - 2, fill: "#1baf7a", opacity: 0.16, "data-band": "range-fill" }));
+    svg.append(svgEl("rect", { x: X(marks.fromDeg), y: T + 1, width: Math.max(1, X(marks.toDeg) - X(marks.fromDeg)), height: ph - 2, fill: "none", stroke: "#1baf7a", "stroke-width": 2, "data-band": "range" }));
+  }
   // Grid.
   const ys = niceStep(y1 - y0, 4);
   for (let v = Math.ceil(y0 / ys) * ys; v <= y1 + 1e-9; v += ys) {

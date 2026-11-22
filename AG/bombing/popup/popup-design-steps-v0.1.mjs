@@ -14,7 +14,8 @@
 // 0.1.1 (owner 2026-11-20, DESIGN-STEPS.md S2): popupAngleRange (the step-2 Popup Angle range = AUTO angle and the
 // Apex 300–350 KCAS area together, min..max, with the Min Pop-up Distance at its two ends) and popupProfileLine (the
 // flown pop-up as one side-view line: Pop → Roll-in Start → Release, ground distance along the path).
-export const POPUP_DESIGN_STEPS_V0_1 = Object.freeze({ id: "popup-design-steps-v0.1", version: "0.1.1" });
+// 0.1.2 (owner 2026-11-22): popupAngleRange = Approach-Pop 2 s angle .. Apex 300 KCAS (or the arc limit) angle.
+export const POPUP_DESIGN_STEPS_V0_1 = Object.freeze({ id: "popup-design-steps-v0.1", version: "0.1.2" });
 
 export const POPUP_DESIGN_LIMITS = Object.freeze({
   minOffsetPopupSec: 2,
@@ -150,20 +151,24 @@ export function designSteps({ current, popup, offset, popup2 = null, limits = PO
   };
 }
 
-// Step 2 (DESIGN-STEPS.md §2, owner 2026-11-20): the Popup Angle range = the AUTO angle and the Apex 300–350 KCAS area
-// together (min .. max), never past the last angle that flies (the pull-up arc). Min Pop-up Distance (Pop → Roll-in
-// Start, horizontal) and the Approach-Pop Distance / Time are read at both ends. `autoDeg`: the AUTO angle (the angle
-// flown when the driver is AUTO, else the rule's).
+// Step 2 (DESIGN-STEPS.md §2; owner 2026-11-22, "apex에서의 속도는 min speed 300 … approach pop distance로 min angle",
+// option "Approach-Pop 2 s"): the Popup Angle range (the green area) runs from the angle where the Approach-Pop reaches
+// 2 s (it grows with the angle) to the angle where the Apex speed falls to 300 KCAS, or the last angle that flies (the
+// pull-up arc) when that comes first. possibleFromDeg: where the Approach-Pop reaches 0 (the 0–2 s part is drawn light).
+// The Apex 300–350 KCAS area and the AUTO angle are kept for reference only. Min Pop-up Distance (Pop → Roll-in Start,
+// horizontal) and the Approach-Pop Distance / Time are read at both ends.
 export function popupAngleRange(points, autoDeg, limits = POPUP_DESIGN_LIMITS) {
   const w = popupAngleWindow(points, limits);
   const apexArea = w.minExposure && finite(w.minExposure.fromDeg) && finite(w.minExposure.toDeg) && w.minExposure.fromDeg <= w.minExposure.toDeg
     ? { fromDeg: w.minExposure.fromDeg, toDeg: w.minExposure.toDeg } : null;
-  const ends = [...(apexArea ? [apexArea.fromDeg, apexArea.toDeg] : []), ...(finite(autoDeg) ? [autoDeg] : [])];
-  if (!ends.length) return { apexArea, autoDeg: finite(autoDeg) ? autoDeg : null, fromDeg: null, toDeg: null, ends: null, arcLimitDeg: w.arcLimitDeg };
-  let fromDeg = Math.min(...ends);
-  let toDeg = Math.max(...ends);
-  if (finite(w.arcLimitDeg)) toDeg = Math.min(toDeg, w.arcLimitDeg);
-  fromDeg = Math.min(fromDeg, toDeg);
+  const flown = [...points].filter((p) => yOf(p, "apexKcas") !== null).sort((a, b) => a.x - b.x);
+  const zero = crossing(flown, "offsetPopupTimeSec", 0, "up");
+  const base = { apexArea, autoDeg: finite(autoDeg) ? autoDeg : null, arcLimitDeg: w.arcLimitDeg, highBy: w.highBy, possibleFromDeg: zero ? zero.x : null };
+  // Empty: no angle reaches 2 s, none keeps 300 KCAS, or the 2 s angle is past the upper end.
+  const why = w.lowDeg === null ? "short" : w.highDeg === null ? "slow" : w.lowDeg > w.highDeg ? "short" : null;
+  if (why) return { ...base, fromDeg: null, toDeg: null, ends: null, empty: why };
+  const fromDeg = w.lowDeg;
+  const toDeg = w.highDeg;
   const at = (x) => ({
     angleDeg: x,
     minPopupNm: valueAt(points, "popToRollInNm", x),
@@ -172,7 +177,7 @@ export function popupAngleRange(points, autoDeg, limits = POPUP_DESIGN_LIMITS) {
     apexKcas: valueAt(points, "apexKcas", x),
     exposureSec: valueAt(points, "exposureTimeSec", x),
   });
-  return { apexArea, autoDeg: finite(autoDeg) ? autoDeg : null, fromDeg, toDeg, ends: { from: at(fromDeg), to: at(toDeg) }, arcLimitDeg: w.arcLimitDeg };
+  return { ...base, fromDeg, toDeg, ends: { from: at(fromDeg), to: at(toDeg) }, empty: null };
 }
 
 // The flown pop-up as one side view (#1's Flight entry): x = ground distance along the path from the Pop Point (NM),

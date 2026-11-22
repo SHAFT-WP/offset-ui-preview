@@ -12,12 +12,13 @@
 // 0.1.1 (owner 2026-11-20 follow-up): both sides, the Roll-in Distance line, green on the arrow side, the common
 // symbols (offset-view-style colours, the Offset Top View station markers, the POP-UP Pop marker), turn arrows,
 // point tooltips. 0.1.2 (owner 2026-11-22): `upHeadingDeg` turns the view about the Target so that heading points up
-// (the page's IP Bottom = the Run-In heading, default; 0 = north up); the north mark turns with it. Zoom is the caller's (common svg-viewport); the canvas is fixed (W × H) so a zoom survives a redraw.
+// (the page's IP Bottom = the Run-In heading, default; 0 = north up); the north mark turns with it. 0.1.3 (owner 2026-11-22): only the Roll-in side flown is drawn; the green arc at each
+// point's own MAP (it shrinks with the Angle Off). Zoom is the caller's (common svg-viewport); the canvas is fixed (W × H) so a zoom survives a redraw.
 import { OFFSET_VIEW_COLORS as C } from "./AG/bombing/offset-bombing/view/offset-view-style-v0.1.mjs";
 import { createOpenArrowMarker } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { appendNorthMark } from "./common/diagram/svg-north-mark-v0.1.mjs";
 
-export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.2", canvas: Object.freeze({ width: 640, height: 600 }) });
+export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.3", canvas: Object.freeze({ width: 640, height: 600 }) });
 
 const NS = "http://www.w3.org/2000/svg";
 const svgEl = (tag, attrs = {}, text = null) => {
@@ -44,7 +45,11 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   const turn = (q) => (pt(q) ? { ...q, x: q.x * cosU - q.y * sinU, y: q.x * sinU + q.y * cosU } : q);
   const turnHdg = (h) => (finite(h) ? h - up : h);
   const turnPoints = (obj) => (obj ? Object.fromEntries(Object.entries(obj).map(([k, q]) => [k, turn(q)])) : obj);
-  const points = worldPoints.map((p) => ({ ...p, rollIn: turn(p.rollIn), attackHeadingDeg: turnHdg(p.attackHeadingDeg) }));
+  // Only the Roll-in side flown is drawn (owner 2026-11-22); both sides when there is no answer yet. The other side's
+  // ranges stay in the readouts.
+  const shownSide = worldCurrent?.geometry?.direction?.rollDirection ?? null;
+  const sides = shownSide ? [shownSide] : ["RIGHT", "LEFT"];
+  const points = worldPoints.filter((p) => !shownSide || p.rollDirection === shownSide).map((p) => ({ ...p, rollIn: turn(p.rollIn), attackHeadingDeg: turnHdg(p.attackHeadingDeg) }));
   const wg = worldCurrent?.geometry;
   const current = worldCurrent ? {
     ...worldCurrent,
@@ -71,7 +76,7 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   for (const p of g?.offsetTurnPath ?? []) if (pt(p)) xy.push(p);
   const minX = Math.min(...xy.map((p) => p.x)), maxX = Math.max(...xy.map((p) => p.x));
   const minY = Math.min(...xy.map((p) => p.y)), maxY = Math.max(...xy.map((p) => p.y));
-  const top = 34, bottom = 46;
+  const top = 34, bottom = 62;
   const span = Math.max((maxX - minX) / W, (maxY - minY) / (H - top - bottom), 1e-3) * 1.12;
   const s = 1 / span;
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
@@ -80,7 +85,7 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   const P = (p) => ({ x: X(p.x), y: Y(p.y) });
   const d = (pts) => pts.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join("");
 
-  svg.append(svgEl("text", { x: 10, y: 20, "font-size": 13, "font-weight": 700, fill: "#2e2d2a" }, "Top View · 가능 영역 (#1, 양쪽 Roll-in)"));
+  svg.append(svgEl("text", { x: 10, y: 20, "font-size": 13, "font-weight": 700, fill: "#2e2d2a" }, `Top View · 가능 영역 (#1, ${shownSide === "RIGHT" ? "오른쪽(R) Roll-in" : shownSide === "LEFT" ? "왼쪽(L) Roll-in" : "양쪽 Roll-in"})`));
   appendNorthMark(svg, { cx: W - 26, cy: 34, size: 14, rotationDeg: -up });
 
   // MAP circle.
@@ -90,16 +95,19 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   }
   // Roll-in Distance: per Roll-in side, the line through every Roll-in Point the BE solved (Angle Off order).
   if (withRollIn.length >= 2) {
-    for (const side of ["RIGHT", "LEFT"]) {
+    for (const side of sides) {
       const line = withRollIn.filter((p) => p.rollDirection === side).sort((a, b) => a.angleOffDeg - b.angleOffDeg);
       if (line.length >= 2) svg.append(svgEl("path", { d: d(line.map((p) => p.rollIn)), fill: "none", stroke: REGION_COLORS.circle, "stroke-width": 1.2, "stroke-dasharray": "6 4", "data-top": "roll-in-distance", "data-side": side }));
     }
     const dist = withRollIn.map((p) => Math.hypot(p.rollIn.x, p.rollIn.y));
-    svg.append(svgEl("text", { x: 10, y: H - 30, "font-size": 10.5, fill: "#5f5e5a" }, `Roll-in Distance (점선) ${Math.min(...dist).toFixed(2)}–${Math.max(...dist).toFixed(2)} NM · Angle Off에 따라 바뀜`));
+    svg.append(svgEl("text", { x: 10, y: H - 44, "font-size": 10.5, fill: "#5f5e5a" }, `Roll-in Distance (점선) ${Math.min(...dist).toFixed(2)}–${Math.max(...dist).toFixed(2)} NM · Angle Off에 따라 바뀜`));
   }
   // Region arcs, per side: consecutive Angle Offs joined, solid / light by the weaker of the two.
-  const onMapAhead = (p) => ({ x: mapNm * Math.sin(p.attackHeadingDeg * DEG), y: mapNm * Math.cos(p.attackHeadingDeg * DEG) });
-  for (const side of ["RIGHT", "LEFT"]) {
+  // Each point at its own MAP (the MAP shrinks as the Angle Off grows: the Roll-in Altitude drops with the longer
+  // Roll-in turn when the Tracking Time is held), so the green arc is not on the current MAP circle.
+  const mapOf = (p) => (finite(p.mapNm) ? p.mapNm : mapNm);
+  const onMapAhead = (p) => ({ x: mapOf(p) * Math.sin(p.attackHeadingDeg * DEG), y: mapOf(p) * Math.cos(p.attackHeadingDeg * DEG) });
+  for (const side of sides) {
     const all = points.filter((p) => p.rollDirection === side).sort((a, b) => a.angleOffDeg - b.angleOffDeg);
     for (let i = 1; i < all.length; i += 1) {
       const a = all[i - 1], b = all[i];
@@ -115,7 +123,7 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
     const drawn = all.filter((p) => p.level !== "bad" && pt(p.rollIn));
     for (const p of drawn) {
       const dot = svgEl("circle", { cx: X(p.rollIn.x), cy: Y(p.rollIn.y), r: 3, fill: p.level === "ok" ? REGION_COLORS.yellow : "#fff", stroke: REGION_COLORS.yellow, "stroke-width": 1.5, "data-region-point": `${SIDE_TEXT[side]}${p.angleOffDeg}` });
-      dot.append(svgEl("title", {}, `${side === "RIGHT" ? "오른쪽" : "왼쪽"} Roll-in · Angle Off ${Math.round(p.angleOffDeg)}° · Attack Heading ${hdg(p.attackHeadingDeg + up)} · Offset Angle ${p.offsetAngleDeg.toFixed(1)}° · Approach ${p.approachRangeNm.toFixed(2)} NM · Approach-Pop ${p.holdDownSec.toFixed(1)} s`));
+      dot.append(svgEl("title", {}, `${side === "RIGHT" ? "오른쪽" : "왼쪽"} Roll-in · Angle Off ${Math.round(p.angleOffDeg)}° · Attack Heading ${hdg(p.attackHeadingDeg + up)} · Offset Angle ${p.offsetAngleDeg.toFixed(1)}° · Roll-in Distance ${Math.hypot(p.rollIn.x, p.rollIn.y).toFixed(2)} NM · MAP ${finite(p.mapNm) ? p.mapNm.toFixed(2) : "-"} NM · Approach ${p.approachRangeNm.toFixed(2)} NM · Approach-Pop ${p.holdDownSec.toFixed(1)} s`));
       svg.append(dot);
       if (Math.round(p.angleOffDeg) % 15 === 0) {
         const len = Math.hypot(p.rollIn.x, p.rollIn.y) || 1;
@@ -203,14 +211,23 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   svg.append(svgEl("line", { x1: X(0), y1: Y(0) - 10, x2: X(0), y2: Y(0) + 10, stroke: C.target, "stroke-width": 2 }));
   svg.append(svgEl("text", { x: X(0) + 10, y: Y(0) - 8, "font-size": 11, fill: "#2e2d2a" }, "Target"));
   // Legend.
-  const ly = H - 10;
-  const key = (x, color, opacity, text) => {
-    svg.append(svgEl("line", { x1: x, x2: x + 20, y1: ly - 4, y2: ly - 4, stroke: color, "stroke-width": 7, opacity, "stroke-linecap": "round" }));
-    svg.append(svgEl("text", { x: x + 25, y: ly, "font-size": 10.5, fill: "#2e2d2a" }, text));
+  // Legend, two rows (owner 2026-11-22: the light green is written too): solid = Approach-Pop ≥ 2 s, light = 0–2 s;
+  // a filled dot is a ≥ 2 s Roll-in Point, a hollow one 0–2 s.
+  const ly = H - 10, ly1 = H - 26;
+  const key = (x, y, color, opacity, text) => {
+    svg.append(svgEl("line", { x1: x, x2: x + 20, y1: y - 4, y2: y - 4, stroke: color, "stroke-width": 7, opacity, "stroke-linecap": "round" }));
+    svg.append(svgEl("text", { x: x + 25, y, "font-size": 10.5, fill: "#2e2d2a" }, text));
   };
-  key(10, REGION_COLORS.yellow, 0.9, "Roll-in Point (≥ 2 s)");
-  key(140, REGION_COLORS.yellow, 0.35, "0–2 s");
-  key(205, REGION_COLORS.green, 0.9, "Attack Heading (화살표 쪽)");
-  key(370, REGION_COLORS.red, 1, "선택한 Attack Heading");
-  svg.append(svgEl("text", { x: W - 8, y: ly, "text-anchor": "end", "font-size": 10.5, fill: "#5f5e5a" }, "R/L = Roll-in 방향"));
+  const dot = (x, y, filled, text) => {
+    svg.append(svgEl("circle", { cx: x + 10, cy: y - 4, r: 3.5, fill: filled ? REGION_COLORS.yellow : "#fff", stroke: REGION_COLORS.yellow, "stroke-width": 1.5 }));
+    svg.append(svgEl("text", { x: x + 25, y, "font-size": 10.5, fill: "#2e2d2a" }, text));
+  };
+  key(10, ly1, REGION_COLORS.yellow, 0.9, "Roll-in Point · App-Pop ≥ 2 s");
+  key(200, ly1, REGION_COLORS.yellow, 0.35, "Roll-in Point · App-Pop 0–2 s");
+  dot(390, ly1, true, "≥ 2 s 점");
+  dot(470, ly1, false, "0–2 s 점");
+  key(10, ly, REGION_COLORS.green, 0.9, "Attack Heading · ≥ 2 s");
+  key(200, ly, REGION_COLORS.green, 0.35, "Attack Heading · 0–2 s");
+  key(390, ly, REGION_COLORS.red, 1, "선택한 ATK");
+  svg.append(svgEl("text", { x: W - 8, y: H - 44, "text-anchor": "end", "font-size": 10.5, fill: "#5f5e5a" }, "R/L = Roll-in 방향 · App-Pop = Approach-Pop"));
 }

@@ -45,7 +45,7 @@
 .design-chart-key{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:12px;color:var(--muted)}
 .design-chart-key i{display:inline-block;width:18px;height:10px;border-radius:2px;vertical-align:middle}
 .design-chart-key .key-apex{background:#d9e7f8}
-.design-chart-key .key-range{border:2px solid #1baf7a;box-sizing:border-box}
+.design-chart-key .key-range{border:2px solid #1baf7a;background:rgba(27,175,122,.25);box-sizing:border-box}
 .design-chart-key .key-auto{height:0;border-top:2px dashed #8e5bd6}
 .design-chart-key .key-current{height:0;border-top:2px solid #e34948}
 .design-region-note{margin:0;font-size:12.5px;line-height:1.45}
