@@ -18,7 +18,7 @@ import { OFFSET_VIEW_COLORS as C } from "./AG/bombing/offset-bombing/view/offset
 import { createOpenArrowMarker } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { appendNorthMark } from "./common/diagram/svg-north-mark-v0.1.mjs";
 
-export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.3", canvas: Object.freeze({ width: 640, height: 600 }) });
+export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.4", canvas: Object.freeze({ width: 640, height: 600 }) });
 
 const NS = "http://www.w3.org/2000/svg";
 const svgEl = (tag, attrs = {}, text = null) => {
@@ -91,7 +91,11 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   // MAP circle.
   if (finite(mapNm)) {
     svg.append(svgEl("circle", { cx: X(0), cy: Y(0), r: mapNm * s, fill: "none", stroke: C.attack, "stroke-width": 1.4, "stroke-dasharray": "9 7", "data-top": "map" }));
-    svg.append(svgEl("text", { x: X(0) + 6, y: Y(0) + mapNm * s + 13, "font-size": 10.5, fill: C.attackText }, `MAP ${mapNm.toFixed(2)} NM`));
+    // Written low on the circle, on the side away from the Roll-in Points (0.1.4: clear of the Roll-in path).
+    const xs = points.filter((q) => pt(q.rollIn)).map((q) => q.rollIn.x);
+    const away = xs.length && xs.reduce((a, b) => a + b, 0) / xs.length < 0 ? 1 : -1;
+    const r = mapNm * s;
+    svg.append(svgEl("text", { x: X(0) + away * (r * 0.72 + 6), y: Y(0) + r * 0.72 + 14, "text-anchor": away > 0 ? "start" : "end", "font-size": 10.5, fill: C.attackText }, `MAP ${mapNm.toFixed(2)} NM`));
   }
   // Roll-in Distance: per Roll-in side, the line through every Roll-in Point the BE solved (Angle Off order).
   if (withRollIn.length >= 2) {
@@ -106,7 +110,9 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   // Each point at its own MAP (the MAP shrinks as the Angle Off grows: the Roll-in Altitude drops with the longer
   // Roll-in turn when the Tracking Time is held), so the green arc is not on the current MAP circle.
   const mapOf = (p) => (finite(p.mapNm) ? p.mapNm : mapNm);
-  const onMapAhead = (p) => ({ x: mapOf(p) * Math.sin(p.attackHeadingDeg * DEG), y: mapOf(p) * Math.cos(p.attackHeadingDeg * DEG) });
+  // 0.1.4 (owner 2026-11-22, "왼쪽으로 옵셋하는 경우 오른쪽 롤인포인트와 왼쪽 Attack Heading만"): the green arc is on the side the
+  // attack comes from (the Track Point side, where the red arrow starts), the same side as the Roll-in Points.
+  const onMapAhead = (p) => ({ x: -mapOf(p) * Math.sin(p.attackHeadingDeg * DEG), y: -mapOf(p) * Math.cos(p.attackHeadingDeg * DEG) });
   for (const side of sides) {
     const all = points.filter((p) => p.rollDirection === side).sort((a, b) => a.angleOffDeg - b.angleOffDeg);
     for (let i = 1; i < all.length; i += 1) {
@@ -128,7 +134,7 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
       if (Math.round(p.angleOffDeg) % 15 === 0) {
         const len = Math.hypot(p.rollIn.x, p.rollIn.y) || 1;
         const k = 16 / s;
-        svg.append(svgEl("text", { x: X(p.rollIn.x + (p.rollIn.x / len) * k), y: Y(p.rollIn.y + (p.rollIn.y / len) * k) + 4, "text-anchor": "middle", "font-size": 10, fill: REGION_COLORS.locus }, `${Math.round(p.offsetAngleDeg)}°`));
+        svg.append(svgEl("text", { x: X(p.rollIn.x + (p.rollIn.x / len) * k), y: Y(p.rollIn.y + (p.rollIn.y / len) * k) + 4, "text-anchor": "middle", "font-size": 10, fill: REGION_COLORS.locus, "data-text-low": "" }, `${Math.round(p.offsetAngleDeg)}°`));
       }
     }
     // The ends of the possible arc on this side.
@@ -139,7 +145,7 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
         const out = p.rollIn.x < 0 ? -1 : 1;
         const len = Math.hypot(p.rollIn.x, p.rollIn.y) || 1;
         const k = 30 / s;
-        svg.append(svgEl("text", { x: X(p.rollIn.x + (p.rollIn.x / len) * k) + out * 6, y: Y(p.rollIn.y + (p.rollIn.y / len) * k) + 4, "text-anchor": out < 0 ? "end" : "start", "font-size": 10.5, "font-weight": 700, fill: "#2e2d2a", "data-region-end": side }, `${SIDE_TEXT[side]} AO ${Math.round(p.angleOffDeg)}° / ATK ${hdg(p.attackHeadingDeg + up)}`));
+        svg.append(svgEl("text", { x: X(p.rollIn.x + (p.rollIn.x / len) * k) + out * 6, y: Y(p.rollIn.y + (p.rollIn.y / len) * k) + 4, "text-anchor": out < 0 ? "end" : "start", "font-size": 10.5, "font-weight": 700, fill: "#2e2d2a", "data-region-end": side }, `${SIDE_TEXT[side]} AO ${Math.round(p.angleOffDeg)}° / Attack ${hdg(p.attackHeadingDeg + up)}°`));
       };
       tag(first);
       if (last !== first) tag(last);
@@ -187,7 +193,7 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
       const tip = { x: mapNm * 1.18 * Math.sin(h * DEG), y: mapNm * 1.18 * Math.cos(h * DEG) };
       svg.append(svgEl("path", { d: d([back, tip]), fill: "none", stroke: REGION_COLORS.red, "stroke-width": 2.5, "marker-end": arrow("attack", REGION_COLORS.red), "data-attack-heading": "" }));
       const nearRight = X(tip.x) > W - 70;
-      svg.append(svgEl("text", { x: X(tip.x) + (nearRight ? -8 : 8), y: Y(tip.y) - 8, "text-anchor": nearRight ? "end" : "start", "font-size": 11, "font-weight": 700, fill: REGION_COLORS.red }, `ATK ${hdg(h + up)}`));
+      svg.append(svgEl("text", { x: X(tip.x) + (nearRight ? -8 : 8), y: Y(tip.y) - 8, "text-anchor": nearRight ? "end" : "start", "font-size": 11, "font-weight": 700, fill: REGION_COLORS.red }, `Attack ${hdg(h + up)}°`));
     }
     // Stations (Offset Top View markers; Pop as the POP-UP Top View's Pop Up marker).
     const label = (q, text, color, dx = 10, dy = 4, anchor = "start") => svg.append(svgEl("text", { x: X(q.x) + dx, y: Y(q.y) + dy, "text-anchor": anchor, "font-size": 11, "font-weight": 700, fill: color }, text));
@@ -228,6 +234,50 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   dot(470, ly1, false, "0–2 s 점");
   key(10, ly, REGION_COLORS.green, 0.9, "Attack Heading · ≥ 2 s");
   key(200, ly, REGION_COLORS.green, 0.35, "Attack Heading · 0–2 s");
-  key(390, ly, REGION_COLORS.red, 1, "선택한 ATK");
+  key(390, ly, REGION_COLORS.red, 1, "선택한 Attack Heading");
   svg.append(svgEl("text", { x: W - 8, y: H - 44, "text-anchor": "end", "font-size": 10.5, fill: "#5f5e5a" }, "R/L = Roll-in 방향 · App-Pop = Approach-Pop"));
+  untangleLabels(svg);
+}
+
+// 0.1.4 (owner 2026-11-22, "글자들 겹치지 않게"): after drawing, an end tag that hits another label moves down a line at a
+// time (up to three), and an Offset Angle number (the least important text) that still hits a label or a station is left out.
+function untangleLabels(svg) {
+  const box = (node) => {
+    try {
+      const b = node.getBBox();
+      if (b.width > 0) return { x: b.x - 2, y: b.y - 1, w: b.width + 4, h: b.height + 2 };
+    } catch { /* not laid out */ }
+    return null;
+  };
+  const hit = (a, b) => a && b && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const texts = [...svg.querySelectorAll("text")];
+  const low = texts.filter((t) => t.hasAttribute("data-text-low"));
+  const tags = texts.filter((t) => t.hasAttribute("data-region-end"));
+  const fixed = texts.filter((t) => !low.includes(t) && !tags.includes(t));
+  const placed = fixed.map(box).filter(Boolean);
+  // The flown path counts too (small boxes along it), so no text sits on the line.
+  for (const path of svg.querySelectorAll("[data-path]")) {
+    try {
+      const len = path.getTotalLength();
+      for (let l = 0; l <= len; l += 5) { const q = path.getPointAtLength(l); placed.push({ x: q.x - 2, y: q.y - 2, w: 4, h: 4 }); }
+    } catch { /* not laid out */ }
+  }
+  for (const tag of tags) {
+    const x0 = Number(tag.getAttribute("x")), y0 = Number(tag.getAttribute("y"));
+    const out = tag.getAttribute("text-anchor") === "end" ? -1 : 1;
+    let b = box(tag);
+    for (const [dx, dy] of [[out * 10, 0], [0, 13], [0, -13], [out * 10, 13], [out * 10, -13], [out * 20, 0], [out * 20, 13]]) {
+      if (!b || !placed.some((q) => hit(b, q))) break;
+      tag.setAttribute("x", x0 + dx);
+      tag.setAttribute("y", y0 + dy);
+      b = box(tag);
+    }
+    if (b) placed.push(b);
+  }
+  for (const c of svg.querySelectorAll("[data-station]")) placed.push(box(c));
+  for (const t of low) {
+    const b = box(t);
+    if (b && placed.some((q) => hit(b, q))) t.remove();
+    else if (b) placed.push(b);
+  }
 }

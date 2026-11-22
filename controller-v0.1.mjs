@@ -58,7 +58,7 @@ import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLe
 import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.5";
 import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.10";
 // POP-UP Z-Diagram (POP-UP SPEC §13.8 / §13.8a; the POP-UP page only): a BE-owned view of the POP-UP Flight result.
-import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.6";
+import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.7";
 import {
   POPUP_DEFAULT_INPUT_VALUES, POPUP_DRIVERS, POPUP_DRIVER_NOTE, POPUP_DRIVER_TEXT, POPUP_FOLLOWER_PROFILE_KEYS, POPUP_LOCK_KEYS, POPUP_VALUE_KEYS,
   installPopupControls, markPopupDriverFields, popupApexText, popupApproachPopText, popupApproachPopTimeText, popupPullDownText, popupFollowerGroupMarkup, popupRangeText, popupResultRows, popupTopViewMarkers,

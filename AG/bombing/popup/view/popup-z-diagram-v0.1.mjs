@@ -37,7 +37,8 @@ export const POPUP_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "popup-z-diagram-v0.1",
   // 0.1.6 (owner 2026-11-11, own IP rule): a VRP beyond the aircraft's own IP reads "#n VRP to Impact Time", timed from
   // the VRP (IP to Impact Time − the negative IP → Action time).
-  version: "0.1.6",
+  // 0.1.7 (owner 2026-11-22): altitudes "3200 feet"; "Nm" written "NM" ("z diagram에 NM을 Nm이라고 쓴 것들 모두 NM로 바꿔라").
+  version: "0.1.7",
   ticks: Object.freeze(["ROLL_IN", "PULL_DOWN"]),
   canvas: Object.freeze({ width: 650, height: 520 }),
   // 0.1.4 (owner 2026-11-03, "롤인 alt라인부터 그 아래까지 2줄 밀자", then "두줄 말고 한줄만"): the Roll-in / Pull Down line, its rule and the
@@ -75,7 +76,8 @@ export const POPUP_Z_LEGEND = Object.freeze([
   { key: "bombTof", label: "Bomb TOF", advanced: true },
   { key: "ipToImpact", label: "IP to Impact Time", advanced: true },
 ].map(Object.freeze));
-const kft = (ft) => (Number.isFinite(ft) ? (ft / 1000).toFixed(1) : "-");
+// 0.1.7 (owner 2026-11-22, "z diagram도 단위 적어줘라. 3200feet 이렇게"): altitudes as feet to the nearest 100 with the unit.
+const kft = (ft) => (Number.isFinite(ft) ? `${Math.round(ft / 100) * 100} feet` : "-");
 const event = (popup, name) => popup?.events?.find((e) => e.name === name) ?? null;
 
 // The numbers on the diagram (pure; tested). `tick` is "ROLL_IN" (default, owner) or "PULL_DOWN". `advanced` shows the
@@ -133,10 +135,10 @@ export function buildPopupZDiagramData(result, popup, { tick = "ROLL_IN", advanc
       other: kft(other.altitudeMslFt),
       pra: kft(p.effectiveReleaseAltitudeMslFt),
       mra: kft(p.nltReleaseMslFt),
-      climbAngle: `${Math.round(popup.popupAngleDeg)}° (Pop-up ${formatNm(popup.popToTargetNm)}Nm)`,
+      climbAngle: `${Math.round(popup.popupAngleDeg)}° (Pop-up ${formatNm(popup.popToTargetNm)} NM)`,
       tickName: tick === "PULL_DOWN" ? "(Pull Down)" : "(Roll-in)",
       speed: `${Number.isFinite(popCasKt) ? Math.round(popCasKt) : "-"} KCAS`,
-      actionRange: `${formatNm(result.geometry?.actionRangeNm)}Nm (Offset ${formatDeg(result.geometry?.offsetAngleDeg)}°)`,
+      actionRange: `${formatNm(result.geometry?.actionRangeNm)} NM (Offset ${formatDeg(result.geometry?.offsetAngleDeg)}°)`,
     },
   };
 }

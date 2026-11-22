@@ -4,7 +4,7 @@
 // owns the state (driver, LOCKs, minimum-exposure answers, Z options) and passes it in.
 import { formatG } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { LOCK_TEXTS, previewToggleButton } from "./shared/input-fields-v0.1.mjs?v=0.1.1";
-import { POPUP_Z_DIAGRAM_V0_1 } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.6";
+import { POPUP_Z_DIAGRAM_V0_1 } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.7";
 
 export const POPUP_PAGE_V0_1 = Object.freeze({ id: "popup-page-v0.1", version: "0.1.7" });
 // 0.1.7 (owner 2026-11-22, "lock 버튼 눌렀을 때 딜레이"): a POP-UP LOCK shows its pressed state at once; a second click

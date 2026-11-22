@@ -13,7 +13,7 @@ import { POPUP_ANGLE_GRID, popupAngleRange, popupProfileLine } from "./AG/bombin
 import { defaultPopupAngleDeg } from "./AG/bombing/popup/popup-be-v0.2.mjs?v=0.2.5";
 import { renderAngleCharts, renderProfile } from "./popup-design-popup-chart-v0.1.mjs?v=0.1.2";
 import { ANGLE_OFF_GRID, coarseFirst, insideSpan, regionBaseline, regionMirrorBaseline, regionSummary } from "./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.1";
-import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.3";
+import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.4";
 import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=0.1.0";
 
@@ -33,7 +33,8 @@ import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=
 // (common svg-viewport: − / % / + / Fit, drag when zoomed); the profile draws the Approach-Pop leg before the Pop;
 // the Top View region is solved on both Roll-in sides (the Attack Heading mirrored about the Run-In) and drawn in
 // the Offset Top View symbols with the turn paths.
-export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.7" });
+export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.8" });
+// 0.1.8 (owner 2026-11-22): step 2 also shows Action Range and Offset Angle (BE results); step 3 shows Action Range too.
 // 0.1.7 (owner 2026-11-22): the IP Bottom button sits in the Top View zoom row, left of the size buttons (zoomable lead).
 // 0.1.6 (owner 2026-11-22): the step-2 range is Approach-Pop 2 s .. Apex 300 KCAS (or the arc limit), drawn as a green
 // area with the 0–2 s lead-in light; the readout says what sets the upper end, or why the range is empty.
@@ -219,7 +220,8 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
       grid(link("popupAngleDeg"), link("popupSpeedKcas"), link("trackingTimeSec"), link("popupG"),
         readout("popupAngle", "Popup Angle 비행값", "driver"), readout("minPop", "Min Pop-up Distance (NM)", "Pop → Roll-in Start · 수평"),
         readout("appPopNm", "Approach-Pop Distance (NM)", "Approach start → Pop"), readout("appPopSec", "Approach-Pop Time (sec)", "0 s 경고 · 2 s 권장"),
-        readout("apex", "Apex", "ft MSL · KCAS"), readout("exposure", "Exposure (sec)", "Pop → Apex"), readout("map2", "MAP (NM)", "확정하면 고정")),
+        readout("apex", "Apex", "ft MSL · KCAS"), readout("exposure", "Exposure (sec)", "Pop → Apex"), readout("map2", "MAP (NM)", "확정하면 고정"),
+        readout("actionRange2", "Action Range (NM)", "Target → Action Point · result"), readout("offsetAngle2", "Offset Angle (deg)", "result")),
       folded,
       ...(rangeFold ? [rangeFold] : []),
     ]),
@@ -230,7 +232,7 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
       regionNote,
       grid(readout("reference", "Reference", "VRP / VIP"), link("vrpRangeNm"),
         link("angleOffDeg", { lock: angleOffLock }), link("attackHeadingDeg", { lock: attackLock }),
-        readout("offsetAngle", "Offset Angle (deg)", "result"), readout("approach", "Approach Range (NM)", "Turn End → Roll-in Start"),
+        readout("offsetAngle", "Offset Angle (deg)", "result"), readout("actionRange", "Action Range (NM)", "Target → Action Point"), readout("approach", "Approach Range (NM)", "Turn End → Roll-in Start"),
         readout("appPopSec3", "Approach-Pop Time (sec)", "0 s 경고 · 2 s 권장")),
       grid(readout("recheckAngle", "2단계 재확인: Popup Angle", "범위 안 / 밖"), readout("recheckApex", "2단계 재확인: Apex", "300–350 KCAS"), readout("recheckAppPop", "2단계 재확인: Approach-Pop", "Distance · Time")),
     ]),
@@ -373,7 +375,8 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     setOut("exposure", Number.isFinite(p?.exposureTimeSec) ? one(p.exposureTimeSec) : "-");
     setOut("pullDown", ft(pullDown?.altitudeMslFt));
     setOut("reference", !ar ? "-" : isVip() ? "VIP (VRP LOCK 없음)" : `VRP${pressed(mainLock("vrpReference")) ? " · LOCK" : ""}`);
-    setOut("offsetAngle", Number.isFinite(resolved.offsetAngleDeg) ? one(resolved.offsetAngleDeg) : "-");
+    for (const key of ["offsetAngle", "offsetAngle2"]) setOut(key, Number.isFinite(resolved.offsetAngleDeg) ? one(resolved.offsetAngleDeg) : "-");
+    for (const key of ["actionRange", "actionRange2"]) setOut(key, Number.isFinite(resolved.actionRangeNm) ? one(resolved.actionRangeNm, 1) : "-");
     setOut("approach", Number.isFinite(resolved.approachRangeNm) ? one(resolved.approachRangeNm, 2) : "-");
     for (const [button, key] of [[angleOffLock, "angleOffDeg"], [attackLock, "attackHeadingDeg"]]) {
       const on = pressed(mainLock(key));
