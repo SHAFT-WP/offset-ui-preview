@@ -18,7 +18,7 @@ import { OFFSET_VIEW_COLORS as C } from "./AG/bombing/offset-bombing/view/offset
 import { createOpenArrowMarker } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { appendNorthMark } from "./common/diagram/svg-north-mark-v0.1.mjs";
 
-export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.4", canvas: Object.freeze({ width: 640, height: 600 }) });
+export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.5", canvas: Object.freeze({ width: 640, height: 600 }) });
 
 const NS = "http://www.w3.org/2000/svg";
 const svgEl = (tag, attrs = {}, text = null) => {
@@ -228,13 +228,13 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
     svg.append(svgEl("circle", { cx: x + 10, cy: y - 4, r: 3.5, fill: filled ? REGION_COLORS.yellow : "#fff", stroke: REGION_COLORS.yellow, "stroke-width": 1.5 }));
     svg.append(svgEl("text", { x: x + 25, y, "font-size": 10.5, fill: "#2e2d2a" }, text));
   };
-  key(10, ly1, REGION_COLORS.yellow, 0.9, "Roll-in Point · App-Pop ≥ 2 s");
-  key(200, ly1, REGION_COLORS.yellow, 0.35, "Roll-in Point · App-Pop 0–2 s");
-  dot(390, ly1, true, "≥ 2 s 점");
-  dot(470, ly1, false, "0–2 s 점");
-  key(10, ly, REGION_COLORS.green, 0.9, "Attack Heading · ≥ 2 s");
-  key(200, ly, REGION_COLORS.green, 0.35, "Attack Heading · 0–2 s");
-  key(390, ly, REGION_COLORS.red, 1, "선택한 Attack Heading");
+  key(10, ly1, REGION_COLORS.yellow, 0.9, "Roll-in Point · App-Pop Time ≥ 2초");
+  key(236, ly1, REGION_COLORS.yellow, 0.35, "Roll-in Point · App-Pop Time 0–2초");
+  dot(462, ly1, true, "≥ 2초 점");
+  dot(540, ly1, false, "0–2초 점");
+  key(10, ly, REGION_COLORS.green, 0.9, "Attack Heading · App-Pop Time ≥ 2초");
+  key(236, ly, REGION_COLORS.green, 0.35, "Attack Heading · App-Pop Time 0–2초");
+  key(462, ly, REGION_COLORS.red, 1, "선택한 Attack Heading");
   svg.append(svgEl("text", { x: W - 8, y: H - 44, "text-anchor": "end", "font-size": 10.5, fill: "#5f5e5a" }, "R/L = Roll-in 방향 · App-Pop = Approach-Pop"));
   untangleLabels(svg);
 }

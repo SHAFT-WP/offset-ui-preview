@@ -1,5 +1,5 @@
 import { buildBdpZDiagramData } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs";
-import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.14";
+import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.15";
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { formatDeg, formatG, formatKt, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { boxAbeamText } from "../../box-pattern/view/box-z-diagram-v0.3.mjs";

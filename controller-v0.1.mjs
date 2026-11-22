@@ -56,7 +56,7 @@ const IAA_FOLLOWER_FIELD = iaaFieldMarkup({ follower: {} });
 import { OFFSET_TOP_VIEW_V0_1, offsetTopViewLegend, offsetTopViewTitle } from "./AG/bombing/offset-bombing/view/offset-top-view-v0.1.mjs?v=0.1.12";
 import { offsetAircraftColors, offsetCombinedTopViewTitle, offsetFlightTopViewLegend, renderOffsetCombinedTopView } from "./AG/bombing/offset-bombing/view/offset-flight-top-view-v0.1.mjs?v=0.1.13";
 import { offsetApproachInBdpFrame, offsetTimeline } from "./AG/bombing/offset-bombing/view/offset-time-path-v0.1.mjs?v=0.1.5";
-import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.10";
+import { offsetZDiagramTitle, renderOffsetZDiagram } from "./AG/bombing/offset-bombing/view/offset-z-diagram-v0.1.mjs?v=0.1.11";
 // POP-UP Z-Diagram (POP-UP SPEC §13.8 / §13.8a; the POP-UP page only): a BE-owned view of the POP-UP Flight result.
 import { POPUP_Z_DIAGRAM_V0_1, popupZDiagramTitle, renderPopupZDiagram } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.7";
 import {

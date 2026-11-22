@@ -12,7 +12,7 @@
 // the svg nodes are kept between renders (fixed canvas) so a zoom set by the caller survives a redraw.
 // 0.1.2 (owner 2026-11-22): the Popup Angle range is a filled green area (Approach-Pop 2 s .. Apex 300 KCAS or the arc
 // limit), with the 0–2 s lead-in drawn light (marks.possibleFromDeg); the Apex 300–350 band stays as a reference.
-export const POPUP_DESIGN_POPUP_CHART_V0_1 = Object.freeze({ id: "popup-design-popup-chart-v0.1", version: "0.1.2" });
+export const POPUP_DESIGN_POPUP_CHART_V0_1 = Object.freeze({ id: "popup-design-popup-chart-v0.1", version: "0.1.3" });
 
 const NS = "http://www.w3.org/2000/svg";
 const svgEl = (tag, attrs = {}, text = null) => {
@@ -36,7 +36,7 @@ export const ANGLE_CHARTS = Object.freeze([
   { key: "apexKcas", label: "Apex Speed", unit: "KCAS", digits: 0, lines: [[300, "#e34948"], [350, "#2a78d6"]] },
   { key: "popToRollInNm", label: "Min Pop-up Distance", unit: "NM", digits: 2 },
   { key: "offsetPopupRangeNm", label: "Approach-Pop Distance", unit: "NM", digits: 2, lines: [[0, "#e34948"]] },
-  { key: "offsetPopupTimeSec", label: "Approach-Pop Time", unit: "s", digits: 1, lines: [[0, "#e34948"], [2, "#e08a1e"]] },
+  { key: "offsetPopupTimeSec", label: "Approach-Pop Time", unit: "s", digits: 1, lines: [[0, "#e34948"], [2, "#e08a1e", "주황 = 2초 · 빨강 = 0초 (Approach-Pop Time)"]] },
 ]);
 
 // First derivative of a sampled curve (central differences; one-sided at the ends). pts: [{ x, y }] sorted by x.
@@ -147,7 +147,11 @@ function angleChart(svg, chart, points, marks, showDerivative) {
     svg.append(g);
   }
   svg.append(svgEl("rect", { x: L, y: T, width: pw, height: ph, fill: "none", stroke: "#9a9893" }));
-  for (const [v, color] of chart.lines ?? []) if (v >= y0 && v <= y1) svg.append(svgEl("line", { x1: L, x2: L + pw, y1: Y(v), y2: Y(v), stroke: color, "stroke-width": 1.2, "stroke-dasharray": "4 3" }));
+  for (const [v, color, name] of chart.lines ?? []) if (v >= y0 && v <= y1) {
+    svg.append(svgEl("line", { x1: L, x2: L + pw, y1: Y(v), y2: Y(v), stroke: color, "stroke-width": 1.2, "stroke-dasharray": "4 3" }));
+    // 0.1.3 (owner 2026-11-22, "그거 초라는 거 그래프에서 명시해줘"): the threshold says it is seconds.
+    if (name) svg.append(svgEl("text", { x: L + pw - 4, y: Y(v) - 4, "text-anchor": "end", "font-size": 10, "font-weight": 700, fill: color, stroke: "#fff", "stroke-width": 3, "paint-order": "stroke" }, name));
+  }
   // The curve: VALID / WARNING solid, INVALID faded.
   for (let i = 1; i < pts.length; i += 1) {
     const p = pts[i - 1], q = pts[i];

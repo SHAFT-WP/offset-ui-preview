@@ -1,7 +1,7 @@
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { buildBdpZDiagramData, profileName } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs?v=0.1.8";
 import { formatHeadingDeg } from "../../offset-bombing/view/offset-view-style-v0.1.mjs?v=0.1.5";
-import { formatDeg, formatG, formatNm, formatSec, formatSecTenths } from "../../../../common/ui/display-precision-v0.1.mjs";
+import { formatDeg, formatFt, formatG, formatNm, formatSec, formatSecTenths } from "../../../../common/ui/display-precision-v0.1.mjs";
 
 // POP-UP Z-Diagram v0.1 (owner 2026-10-27, POP-UP SPEC §13.8, §13.8a; owner sketch reference/popup-z-diagram-
 // owner-2026-10-27.jpg). POP-UP only. A triangle: the climb leg from the Action Point up at the Climb Angle to the
@@ -37,7 +37,7 @@ export const POPUP_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "popup-z-diagram-v0.1",
   // 0.1.6 (owner 2026-11-11, own IP rule): a VRP beyond the aircraft's own IP reads "#n VRP to Impact Time", timed from
   // the VRP (IP to Impact Time − the negative IP → Action time).
-  // 0.1.7 (owner 2026-11-22): altitudes "3200 feet"; "Nm" written "NM" ("z diagram에 NM을 Nm이라고 쓴 것들 모두 NM로 바꿔라").
+  // 0.1.7 (owner 2026-11-22): altitudes "5242 ft" (computed value); "Nm" written "NM" ("z diagram에 NM을 Nm이라고 쓴 것들 모두 NM로 바꿔라").
   version: "0.1.7",
   ticks: Object.freeze(["ROLL_IN", "PULL_DOWN"]),
   canvas: Object.freeze({ width: 650, height: 520 }),
@@ -76,8 +76,9 @@ export const POPUP_Z_LEGEND = Object.freeze([
   { key: "bombTof", label: "Bomb TOF", advanced: true },
   { key: "ipToImpact", label: "IP to Impact Time", advanced: true },
 ].map(Object.freeze));
-// 0.1.7 (owner 2026-11-22, "z diagram도 단위 적어줘라. 3200feet 이렇게"): altitudes as feet to the nearest 100 with the unit.
-const kft = (ft) => (Number.isFinite(ft) ? `${Math.round(ft / 100) * 100} feet` : "-");
+// 0.1.7 (owner 2026-11-22, "z diagram도 단위 적어줘라" then "feet는 ft로 해주고. 버림 값말고 원래 값을 적어주라"): altitudes are the
+// computed feet (display precision, whole ft) with the unit, e.g. "5242 ft".
+const kft = (ft) => (Number.isFinite(ft) ? `${formatFt(ft)} ft` : "-");
 const event = (popup, name) => popup?.events?.find((e) => e.name === name) ?? null;
 
 // The numbers on the diagram (pure; tested). `tick` is "ROLL_IN" (default, owner) or "PULL_DOWN". `advanced` shows the
@@ -123,8 +124,8 @@ export function buildPopupZDiagramData(result, popup, { tick = "ROLL_IN", advanc
     // Upper right (0.1.2): Roll-in Angle Off, Roll-in Range (Ground), Roll-in Range (Slant), IAA.
     rollInGroup: [
       { label: labels.rollInAngleOff, value: `${formatDeg(z.rollInAngleOff)}°` },
-      { label: labels.rollInRange, value: `${formatNm(nmOf(z.rollInRangeFt))} NM (Ground)` },
-      { label: labels.rollInRange, value: `${formatNm(nmOf(z.slantFt))} NM (Slant)` },
+      { label: labels.rollInRange, value: `${formatNm(nmOf(z.rollInRangeFt))} NM` },
+      { label: labels.rollInRange, value: `${formatNm(nmOf(z.slantFt))} NM (S)` },
       { label: labels.aimOffAngle, value: `${formatDeg(z.aimOffAngle)}°` },
     ],
     // The legend (owner's list): two columns, the left one filled first.

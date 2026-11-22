@@ -1,5 +1,5 @@
 import { bdpZLowerColumns, buildBdpZDiagramData, profileName } from "../../bomb-delivery-planner/view/bdp-z-diagram-v0.1.mjs?v=0.1.8";
-import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.13";
+import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.15";
 import { svgNode } from "../../../../common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { formatDeg, formatNm, formatSec } from "../../../../common/ui/display-precision-v0.1.mjs";
 import { bearingDeg, formatHeadingDeg, offsetViewTitle } from "./offset-view-style-v0.1.mjs?v=0.1.5";
@@ -27,7 +27,7 @@ export const OFFSET_Z_DIAGRAM_V0_1 = Object.freeze({
   // 0.1.10 (owner 2026-11-11, plan S2, own IP rule): an aircraft whose VRP (Action Point) is beyond its own IP reads
   // "VRP-Target Heading" (Action Point → Target) for "IP-Target Heading", and "#k VRP to Impact Time" (from #k's VRP:
   // #k's IP to Impact Time − its negative IP → Action time) for "#k IP to Impact Time". ΔTime is unchanged (IP clock).
-  version: "0.1.10",
+  version: "0.1.11",
   subject: "Offset",
   view: "Z-Diagram",
 });

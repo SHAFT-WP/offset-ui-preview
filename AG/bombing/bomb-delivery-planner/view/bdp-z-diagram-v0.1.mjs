@@ -1,4 +1,4 @@
-import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.12";
+import { renderCommonZDiagram } from "../../../../common/diagram/z-diagram/z-diagram-v0.1.mjs?v=0.1.15";
 import { formatDeg, formatNm, formatSec, formatSecTenths } from "../../../../common/ui/display-precision-v0.1.mjs?v=0.1.1";
 import { getWeaponById } from "../weapon-data-v0.1.mjs";
 

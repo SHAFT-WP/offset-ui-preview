@@ -27,9 +27,10 @@ export const FT_PER_NM = 6076.11549;
 // 0.1.14 (2026-10-25, owner, BOX handoff): a host may end the Roll-in group with `rollInGroupTail` lines
 // ([{ text, ariaLabel }], e.g. BOX `Abeam +3sec`), drawn under Ground / Slant in the same movable group. Without
 // it nothing changes.
+// 0.1.15 (owner 2026-11-22, "Roll in range에서 (ground)는 삭제, (Slant)는 (S)로 표기"): "2.5 NM" and "2.5 NM (S)".
 export const COMMON_Z_DIAGRAM_V0_1 = Object.freeze({
   id: "common-z-diagram-v0.1",
-  version: "0.1.14",
+  version: "0.1.15",
   oracle: "Bomb Profile REV.1.9 embedded BE Common Rev0.8 display renderer",
   legacyDisplaySource: "Common Z-Diagram Rev0.6 / BE Common Rev0.8 display grammar",
 });
@@ -187,8 +188,8 @@ export function renderCommonZDiagram(svg, data) {
     text(360, rollInGroupY, lineText(labels.rollInLead ?? "Roll-in Lead Angle", formatCommonDegree(data.rollInLead, 0)), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
     rollInGroupY += 26;
   }
-  text(360, rollInGroupY, lineText(labels.rollInRange, `${format(rollInNm, 1)} NM (Ground)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
-  text(360, rollInGroupY + 26, lineText(labels.rollInRange, `${format(slantNm, 1)} NM (Slant)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+  text(360, rollInGroupY, lineText(labels.rollInRange, `${format(rollInNm, 1)} NM`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
+  text(360, rollInGroupY + 26, lineText(labels.rollInRange, `${format(slantNm, 1)} NM (S)`), "start", 15, FONT_WEIGHT, null, "z-group-roll-in");
   const tail = Array.isArray(data.rollInGroupTail) ? data.rollInGroupTail.filter((line) => typeof line?.text === "string" && line.text) : [];
   tail.forEach((line, index) => {
     const tailNode = text(360, rollInGroupY + 26 * (index + 2), line.text, "start", 15, FONT_WEIGHT, null, "z-group-roll-in");

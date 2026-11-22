@@ -11,9 +11,9 @@
 import { sweepBaseline } from "./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.2";
 import { POPUP_ANGLE_GRID, popupAngleRange, popupProfileLine } from "./AG/bombing/popup/popup-design-steps-v0.1.mjs?v=0.1.2";
 import { defaultPopupAngleDeg } from "./AG/bombing/popup/popup-be-v0.2.mjs?v=0.2.5";
-import { renderAngleCharts, renderProfile } from "./popup-design-popup-chart-v0.1.mjs?v=0.1.2";
+import { renderAngleCharts, renderProfile } from "./popup-design-popup-chart-v0.1.mjs?v=0.1.3";
 import { ANGLE_OFF_GRID, coarseFirst, insideSpan, regionBaseline, regionMirrorBaseline, regionSummary } from "./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.1";
-import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.4";
+import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.5";
 import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=0.1.0";
 
@@ -33,7 +33,8 @@ import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=
 // (common svg-viewport: − / % / + / Fit, drag when zoomed); the profile draws the Approach-Pop leg before the Pop;
 // the Top View region is solved on both Roll-in sides (the Attack Heading mirrored about the Run-In) and drawn in
 // the Offset Top View symbols with the turn paths.
-export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.8" });
+export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.9" });
+// 0.1.9 (owner 2026-11-22): Action Range / Offset Angle are linked fields (step 2 and 3) and every linked field whose page field has a LOCK has a Design LOCK that follows it.
 // 0.1.8 (owner 2026-11-22): step 2 also shows Action Range and Offset Angle (BE results); step 3 shows Action Range too.
 // 0.1.7 (owner 2026-11-22): the IP Bottom button sits in the Top View zoom row, left of the size buttons (zoomable lead).
 // 0.1.6 (owner 2026-11-22): the step-2 range is Approach-Pop 2 s .. Apex 300 KCAS (or the arc limit), drawn as a green
@@ -113,6 +114,20 @@ const LINKS = Object.freeze({
   gOnsetRateGSec: ["G Onset Rate (G/s)", "Roll-in · Offset · Popup"],
   offsetSpeedValue: ["Initial Speed (kcas)", "IP → Offset → Pop"],
   initialAltitudeMslFt: ["Initial Altitude (ft MSL)", "= Offset Altitude (Pop)"],
+  actionRangeNm: ["Action Range (NM)", "Target → Action Point"],
+  offsetAngleDeg: ["Offset Angle (deg)", "Run-In → Approaching Heading"],
+});
+// 0.1.9 (owner 2026-11-22, "디자인 탭에서 수정 가능한 녀석들은 lock 버튼도 있어서 따라 움직이는게 좋을 것 같아"): a linked field whose
+// page field has a LOCK gets a Design LOCK that presses the page's and shows its state ([selector kind, name]).
+const LINK_LOCKS = Object.freeze({
+  diveAngleDeg: ["lock", "diveAngleDeg"],
+  rollInAltitudeMslFt: ["lock", "rollInAltitudeMslFt"],
+  popupAngleDeg: ["popup", "angle"],
+  vrpRangeNm: ["lock", "vrpReference"],
+  offsetG: ["lock", "offsetG"],
+  offsetSpeedValue: ["lock", "offsetSpeedValue"],
+  actionRangeNm: ["lock", "actionRangeNm"],
+  offsetAngleDeg: ["lock", "offsetAngleDeg"],
 });
 
 // The page's own control for a LOCK (never a Design copy, never a follower's).
@@ -126,8 +141,15 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
   const cards = {};
   const linkInputs = [];
 
+  // A Design LOCK button standing for a page LOCK (pressing it presses the page's).
+  const lockButton = (name, label) => el("button", { class: "lock-button", type: "button", "data-design-lock": name, "aria-pressed": "false", "aria-label": `Lock ${label}`, text: "LOCK" });
+  const linkLocks = []; // [button, kind, name]
   const link = (key, extra = {}) => {
     const [label, unit] = LINKS[key];
+    if (!extra.lock && LINK_LOCKS[key]) {
+      extra = { ...extra, lock: lockButton(key, label) };
+      linkLocks.push([extra.lock, ...LINK_LOCKS[key]]);
+    }
     const input = el("input", { "data-key": key, "data-design-link": "", type: "text", inputmode: "decimal", "aria-label": label });
     linkInputs.push(input);
     const title = extra.lock ? el("span", { class: "lock-title" }, el("span", { text: label }), extra.lock) : el("span", { text: label });
@@ -138,8 +160,6 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     outs.set(key, out);
     return el("div", { class: "field" }, el("span", { text: label }), out, el("span", { class: "unit", text: unit }));
   };
-  // A Design LOCK button standing for a page LOCK (pressing it presses the page's).
-  const lockButton = (name, label) => el("button", { class: "lock-button", type: "button", "data-design-lock": name, "aria-pressed": "false", "aria-label": `Lock ${label}`, text: "LOCK" });
   const card = (n, title, note, body) => {
     const pill = el("span", { class: "design-step-pill", text: "미확정" });
     const confirm = el("button", { class: "btn", type: "button", "data-design-confirm": String(n), text: "확정" });
@@ -211,17 +231,17 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
       el("div", { class: "design-angle-charts", "data-design-angle-charts": "" }),
       el("p", { class: "design-chart-key" },
         el("i", { class: "key-apex" }), document.createTextNode("Apex 300–350 KCAS (참고) "),
-        el("i", { class: "key-range" }), document.createTextNode("Popup Angle 범위 (연한 = 0–2 s) "),
+        el("i", { class: "key-range" }), document.createTextNode("Popup Angle 범위 (진한 = Approach-Pop Time ≥ 2초, 연한 = 0–2초, 0초 미만은 칠하지 않음) "),
         el("i", { class: "key-auto" }), document.createTextNode("AUTO "),
         el("i", { class: "key-current" }), document.createTextNode("현재 각도 "),
         el("i", { class: "key-derivative" }), document.createTextNode("1차 미분 (오른쪽 눈금) "), derivativeButton),
-      grid(readout("angleRange", "Popup Angle 범위", "Approach-Pop 2 s ~ Apex 300 KCAS"), readout("minPopRange", "Min Pop-up Distance (NM)", "범위 양 끝 · 확정하면 하나")),
+      grid(readout("angleRange", "Popup Angle 범위", "Approach-Pop Time 2초 ~ Apex 300 KCAS"), readout("minPopRange", "Min Pop-up Distance (NM)", "범위 양 끝 · 확정하면 하나")),
       el("div", { class: "design-steps-shell" }, zoomable(profileSvg, 640, 240)),
       grid(link("popupAngleDeg"), link("popupSpeedKcas"), link("trackingTimeSec"), link("popupG"),
         readout("popupAngle", "Popup Angle 비행값", "driver"), readout("minPop", "Min Pop-up Distance (NM)", "Pop → Roll-in Start · 수평"),
         readout("appPopNm", "Approach-Pop Distance (NM)", "Approach start → Pop"), readout("appPopSec", "Approach-Pop Time (sec)", "0 s 경고 · 2 s 권장"),
         readout("apex", "Apex", "ft MSL · KCAS"), readout("exposure", "Exposure (sec)", "Pop → Apex"), readout("map2", "MAP (NM)", "확정하면 고정"),
-        readout("actionRange2", "Action Range (NM)", "Target → Action Point · result"), readout("offsetAngle2", "Offset Angle (deg)", "result")),
+        link("actionRangeNm"), link("offsetAngleDeg")),
       folded,
       ...(rangeFold ? [rangeFold] : []),
     ]),
@@ -232,7 +252,7 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
       regionNote,
       grid(readout("reference", "Reference", "VRP / VIP"), link("vrpRangeNm"),
         link("angleOffDeg", { lock: angleOffLock }), link("attackHeadingDeg", { lock: attackLock }),
-        readout("offsetAngle", "Offset Angle (deg)", "result"), readout("actionRange", "Action Range (NM)", "Target → Action Point"), readout("approach", "Approach Range (NM)", "Turn End → Roll-in Start"),
+        link("offsetAngleDeg"), link("actionRangeNm"), readout("approach", "Approach Range (NM)", "Turn End → Roll-in Start"),
         readout("appPopSec3", "Approach-Pop Time (sec)", "0 s 경고 · 2 s 권장")),
       grid(readout("recheckAngle", "2단계 재확인: Popup Angle", "범위 안 / 밖"), readout("recheckApex", "2단계 재확인: Apex", "300–350 KCAS"), readout("recheckAppPop", "2단계 재확인: Approach-Pop", "Distance · Time")),
     ]),
@@ -293,6 +313,10 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     await press(mainLock(key), on);
   });
   angleOffLock.addEventListener("click", (event) => { event.preventDefault(); exclusive("angleOffDeg"); });
+  for (const [button, kind, name] of linkLocks) button.addEventListener("click", (event) => {
+    event.preventDefault();
+    run(async () => { const main = kind === "popup" ? mainPopupLock(name) : mainLock(name); await press(main, !pressed(main)); });
+  });
   attackLock.addEventListener("click", (event) => { event.preventDefault(); exclusive("attackHeadingDeg"); });
 
   const confirmed = {
@@ -375,8 +399,15 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     setOut("exposure", Number.isFinite(p?.exposureTimeSec) ? one(p.exposureTimeSec) : "-");
     setOut("pullDown", ft(pullDown?.altitudeMslFt));
     setOut("reference", !ar ? "-" : isVip() ? "VIP (VRP LOCK 없음)" : `VRP${pressed(mainLock("vrpReference")) ? " · LOCK" : ""}`);
-    for (const key of ["offsetAngle", "offsetAngle2"]) setOut(key, Number.isFinite(resolved.offsetAngleDeg) ? one(resolved.offsetAngleDeg) : "-");
-    for (const key of ["actionRange", "actionRange2"]) setOut(key, Number.isFinite(resolved.actionRangeNm) ? one(resolved.actionRangeNm, 1) : "-");
+    for (const [button, kind, name] of linkLocks) {
+      const main = kind === "popup" ? mainPopupLock(name) : mainLock(name);
+      const on = pressed(main);
+      button.hidden = !main;
+      button.setAttribute("aria-pressed", String(on));
+      button.classList.toggle("active", on);
+      button.textContent = on ? "LOCKED" : "LOCK";
+      button.disabled = busy;
+    }
     setOut("approach", Number.isFinite(resolved.approachRangeNm) ? one(resolved.approachRangeNm, 2) : "-");
     for (const [button, key] of [[angleOffLock, "angleOffDeg"], [attackLock, "attackHeadingDeg"]]) {
       const on = pressed(mainLock(key));
