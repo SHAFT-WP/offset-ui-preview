@@ -33,7 +33,8 @@ import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=
 // (common svg-viewport: − / % / + / Fit, drag when zoomed); the profile draws the Approach-Pop leg before the Pop;
 // the Top View region is solved on both Roll-in sides (the Attack Heading mirrored about the Run-In) and drawn in
 // the Offset Top View symbols with the turn paths.
-export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.6" });
+export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.7" });
+// 0.1.7 (owner 2026-11-22): the IP Bottom button sits in the Top View zoom row, left of the size buttons (zoomable lead).
 // 0.1.6 (owner 2026-11-22): the step-2 range is Approach-Pop 2 s .. Apex 300 KCAS (or the arc limit), drawn as a green
 // area with the 0–2 s lead-in light; the readout says what sets the upper end, or why the range is empty.
 // 0.1.5 (owner 2026-11-22, "탑뷰 ip가 bottom에 있는 것이 default 옵션을 넣어서 북쪽이 위로"): the step 3 Top View has the
@@ -41,10 +42,10 @@ export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-step
 
 // A picture with the common zoom (the Offset Top View's button zoom: − / % / + / Fit; drag pans when zoomed).
 // The renderers keep a fixed canvas, so svg.__viewport.refresh() after a redraw keeps the zoom.
-export function zoomable(svg, width, height, { maxZoom = 4 } = {}) {
+export function zoomable(svg, width, height, { maxZoom = 4, lead = [] } = {}) {
   const button = (text, label) => el("button", { class: "capture-button design-zoom-button", type: "button", "aria-label": label, text });
   const out = button("−", "Zoom out"), size = button("100%", "Zoom 100%"), into = button("+", "Zoom in"), fit = button("Fit", "Fit");
-  const bar = el("div", { class: "design-zoom-bar" }, out, size, into, fit);
+  const bar = el("div", { class: "design-zoom-bar" }, ...lead, out, size, into, fit);
   const viewport = installSvgViewport(svg, {
     baseViewBox: { x: 0, y: 0, w: width, h: height },
     panOnlyWhenZoomed: true,
@@ -224,8 +225,7 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     ]),
     card(3, "Offset 조건", "VRP를 고정하고 Angle Off를 바꿔 가며 계산한 가능 영역입니다 (2단계 Popup Angle로). Angle Off나 Attack Heading 중 하나를 LOCK하면 BE가 Offset Angle, Approach Range, Approach-Pop을 찾습니다. 둘은 같이 LOCK할 수 없습니다. 확정 = VRP LOCK + 선택한 하나, 그 뒤 2단계 값을 다시 확인합니다.", [
       regionStatus,
-      el("div", { class: "design-zoom-bar design-view-bar" }, ipBottomButton),
-      el("div", { class: "design-steps-shell" }, zoomable(topSvg, POPUP_DESIGN_TOPVIEW_V0_1.canvas.width, POPUP_DESIGN_TOPVIEW_V0_1.canvas.height)),
+      el("div", { class: "design-steps-shell" }, zoomable(topSvg, POPUP_DESIGN_TOPVIEW_V0_1.canvas.width, POPUP_DESIGN_TOPVIEW_V0_1.canvas.height, { lead: [ipBottomButton] })),
       grid(readout("regionAo", "가능 Angle Off", "Approach-Pop ≥ 0 s · (≥ 2 s)"), readout("regionAtk", "가능 Attack Heading", "Approach-Pop ≥ 0 s · (≥ 2 s)")),
       regionNote,
       grid(readout("reference", "Reference", "VRP / VIP"), link("vrpRangeNm"),

@@ -17,6 +17,8 @@
 // Read Again and is named "Apply" (it was "Apply to #1" under the STPT fields); the same action, #1's fields, the Flight
 // follows. Release Mission stays under the STPT fields. The DTE ship selector is one of the buttons (owner: "#1 고르는 창을
 // Write DTE와 정렬 하고 크기도 맞춰줘라"): no stacked "Ship" label, the buttons' height, border and font.
+// 0.1.5 (owner 2026-11-22, "워닝 메시지에, 게임에서 DTC Save를 하라고 이야기 해줘"): the DTC warnings start with "DTC SAVE
+// in the game first (mission → flight)", and the DTE messages say so too.
 import {
   BMS_DTC_V0_1,
   parseBmsDtc,
@@ -30,13 +32,15 @@ import {
 import { createHandleStore, fileTimeText, fileSizeText } from "./shared/flight-file-browser-v0.1.mjs?v=0.1.2";
 import { currentMagVarDeg, magVarText, trueFromMagneticDeg } from "./shared/mag-var-v0.1.mjs?v=0.1.0";
 
-export const BMS_MISSION_PANEL_V0_1 = Object.freeze({ id: "offset-bms-mission-panel-v0.1", version: "0.1.4", be: `${BMS_DTC_V0_1.id} ${BMS_DTC_V0_1.version}` });
+export const BMS_MISSION_PANEL_V0_1 = Object.freeze({ id: "offset-bms-mission-panel-v0.1", version: "0.1.5", be: `${BMS_DTC_V0_1.id} ${BMS_DTC_V0_1.version}` });
 
 const HANDLE_KEY = "bms-dtc";
 const BACKUP_KEY = "bms-dtc.backup";
 const SAVE_EXTENSION = "bmsMission";
 // After a DTE write (owner 2026-11-11, plan §2.2-9).
-const DTE_DONE = "BMS에서 DTC LOAD를 누르세요. 그 전에 DTC SAVE를 누르면 덮어써집니다.";
+const DTE_DONE = "BMS에서 DTC LOAD를 누르세요(이 ini는 게임에서 미션 → 해당 Flight 선택 → DTC SAVE로 만든 것이어야 합니다). DTC LOAD 전에 DTC SAVE를 다시 누르면 덮어써집니다.";
+// 0.1.5 (owner 2026-11-22, "워닝 메시지에, 게임에서 DTC Save를 하라고 이야기 해줘"): shown first among the DTC warnings.
+const DTC_SAVE_FIRST = "게임에서 미션 → 해당 Flight를 고른 뒤 DTC SAVE를 먼저 하세요. 그다음 여기서 Read Again. 다른 미션·Flight에서 저장한 ini는 보통 적용되지 않습니다.";
 const norm360 = (deg) => ((deg % 360) + 360) % 360;
 const FT_PER_NM = 6076.11549;
 const escapeHtml = (text) => String(text ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -168,6 +172,7 @@ export function mountBmsMissionPanel({ root, offsetUi, tool = "offset", doc = gl
     route.textContent = mission?.routeSummary ? `경로: ${mission.routeSummary}${mission.userTargets.length ? ` · 사용자 표적 STPT ${mission.userTargets.map((p) => p.stpt).join(", ")}` : ""}` : "";
     const list = $("#bms-dtc-messages");
     const items = mission ? [
+      ["warning", `WARNING · ${DTC_SAVE_FIRST}`],
       ...mission.messages.map((text) => ["info", text]),
       ...mission.warnings.map((text) => ["warning", `WARNING · ${text}`]),
       ...mission.errors.map((text) => ["invalid", `INVALID · ${text}`]),
@@ -404,7 +409,7 @@ export function mountBmsMissionPanel({ root, offsetUi, tool = "offset", doc = gl
       const { text, removed, written } = patchBmsNavOffsets(before, { ...current, targetStpt: keyStpt });
       await keepBackup(before);
       const message = await writeText(text, `DTE #${number} · ${written.join(" · ")} (지운 줄 ${removed.length})`);
-      const unapplied = !applied || applied.targetStpt !== targetStpt ? " · 주의: 이 미션이 #1에 적용되지 않았습니다(Run-In이 미션 IP와 다를 수 있음)" : "";
+      const unapplied = !applied || applied.targetStpt !== targetStpt ? " · 주의: 이 미션이 #1에 적용되지 않았습니다(Run-In이 미션 IP와 다를 수 있음). 게임에서 DTC SAVE → Read Again → Apply 순서로 하세요" : "";
       setStatus(`${message}${unapplied}`, unapplied ? "warning" : "valid");
     } catch (error) {
       setStatus(`DTE를 쓰지 못했습니다 · ${error?.message ?? error}`, "invalid");
