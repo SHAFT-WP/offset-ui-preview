@@ -6,6 +6,11 @@
 // 0.1.1 (owner 2026-11-19, plan S10, "offset에 있는 DED 로드 세이브 기능 Popup에도 추가해 줘라"): the POP-UP page mounts the
 // same panel ({ tool: "popup" }); its DTE also writes the POP-UP page (VRPPUP / VIPPUP) and OA2 from that aircraft's
 // DED (the four pages the page shows). Offset is unchanged.
+// 0.1.2 (owner 2026-11-22): two shortcuts on the page, both pages. "vip vrp설정 탭에 리로드 버튼 만들 것 (ded data
+// reload)": Reload in the Reference Point tab reads the DTC again (the one opened here; Open DTC when none) and puts its
+// [NAV OFFSETS] VRP or VIP page (Modesel's) in #1's VRP / VIP fields (TBRG true → magnetic, RNG ft → NM), the same edits
+// a user types. "ded 탭에서 ded save 버튼 만들 것": DED Save in each DED #n head is Write DTE for ship n (Open DTC first
+// when none). Each shows its result under the button's head; the Save/Load panel's status says the same.
 import {
   BMS_DTC_V0_1,
   parseBmsDtc,
@@ -14,11 +19,12 @@ import {
   clearBmsNavOffsets,
   bmsIniTextFromBytes,
   bmsIniBytesFromText,
-} from "./AG/bombing/bms-mission/bms-dtc-v0.1.mjs?v=0.1.1";
+  readBmsNavReference,
+} from "./AG/bombing/bms-mission/bms-dtc-v0.1.mjs?v=0.1.2";
 import { createHandleStore, fileTimeText, fileSizeText } from "./shared/flight-file-browser-v0.1.mjs?v=0.1.2";
 import { currentMagVarDeg, magVarText, trueFromMagneticDeg } from "./shared/mag-var-v0.1.mjs?v=0.1.0";
 
-export const BMS_MISSION_PANEL_V0_1 = Object.freeze({ id: "offset-bms-mission-panel-v0.1", version: "0.1.1", be: `${BMS_DTC_V0_1.id} ${BMS_DTC_V0_1.version}` });
+export const BMS_MISSION_PANEL_V0_1 = Object.freeze({ id: "offset-bms-mission-panel-v0.1", version: "0.1.2", be: `${BMS_DTC_V0_1.id} ${BMS_DTC_V0_1.version}` });
 
 const HANDLE_KEY = "bms-dtc";
 const BACKUP_KEY = "bms-dtc.backup";
@@ -26,6 +32,7 @@ const SAVE_EXTENSION = "bmsMission";
 // After a DTE write (owner 2026-11-11, plan §2.2-9).
 const DTE_DONE = "BMS에서 DTC LOAD를 누르세요. 그 전에 DTC SAVE를 누르면 덮어써집니다.";
 const norm360 = (deg) => ((deg % 360) + 360) % 360;
+const FT_PER_NM = 6076.11549;
 const escapeHtml = (text) => String(text ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // The callsign ini window: read and write on a PC browser with file access (Chrome / Edge); elsewhere read only and the
@@ -432,6 +439,96 @@ export function mountBmsMissionPanel({ root, offsetUi, tool = "offset", doc = gl
     }
   }
 
+  // A short result line under the head of the section holding `button` (the Reference Point tab, a DED #n section).
+  function shortcutStatus(button, text, kind = "valid") {
+    const head = button?.closest(".section-head") ?? button?.parentElement;
+    if (!head) return;
+    let out = head.parentElement.querySelector(":scope > .bms-shortcut-status");
+    if (!out) {
+      out = doc.createElement("output");
+      out.setAttribute("role", "status");
+      head.after(out);
+    }
+    out.className = `status-message bms-shortcut-status ${kind}`;
+    out.textContent = text;
+  }
+  const panelStatus = () => ({ text: $("#bms-dte-status").textContent, kind: ["invalid", "warning"].find((k) => $("#bms-dte-status").classList.contains(k)) ?? "valid" });
+
+  // The DTC as it is now: Open DTC when none was chosen, else read the same file again (a DTC SAVE may have changed it).
+  async function currentDtc() {
+    if (!dtc) await openDtc();
+    else await readAgain();
+    render();
+    return !!parsed;
+  }
+
+  // 0.1.2 Reload: the DTC's VRP / VIP page (Modesel's) into #1's Reference Point fields.
+  async function reloadReference(button) {
+    if (busy) return;
+    if (!(await currentDtc())) { shortcutStatus(button, `Reload 안 됨 · ${panelStatus().text}`, "invalid"); return; }
+    const read = readBmsNavReference(parsed, { targetStpt: mission?.target?.stpt ?? null });
+    if (read.errors.length || !read.mode) {
+      shortcutStatus(button, `Reload 안 됨 · ${dtc.name} · ${[...read.errors, ...read.warnings].join(" · ")}`, "invalid");
+      return;
+    }
+    const entry = read.mode === "VRP" ? read.vrp : read.vip;
+    const magVar = currentMagVarDeg();
+    const magneticDeg = norm360(entry.tbrgDeg - (Number.isFinite(magVar) ? magVar : 0));
+    busy = true;
+    render();
+    try {
+      await offsetUi.whenIdle();
+      if (read.mode === "VRP") {
+        page("#vrp-btn")?.click();
+        await offsetUi.whenIdle();
+        await editField("#vrp-bearing-input", magneticDeg.toFixed(1));
+        await editField('.reference-point-section [data-key="vrpRangeNm"]', entry.rangeNm.toFixed(2));
+      } else {
+        page("#vip-btn")?.click();
+        page("#vip-to-target-btn")?.click();
+        await offsetUi.whenIdle();
+        await editField("#vip-bearing-input", magneticDeg.toFixed(1));
+        await editField("#vip-range-input", entry.rangeNm.toFixed(2));
+      }
+      const text = `Reload · ${dtc.name} · ${read.mode} STPT ${entry.stpt} · TBRG ${magneticDeg.toFixed(1)}° M (${entry.tbrgDeg.toFixed(1)}° T) · RNG ${entry.rangeNm.toFixed(2)} NM (${Math.round(entry.rangeFt)} ft) → #1 ${read.mode}`;
+      const warn = read.warnings.length ? ` · 주의: ${read.warnings.join(" · ")}` : "";
+      shortcutStatus(button, `${text}${warn}`, warn ? "warning" : "valid");
+      setStatus(`${text}${warn}`, warn ? "warning" : "valid");
+    } catch (error) {
+      shortcutStatus(button, `Reload 안 됨 · ${error?.message ?? error}`, "invalid");
+    } finally {
+      busy = false;
+      render();
+    }
+  }
+
+  // 0.1.2 DED Save: Write DTE for the DED's ship.
+  async function dedSave(button, number) {
+    if (busy) return;
+    if (!(await currentDtc())) { shortcutStatus(button, `DED Save 안 됨 · ${panelStatus().text}`, "invalid"); return; }
+    if (!mission?.target) { shortcutStatus(button, `DED Save 안 됨 · ${dtc.name}에서 TGT STPT를 찾지 못했습니다. Save/Load 탭에서 TGT STPT를 입력하세요.`, "invalid"); return; }
+    shipOptions();
+    const select = $("#bms-dte-ship");
+    if (number > select.options.length) { shortcutStatus(button, `DED Save 안 됨 · #${number}은 편대 크기 밖입니다`, "invalid"); return; }
+    select.value = String(number);
+    await writeDte();
+    const { text, kind } = panelStatus();
+    shortcutStatus(button, text, kind);
+  }
+
+  const reloadButton = page("#reference-ded-reload");
+  if (reloadButton && !reloadButton.dataset.bound) {
+    reloadButton.dataset.bound = "true";
+    reloadButton.addEventListener("click", () => reloadReference(reloadButton));
+  }
+  doc.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-ded-save]");
+    if (!button) return;
+    event.preventDefault();
+    dedSave(button, Number(button.dataset.dedSave) || 1);
+  });
+  doc.body?.classList.add("bms-dte-ready");
+
   $("#bms-dtc-open").addEventListener("click", async () => { await openDtc(); render(); });
   $("#bms-dtc-reload").addEventListener("click", async () => { await readAgain(); render(); });
   for (const key of ["tgt", "ip"]) $(`#bms-${key}-stpt`).addEventListener("change", (event) => { takeOverride(key, event.currentTarget); render(); });
@@ -468,5 +565,7 @@ export function mountBmsMissionPanel({ root, offsetUi, tool = "offset", doc = gl
     writeDte,
     clearDte,
     undoDte,
+    reloadReference: () => reloadReference(page("#reference-ded-reload")),
+    dedSave: (number) => dedSave(page(`[data-ded-save="${number}"]`), number),
   });
 }

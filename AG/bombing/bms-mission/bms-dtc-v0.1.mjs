@@ -13,7 +13,10 @@
 // 0.1.1 (owner 2026-11-19, plan S10, "offset에 있는 DED 로드 세이브 기능 Popup에도"): the POP-UP page's DTE also writes
 //   its POP-UP page (VRPPUP / VIPPUP, after the VRP / VIP line) and OA2 (after OA1) when they are given. Offset passes
 //   neither, so its lines are unchanged.
-export const BMS_DTC_V0_1 = Object.freeze({ id: "bms-dtc-v0.1", version: "0.1.1", status: "work" });
+// 0.1.2 (owner 2026-11-22, "vip vrp설정 탭에 리로드 버튼 만들 것 (ded data reload)"): readBmsNavReference(parsed,
+//   { targetStpt }) reads back the VRP and VIP pages (STPT, TBRG true, RNG ft / NM, ELEV ft) and Modesel of
+//   [NAV OFFSETS], so the page can put them in its VRP / VIP fields.
+export const BMS_DTC_V0_1 = Object.freeze({ id: "bms-dtc-v0.1", version: "0.1.2", status: "work" });
 
 const FT_PER_NM = 6076.11549;
 
@@ -58,6 +61,7 @@ function keyValue(line) {
   return { key: line.slice(0, at).trim(), value: line.slice(at + 1).trim() };
 }
 
+const FT_PER_NM_DTC = 6076.11549;
 const numberOf = (text) => {
   const value = Number(String(text).trim());
   return Number.isFinite(value) ? value : NaN;
@@ -298,6 +302,35 @@ function rewriteNavOffsets(text, write) {
   const sectionLines = [...kept.slice(0, at), ...write, ...kept.slice(at)];
   const out = [...lines.slice(0, section.start + 1), ...sectionLines, ...lines.slice(section.end)];
   return { text: out.join(eol), removed, written: [...write] };
+}
+
+// The VRP / VIP pages of [NAV OFFSETS] (0.1.2): `VRP=<stpt>,<TBRG true>,<RNG ft>,<ELEV ft>`, the same for VIP.
+// mode = Modesel (VRP / VIP), else the only page present. A page of another STPT than targetStpt is a warning.
+export function readBmsNavReference(parsed, { targetStpt = null } = {}) {
+  const entries = parsed?.navOffsets ?? [];
+  const warnings = [];
+  const errors = [];
+  const pageOf = (name) => {
+    const entry = entries.find((item) => item.key.toUpperCase() === name);
+    if (!entry) return null;
+    const [stpt, tbrgDeg, rangeFt, elevationFt] = entry.value.split(",").map(numberOf);
+    if (![stpt, tbrgDeg, rangeFt].every(Number.isFinite) || rangeFt < 0) {
+      errors.push(`${name} line is not readable: ${entry.value}`);
+      return null;
+    }
+    if (Number.isFinite(Number(targetStpt)) && Number(targetStpt) > 0 && stpt !== Number(targetStpt)) {
+      warnings.push(`${name} is set on STPT ${stpt}, not the TGT STPT ${targetStpt}`);
+    }
+    return { stpt, tbrgDeg: tbrgDeg >= 0 && tbrgDeg < 360 ? tbrgDeg : ((tbrgDeg % 360) + 360) % 360, rangeFt, rangeNm: rangeFt / FT_PER_NM_DTC, elevationFt: Number.isFinite(elevationFt) ? elevationFt : null };
+  };
+  const vrp = pageOf("VRP");
+  const vip = pageOf("VIP");
+  const sel = String(parsed?.modesel ?? "").trim().toUpperCase();
+  const mode = sel === "VRP" || sel === "VIP" ? sel : vrp && !vip ? "VRP" : vip && !vrp ? "VIP" : null;
+  if (!vrp && !vip && !errors.length) errors.push("[NAV OFFSETS] has no VRP or VIP line");
+  else if (mode && !(mode === "VRP" ? vrp : vip)) errors.push(`Modesel is ${mode} but there is no ${mode} line`);
+  else if (!mode) warnings.push("Modesel is not set: choose VRP or VIP");
+  return { mode, vrp, vip, warnings, errors };
 }
 
 export function patchBmsNavOffsets(text, values) {

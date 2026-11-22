@@ -1,6 +1,7 @@
 import { casToTas, machToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
-import { OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, calculateOffsetFlightUnfittedFull as calculateOffsetFlightFull, createOffsetFlightSession, profileLinkStates } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.19";
+import { OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, calculateOffsetFlightUnfittedFull as calculateOffsetFlightFull, createOffsetFlightSession, profileLinkStates } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.20";
+import { calculateWithIaaEdit } from "../offset-bombing/offset-iaa-edit-v0.1.mjs";
 import { calculateWithClearFit, clearFitFieldLocked, clearFitRange } from "../offset-bombing/offset-clear-fit-v0.1.mjs";
 import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs?v=0.2.5";
 import { calculatePopupClimbFull } from "./popup-climb-v0.2.mjs";
@@ -90,7 +91,11 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // ways. An Initial Altitude edit (any aircraft) is an edit of #1's Offset Altitude (the Flight's Offset leg is #1's);
   // every aircraft's Initial Altitude goes back as the Offset Altitude flown. A record whose two differ (an older file)
   // takes the Offset Altitude. The Roll-in Altitude LINK is off on this page (rollInAltitudeLinked false).
-  version: "0.1.21",
+  // 0.1.22 (owner 2026-11-22, "popup/oa2가 타겟고도와 같이 셋팅되어 있는데 initial 고도로 설정, vip/vrp 동일"): the DED
+  // POP-UP page (VRPPUP / VIPPUP) and OA2 ELEV are the aircraft's Initial Altitude (= its VRP / VIP page ELEV), no
+  // longer the Target Elevation. RNG / TBRG unchanged. Offset Flight 0.1.20's IAA edit (offset-iaa-edit-v0.1) on this
+  // page too: calculatePopupFlightFull and the page session turn a typed IAA into the Release Altitude that flies it.
+  version: "0.1.22",
   defaultPopupG: 4,
   angleIterations: 12,
   autoAngleMinDeg: 1,
@@ -114,10 +119,15 @@ const FT_PER_NM = 6076.11549;
 const norm360 = (deg) => ((deg % 360) + 360) % 360;
 
 // The Pop-up Point page (0.1.6; OA2 in 0.1.5): true bearing and range from OA1's reference (the Target; the Flight's VIP
-// when #1 is in VIP mode), as the Offset Flight reads OA1, with ELEV = the aircraft's Target Elevation.
-function popPointDedPage(base, popPoint, targetElevationMslFt) {
+// when #1 is in VIP mode), as the Offset Flight reads OA1, with ELEV = the aircraft's Initial Altitude (0.1.22).
+function popPointDedPage(base, popPoint, elevationFt) {
   const rangeNm = Math.hypot(popPoint.x - base.x, popPoint.y - base.y);
-  return { point: "POP", bearingDeg: norm360(Math.atan2(popPoint.x - base.x, popPoint.y - base.y) / DEG), rangeNm, rangeFt: rangeNm * FT_PER_NM, elevationFt: targetElevationMslFt };
+  return { point: "POP", bearingDeg: norm360(Math.atan2(popPoint.x - base.x, popPoint.y - base.y) / DEG), rangeNm, rangeFt: rangeNm * FT_PER_NM, elevationFt };
+}
+// The DED ELEV of the POP-UP page and OA2 (0.1.22): the aircraft's Initial Altitude, as its VRP / VIP page shows it.
+function dedInitialAltitudeFt(ded) {
+  const elevationFt = ded?.reference?.elevationFt;
+  return Number.isFinite(elevationFt) ? elevationFt : null;
 }
 const blank = (value) => value === null || value === undefined || value === "";
 
@@ -382,7 +392,7 @@ function nextAutoAngle(tried) {
 }
 
 export function calculatePopupFlightFull(input) {
-  return popupFlightWithClearFit(input, calculateOffsetFlightFull);
+  return calculateWithIaaEdit(input, (i) => popupFlightWithClearFit(i, calculateOffsetFlightFull));
 }
 
 // Cleared-field fit (0.1.10; the search itself is shared with the Offset Flight since 0.1.11, offset-clear-fit-v0.1).
@@ -803,19 +813,19 @@ function popupFlight(rawInput, offsetFlight) {
     const popupResult = { ...r, timing, geometry: { ...r.geometry, points: { ...r.geometry.points, popPoint } } };
     const { status, errors: attackErrors, warnings: attackWarnings, bdp: _bdp, ...popup } = attack;
     // DED (0.1.6): the Pop-up Point page from OA1's reference (the Flight's VIP, #1's, in VIP mode, else the Target);
-    // OA2 = OA1's point at the Target Elevation.
+    // OA2 = OA1's point; both at the Initial Altitude (0.1.22).
     const flightLead = output.aircraftResults[1]?.result;
     const dedBase = flightLead?.referenceMode === "VIP" ? flightLead.geometry.points.vip : target;
-    const ded = offset.ded ? { ...offset.ded, popUp: popPointDedPage(dedBase, popPoint, bdp.canonicalInputs.targetElevationMslFt) } : offset.ded;
+    const ded = offset.ded ? { ...offset.ded, popUp: popPointDedPage(dedBase, popPoint, dedInitialAltitudeFt(offset.ded)) } : offset.ded;
     aircraftResults[n] = { ...merge({ ...popup, popPoint, approachRangeNm, holdDownNm, holdDownSec, popTimeSec, popToTargetNm, popAngleOffDeg }, errors, warnings), result: popupResult, ded };
   }
-  // DED OA2 (0.1.6, owner): OA1's point (same RNG / TBRG) with ELEV = the aircraft's Target Elevation, wherever the
-  // aircraft has an OA1 (with or without a Pop Point).
+  // DED OA2 (0.1.6, owner): OA1's point (same RNG / TBRG), wherever the aircraft has an OA1 (with or without a Pop
+  // Point); ELEV = the aircraft's Initial Altitude (0.1.22; it was the Target Elevation).
   for (const n of numbers) {
     const entry = aircraftResults[n];
-    const targetElevationMslFt = entry?.result?.profile?.canonicalInputs?.targetElevationMslFt;
-    if (!entry?.ded?.oa1 || typeof targetElevationMslFt !== "number") continue;
-    entry.ded = { ...entry.ded, oa2: { ...entry.ded.oa1, elevationFt: targetElevationMslFt } };
+    const elevationFt = dedInitialAltitudeFt(entry?.ded);
+    if (!entry?.ded?.oa1 || elevationFt === null) continue;
+    entry.ded = { ...entry.ded, oa2: { ...entry.ded.oa1, elevationFt } };
   }
   // Written back for the page: each aircraft's flown angle and the two results of its driver.
   const nextInput = structuredClone(output.nextInput ?? input);
@@ -858,7 +868,7 @@ function popupFlight(rawInput, offsetFlight) {
 export function createPopupFlightSession(options) {
   const offset = createOffsetFlightSession({ ...options, clearFit: false });
   return {
-    calculate: (input) => popupFlightWithClearFit(input, (i) => offset.calculate(i)),
+    calculate: (input) => calculateWithIaaEdit(input, (j) => popupFlightWithClearFit(j, (i) => offset.calculate(i))),
     lastStats: () => offset.lastStats(),
     prepare(nextInput) {
       popupFlight(nextInput, (i) => offset.calculate(i));

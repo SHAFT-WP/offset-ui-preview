@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OFFSET Tactics · V2 WORK</title>
-<link rel="stylesheet" href="./offset.css?v=ca666328d960">
-  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=ca666328d960">
-<link rel="stylesheet" href="./wide-layout.css?v=ca666328d960">
+<link rel="stylesheet" href="./offset.css?v=59e7437a69b3">
+  <link rel="stylesheet" href="./common/ui/result-panel-v0.1.css?v=59e7437a69b3">
+<link rel="stylesheet" href="./wide-layout.css?v=59e7437a69b3">
 </head>
 <body class="offset-wide bombing-wide">
 <main class="app" id="offset-calculator">
@@ -28,7 +28,7 @@
   <section class="section bdp-tab-section" data-tab="bdp" data-bdp-tab="1" aria-labelledby="bdp-title-1"></section>
 
   <section class="section reference-point-section" data-tab="reference" aria-labelledby="reference-point-title">
-    <div class="section-head"><h2 id="reference-point-title">Reference Point</h2></div>
+    <div class="section-head"><h2 id="reference-point-title">Reference Point</h2><button class="btn bms-shortcut-button" id="reference-ded-reload" type="button" title="Read the DTC (callsign ini) again and put its VRP / VIP page in these fields (Open DTC when none)">Reload</button></div>
     <div class="mode-switch reference-mode-switch" role="group" aria-label="Reference Point mode">
       <button id="vrp-btn" class="mode-button active" type="button">VRP</button>
       <button id="vip-btn" class="mode-button" type="button">VIP</button>
@@ -88,7 +88,7 @@
         <label class="field"><span class="lock-title"><span>Roll-in Altitude (ft MSL)</span><button class="lock-button" type="button" data-lock-key="rollInAltitudeMslFt" aria-label="Lock Roll-in Altitude" aria-pressed="false">LOCK</button></span><input data-key="rollInAltitudeMslFt" type="text" inputmode="decimal" value="16000"><span class="unit">OA1 / BDP entry altitude · LOCK: Tracking Time → Release Alt</span></label>
         <label class="field"><span class="lock-title"><span>Dive Angle (deg)</span><button class="lock-button" type="button" data-lock-key="diveAngleDeg" aria-pressed="false">LOCK</button></span><input data-key="diveAngleDeg" type="text" inputmode="decimal" value="45"><span class="unit">BDP / Offset parameter</span></label>
         <label class="field"><span>Tracking Time (sec)</span><input data-key="trackingTimeSec" type="text" inputmode="decimal" value="18.0"><span class="unit">Track Point → Release · 0.1 s</span></label>
-        <label class="field"><span>Release Altitude (ft MSL)</span><input data-key="releaseAltitudeMslFt" type="text" inputmode="decimal" value="6800"><span class="unit">NLT clamp is BDP-owned</span></label><label class="field"><span>NLT Release (ft MSL)</span><output class="readout" data-bdp-nlt-release>-</output><span class="unit">Result · BDP minimum release altitude</span></label>
+        <label class="field"><span>Release Altitude (ft MSL)</span><input data-key="releaseAltitudeMslFt" type="text" inputmode="decimal" value="6800"><span class="unit">NLT clamp is BDP-owned</span></label><label class="field"><span>NLT Release (ft MSL)</span><output class="readout" data-bdp-nlt-release>-</output><span class="unit">Result · BDP minimum release altitude</span></label><label class="field"><span>IAA (deg)</span><input data-key="iaaDeg" type="text" inputmode="decimal"><span class="unit">Aim-off Angle · edit: Release Alt solved, Tracking Time held</span></label>
         <label class="field"><span>Release Speed (kcas)</span><input data-key="releaseSpeedKcas" type="text" inputmode="decimal" value="450"><span class="unit">Release speed</span></label>
       </div>
     </details>
@@ -216,7 +216,7 @@
   <section class="section compact-results" id="result-section" data-result-panel data-output-aircraft="1" data-aircraft-output="result"><div class="result-panel-head"><h2>Result #1</h2><div data-result-controls aria-label="Result display controls"></div></div><div class="result-panel-body"><div data-result-group><h3>Offset</h3><table><tbody class="result-rows" id="offset-result-body"></tbody></table></div><div data-result-group><h3>Bomb Profile</h3><table><tbody class="result-rows" id="profile-result-body"></tbody></table></div><p data-result-empty>No available summary results.</p></div></section>
 
   <section class="section ded-section" data-output-aircraft="1" data-aircraft-output="ded" aria-labelledby="ded-title">
-    <div class="section-head"><h2 id="ded-title">DED #1</h2><button class="btn ded-png-button" type="button" data-ded-png="1">PNG</button></div>
+    <div class="section-head"><h2 id="ded-title">DED #1</h2><button class="btn ded-png-button" type="button" data-ded-png="1">PNG</button><button class="btn bms-shortcut-button ded-save-button" type="button" data-ded-save="1" title="Write this DED to the DTC [NAV OFFSETS] (Write DTE for #1)">DED Save</button></div>
     <div hidden aria-hidden="true">
       <button id="ded-vrp-tab" class="ded-tab active" type="button" data-ded-page="VRP">VRP</button>
       <button id="ded-vip-tab" class="ded-tab" type="button" data-ded-page="VIP">VIP</button>
@@ -243,7 +243,7 @@
 
   <div id="flight-followers"></div>
 </main>
-<script type="module" src="./wide-layout.mjs?v=ca666328d960"></script>
+<script type="module" src="./wide-layout.mjs?v=59e7437a69b3"></script>
 
 </body>
 </html>

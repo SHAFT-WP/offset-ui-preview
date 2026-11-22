@@ -25,7 +25,14 @@
 // 0.1.4 (2026-11-04, owner): a page whose CSEM turns (csem: { ... }) shows the Turn Direction and Turn Amount for
 // both SEMs, the CSEM Target FPA with its own placeholder / note and a CSEM Level Altitude (ft AGL) field.
 // 0.1.5 (2026-11-09, owner): the wind direction is magnetic like every heading of the bombing pages (label MAG).
-export const BDP_TAB_V0_1 = Object.freeze({ id: "bombing-bdp-tab-v0.1", version: "0.1.5" });
+// 0.1.6 (2026-11-22, owner "bdp에 iaa 입력 필드 넣어줄 것"): a page whose Flight takes an IAA edit (iaa: true; Offset,
+// POP-UP) shows the IAA group (always, after Wind): the IAA flown, editable; the Flight solves the Release Altitude.
+export const BDP_TAB_V0_1 = Object.freeze({ id: "bombing-bdp-tab-v0.1", version: "0.1.6" });
+
+// The IAA field (0.1.6): the BDP's Aim-off Angle, one decimal; typed, the Flight moves Release (and Roll-in) Altitude.
+export function iaaFieldMarkup({ follower = null } = {}) {
+  return field("iaaDeg", "IAA (deg)", "Aim-off Angle · edit: Release Alt solved, Tracking Time held (Roll-in LOCK: Tracking Time moves)", { follower });
+}
 
 // The NLT Release readout (BDP result) shown after Release Altitude; pages that hand-write their BDP Profile use it too.
 export const NLT_RELEASE_FIELD = `<label class="field"><span>NLT Release (ft MSL)</span><output class="readout" data-bdp-nlt-release>-</output><span class="unit">Result · BDP minimum release altitude</span></label>`;
@@ -137,7 +144,7 @@ export function semRecoveryFieldsMarkup({ follower = null, turnAmount = null, cs
 // The BDP section's content (head + groups) of aircraft `number`. weapons: [{ id, label }] for the Bomb select.
 // angleOff: as bdpProfileFieldsMarkup. turnNote: as turnOnsetFieldsMarkup. targetNote / windNote: the Target
 // Elevation and Wind Direction notes. follower: the follower form (above).
-export function bdpTabMarkup({ number = 1, weapons = [], angleOff = null, turnNote, targetNote = "Target MSL", windNote = "MAG · wind FROM", follower = null, turnAmount = null, csem = null } = {}) {
+export function bdpTabMarkup({ number = 1, weapons = [], angleOff = null, turnNote, targetNote = "Target MSL", windNote = "MAG · wind FROM", follower = null, turnAmount = null, csem = null, iaa = false } = {}) {
   const options = weapons.map((weapon) => `<option value="${esc(weapon.id)}">${esc(weapon.label ?? weapon.id)}</option>`).join("");
   const bomb = `<label class="field${follower ? " flight-weapon-field" : ""}"><span>Bomb</span><select ${keyAttr("weaponId", follower)}>${options}</select><span class="unit">BDP weapon database</span></label>`;
   const wind = follower
@@ -146,6 +153,7 @@ export function bdpTabMarkup({ number = 1, weapons = [], angleOff = null, turnNo
   return `<div class="section-head"><div class="bdp-tab-head"><h2 id="bdp-title-${number}">BDP #${number}</h2><p class="bdp-tab-note">${BDP_TAB_NOTE}</p></div></div>`
     + group("Target Elevation/Bomb type", field("targetElevationMslFt", "Target Elevation (ft MSL)", targetNote, { follower }) + bomb)
     + group("Wind", wind)
+    + (iaa ? group("IAA", iaaFieldMarkup({ follower })) : "")
     + group("BDP Profile", bdpProfileFieldsMarkup({ angleOff, follower }), { full: true })
     + group("Roll-in Turn", rollInTurnFieldsMarkup({ follower }))
     + group("Turn Onset", turnOnsetFieldsMarkup({ turnNote, follower }))
@@ -165,7 +173,7 @@ export const BDP_TAB_KEYS = Object.freeze([
 // G and Tracking Time one decimal. Initial Speed in Mach shows two decimals (initialSpeedText).
 export const BDP_FIELD_DIGITS = Object.freeze({
   targetElevationMslFt: 0, windDirectionDeg: 0, windSpeedKt: 0, initialAltitudeMslFt: 0, rollInAltitudeMslFt: 0, diveAngleDeg: 0,
-  trackingTimeSec: 1, releaseAltitudeMslFt: 0, releaseSpeedKcas: 0, rollInBankAngleDeg: 0, rollInG: 1,
+  trackingTimeSec: 1, releaseAltitudeMslFt: 0, releaseSpeedKcas: 0, rollInBankAngleDeg: 0, rollInG: 1, iaaDeg: 1,
 });
 
 // Shows only the fields of the chosen SEM (owner 2026-10-18 / 19 / 25): CSEM → CSEM Target FPA; Level → the SEM Turn

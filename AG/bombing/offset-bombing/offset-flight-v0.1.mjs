@@ -1,4 +1,5 @@
 import { calculateWithClearFit, clearFitRange } from "./offset-clear-fit-v0.1.mjs";
+import { calculateWithIaaEdit, withoutIaa } from "./offset-iaa-edit-v0.1.mjs";
 import { OFFSET_BE_V0_2, calculateOffsetWithVrpStartFull } from "./offset-be-v0.2.mjs";
 import { OFFSET_FORMATION_GEOMETRY_V0_1, calculateOffAxisOffsetFull } from "./offset-formation-geometry-v0.1.mjs";
 import {
@@ -81,7 +82,11 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // the Release Speed may then be blank (no cap). Without them nothing changes.
   // 0.1.19 (owner 2026-11-19, VIP mode for the BMS DTE): a VIP not set separately is the IP (Run-In / IP Range, it was
   // 10 NM); OA1 is read from the Target in VIP mode too (as VRP).
-  version: "0.1.19",
+  // 0.1.20 (owner 2026-11-22, "bdp에 iaa 입력 필드 … iaa를 건드리면 롤인 고도와 release 고도가 바뀐다"): an IAA edit
+  // (values.iaaDeg, offset-iaa-edit-v0.1) becomes the Release Altitude that flies it (Tracking Time held, Roll-in
+  // Altitude follows; Roll-in LOCK: Roll-in held, Tracking Time follows). Every nextInput carries values.iaaDeg = the
+  // IAA flown. Every entrypoint (Full, Unfitted, Reference, the page session) does this.
+  version: "0.1.20",
   status: "work",
   schemaVersion: 2,
   components: Object.freeze({
@@ -1589,13 +1594,15 @@ function calculateFlight(input, session) {
 // Pure reference entrypoint: every call starts from nothing (no state survives between calls).
 // Inside the call, identical BDP / SEM / trajectory sub-solves are computed once (P1/P2).
 export function calculateOffsetFlightFull(input) {
-  return calculateWithClearFit(input, calculateOffsetFlightUnfittedFull, OFFSET_CLEAR_FIT_SPEC);
+  return calculateWithIaaEdit(input, (i) => calculateWithClearFit(i, calculateOffsetFlightUnfittedFull, OFFSET_CLEAR_FIT_SPEC));
 }
 
 // The same without the cleared-field fit (a clear goes back to its value at the start of the edit).
 export function calculateOffsetFlightUnfittedFull(input) {
-  const cache = createCalculationCache();
-  return withCalculationCache(cache, () => calculateFlight(input, null)).output;
+  return calculateWithIaaEdit(input, (i) => {
+    const cache = createCalculationCache();
+    return withCalculationCache(cache, () => calculateFlight(i, null)).output;
+  });
 }
 
 // Cleared-field fit (0.1.16): key → [label, Offset page default, candidates]. Fields not listed (Tracking Time, Formation,
@@ -1628,7 +1635,7 @@ const OFFSET_CLEAR_FIT_SPEC = Object.freeze({ table: OFFSET_CLEAR_FIT, order: OF
 
 // Verification reference (addendum P04): the same calculation with no reuse of any kind.
 export function calculateOffsetFlightReferenceFull(input) {
-  return withCalculationCache(null, () => calculateFlight(input, null)).output;
+  return calculateWithIaaEdit(input, (i) => withCalculationCache(null, () => calculateFlight(i, null)).output);
 }
 
 // Editing session (addendum P3): the same contract as calculateOffsetFlightFull, for the repeated
@@ -1638,8 +1645,10 @@ export function calculateOffsetFlightReferenceFull(input) {
 // (offset-flight-session-v0.1.test.mjs). The FE holds the session as an opaque handle (in the Worker).
 export function createOffsetFlightSession({ solveLimit = 48, cacheLimits = { "bdp-v0.4": 2048, "ballistic-trajectory": 2048, "sem-nlt": 64 }, clearFit = true } = {}) {
   const session = createFlightSession(calculateFlight, { solveLimit, cacheLimits });
-  if (!clearFit) return session;
-  return Object.freeze({ ...session, calculate: (input) => calculateWithClearFit(input, (i) => session.calculate(i), OFFSET_CLEAR_FIT_SPEC) });
+  // The IAA edit (0.1.20) wraps every call; prepare gets the returned state without values.iaaDeg, as calculate does.
+  const prepare = (nextInput) => session.prepare(nextInput?.aircraft ? withoutIaa(nextInput) : nextInput);
+  if (!clearFit) return Object.freeze({ ...session, prepare, calculate: (input) => calculateWithIaaEdit(input, (i) => session.calculate(i)) });
+  return Object.freeze({ ...session, prepare, calculate: (input) => calculateWithIaaEdit(input, (j) => calculateWithClearFit(j, (i) => session.calculate(i), OFFSET_CLEAR_FIT_SPEC)) });
 }
 
 // Public entrypoint: results truncated to 5 decimals (docs/FE-BE-RULES.md). It carries no nextInput:
