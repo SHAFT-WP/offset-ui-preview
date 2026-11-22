@@ -1,128 +1,200 @@
 // POP-UP Design tab, step 3 Top View (owner 2026-11-20, DESIGN-STEPS.md §3, the owner's sketch; S3). Drawing only:
-// the points are the BE's (popup-offset-region-v0.1, one Flight solve per Angle Off) and the page's last answer.
-//   Inner circle = MAP, outer circle = Roll-in Distance, both around the Target.
-//   Yellow arc = possible Roll-in Points, green arc = possible Attack Headings (where each attack axis crosses the
-//   MAP circle); solid = Approach-Pop ≥ 2 s, light = 0–2 s, nothing below 0 s. The Offset Angle of each point is
-//   written beside it. The flown path (VRP → Offset Turn → Approach → Roll-in) is drawn as it is, with the APP Range;
-//   the Attack Heading flown (or entered) is a red line through the Target.
-export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.0" });
+// the points are the BE's (popup-offset-region-v0.1, one Flight solve per Angle Off and Roll-in side) and the page's
+// last answer.
+//   MAP circle around the Target. Roll-in Distance = the line through every solved Roll-in Point (it is not a circle:
+//   the Roll-in Distance changes with the Angle Off), both Roll-in sides.
+//   Yellow arc = possible Roll-in Points, green arc = possible Attack Headings, drawn where each attack axis leaves
+//   the MAP circle past the Target (the way the attack arrow points); solid = Approach-Pop ≥ 2 s, light = 0–2 s,
+//   nothing below 0 s. The Offset Angle of every 15° of Angle Off is written beside its Roll-in Point.
+//   The flown path in the Offset Top View colours and symbols: VRP (Action Point) → Offset turn → Approach → Pop →
+//   Roll-in turn → Track Point → Target, with the turn paths and their arrows. The Attack Heading flown is a red arrow
+//   through the Target.
+// 0.1.1 (owner 2026-11-20 follow-up): both sides, the Roll-in Distance line, green on the arrow side, the common
+// symbols (offset-view-style colours, the Offset Top View station markers, the POP-UP Pop marker), turn arrows,
+// point tooltips. Zoom is the caller's (common svg-viewport); the canvas is fixed (W × H) so a zoom survives a redraw.
+import { OFFSET_VIEW_COLORS as C } from "./AG/bombing/offset-bombing/view/offset-view-style-v0.1.mjs";
+import { createOpenArrowMarker } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
+import { appendNorthMark } from "./common/diagram/svg-north-mark-v0.1.mjs";
+
+export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.1", canvas: Object.freeze({ width: 640, height: 600 }) });
 
 const NS = "http://www.w3.org/2000/svg";
 const svgEl = (tag, attrs = {}, text = null) => {
   const node = document.createElementNS(NS, tag);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) node.setAttribute(k, v);
   if (text !== null) node.textContent = text;
   return node;
 };
 const finite = (v) => Number.isFinite(v);
 const DEG = Math.PI / 180;
 const hdg = (deg) => String(Math.round(((deg % 360) + 360) % 360)).padStart(3, "0");
+const pt = (p) => p && finite(p.x) && finite(p.y);
 
-const COLORS = Object.freeze({ yellow: "#e0b000", green: "#1baf7a", red: "#e34948", path: "#2e2d2a", circle: "#9a9893" });
+export const REGION_COLORS = Object.freeze({ yellow: "#e0b000", green: "#1baf7a", red: "#e34948", circle: "#9a9893", pop: "#c2185b", locus: "#7a5c00" });
+const SIDE_TEXT = Object.freeze({ RIGHT: "R", LEFT: "L" });
 
-// points: region points; current: { geometry, popPoint, approachRangeNm, holdDownSec } of the answer; summary from
-// regionSummary.
-export function renderRegionTopView(svg, { points = [], current = null, summary = null } = {}) {
+// points: region points (both sides); current: { geometry, popPoint, approachRangeNm, attackHeadingDeg } of the answer;
+// summaries: { RIGHT, LEFT } from regionSummary per side.
+export function renderRegionTopView(svg, { points = [], current = null, summaries = {} } = {}) {
   svg.replaceChildren();
-  const W = 640, H = 560;
+  const { width: W, height: H } = POPUP_DESIGN_TOPVIEW_V0_1.canvas;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  svg.append(svgEl("rect", { x: 0, y: 0, width: W, height: H, fill: "#fff" }));
+  const defs = svgEl("defs");
+  svg.append(defs, svgEl("rect", { x: -W, y: -H, width: 3 * W, height: 3 * H, fill: "#fff" }));
+  const arrow = (name, color) => {
+    const id = `design-top-${name}-${Math.random().toString(36).slice(2, 8)}`;
+    defs.append(createOpenArrowMarker(id, color));
+    return `url(#${id})`;
+  };
   const g = current?.geometry;
   const mapNm = g?.groundRangeNm ?? points.find((p) => finite(p.mapNm))?.mapNm;
-  const rollInNm = g?.rollInRangeNm ?? points.find((p) => finite(p.rollInRangeNm))?.rollInRangeNm;
-  // Extent: the circles, the VRP and the drawn points.
-  const xy = [{ x: 0, y: 0 }];
-  if (finite(rollInNm)) xy.push({ x: rollInNm, y: rollInNm }, { x: -rollInNm, y: -rollInNm });
-  if (g?.points?.vrp) xy.push(g.points.vrp);
-  for (const p of points) if (p.level !== "bad" && p.rollIn) xy.push(p.rollIn);
+  const withRollIn = points.filter((p) => pt(p.rollIn));
+  // Extent: the MAP circle, the Roll-in Points, the VRP and the flown path.
+  const xy = [{ x: 0, y: 0 }, ...withRollIn.map((p) => p.rollIn)];
+  if (finite(mapNm)) xy.push({ x: mapNm, y: mapNm }, { x: -mapNm, y: -mapNm });
+  if (pt(g?.points?.vrp)) xy.push(g.points.vrp);
+  for (const p of g?.offsetTurnPath ?? []) if (pt(p)) xy.push(p);
   const minX = Math.min(...xy.map((p) => p.x)), maxX = Math.max(...xy.map((p) => p.x));
   const minY = Math.min(...xy.map((p) => p.y)), maxY = Math.max(...xy.map((p) => p.y));
-  const span = Math.max(maxX - minX, maxY - minY, 1) * 1.15;
+  const top = 34, bottom = 46;
+  const span = Math.max((maxX - minX) / W, (maxY - minY) / (H - top - bottom), 1e-3) * 1.12;
+  const s = 1 / span;
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-  const s = Math.min(W, H - 40) / span;
   const X = (x) => W / 2 + (x - cx) * s;
-  const Y = (y) => (H - 40) / 2 + 20 - (y - cy) * s;
-  // North arrow and title.
-  svg.append(svgEl("text", { x: 10, y: 18, "font-size": 13, "font-weight": 700, fill: "#2e2d2a" }, "Top View · 가능 영역 (#1)"));
-  svg.append(svgEl("path", { d: `M${W - 24},40 l-6,14 h12 z`, fill: "#5f5e5a" }), svgEl("text", { x: W - 24, y: 34, "text-anchor": "middle", "font-size": 11, fill: "#5f5e5a" }, "N"));
-  // Circles.
-  if (finite(rollInNm)) svg.append(svgEl("circle", { cx: X(0), cy: Y(0), r: rollInNm * s, fill: "none", stroke: COLORS.circle, "stroke-dasharray": "6 4" }));
-  if (finite(mapNm)) svg.append(svgEl("circle", { cx: X(0), cy: Y(0), r: mapNm * s, fill: "none", stroke: COLORS.circle }));
-  if (finite(rollInNm)) svg.append(svgEl("text", { x: X(0) + rollInNm * s * 0.71 + 4, y: Y(0) + rollInNm * s * 0.71 + 12, "font-size": 10.5, fill: "#5f5e5a" }, `Roll-in ${rollInNm.toFixed(2)} NM`));
-  if (finite(mapNm)) svg.append(svgEl("text", { x: X(0) + 4, y: Y(0) + mapNm * s + 12, "font-size": 10.5, fill: "#5f5e5a" }, `MAP ${mapNm.toFixed(2)} NM`));
-  // Arcs: consecutive drawn points joined, solid / light by the weaker of the two.
-  const drawn = [...points].filter((p) => p.level !== "bad" && p.rollIn).sort((a, b) => a.angleOffDeg - b.angleOffDeg);
-  const onMap = (p) => ({ x: -mapNm * Math.sin(p.attackHeadingDeg * DEG), y: -mapNm * Math.cos(p.attackHeadingDeg * DEG) });
-  const all = [...points].sort((a, b) => a.angleOffDeg - b.angleOffDeg);
-  for (let i = 1; i < all.length; i += 1) {
-    const a = all[i - 1], b = all[i];
-    if (a.level === "bad" || b.level === "bad" || !a.rollIn || !b.rollIn) continue;
-    const light = a.level === "warn" || b.level === "warn";
-    const style = { "stroke-width": light ? 5 : 8, "stroke-linecap": "round", opacity: light ? 0.35 : 0.95 };
-    svg.append(svgEl("line", { x1: X(a.rollIn.x), y1: Y(a.rollIn.y), x2: X(b.rollIn.x), y2: Y(b.rollIn.y), stroke: COLORS.yellow, ...style, "data-arc": "rollIn" }));
-    if (finite(mapNm)) {
-      const pa = onMap(a), pb = onMap(b);
-      svg.append(svgEl("line", { x1: X(pa.x), y1: Y(pa.y), x2: X(pb.x), y2: Y(pb.y), stroke: COLORS.green, ...style, "data-arc": "attack" }));
+  const Y = (y) => top + (H - top - bottom) / 2 - (y - cy) * s;
+  const P = (p) => ({ x: X(p.x), y: Y(p.y) });
+  const d = (pts) => pts.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join("");
+
+  svg.append(svgEl("text", { x: 10, y: 20, "font-size": 13, "font-weight": 700, fill: "#2e2d2a" }, "Top View · 가능 영역 (#1, 양쪽 Roll-in)"));
+  appendNorthMark(svg, { cx: W - 26, cy: 34, size: 14 });
+
+  // MAP circle.
+  if (finite(mapNm)) {
+    svg.append(svgEl("circle", { cx: X(0), cy: Y(0), r: mapNm * s, fill: "none", stroke: C.attack, "stroke-width": 1.4, "stroke-dasharray": "9 7", "data-top": "map" }));
+    svg.append(svgEl("text", { x: X(0) + 6, y: Y(0) + mapNm * s + 13, "font-size": 10.5, fill: C.attackText }, `MAP ${mapNm.toFixed(2)} NM`));
+  }
+  // Roll-in Distance: per Roll-in side, the line through every Roll-in Point the BE solved (Angle Off order).
+  if (withRollIn.length >= 2) {
+    for (const side of ["RIGHT", "LEFT"]) {
+      const line = withRollIn.filter((p) => p.rollDirection === side).sort((a, b) => a.angleOffDeg - b.angleOffDeg);
+      if (line.length >= 2) svg.append(svgEl("path", { d: d(line.map((p) => p.rollIn)), fill: "none", stroke: REGION_COLORS.circle, "stroke-width": 1.2, "stroke-dasharray": "6 4", "data-top": "roll-in-distance", "data-side": side }));
+    }
+    const dist = withRollIn.map((p) => Math.hypot(p.rollIn.x, p.rollIn.y));
+    svg.append(svgEl("text", { x: 10, y: H - 30, "font-size": 10.5, fill: "#5f5e5a" }, `Roll-in Distance (점선) ${Math.min(...dist).toFixed(2)}–${Math.max(...dist).toFixed(2)} NM · Angle Off에 따라 바뀜`));
+  }
+  // Region arcs, per side: consecutive Angle Offs joined, solid / light by the weaker of the two.
+  const onMapAhead = (p) => ({ x: mapNm * Math.sin(p.attackHeadingDeg * DEG), y: mapNm * Math.cos(p.attackHeadingDeg * DEG) });
+  for (const side of ["RIGHT", "LEFT"]) {
+    const all = points.filter((p) => p.rollDirection === side).sort((a, b) => a.angleOffDeg - b.angleOffDeg);
+    for (let i = 1; i < all.length; i += 1) {
+      const a = all[i - 1], b = all[i];
+      if (a.level === "bad" || b.level === "bad" || !pt(a.rollIn) || !pt(b.rollIn)) continue;
+      const light = a.level === "warn" || b.level === "warn";
+      const style = { "stroke-width": light ? 5 : 8, "stroke-linecap": "round", opacity: light ? 0.35 : 0.9 };
+      svg.append(svgEl("line", { x1: X(a.rollIn.x), y1: Y(a.rollIn.y), x2: X(b.rollIn.x), y2: Y(b.rollIn.y), stroke: REGION_COLORS.yellow, ...style, "data-arc": "rollIn", "data-side": side }));
+      if (finite(mapNm)) {
+        const pa = onMapAhead(a), pb = onMapAhead(b);
+        svg.append(svgEl("line", { x1: X(pa.x), y1: Y(pa.y), x2: X(pb.x), y2: Y(pb.y), stroke: REGION_COLORS.green, ...style, "data-arc": "attack", "data-side": side }));
+      }
+    }
+    const drawn = all.filter((p) => p.level !== "bad" && pt(p.rollIn));
+    for (const p of drawn) {
+      const dot = svgEl("circle", { cx: X(p.rollIn.x), cy: Y(p.rollIn.y), r: 3, fill: p.level === "ok" ? REGION_COLORS.yellow : "#fff", stroke: REGION_COLORS.yellow, "stroke-width": 1.5, "data-region-point": `${SIDE_TEXT[side]}${p.angleOffDeg}` });
+      dot.append(svgEl("title", {}, `${side === "RIGHT" ? "오른쪽" : "왼쪽"} Roll-in · Angle Off ${Math.round(p.angleOffDeg)}° · Attack Heading ${hdg(p.attackHeadingDeg)} · Offset Angle ${p.offsetAngleDeg.toFixed(1)}° · Approach ${p.approachRangeNm.toFixed(2)} NM · Approach-Pop ${p.holdDownSec.toFixed(1)} s`));
+      svg.append(dot);
+      if (Math.round(p.angleOffDeg) % 15 === 0) {
+        const len = Math.hypot(p.rollIn.x, p.rollIn.y) || 1;
+        const k = 16 / s;
+        svg.append(svgEl("text", { x: X(p.rollIn.x + (p.rollIn.x / len) * k), y: Y(p.rollIn.y + (p.rollIn.y / len) * k) + 4, "text-anchor": "middle", "font-size": 10, fill: REGION_COLORS.locus }, `${Math.round(p.offsetAngleDeg)}°`));
+      }
+    }
+    // The ends of the possible arc on this side.
+    if (summaries[side]?.possible && drawn.length) {
+      const first = drawn[0], last = drawn[drawn.length - 1];
+      // Written beside the end, away from the attack axis (left of a left-side point, right of a right-side one).
+      const tag = (p) => {
+        const out = p.rollIn.x < 0 ? -1 : 1;
+        const len = Math.hypot(p.rollIn.x, p.rollIn.y) || 1;
+        const k = 30 / s;
+        svg.append(svgEl("text", { x: X(p.rollIn.x + (p.rollIn.x / len) * k) + out * 6, y: Y(p.rollIn.y + (p.rollIn.y / len) * k) + 4, "text-anchor": out < 0 ? "end" : "start", "font-size": 10.5, "font-weight": 700, fill: "#2e2d2a", "data-region-end": side }, `${SIDE_TEXT[side]} AO ${Math.round(p.angleOffDeg)}° / ATK ${hdg(p.attackHeadingDeg)}`));
+      };
+      tag(first);
+      if (last !== first) tag(last);
     }
   }
-  drawn.forEach((p, i) => {
-    svg.append(svgEl("circle", { cx: X(p.rollIn.x), cy: Y(p.rollIn.y), r: 3, fill: p.level === "ok" ? COLORS.yellow : "#fff", stroke: COLORS.yellow, "stroke-width": 1.5 }));
-    // The Offset Angle of every other point (every point when there are few).
-    if (drawn.length <= 12 || i % 2 === 0) {
-      const dx = p.rollIn.x, dy = p.rollIn.y, len = Math.hypot(dx, dy) || 1;
-      svg.append(svgEl("text", { x: X(p.rollIn.x + (dx / len) * 0.18), y: Y(p.rollIn.y + (dy / len) * 0.18) + 4, "text-anchor": "middle", "font-size": 10, fill: "#7a5c00" }, `${Math.round(p.offsetAngleDeg)}°`));
-    }
-  });
-  // The ends of the possible arcs.
-  const range = summary?.possible;
-  if (range && drawn.length) {
-    const first = drawn[0], last = drawn[drawn.length - 1];
-    const tag = (p, text) => svg.append(svgEl("text", { x: X(p.rollIn.x), y: Y(p.rollIn.y) - 10, "text-anchor": "middle", "font-size": 10.5, "font-weight": 700, fill: "#2e2d2a" }, text));
-    tag(first, `AO ${Math.round(first.angleOffDeg)}° / ATK ${hdg(first.attackHeadingDeg)}`);
-    if (last !== first) tag(last, `AO ${Math.round(last.angleOffDeg)}° / ATK ${hdg(last.attackHeadingDeg)}`);
-  }
-  // The flown path: VRP → Offset Turn → Approach → Roll-in → Track Point.
+
+  // The flown path (Offset Top View colours): VRP → Offset turn → Approach (with the Pop) → Roll-in turn → Target.
   if (g?.points) {
-    const turn = Array.isArray(g.offsetTurnPath) ? g.offsetTurnPath : [];
-    const turnEnd = turn.length ? turn[turn.length - 1] : g.points.vrp;
-    const line = (pts, attrs) => svg.append(svgEl("path", { d: pts.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(""), fill: "none", ...attrs }));
-    if (g.points.vrp) line([g.points.vrp, ...turn], { stroke: COLORS.path, "stroke-width": 2 });
-    line([turnEnd, g.points.rollStart], { stroke: COLORS.path, "stroke-width": 2, "data-path": "approach" });
-    if (Array.isArray(g.rollInTrajectorySamples)) line(g.rollInTrajectorySamples, { stroke: COLORS.path, "stroke-width": 2 });
-    if (g.points.trackPoint) line([g.rollInTrajectorySamples?.at?.(-1) ?? g.points.rollStart, g.points.trackPoint, { x: 0, y: 0 }], { stroke: COLORS.path, "stroke-width": 1.5, "stroke-dasharray": "4 3" });
-    if (finite(current.approachRangeNm)) {
-      const mx = (turnEnd.x + g.points.rollStart.x) / 2, my = (turnEnd.y + g.points.rollStart.y) / 2;
-      svg.append(svgEl("text", { x: X(mx) - 8, y: Y(my), "text-anchor": "end", "font-size": 11, "font-weight": 700, fill: "#2e2d2a" }, `APP ${current.approachRangeNm.toFixed(2)} NM`));
+    const p = g.points;
+    const turn = (g.offsetTurnPath ?? []).filter(pt);
+    const turnEnd = turn.length ? turn[turn.length - 1] : p.turnEnd ?? p.vrp;
+    const roll = (g.rollInTrajectorySamples ?? []).filter(pt);
+    const midArrow = (pts, color, name) => {
+      if (pts.length < 3) return;
+      const i = Math.max(1, Math.floor(pts.length * 0.55));
+      svg.append(svgEl("path", { d: d([pts[i - 1], pts[i]]), fill: "none", stroke: color, "stroke-width": 2.4, "marker-end": arrow(name, color) }));
+    };
+    if (pt(p.vrp) && turn.length >= 2) {
+      const path = [p.vrp, ...turn];
+      svg.append(svgEl("path", { d: d(path), fill: "none", stroke: C.offset, "stroke-width": 3.5, "stroke-linejoin": "round", "data-path": "offset-turn" }));
+      midArrow(turn, C.offset, "offset");
     }
-    if (g.points.vrp) {
-      svg.append(svgEl("rect", { x: X(g.points.vrp.x) - 5, y: Y(g.points.vrp.y) - 5, width: 10, height: 10, fill: "#2a78d6" }));
-      svg.append(svgEl("text", { x: X(g.points.vrp.x) + 9, y: Y(g.points.vrp.y) + 4, "font-size": 11, fill: "#2a78d6" }, "VRP"));
+    if (pt(turnEnd) && pt(p.rollStart)) {
+      const invalid = finite(current.approachRangeNm) && current.approachRangeNm < 0;
+      svg.append(svgEl("path", { d: d([turnEnd, p.rollStart]), fill: "none", stroke: invalid ? C.invalid : C.approach, "stroke-width": 3, "stroke-dasharray": invalid ? "7 6" : null, "data-path": "approach" }));
+      if (finite(current.approachRangeNm)) {
+        const a = P(turnEnd), b = P(p.rollStart);
+        const nx = -(b.y - a.y), ny = b.x - a.x, nl = Math.hypot(nx, ny) || 1;
+        const side = (nx / nl) * (a.x - X(0)) + (ny / nl) * (a.y - Y(0)) > 0 ? 1 : -1;
+        svg.append(svgEl("text", { x: (a.x + b.x) / 2 + side * (nx / nl) * 14, y: (a.y + b.y) / 2 + side * (ny / nl) * 14 + 4, "text-anchor": "middle", "font-size": 11, "font-weight": 700, fill: C.approach }, `APP ${current.approachRangeNm.toFixed(2)} NM`));
+      }
     }
-    if (current.popPoint) {
-      svg.append(svgEl("circle", { cx: X(current.popPoint.x), cy: Y(current.popPoint.y), r: 4.5, fill: "#8e5bd6" }));
-      svg.append(svgEl("text", { x: X(current.popPoint.x) - 8, y: Y(current.popPoint.y) + 4, "text-anchor": "end", "font-size": 10.5, fill: "#8e5bd6" }, "Pop"));
+    if (roll.length >= 2) {
+      svg.append(svgEl("path", { d: d(roll), fill: "none", stroke: C.roll, "stroke-width": 3.5, "stroke-linejoin": "round", "data-path": "roll-in-turn" }));
+      midArrow(roll, C.roll, "roll");
     }
-    // The Attack Heading: a red line through the Target from the Roll-in circle.
+    if (pt(p.trackPoint)) {
+      const from = roll.length ? roll[roll.length - 1] : p.rollStart;
+      if (pt(from)) svg.append(svgEl("path", { d: d([from, p.trackPoint]), fill: "none", stroke: C.roll, "stroke-width": 2 }));
+    }
+    // The Attack Heading flown: a red arrow from the Track Point through the Target to the MAP circle beyond it.
     const h = finite(current.attackHeadingDeg) ? current.attackHeadingDeg : g.attackHeadingDeg;
-    if (finite(h) && finite(rollInNm)) {
-      const r = rollInNm * 1.15;
-      const from = { x: -r * Math.sin(h * DEG), y: -r * Math.cos(h * DEG) };
-      const to = { x: 0.35 * r * Math.sin(h * DEG), y: 0.35 * r * Math.cos(h * DEG) };
-      svg.append(svgEl("line", { x1: X(from.x), y1: Y(from.y), x2: X(to.x), y2: Y(to.y), stroke: COLORS.red, "stroke-width": 2.5, "data-attack-heading": "" }));
-      svg.append(svgEl("text", { x: X(to.x) + 6, y: Y(to.y) - 4, "font-size": 11, "font-weight": 700, fill: COLORS.red }, `ATK ${hdg(h)}`));
+    if (finite(h) && finite(mapNm)) {
+      const back = pt(p.trackPoint) ? p.trackPoint : { x: -mapNm * Math.sin(h * DEG), y: -mapNm * Math.cos(h * DEG) };
+      const tip = { x: mapNm * 1.18 * Math.sin(h * DEG), y: mapNm * 1.18 * Math.cos(h * DEG) };
+      svg.append(svgEl("path", { d: d([back, tip]), fill: "none", stroke: REGION_COLORS.red, "stroke-width": 2.5, "marker-end": arrow("attack", REGION_COLORS.red), "data-attack-heading": "" }));
+      svg.append(svgEl("text", { x: X(tip.x) + 8, y: Y(tip.y) - 6, "font-size": 11, "font-weight": 700, fill: REGION_COLORS.red }, `ATK ${hdg(h)}`));
     }
+    // Stations (Offset Top View markers; Pop as the POP-UP Top View's Pop Up marker).
+    const label = (q, text, color, dx = 10, dy = 4, anchor = "start") => svg.append(svgEl("text", { x: X(q.x) + dx, y: Y(q.y) + dy, "text-anchor": anchor, "font-size": 11, "font-weight": 700, fill: color }, text));
+    if (pt(p.vrp)) {
+      svg.append(svgEl("circle", { cx: X(p.vrp.x), cy: Y(p.vrp.y), r: 7, fill: C.offset, stroke: "#fff", "stroke-width": 2, "data-station": "vrp" }));
+      label(p.vrp, "VRP", C.offset);
+    }
+    if (pt(current.popPoint)) {
+      svg.append(svgEl("circle", { cx: X(current.popPoint.x), cy: Y(current.popPoint.y), r: 7, fill: "#fff", stroke: REGION_COLORS.pop, "stroke-width": 3, "data-station": "pop" }));
+      label(current.popPoint, "Pop Up", REGION_COLORS.pop, -11, 4, "end");
+    }
+    if (pt(p.rollStart)) {
+      svg.append(svgEl("circle", { cx: X(p.rollStart.x), cy: Y(p.rollStart.y), r: 7, fill: "#fff", stroke: C.roll, "stroke-width": 3, "data-station": "roll-in" }));
+      label(p.rollStart, "Roll-in", C.rollText, 10, 16);
+    }
+    if (pt(p.trackPoint)) svg.append(svgEl("circle", { cx: X(p.trackPoint.x), cy: Y(p.trackPoint.y), r: 4.5, fill: "#fff", stroke: C.roll, "stroke-width": 2, "data-station": "track" }));
   }
-  // Target.
-  svg.append(svgEl("circle", { cx: X(0), cy: Y(0), r: 5, fill: "#2e2d2a" }));
-  svg.append(svgEl("text", { x: X(0) + 8, y: Y(0) - 6, "font-size": 11, fill: "#2e2d2a" }, "Target"));
+  // Target (BDP Target marker).
+  svg.append(svgEl("circle", { cx: X(0), cy: Y(0), r: 6, fill: C.target, stroke: "#fff", "stroke-width": 2, "data-station": "target" }));
+  svg.append(svgEl("line", { x1: X(0) - 10, y1: Y(0), x2: X(0) + 10, y2: Y(0), stroke: C.target, "stroke-width": 2 }));
+  svg.append(svgEl("line", { x1: X(0), y1: Y(0) - 10, x2: X(0), y2: Y(0) + 10, stroke: C.target, "stroke-width": 2 }));
+  svg.append(svgEl("text", { x: X(0) + 10, y: Y(0) - 8, "font-size": 11, fill: "#2e2d2a" }, "Target"));
   // Legend.
-  const ly = H - 12;
+  const ly = H - 10;
   const key = (x, color, opacity, text) => {
-    svg.append(svgEl("line", { x1: x, x2: x + 22, y1: ly - 4, y2: ly - 4, stroke: color, "stroke-width": 7, opacity, "stroke-linecap": "round" }));
-    svg.append(svgEl("text", { x: x + 28, y: ly, "font-size": 10.5, fill: "#2e2d2a" }, text));
+    svg.append(svgEl("line", { x1: x, x2: x + 20, y1: ly - 4, y2: ly - 4, stroke: color, "stroke-width": 7, opacity, "stroke-linecap": "round" }));
+    svg.append(svgEl("text", { x: x + 25, y: ly, "font-size": 10.5, fill: "#2e2d2a" }, text));
   };
-  key(10, COLORS.yellow, 0.95, "Roll-in Point (≥ 2 s)");
-  key(150, COLORS.yellow, 0.35, "0–2 s");
-  key(225, COLORS.green, 0.95, "Attack Heading");
-  key(345, COLORS.red, 1, "선택한 Attack Heading");
+  key(10, REGION_COLORS.yellow, 0.9, "Roll-in Point (≥ 2 s)");
+  key(140, REGION_COLORS.yellow, 0.35, "0–2 s");
+  key(205, REGION_COLORS.green, 0.9, "Attack Heading (화살표 쪽)");
+  key(370, REGION_COLORS.red, 1, "선택한 Attack Heading");
+  svg.append(svgEl("text", { x: W - 8, y: ly, "text-anchor": "end", "font-size": 10.5, fill: "#5f5e5a" }, "R/L = Roll-in 방향"));
 }

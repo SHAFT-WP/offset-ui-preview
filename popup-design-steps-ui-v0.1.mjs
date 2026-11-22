@@ -11,9 +11,10 @@
 import { sweepBaseline } from "./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.2";
 import { POPUP_ANGLE_GRID, popupAngleRange, popupProfileLine } from "./AG/bombing/popup/popup-design-steps-v0.1.mjs?v=0.1.1";
 import { defaultPopupAngleDeg } from "./AG/bombing/popup/popup-be-v0.2.mjs?v=0.2.5";
-import { renderAngleCharts, renderProfile } from "./popup-design-popup-chart-v0.1.mjs?v=0.1.0";
-import { ANGLE_OFF_GRID, coarseFirst, insideSpan, regionBaseline, regionSummary } from "./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.0";
-import { renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.0";
+import { renderAngleCharts, renderProfile } from "./popup-design-popup-chart-v0.1.mjs?v=0.1.1";
+import { ANGLE_OFF_GRID, coarseFirst, insideSpan, regionBaseline, regionMirrorBaseline, regionSummary } from "./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.1";
+import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.1";
+import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=0.1.0";
 
 // 0.1.1 (S2): step 2 shows the Popup Angle sweep first (five small charts over the Popup Angle: Exposure, Apex speed,
@@ -27,7 +28,45 @@ import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=
 // Down Alt), types it and presses Fine tune; the BE (popup-fine-tune-v0.1) finds the Apex-side input (Roll-in Altitude in
 // height mode, Tracking Time in time mode) or, for the Approach-Pop Time, the Offset Angle through the step-3 LOCK,
 // and that value is typed into the page's field.
-export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.3" });
+// 0.1.4 (owner 2026-11-20 follow-up): the linked fields are the page's size (CSS); every chart draws its first
+// derivative behind it (one "1차 미분" button hides / shows them all) and is read with the mouse; every picture zooms
+// (common svg-viewport: − / % / + / Fit, drag when zoomed); the profile draws the Approach-Pop leg before the Pop;
+// the Top View region is solved on both Roll-in sides (the Attack Heading mirrored about the Run-In) and drawn in
+// the Offset Top View symbols with the turn paths.
+export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.4" });
+
+// A picture with the common zoom (the Offset Top View's button zoom: − / % / + / Fit; drag pans when zoomed).
+// The renderers keep a fixed canvas, so svg.__viewport.refresh() after a redraw keeps the zoom.
+export function zoomable(svg, width, height, { maxZoom = 4 } = {}) {
+  const button = (text, label) => el("button", { class: "capture-button design-zoom-button", type: "button", "aria-label": label, text });
+  const out = button("−", "Zoom out"), size = button("100%", "Zoom 100%"), into = button("+", "Zoom in"), fit = button("Fit", "Fit");
+  const bar = el("div", { class: "design-zoom-bar" }, out, size, into, fit);
+  const viewport = installSvgViewport(svg, {
+    baseViewBox: { x: 0, y: 0, w: width, h: height },
+    panOnlyWhenZoomed: true,
+    buttonOnlyZoom: true,
+    allowPageScrollWhenPanDisabled: true,
+    maxZoom,
+    maxZoomOut: 1,
+    onViewBoxChange: (box) => {
+      const percent = Math.round((width / box.w) * 100);
+      size.textContent = `${percent}%`;
+      into.disabled = percent >= maxZoom * 100;
+      out.disabled = percent <= 100;
+    },
+  });
+  const step = (delta) => {
+    const now = width / viewport.getViewBox().w;
+    const next = Math.max(1, Math.min(maxZoom, Math.round((now + delta) * 100) / 100));
+    viewport.zoomCenter(now / next);
+  };
+  into.addEventListener("click", () => step(0.5));
+  out.addEventListener("click", () => step(-0.5));
+  size.addEventListener("click", () => viewport.reset());
+  fit.addEventListener("click", () => viewport.reset());
+  svg.__viewport = viewport;
+  return el("div", { class: "design-zoom" }, bar, svg);
+}
 
 // Approach-Pop (Hold-Down) time: 0 s allowed with a warning, 2 s recommended, under 0 INVALID (DESIGN-STEPS.md §0).
 export const APPROACH_POP_RECOMMENDED_SEC = 2;
@@ -109,6 +148,14 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
   };
   const grid = (...nodes) => el("div", { class: "input-grid design-step-grid" }, ...nodes);
 
+  let showDerivative = true;
+  const derivativeButton = el("button", { class: "capture-button", type: "button", "data-design-derivative": "", "aria-pressed": "true", text: "1차 미분 숨기기" });
+  derivativeButton.addEventListener("click", () => {
+    showDerivative = !showDerivative;
+    derivativeButton.setAttribute("aria-pressed", String(showDerivative));
+    derivativeButton.textContent = showDerivative ? "1차 미분 숨기기" : "1차 미분 보이기";
+    renderPopupStep(answer?.output?.aircraftResults?.[1]);
+  });
   const sweepStatus = el("p", { class: "design-graph-status", role: "status", text: "Popup Angle 그래프: Design 탭을 열면 계산합니다." });
   const profileSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   profileSvg.setAttribute("class", "design-steps-svg");
@@ -152,9 +199,10 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
         el("i", { class: "key-apex" }), document.createTextNode("Apex 300–350 KCAS "),
         el("i", { class: "key-range" }), document.createTextNode("Popup Angle 범위 "),
         el("i", { class: "key-auto" }), document.createTextNode("AUTO "),
-        el("i", { class: "key-current" }), document.createTextNode("현재 각도")),
+        el("i", { class: "key-current" }), document.createTextNode("현재 각도 "),
+        el("i", { class: "key-derivative" }), document.createTextNode("1차 미분 (오른쪽 눈금) "), derivativeButton),
       grid(readout("angleRange", "Popup Angle 범위", "AUTO + Apex 300–350 KCAS"), readout("minPopRange", "Min Pop-up Distance (NM)", "범위 양 끝 · 확정하면 하나")),
-      el("div", { class: "design-steps-shell" }, profileSvg),
+      el("div", { class: "design-steps-shell" }, zoomable(profileSvg, 640, 240)),
       grid(link("popupAngleDeg"), link("popupSpeedKcas"), link("trackingTimeSec"), link("popupG"),
         readout("popupAngle", "Popup Angle 비행값", "driver"), readout("minPop", "Min Pop-up Distance (NM)", "Pop → Roll-in Start · 수평"),
         readout("appPopNm", "Approach-Pop Distance (NM)", "Approach start → Pop"), readout("appPopSec", "Approach-Pop Time (sec)", "0 s 경고 · 2 s 권장"),
@@ -164,7 +212,7 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     ]),
     card(3, "Offset 조건", "VRP를 고정하고 Angle Off를 바꿔 가며 계산한 가능 영역입니다 (2단계 Popup Angle로). Angle Off나 Attack Heading 중 하나를 LOCK하면 BE가 Offset Angle, Approach Range, Approach-Pop을 찾습니다. 둘은 같이 LOCK할 수 없습니다. 확정 = VRP LOCK + 선택한 하나, 그 뒤 2단계 값을 다시 확인합니다.", [
       regionStatus,
-      el("div", { class: "design-steps-shell" }, topSvg),
+      el("div", { class: "design-steps-shell" }, zoomable(topSvg, POPUP_DESIGN_TOPVIEW_V0_1.canvas.width, POPUP_DESIGN_TOPVIEW_V0_1.canvas.height)),
       grid(readout("regionAo", "가능 Angle Off", "Approach-Pop ≥ 0 s · (≥ 2 s)"), readout("regionAtk", "가능 Attack Heading", "Approach-Pop ≥ 0 s · (≥ 2 s)")),
       regionNote,
       grid(readout("reference", "Reference", "VRP / VIP"), link("vrpRangeNm"),
@@ -385,15 +433,23 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     const range = flown.length >= 2 ? popupAngleRange(flown, autoDeg) : null;
     if (sweep && flown.length >= 2) {
       const currentY = p ? { exposureTimeSec: p.exposureTimeSec, apexKcas: p.apexKcas, popToRollInNm: p.groundDistanceNm, offsetPopupRangeNm: p.holdDownNm, offsetPopupTimeSec: p.holdDownSec } : null;
-      renderAngleCharts(chartsHost, sweep.points.filter((pt) => pt.status), { apexArea: range?.apexArea, fromDeg: range?.fromDeg, toDeg: range?.toDeg, autoDeg, currentDeg: p?.popupAngleDeg, currentY });
-    } else chartsHost.replaceChildren();
+      chartsHost.hidden = false;
+      const svgs = renderAngleCharts(chartsHost, sweep.points.filter((pt) => pt.status), { apexArea: range?.apexArea, fromDeg: range?.fromDeg, toDeg: range?.toDeg, autoDeg, currentDeg: p?.popupAngleDeg, currentY },
+        { derivative: showDerivative, wrap: (svg) => zoomable(svg, 320, 170) });
+      for (const svg of svgs) svg.__viewport?.refresh();
+    } else chartsHost.hidden = true;
     sweepStatus.textContent = !pool ? "-" : !sweep ? "Popup Angle 그래프: 계산 대기" : sweep.done < sweep.total
       ? `Popup Angle 그래프 계산 중 ${sweep.done} / ${sweep.total}` : `Popup Angle ${POPUP_ANGLE_GRID[0]}–${POPUP_ANGLE_GRID.at(-1)}° · ${sweep.total}점 · ${(sweep.ms / 1000).toFixed(1)} s · 다른 값은 현재 그대로`;
     const done = sweep && sweep.done >= sweep.total;
     setOut("angleRange", range && Number.isFinite(range.fromDeg) ? `${one(range.fromDeg)}–${one(range.toDeg)}°${done ? "" : " (계산 중)"}` : "-");
     if (confirmed[2]() && Number.isFinite(p?.groundDistanceNm)) setOut("minPopRange", `${one(p.groundDistanceNm, 2)} · 확정`);
     else setOut("minPopRange", range?.ends ? `${one(range.ends.to.minPopupNm, 2)} – ${one(range.ends.from.minPopupNm, 2)}` : "-");
-    renderProfile(profileSvg, ar ? popupProfileLine(ar) : null, { title: `Pop-up Profile (#1) · Popup ${one(p?.popupAngleDeg)}°` });
+    renderProfile(profileSvg, ar ? popupProfileLine(ar) : null, {
+      title: `Pop-up Profile (#1) · Popup ${one(p?.popupAngleDeg)}° · 빨간 선 = 이 각도의 Min Pop-up`,
+      derivative: showDerivative,
+      approach: p ? { nm: p.holdDownNm, sec: p.holdDownSec } : null,
+    });
+    profileSvg.__viewport?.refresh();
   }
   // ---- step 4: Fine tune (S4) ----
   let tuneEdited = false;
@@ -451,22 +507,24 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
   };
   function scheduleRegion() {
     if (!active || !regionPool || isVip()) return;
-    let base;
-    try { base = regionBaseline(answer); } catch { return; }
+    let base, mirror;
+    try { base = regionBaseline(answer); mirror = regionMirrorBaseline(base, answer); } catch { return; }
     const signature = regionSignatureOf(base);
     if (region?.signature === signature) return;
     clearTimeout(regionTimer);
-    regionTimer = setTimeout(() => runRegion(base, signature), 700);
+    regionTimer = setTimeout(() => runRegion([base, mirror], signature), 700);
   }
-  async function runRegion(base, signature) {
+  async function runRegion(bases, signature) {
     const id = ++regionJob;
     regionPool.clear();
     const started = performance.now();
     const points = [];
-    region = { signature, points, done: 0, total: ANGLE_OFF_GRID.length, ms: 0 };
+    region = { signature, points, done: 0, total: ANGLE_OFF_GRID.length * bases.length, ms: 0 };
     renderRegionStep(answer?.output?.aircraftResults?.[1]);
     let queued = false;
-    await Promise.all(coarseFirst(ANGLE_OFF_GRID).map((ao) => regionPool.point(base, { angleOffDeg: ao }, "region").then((point) => {
+    // Coarse points of both sides first, so both arcs show early.
+    const jobs = coarseFirst(ANGLE_OFF_GRID).flatMap((ao) => bases.map((base) => [base, ao]));
+    await Promise.all(jobs.map(([base, ao]) => regionPool.point(base, { angleOffDeg: ao }, "region").then((point) => {
       if (id !== regionJob || !point) return;
       points.push(point);
       region.done += 1;
@@ -479,31 +537,40 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
   const span = (r, key, f) => (r && Number.isFinite(r[`${key}FromDeg`]) ? `${f(r[`${key}FromDeg`])}–${f(r[`${key}ToDeg`])}` : null);
   const hdg3 = (v) => String(Math.round(((v % 360) + 360) % 360)).padStart(3, "0");
   const deg0 = (v) => `${Math.round(v)}°`;
+  const SIDE_NAME = { RIGHT: "R", LEFT: "L" };
   function renderRegionStep(ar) {
     const g = ar?.result?.geometry;
     const p = ar?.popup;
-    const summary = region ? regionSummary(region.points) : null;
+    const summaries = region ? { RIGHT: regionSummary(region.points, "RIGHT"), LEFT: regionSummary(region.points, "LEFT") } : {};
+    const side = g?.direction?.rollDirection ?? null;
+    const summary = side ? summaries[side] : null;
     if (isVip()) {
       regionStatus.textContent = "VIP 모드: 가능 영역은 VRP 모드에서 그립니다 (VIP도 Angle Off에 따라 Approach Range가 바뀝니다).";
     } else {
       regionStatus.textContent = !regionPool ? "-" : !region ? "Top View 가능 영역: 계산 대기" : region.done < region.total
-        ? `Top View 가능 영역 계산 중 ${region.done} / ${region.total} (VRP 고정, Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}°)`
-        : `VRP 고정 · Popup Angle ${one(p?.popupAngleDeg)}° · Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}° 5° 간격 · ${(region.ms / 1000).toFixed(1)} s`;
+        ? `Top View 가능 영역 계산 중 ${region.done} / ${region.total} (VRP 고정, 양쪽 Roll-in, Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}°)`
+        : `VRP 고정 · Popup Angle ${one(p?.popupAngleDeg)}° · 양쪽 Roll-in · Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}° 5° 간격 · ${(region.ms / 1000).toFixed(1)} s · 점에 마우스를 올리면 값`;
     }
-    renderRegionTopView(topSvg, { points: region?.points ?? [], summary, current: g ? { geometry: g, popPoint: p?.popPoint, approachRangeNm: ar.result.resolved?.approachRangeNm, attackHeadingDeg: g.attackHeadingDeg } : null });
-    const both = (key, f) => {
-      const a = span(summary?.possible, key, f);
-      const b = span(summary?.recommended, key, f);
-      return a ? `${a}${b && b !== a ? ` (2 s 이상 ${b})` : ""}` : region && region.done >= region.total ? "없음" : "-";
-    };
-    setOut("regionAo", both("angleOff", deg0));
-    setOut("regionAtk", both("attackHeading", hdg3));
-    // A value outside the region still calculates; the range is said beside it (DESIGN-STEPS.md §3.5).
+    renderRegionTopView(topSvg, { points: region?.points ?? [], summaries, current: g ? { geometry: g, popPoint: p?.popPoint, approachRangeNm: ar.result.resolved?.approachRangeNm, attackHeadingDeg: g.attackHeadingDeg } : null });
+    topSvg.__viewport?.refresh();
     const done = region && region.done >= region.total;
+    const bothSides = (key, f) => {
+      const parts = ["RIGHT", "LEFT"].map((sd) => {
+        const a = span(summaries[sd]?.possible, key, f);
+        const b = span(summaries[sd]?.recommended, key, f);
+        return a ? `${SIDE_NAME[sd]}${sd === side ? "(현재)" : ""} ${a}${b && b !== a ? ` (2 s↑ ${b})` : ""}` : null;
+      }).filter(Boolean);
+      return parts.length ? parts.join(" · ") : done ? "없음" : "-";
+    };
+    setOut("regionAo", bothSides("angleOff", deg0));
+    setOut("regionAtk", bothSides("attackHeading", hdg3));
+    // A value outside the region still calculates; the range is said beside it (DESIGN-STEPS.md §3.5).
     const aoIn = insideSpan(summary?.possible, "angleOff", g?.angleOffDeg);
     const atkIn = insideSpan(summary?.possible, "attackHeading", g?.attackHeadingDeg);
-    regionNote.textContent = !done || !g ? "" : !summary?.possible ? "이 VRP와 Popup Angle로는 Approach-Pop ≥ 0 s인 Angle Off가 없습니다. VRP Range를 늘리거나 2단계 Popup Angle을 바꿔 보세요."
-      : aoIn === false || atkIn === false ? `현재 Angle Off ${deg0(g.angleOffDeg)} / Attack Heading ${hdg3(g.attackHeadingDeg)}은 가능 영역(5° 간격으로 계산) 밖입니다. 가능 범위: Angle Off ${span(summary.possible, "angleOff", deg0)}, Attack Heading ${span(summary.possible, "attackHeading", hdg3)}.`
+    const other = side === "RIGHT" ? "LEFT" : "RIGHT";
+    const otherText = summaries[other]?.possible ? ` 반대쪽(${SIDE_NAME[other]}) Roll-in은 Attack Heading ${span(summaries[other].possible, "attackHeading", hdg3)}을 Attack Heading LOCK으로 넣으면 됩니다.` : "";
+    regionNote.textContent = !done || !g ? "" : !summary?.possible ? `이 VRP와 Popup Angle로는 현재 쪽(${SIDE_NAME[side] ?? "-"}) Approach-Pop ≥ 0 s인 Angle Off가 없습니다. VRP Range를 늘리거나 2단계 Popup Angle을 바꿔 보세요.${otherText}`
+      : aoIn === false || atkIn === false ? `현재 Angle Off ${deg0(g.angleOffDeg)} / Attack Heading ${hdg3(g.attackHeadingDeg)}은 가능 영역(5° 간격으로 계산) 밖입니다. 현재 쪽(${SIDE_NAME[side]}) 가능 범위: Angle Off ${span(summary.possible, "angleOff", deg0)}, Attack Heading ${span(summary.possible, "attackHeading", hdg3)}.${otherText}`
       : "";
     regionNote.dataset.level = regionNote.textContent ? "warn" : "none";
     // Step 2 again (DESIGN-STEPS.md §3.6): the step-2 sweep runs again on the new Offset; its range and values here.
@@ -531,6 +598,6 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     activate() { active = true; answer = offsetUi.flightAnswer?.() ?? answer; render(); scheduleSweep(); scheduleRegion(); },
     deactivate() { active = false; },
     // Read-only hook for the browser checks.
-    state: () => ({ busy, confirmed: { 1: confirmed[1](), 2: confirmed[2](), 3: confirmed[3]() }, sweep: sweep && { done: sweep.done, total: sweep.total, ms: sweep.ms }, region: region && { done: region.done, total: region.total, ms: region.ms, summary: regionSummary(region.points) } }),
+    state: () => ({ busy, confirmed: { 1: confirmed[1](), 2: confirmed[2](), 3: confirmed[3]() }, sweep: sweep && { done: sweep.done, total: sweep.total, ms: sweep.ms }, region: region && { done: region.done, total: region.total, ms: region.ms, summary: regionSummary(region.points), right: regionSummary(region.points, "RIGHT"), left: regionSummary(region.points, "LEFT") } }),
   };
 }

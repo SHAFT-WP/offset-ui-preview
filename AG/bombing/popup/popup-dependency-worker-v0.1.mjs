@@ -1,7 +1,7 @@
 // POP-UP dependency sweep worker (Design tab graph, owner 2026-11-18): answers { id, base, assignments } with
 // { id, point } — one direct Flight solve of the sweep (popup-dependency-sweep-v0.1). Several run side by side.
 import { POPUP_DEPENDENCY_SWEEP_V0_1, sweepPoint } from "./popup-dependency-sweep-v0.1.mjs?v=0.1.2";
-import { regionPoint } from "./popup-offset-region-v0.1.mjs?v=0.1.0";
+import { regionPoint } from "./popup-offset-region-v0.1.mjs?v=0.1.1";
 import { fineTune } from "./popup-fine-tune-v0.1.mjs?v=0.1.0";
 
 // 0.1.2 (owner 2026-11-20, DESIGN-STEPS.md S3): { kind: "region", base, assignments: { angleOffDeg } } answers one

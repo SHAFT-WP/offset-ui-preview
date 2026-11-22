@@ -6,7 +6,7 @@
 // cursor (Shift: X only, Alt: Y only), drag pans, double-click resets; on a phone two fingers pinch. Points are solved
 // in Web Workers side by side (in-thread when a Worker cannot start). Nothing is saved.
 import { POPUP_SWEEP_INPUTS, POPUP_SWEEP_OUTPUTS, sweepBaseline, sweepInputValue, sweepModeOf, sweepValues } from "./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.2";
-import { mountPopupDesignSteps } from "./popup-design-steps-ui-v0.1.mjs?v=0.1.3";
+import { mountPopupDesignSteps } from "./popup-design-steps-ui-v0.1.mjs?v=0.1.4";
 import { OFFSET_ANGLE_GRID, POPUP_ANGLE_GRID, POPUP_DESIGN_LIMITS, designSteps, offsetAngleRange, popupAngleWindow } from "./AG/bombing/popup/popup-design-steps-v0.1.mjs?v=0.1.1";
 
 // 0.1.1 (owner 2026-11-18, the planning procedure): Step by Step above the graph — BDP, Popup Angle window (Offset-Popup
@@ -14,11 +14,12 @@ import { OFFSET_ANGLE_GRID, POPUP_ANGLE_GRID, POPUP_DESIGN_LIMITS, designSteps, 
 // and a centring chart (popup-design-steps-v0.1). "Popup Angle에 넣기" types the suggestion into #1's Popup Angle.
 // 0.1.2 (owner 2026-11-20, DESIGN-STEPS.md S1): the four planning steps (popup-design-steps-ui-v0.1) on top; the
 // Step by Step box folds inside step 2 as "범위 계산" until S2 replaces it; the graph stays below.
-export const POPUP_DESIGN_GRAPH_V0_1 = Object.freeze({ id: "popup-design-graph-v0.1", version: "0.1.2" });
+// 0.1.3 (owner 2026-11-20 follow-up): import tokens only (steps UI 0.1.4, worker 0.1.5, region 0.1.1 both Roll-in sides).
+export const POPUP_DESIGN_GRAPH_V0_1 = Object.freeze({ id: "popup-design-graph-v0.1", version: "0.1.3" });
 
-const WORKER_URL = new URL("./AG/bombing/popup/popup-dependency-worker-v0.1.mjs?v=0.1.4", import.meta.url);
+const WORKER_URL = new URL("./AG/bombing/popup/popup-dependency-worker-v0.1.mjs?v=0.1.5", import.meta.url);
 const FINE_TUNE_URL = new URL("./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=0.1.0", import.meta.url);
-const REGION_URL = new URL("./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.0", import.meta.url);
+const REGION_URL = new URL("./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.1", import.meta.url);
 const SWEEP_URL = new URL("./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.2", import.meta.url);
 const COLORS = ["#2a78d6", "#e34948", "#1baf7a", "#eb6834", "#8e5bd6"];
 const MAX_CONDITIONS = 5;

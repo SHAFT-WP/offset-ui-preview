@@ -51,3 +51,18 @@
 .design-region-note{margin:0;font-size:12.5px;line-height:1.45}
 .design-region-note[data-level="warn"]{color:#e08a1e}
 .design-topview-svg{max-width:640px;margin:0 auto}
+/* 0.1.4 follow-up (owner 2026-11-20): the linked fields at the page's size — the input pane is drawn at zoom 0.75 on
+   PC (wide-workspace-v0.1.css), so the wizard's controls are too, in columns as wide as the pane's (two per pane). */
+@media(min-width:761px) {
+  .bombing-wide .design-wizard :is(.design-steps-title,.design-step-head,.flight-draft-note,.design-step-grid,.design-graph-actions,.design-graph-status,.design-chart-key,.design-region-note,.design-step-fold > summary,.design-zoom-bar) { zoom:0.75; }
+  .bombing-wide .design-wizard .design-step-grid { grid-template-columns:repeat(auto-fill,calc((var(--wide-input-width) / .75 - 28px - 10px) / 2)); }
+}
+.design-zoom{display:grid}
+.design-zoom-bar{display:flex;gap:4px;justify-content:flex-end;padding:4px 6px 0;background:#fff}
+.design-zoom-button{min-height:26px;padding:2px 9px;font-size:12px}
+.design-zoom > svg{display:block;width:100%;height:auto}
+.design-angle-charts > .design-zoom{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+.design-angle-charts > .design-zoom > .design-angle-chart{border:0;border-radius:0}
+.design-chart-key .key-derivative{height:0;border-top:2px solid #4f8fd6}
+.design-chart-key [data-design-derivative]{min-height:26px;padding:2px 9px;font-size:12px;margin-left:4px}
+.design-topview-svg text{paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}

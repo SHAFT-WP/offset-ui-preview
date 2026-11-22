@@ -4,11 +4,15 @@
 // page). No new formula: this module only calls the existing Flight on a grid and reads its answers.
 //   point  → Roll-in Point (Roll-in Start), Attack Heading, Offset Angle, Approach Range, Approach-Pop (Hold-Down).
 //   level  → "ok" Approach-Pop ≥ 2 s (solid), "warn" 0–2 s (light), "bad" < 0 s or no solution (not drawn).
+// 0.1.1 (owner 2026-11-20 follow-up, "내가 쭉 왼쪽으로 롤인했을 때 오른쪽 색칠해줘"): both Roll-in sides. The BE keeps the
+// side of the Attack Heading it is given (directionRule: Attack Heading right of the Run-In = right Roll-in); the other
+// side is the same sweep from a baseline with the Attack Heading mirrored about the Run-In (regionMirrorBaseline).
+// Each point carries its rollDirection; regionSummary takes a side.
 // Pure calculation: no DOM, no storage.
 import { calculatePopupFlightFull } from "./popup-flight-v0.1.mjs?v=0.1.21";
 import { sweepBaseline } from "./popup-dependency-sweep-v0.1.mjs?v=0.1.2";
 
-export const POPUP_OFFSET_REGION_V0_1 = Object.freeze({ id: "popup-offset-region-v0.1", version: "0.1.0", recommendedSec: 2 });
+export const POPUP_OFFSET_REGION_V0_1 = Object.freeze({ id: "popup-offset-region-v0.1", version: "0.1.1", recommendedSec: 2 });
 
 const range = (from, to, step) => Array.from({ length: Math.round((to - from) / step) + 1 }, (_, i) => +(from + i * step).toFixed(6));
 // Angle Off grid (5°): coarse points (every 15°) are solved first so the region shows early.
@@ -24,6 +28,20 @@ export function regionBaseline(answer) {
   const base = sweepBaseline(answer, 1, { keepVrp: true });
   base.locks = { ...(base.locks ?? {}), vrpReference: true };
   return base;
+}
+
+// The other Roll-in side: the Attack Heading mirrored about the Run-In heading (an Attack Heading on the Run-In, which
+// has no side, is moved 10° off it first). Everything else is the same baseline.
+export function regionMirrorBaseline(base, answer) {
+  const mirror = clone(base);
+  const g = answer?.output?.aircraftResults?.[1]?.result?.geometry;
+  const runIn = Number(g?.runInHeadingDeg ?? mirror.values.runInHeadingDeg ?? 0);
+  let atk = Number(g?.attackHeadingDeg ?? mirror.values.attackHeadingDeg);
+  if (!finite(atk)) atk = runIn + 30;
+  let delta = ((atk - runIn + 540) % 360) - 180;
+  if (Math.abs(delta) < 1) delta = 10;
+  mirror.values.attackHeadingDeg = +(((runIn - delta) % 360 + 360) % 360).toFixed(6);
+  return mirror;
 }
 
 // One Angle Off: VRP + Angle Off LOCKed, the Attack Heading / Offset Angle / Action / Approach solved by the BE.
@@ -48,6 +66,7 @@ export function regionPoint(base, angleOffDeg, calculate = calculatePopupFlightF
     angleOffDeg,
     status: ar.status,
     level,
+    rollDirection: g.direction?.rollDirection ?? null,
     messages,
     attackHeadingDeg: g.attackHeadingDeg,
     offsetAngleDeg: g.offsetAngleDeg,
@@ -62,8 +81,8 @@ export function regionPoint(base, angleOffDeg, calculate = calculatePopupFlightF
 
 // The region from the solved points: the Angle Off / Attack Heading range at each end of the drawn arcs (Approach-Pop
 // ≥ 0 s, and ≥ 2 s for the recommended part). Points in Angle Off order; each range is the widest run of drawn points.
-export function regionSummary(points) {
-  const pts = [...points].filter((p) => p && finite(p.angleOffDeg)).sort((a, b) => a.angleOffDeg - b.angleOffDeg);
+export function regionSummary(points, side = null) {
+  const pts = [...points].filter((p) => p && finite(p.angleOffDeg) && (!side || p.rollDirection === side)).sort((a, b) => a.angleOffDeg - b.angleOffDeg);
   const span = (ok) => {
     const kept = pts.filter((p) => ok(p.level));
     if (!kept.length) return null;
