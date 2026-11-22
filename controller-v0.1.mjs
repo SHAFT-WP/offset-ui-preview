@@ -11,7 +11,7 @@ import { installSvgLegend } from "./common/diagram/svg-legend-v0.1.mjs";
 // The BE runs in a Worker (offset-flight-worker-v0.1.mjs); Common calculation-client-v0.1.mjs decides when a
 // request goes (200 ms after typing stops; Enter / LOCK / buttons at once) and which answer is
 // current (performance addendum 2026-10-12, P4).
-import { FORMATION_TEMPLATES, OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, formationTemplatePositions } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.21";
+import { FORMATION_TEMPLATES, OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, formationTemplatePositions } from "./AG/bombing/offset-bombing/offset-flight-v0.1.mjs?v=0.1.22";
 // Flight Formation top view (Flight Bombing Tactics view, owner 2026-11-02): draws the BE's flightName.formation.
 import { formationTopViewSvg } from "./flight/flight-bombing-tactics/view/formation-top-view-v0.1.mjs?v=0.2.0";
 import { createCalculationScheduler, createWorkerTransport } from "./common/calculation/calculation-client-v0.1.mjs?v=0.1.1";
@@ -20,7 +20,7 @@ const OFFSET_FLIGHT_WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-fli
 // with body.popup-page. The POP-UP Flight (the Offset Flight with each Roll-in from its Popup angle at MIL and the
 // climb in front) answers instead; its inputs, results and Save / Default records are the page's own.
 const POPUP_MODE = document.body.classList.contains("popup-page");
-const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.22", import.meta.url);
+const POPUP_FLIGHT_URL = new URL("./AG/bombing/popup/popup-flight-v0.1.mjs?v=0.1.23", import.meta.url);
 const POPUP_FLIGHT_WORKER_URL = new URL("./AG/bombing/popup/popup-flight-worker-v0.1.mjs?v=0.1.22", import.meta.url);
 // Cache tokens: these Common modules gained what the Offset views and toolbar need (primitives
 // 0.1.6 canvas-aware text scale, smart-label 0.1.5, viewport 0.1.5 refresh); stale copies would fail.
@@ -41,8 +41,8 @@ import { bdpResultRows, fragmentReadoutsMarkup, resultRow, semTurnAutoBankText, 
 import {
   LINK_TEXTS, LOCK_TEXTS, canonicalToTargetBearing, createEnterCommit, displayedBearing, dropSolvedIfEdited, formatBearingInput, headingText as fmtHeading,
   installSectionDisclosure as installSectionDisclosureOn, installSectionTools as installSectionToolsOn, markLockSolved, normHeading, parsedFieldValue,
-  setDirectionButtons, syncLockButtons as syncLockButtonStates, syncToggleButton, valuesEquivalent,
-} from "./shared/input-fields-v0.1.mjs?v=0.1.0";
+  previewToggleButton, setDirectionButtons, syncLockButtons as syncLockButtonStates, syncToggleButton, valuesEquivalent,
+} from "./shared/input-fields-v0.1.mjs?v=0.1.1";
 // Preset store, Save run and saved-time text: bombing app shared FE (2026-10-22); the work record is work-save-v0.1.mjs.
 import { createPresetStore, createSaveRun, savedTimeText } from "./shared/save-store-v0.1.mjs?v=0.1.1";
 // The shown-aircraft set and its #1–#4 buttons: bombing app shared FE (2026-10-22).
@@ -63,7 +63,7 @@ import {
   POPUP_DEFAULT_INPUT_VALUES, POPUP_DRIVERS, POPUP_DRIVER_NOTE, POPUP_DRIVER_TEXT, POPUP_FOLLOWER_PROFILE_KEYS, POPUP_LOCK_KEYS, POPUP_VALUE_KEYS,
   installPopupControls, markPopupDriverFields, popupApexText, popupApproachPopText, popupApproachPopTimeText, popupPullDownText, popupFollowerGroupMarkup, popupRangeText, popupResultRows, popupTopViewMarkers,
   popupZTextMarkup, popupZTickMarkup, renderPopupMinimumExposure, syncPopupSpeedFields, syncPopupSpeedNote, syncReleaseSpeedFields, syncPopupZTextButtons, syncPopupZTickButtons,
-} from "./popup-page-v0.1.mjs?v=0.1.6";
+} from "./popup-page-v0.1.mjs?v=0.1.7";
 import { POPUP_BDP_APPROACH_V0_1, popupApproachInBdpFrame } from "./AG/bombing/popup/view/popup-bdp-approach-v0.1.mjs?v=0.1.0";
 // Cache token: panel 0.4.0 adds the Common Text / Size / Reset toolbar to each Full BDP panel.
 import { bdpDiagramsMarkup, bdpFlightViewWindow, cancelBdpDiagramRender, clearBdpDiagrams, renderBdpDiagrams } from "./AG/bombing/bomb-delivery-planner/view/bdp-diagrams-panel-v0.1.mjs?v=0.16.1";
@@ -972,6 +972,23 @@ function applyCalculationAnswer(message, sent) {
   // SEM & Rejoin (2026-10-13) starts from this answer: the Full results and the input they answer.
   lastFlightAnswer = { input, output };
   flightAnswerListeners.forEach((listener) => listener(lastFlightAnswer));
+  settlePendingToggles();
+}
+
+// A LOCK / LINK shown at its click (previewToggleButton) shows the adopted state once the answer is in, also when the
+// answer had no state to sync (a failed request): the page's own LOCK states, never the click's.
+function settlePendingToggles() {
+  if (!document.querySelector("[data-pending-toggle]")) return;
+  syncLockButtons();
+  syncInitialLinkUi();
+  if (POPUP_MODE) syncPopupLocks(popupLocks, document, (button) => !button.closest(".flight-slot"));
+  $$(".flight-slot").forEach((slot) => {
+    const number = Number(slot.dataset.aircraft);
+    if (!number) return;
+    const draft = flightDraft(number);
+    slot.querySelectorAll(".lock-button[data-flight-field][data-pending-toggle]").forEach((button) => syncFlightToggleButton(button, draft[button.dataset.flightField] === true));
+    if (POPUP_MODE) syncPopupLocks(draft.popupLocks ?? {}, slot);
+  });
 }
 
 // SEM & Rejoin hooks (index only, sem-rejoin-controller-v0.1.mjs through wide-layout.mjs): the last
@@ -1207,7 +1224,12 @@ function installLocks() {
   $$("[data-lock-key]").forEach((button) => {
     const key = button.dataset.lockKey;
     locks[key] = button.getAttribute("aria-pressed") === "true";
-    button.addEventListener("click", () => calculate({ aircraft: 1, kind: "lock", key, value: toggledValue(1, "lock", key, locks[key]) }));
+    // The pressed state shows at once (owner 2026-11-22, "lock 버튼 눌렀을 때 딜레이"); the answer shows the BE's.
+    button.addEventListener("click", () => {
+      const value = toggledValue(1, "lock", key, locks[key]);
+      $$(`[data-lock-key="${key}"]`).forEach((each) => previewToggleButton(each, value, { texts: LOCK_TEXTS }));
+      calculate({ aircraft: 1, kind: "lock", key, value });
+    });
   });
 }
 
@@ -2505,7 +2527,10 @@ function installFlightLayout() {
     const number = flightSlotNumber(button);
     if (!button || !number) return;
     const key = button.dataset.flightField;
-    calculate({ aircraft: number, kind: "toggle", key, value: toggledValue(number, "toggle", key, flightDraft(number)[key] === true) });
+    const value = toggledValue(number, "toggle", key, flightDraft(number)[key] === true);
+    syncFlightToggleButton(button, value);
+    button.dataset.pendingToggle = "true";
+    calculate({ aircraft: number, kind: "toggle", key, value });
   });
   renderFlightLayout();
 }
@@ -3617,7 +3642,11 @@ function install() {
   installCalculation();
   populateWeapons();
   installLocks();
-  leadLinkButtons().forEach((button) => button.addEventListener("click", () => calculate({ aircraft: 1, kind: "toggle", key: "rollInAltitudeLinked", value: toggledValue(1, "toggle", "rollInAltitudeLinked", rollInAltitudeLinked) })));
+  leadLinkButtons().forEach((button) => button.addEventListener("click", () => {
+    const value = toggledValue(1, "toggle", "rollInAltitudeLinked", rollInAltitudeLinked);
+    leadLinkButtons().forEach((each) => previewToggleButton(each, value, { texts: LINK_TEXTS }));
+    calculate({ aircraft: 1, kind: "toggle", key: "rollInAltitudeLinked", value });
+  }));
   installModeButtons();
   installFragmentMarginButton();
   installReferenceBearingControls();

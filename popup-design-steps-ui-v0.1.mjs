@@ -13,7 +13,7 @@ import { POPUP_ANGLE_GRID, popupAngleRange, popupProfileLine } from "./AG/bombin
 import { defaultPopupAngleDeg } from "./AG/bombing/popup/popup-be-v0.2.mjs?v=0.2.5";
 import { renderAngleCharts, renderProfile } from "./popup-design-popup-chart-v0.1.mjs?v=0.1.1";
 import { ANGLE_OFF_GRID, coarseFirst, insideSpan, regionBaseline, regionMirrorBaseline, regionSummary } from "./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.1";
-import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.1";
+import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.2";
 import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=0.1.0";
 
@@ -33,7 +33,9 @@ import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=
 // (common svg-viewport: − / % / + / Fit, drag when zoomed); the profile draws the Approach-Pop leg before the Pop;
 // the Top View region is solved on both Roll-in sides (the Attack Heading mirrored about the Run-In) and drawn in
 // the Offset Top View symbols with the turn paths.
-export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.4" });
+export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.5" });
+// 0.1.5 (owner 2026-11-22, "탑뷰 ip가 bottom에 있는 것이 default 옵션을 넣어서 북쪽이 위로"): the step 3 Top View has the
+// Offset Top View's IP Bottom button, on by default (Run-In up, IP at the bottom); off = north up.
 
 // A picture with the common zoom (the Offset Top View's button zoom: − / % / + / Fit; drag pans when zoomed).
 // The renderers keep a fixed canvas, so svg.__viewport.refresh() after a redraw keeps the zoom.
@@ -169,6 +171,14 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
   topSvg.setAttribute("data-design-topview", "");
   topSvg.setAttribute("role", "img");
   topSvg.setAttribute("aria-label", "Top View possible region");
+  let topIpBottom = true;
+  const ipBottomButton = el("button", { class: "capture-button view-toggle active", type: "button", "data-design-ip-bottom": "", "aria-pressed": "true", title: "Run-In (IP → Target) up; off = north up", text: "IP Bottom" });
+  ipBottomButton.addEventListener("click", () => {
+    topIpBottom = !topIpBottom;
+    ipBottomButton.setAttribute("aria-pressed", String(topIpBottom));
+    ipBottomButton.classList.toggle("active", topIpBottom);
+    renderRegionStep(answer?.output?.aircraftResults?.[1]);
+  });
   const angleOffLock = lockButton("angleOffDeg", "Angle Off");
   const attackLock = lockButton("attackHeadingDeg", "Attack Heading");
   const fineTune = el("button", { class: "btn", type: "button", "data-design-fine-tune": "", text: "Fine tune" });
@@ -212,6 +222,7 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     ]),
     card(3, "Offset 조건", "VRP를 고정하고 Angle Off를 바꿔 가며 계산한 가능 영역입니다 (2단계 Popup Angle로). Angle Off나 Attack Heading 중 하나를 LOCK하면 BE가 Offset Angle, Approach Range, Approach-Pop을 찾습니다. 둘은 같이 LOCK할 수 없습니다. 확정 = VRP LOCK + 선택한 하나, 그 뒤 2단계 값을 다시 확인합니다.", [
       regionStatus,
+      el("div", { class: "design-zoom-bar design-view-bar" }, ipBottomButton),
       el("div", { class: "design-steps-shell" }, zoomable(topSvg, POPUP_DESIGN_TOPVIEW_V0_1.canvas.width, POPUP_DESIGN_TOPVIEW_V0_1.canvas.height)),
       grid(readout("regionAo", "가능 Angle Off", "Approach-Pop ≥ 0 s · (≥ 2 s)"), readout("regionAtk", "가능 Attack Heading", "Approach-Pop ≥ 0 s · (≥ 2 s)")),
       regionNote,
@@ -551,7 +562,7 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
         ? `Top View 가능 영역 계산 중 ${region.done} / ${region.total} (VRP 고정, 양쪽 Roll-in, Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}°)`
         : `VRP 고정 · Popup Angle ${one(p?.popupAngleDeg)}° · 양쪽 Roll-in · Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}° 5° 간격 · ${(region.ms / 1000).toFixed(1)} s · 점에 마우스를 올리면 값`;
     }
-    renderRegionTopView(topSvg, { points: region?.points ?? [], summaries, current: g ? { geometry: g, popPoint: p?.popPoint, approachRangeNm: ar.result.resolved?.approachRangeNm, attackHeadingDeg: g.attackHeadingDeg } : null });
+    renderRegionTopView(topSvg, { points: region?.points ?? [], summaries, current: g ? { geometry: g, popPoint: p?.popPoint, approachRangeNm: ar.result.resolved?.approachRangeNm, attackHeadingDeg: g.attackHeadingDeg } : null, upHeadingDeg: topIpBottom ? Number(ar?.result?.resolved?.runInHeadingDeg ?? g?.runInHeadingDeg ?? 0) : 0 });
     topSvg.__viewport?.refresh();
     const done = region && region.done >= region.total;
     const bothSides = (key, f) => {

@@ -3,9 +3,12 @@
 // Nothing is computed here (values come from the POP-UP Flight BE) and no page state is kept here: the controller
 // owns the state (driver, LOCKs, minimum-exposure answers, Z options) and passes it in.
 import { formatG } from "./common/ui/display-precision-v0.1.mjs?v=0.1.1";
+import { LOCK_TEXTS, previewToggleButton } from "./shared/input-fields-v0.1.mjs?v=0.1.1";
 import { POPUP_Z_DIAGRAM_V0_1 } from "./AG/bombing/popup/view/popup-z-diagram-v0.1.mjs?v=0.1.6";
 
-export const POPUP_PAGE_V0_1 = Object.freeze({ id: "popup-page-v0.1", version: "0.1.6" });
+export const POPUP_PAGE_V0_1 = Object.freeze({ id: "popup-page-v0.1", version: "0.1.7" });
+// 0.1.7 (owner 2026-11-22, "lock 버튼 눌렀을 때 딜레이"): a POP-UP LOCK shows its pressed state at once; a second click
+// before the answer toggles the shown state again (the BE's answer then shows its own).
 // 0.1.6 (owner 2026-11-20, DESIGN-STEPS.md S1): Approach-Pop Time (s) after Approach-Pop Range and Pull Down Alt after
 // Roll-in Altitude (readouts of the BE's holdDownSec and PULL_DOWN event); a follower's group the same.
 // 0.1.4 (owner 2026-11-19, MIL dive): Release Speed blank by default (no cap: the BE's Release speed is shown in the
@@ -203,7 +206,10 @@ export function installPopupControls({ $, calculate, setValue, flightDraft, drop
     event.preventDefault();
     const number = Number(button.closest(".flight-slot")?.dataset.aircraft) || 1;
     const kind = button.dataset.popupLock;
-    const current = (number === 1 ? leadLocks() : flightDraft(number).popupLocks ?? {})[kind] === true;
+    const current = button.dataset.pendingToggle
+      ? button.getAttribute("aria-pressed") === "true"
+      : (number === 1 ? leadLocks() : flightDraft(number).popupLocks ?? {})[kind] === true;
+    previewToggleButton(button, !current, { texts: LOCK_TEXTS });
     calculate({ aircraft: number, kind: "set", key: POPUP_LOCK_KEYS[kind], value: !current, commit: true });
   });
 }

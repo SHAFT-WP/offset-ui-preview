@@ -4,7 +4,9 @@
 // (Full BDP / Advanced toggles, Save, Default). The page owns its keys, the BE input it builds and what a Default
 // returns to; the BE decides every value.
 
-export const INPUT_FIELDS_V0_1 = Object.freeze({ id: "bombing-input-fields-v0.1", version: "0.1.0" });
+export const INPUT_FIELDS_V0_1 = Object.freeze({ id: "bombing-input-fields-v0.1", version: "0.1.1" });
+// 0.1.1 (owner 2026-11-22, "lock 버튼 눌렀을 때 딜레이"): previewToggleButton shows a pressed LOCK / LINK at once, before the
+// BE answers; the answer's sync (syncToggleButton) then shows the BE's state and clears the preview.
 
 // ---- The Full value behind a solved text ---------------------------------------------------------------------
 // A solve writes a rounded text into a field and keeps the Full value behind it ({ text, value }); while the field
@@ -81,9 +83,17 @@ export const LINK_TEXTS = Object.freeze({ on: "LINKED", off: "LINK" });
 
 // Pressed state via aria-pressed; texts (LOCK_TEXTS, LINK_TEXTS) name the state; activeClass also toggles "active".
 export function syncToggleButton(button, on, { texts = null, activeClass = false } = {}) {
+  delete button.dataset.pendingToggle;
   button.setAttribute("aria-pressed", String(on));
   if (activeClass) button.classList.toggle("active", on);
   if (texts) button.textContent = on ? texts.on : texts.off;
+}
+
+// A click's state shown at once (data-pending-toggle while the BE has not answered). Display only: the page's LOCK
+// state and the BE input do not change here, and the next answer's sync shows the BE's state (a refused LOCK goes back).
+export function previewToggleButton(button, on, options = {}) {
+  syncToggleButton(button, on, options);
+  button.dataset.pendingToggle = "true";
 }
 
 // The `[data-lock-key]` buttons from the LOCK states by key.

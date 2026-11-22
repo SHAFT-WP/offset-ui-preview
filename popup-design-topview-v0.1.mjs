@@ -11,12 +11,13 @@
 //   through the Target.
 // 0.1.1 (owner 2026-11-20 follow-up): both sides, the Roll-in Distance line, green on the arrow side, the common
 // symbols (offset-view-style colours, the Offset Top View station markers, the POP-UP Pop marker), turn arrows,
-// point tooltips. Zoom is the caller's (common svg-viewport); the canvas is fixed (W × H) so a zoom survives a redraw.
+// point tooltips. 0.1.2 (owner 2026-11-22): `upHeadingDeg` turns the view about the Target so that heading points up
+// (the page's IP Bottom = the Run-In heading, default; 0 = north up); the north mark turns with it. Zoom is the caller's (common svg-viewport); the canvas is fixed (W × H) so a zoom survives a redraw.
 import { OFFSET_VIEW_COLORS as C } from "./AG/bombing/offset-bombing/view/offset-view-style-v0.1.mjs";
 import { createOpenArrowMarker } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { appendNorthMark } from "./common/diagram/svg-north-mark-v0.1.mjs";
 
-export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.1", canvas: Object.freeze({ width: 640, height: 600 }) });
+export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.2", canvas: Object.freeze({ width: 640, height: 600 }) });
 
 const NS = "http://www.w3.org/2000/svg";
 const svgEl = (tag, attrs = {}, text = null) => {
@@ -35,8 +36,22 @@ const SIDE_TEXT = Object.freeze({ RIGHT: "R", LEFT: "L" });
 
 // points: region points (both sides); current: { geometry, popPoint, approachRangeNm, attackHeadingDeg } of the answer;
 // summaries: { RIGHT, LEFT } from regionSummary per side.
-export function renderRegionTopView(svg, { points = [], current = null, summaries = {} } = {}) {
+export function renderRegionTopView(svg, { points: worldPoints = [], current: worldCurrent = null, summaries = {}, upHeadingDeg = 0 } = {}) {
   svg.replaceChildren();
+  // The view turned about the Target (the Offset Top View's rotation): `upHeadingDeg` is drawn up.
+  const up = Number.isFinite(Number(upHeadingDeg)) ? Number(upHeadingDeg) : 0;
+  const cosU = Math.cos(up * DEG), sinU = Math.sin(up * DEG);
+  const turn = (q) => (pt(q) ? { ...q, x: q.x * cosU - q.y * sinU, y: q.x * sinU + q.y * cosU } : q);
+  const turnHdg = (h) => (finite(h) ? h - up : h);
+  const turnPoints = (obj) => (obj ? Object.fromEntries(Object.entries(obj).map(([k, q]) => [k, turn(q)])) : obj);
+  const points = worldPoints.map((p) => ({ ...p, rollIn: turn(p.rollIn), attackHeadingDeg: turnHdg(p.attackHeadingDeg) }));
+  const wg = worldCurrent?.geometry;
+  const current = worldCurrent ? {
+    ...worldCurrent,
+    popPoint: turn(worldCurrent.popPoint),
+    attackHeadingDeg: turnHdg(worldCurrent.attackHeadingDeg),
+    geometry: wg ? { ...wg, attackHeadingDeg: turnHdg(wg.attackHeadingDeg), points: turnPoints(wg.points), offsetTurnPath: (wg.offsetTurnPath ?? []).map(turn), rollInTrajectorySamples: (wg.rollInTrajectorySamples ?? []).map(turn) } : wg,
+  } : null;
   const { width: W, height: H } = POPUP_DESIGN_TOPVIEW_V0_1.canvas;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   const defs = svgEl("defs");
@@ -51,7 +66,7 @@ export function renderRegionTopView(svg, { points = [], current = null, summarie
   const withRollIn = points.filter((p) => pt(p.rollIn));
   // Extent: the MAP circle, the Roll-in Points, the VRP and the flown path.
   const xy = [{ x: 0, y: 0 }, ...withRollIn.map((p) => p.rollIn)];
-  if (finite(mapNm)) xy.push({ x: mapNm, y: mapNm }, { x: -mapNm, y: -mapNm });
+  if (finite(mapNm)) xy.push({ x: mapNm * 1.3, y: mapNm * 1.3 }, { x: -mapNm * 1.3, y: -mapNm * 1.3 });
   if (pt(g?.points?.vrp)) xy.push(g.points.vrp);
   for (const p of g?.offsetTurnPath ?? []) if (pt(p)) xy.push(p);
   const minX = Math.min(...xy.map((p) => p.x)), maxX = Math.max(...xy.map((p) => p.x));
@@ -66,7 +81,7 @@ export function renderRegionTopView(svg, { points = [], current = null, summarie
   const d = (pts) => pts.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join("");
 
   svg.append(svgEl("text", { x: 10, y: 20, "font-size": 13, "font-weight": 700, fill: "#2e2d2a" }, "Top View · 가능 영역 (#1, 양쪽 Roll-in)"));
-  appendNorthMark(svg, { cx: W - 26, cy: 34, size: 14 });
+  appendNorthMark(svg, { cx: W - 26, cy: 34, size: 14, rotationDeg: -up });
 
   // MAP circle.
   if (finite(mapNm)) {
@@ -100,7 +115,7 @@ export function renderRegionTopView(svg, { points = [], current = null, summarie
     const drawn = all.filter((p) => p.level !== "bad" && pt(p.rollIn));
     for (const p of drawn) {
       const dot = svgEl("circle", { cx: X(p.rollIn.x), cy: Y(p.rollIn.y), r: 3, fill: p.level === "ok" ? REGION_COLORS.yellow : "#fff", stroke: REGION_COLORS.yellow, "stroke-width": 1.5, "data-region-point": `${SIDE_TEXT[side]}${p.angleOffDeg}` });
-      dot.append(svgEl("title", {}, `${side === "RIGHT" ? "오른쪽" : "왼쪽"} Roll-in · Angle Off ${Math.round(p.angleOffDeg)}° · Attack Heading ${hdg(p.attackHeadingDeg)} · Offset Angle ${p.offsetAngleDeg.toFixed(1)}° · Approach ${p.approachRangeNm.toFixed(2)} NM · Approach-Pop ${p.holdDownSec.toFixed(1)} s`));
+      dot.append(svgEl("title", {}, `${side === "RIGHT" ? "오른쪽" : "왼쪽"} Roll-in · Angle Off ${Math.round(p.angleOffDeg)}° · Attack Heading ${hdg(p.attackHeadingDeg + up)} · Offset Angle ${p.offsetAngleDeg.toFixed(1)}° · Approach ${p.approachRangeNm.toFixed(2)} NM · Approach-Pop ${p.holdDownSec.toFixed(1)} s`));
       svg.append(dot);
       if (Math.round(p.angleOffDeg) % 15 === 0) {
         const len = Math.hypot(p.rollIn.x, p.rollIn.y) || 1;
@@ -116,7 +131,7 @@ export function renderRegionTopView(svg, { points = [], current = null, summarie
         const out = p.rollIn.x < 0 ? -1 : 1;
         const len = Math.hypot(p.rollIn.x, p.rollIn.y) || 1;
         const k = 30 / s;
-        svg.append(svgEl("text", { x: X(p.rollIn.x + (p.rollIn.x / len) * k) + out * 6, y: Y(p.rollIn.y + (p.rollIn.y / len) * k) + 4, "text-anchor": out < 0 ? "end" : "start", "font-size": 10.5, "font-weight": 700, fill: "#2e2d2a", "data-region-end": side }, `${SIDE_TEXT[side]} AO ${Math.round(p.angleOffDeg)}° / ATK ${hdg(p.attackHeadingDeg)}`));
+        svg.append(svgEl("text", { x: X(p.rollIn.x + (p.rollIn.x / len) * k) + out * 6, y: Y(p.rollIn.y + (p.rollIn.y / len) * k) + 4, "text-anchor": out < 0 ? "end" : "start", "font-size": 10.5, "font-weight": 700, fill: "#2e2d2a", "data-region-end": side }, `${SIDE_TEXT[side]} AO ${Math.round(p.angleOffDeg)}° / ATK ${hdg(p.attackHeadingDeg + up)}`));
       };
       tag(first);
       if (last !== first) tag(last);
@@ -163,7 +178,8 @@ export function renderRegionTopView(svg, { points = [], current = null, summarie
       const back = pt(p.trackPoint) ? p.trackPoint : { x: -mapNm * Math.sin(h * DEG), y: -mapNm * Math.cos(h * DEG) };
       const tip = { x: mapNm * 1.18 * Math.sin(h * DEG), y: mapNm * 1.18 * Math.cos(h * DEG) };
       svg.append(svgEl("path", { d: d([back, tip]), fill: "none", stroke: REGION_COLORS.red, "stroke-width": 2.5, "marker-end": arrow("attack", REGION_COLORS.red), "data-attack-heading": "" }));
-      svg.append(svgEl("text", { x: X(tip.x) + 8, y: Y(tip.y) - 6, "font-size": 11, "font-weight": 700, fill: REGION_COLORS.red }, `ATK ${hdg(h)}`));
+      const nearRight = X(tip.x) > W - 70;
+      svg.append(svgEl("text", { x: X(tip.x) + (nearRight ? -8 : 8), y: Y(tip.y) - 8, "text-anchor": nearRight ? "end" : "start", "font-size": 11, "font-weight": 700, fill: REGION_COLORS.red }, `ATK ${hdg(h + up)}`));
     }
     // Stations (Offset Top View markers; Pop as the POP-UP Top View's Pop Up marker).
     const label = (q, text, color, dx = 10, dy = 4, anchor = "start") => svg.append(svgEl("text", { x: X(q.x) + dx, y: Y(q.y) + dy, "text-anchor": anchor, "font-size": 11, "font-weight": 700, fill: color }, text));

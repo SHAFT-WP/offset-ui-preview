@@ -9,7 +9,7 @@
 // side is the same sweep from a baseline with the Attack Heading mirrored about the Run-In (regionMirrorBaseline).
 // Each point carries its rollDirection; regionSummary takes a side.
 // Pure calculation: no DOM, no storage.
-import { calculatePopupFlightFull } from "./popup-flight-v0.1.mjs?v=0.1.22";
+import { calculatePopupFlightFull } from "./popup-flight-v0.1.mjs?v=0.1.23";
 import { sweepBaseline } from "./popup-dependency-sweep-v0.1.mjs?v=0.1.2";
 
 export const POPUP_OFFSET_REGION_V0_1 = Object.freeze({ id: "popup-offset-region-v0.1", version: "0.1.1", recommendedSec: 2 });

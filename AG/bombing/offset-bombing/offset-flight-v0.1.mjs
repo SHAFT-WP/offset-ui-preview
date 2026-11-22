@@ -88,7 +88,8 @@ export const OFFSET_FLIGHT_V0_1 = Object.freeze({
   // IAA flown. Every entrypoint (Full, Unfitted, Reference, the page session) does this.
   // 0.1.21 (owner's VIP-mode callsign ini, 2026-11-22): in VIP mode OA1 is read from the VIP again (the same point as
   // in VRP mode, measured from the VIP), as BMS stores OA1-<VIP STPT>; 0.1.19's Target basis is undone.
-  version: "0.1.21",
+  // 0.1.22 (owner 2026-11-22, slow LOCK): the per-aircraft reuse key reads numbers to 9 significant digits.
+  version: "0.1.22",
   status: "work",
   schemaVersion: 2,
   components: Object.freeze({
@@ -1474,8 +1475,21 @@ const SOLVE_MODEL_KEY = calculationKey({
   bdp: BOMB_DELIVERY_PLANNER_MODEL_V0_4,
 });
 
+// 0.1.22 (owner 2026-11-22, slow Angle Off / Roll-in Speed LOCK; "0.0x대까지는 오류가 큰 의미가 없어"): the key reads
+// every number to SOLVE_KEY_DIGITS significant digits. A LOCK that changes which values drive the geometry returns
+// the same geometry in the last bits only (about 1e-9 NM), and the exact key then solved every aircraft again; such
+// a request now reuses the solves. A reused answer differs from a fresh one by that noise only.
+const SOLVE_KEY_DIGITS = 9;
+function keyNumbers(value) {
+  if (typeof value === "number") return Number.isFinite(value) && value !== 0 ? Number(value.toPrecision(SOLVE_KEY_DIGITS)) : value;
+  if (Array.isArray(value)) return value.map(keyNumbers);
+  if (value && typeof value === "object" && !(value instanceof Set) && !(value instanceof Map)) {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, keyNumbers(item)]));
+  }
+  return value;
+}
 function aircraftSolveKey(number, record, stateError, leaders) {
-  return flightSolveKey(SOLVE_MODEL_KEY, number, record, stateError, leaders);
+  return flightSolveKey(SOLVE_MODEL_KEY, number, keyNumbers(record), stateError, keyNumbers(leaders));
 }
 
 // A follower value typed in this call that its holds then replaced (2026-10-12): reported as a

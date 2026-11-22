@@ -1,6 +1,6 @@
 import { casToTas, machToTas, tasToCas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
-import { OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, calculateOffsetFlightUnfittedFull as calculateOffsetFlightFull, createOffsetFlightSession, profileLinkStates } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.21";
+import { OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, calculateOffsetFlightUnfittedFull as calculateOffsetFlightFull, createOffsetFlightSession, profileLinkStates } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.22";
 import { calculateWithIaaEdit } from "../offset-bombing/offset-iaa-edit-v0.1.mjs";
 import { calculateWithClearFit, clearFitFieldLocked, clearFitRange } from "../offset-bombing/offset-clear-fit-v0.1.mjs";
 import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs?v=0.2.5";
@@ -95,7 +95,7 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // POP-UP page (VRPPUP / VIPPUP) and OA2 ELEV are the aircraft's Initial Altitude (= its VRP / VIP page ELEV), no
   // longer the Target Elevation. RNG / TBRG unchanged. Offset Flight 0.1.20's IAA edit (offset-iaa-edit-v0.1) on this
   // page too: calculatePopupFlightFull and the page session turn a typed IAA into the Release Altitude that flies it.
-  version: "0.1.22",
+  version: "0.1.23",
   defaultPopupG: 4,
   angleIterations: 12,
   autoAngleMinDeg: 1,
@@ -601,10 +601,17 @@ function popupFlight(rawInput, offsetFlight) {
         const r = output.aircraftResults[n]?.result;
         if (!r?.profile?.canonicalInputs || (angleErrors[n] && !speedErrors[n])) continue;
         const climbOf = (popKcas) => climbFull({ ...popState(r.resolved, popKcas), rollInAltitudeMslFt: r.profile.public.resolvedInitialAltitudeMslFt, popupAngleDeg: angles[n], popupG: settings[n].popupG, gOnsetRateGSec: r.profile.canonicalInputs.gOnsetRateGSec }).rollInStart.casKt;
-        const pop = solvePopSpeed(climbOf, speeds[n]);
+        // 0.1.23 (owner 2026-11-22, slow Roll-in Speed LOCK): the Pop-up Speed flown now is kept when its MIL arrival
+        // is already the LOCKed Roll-in Speed (within speedSettleKt), e.g. a LOCK at the AUTO speed shown: nothing moves,
+        // so the Offset Flight already flown is the answer (before, a bisection gave a speed 0.00x KCAS off and every
+        // aircraft was flown again).
+        const flownKcas = popState(r.resolved, settings[n].popupSpeedKcas).popSpeedKcas;
+        let keep = false;
+        try { keep = Math.abs(climbOf(flownKcas) - speeds[n]) <= POPUP_FLIGHT_V0_1.speedSettleKt; } catch { keep = false; }
+        const pop = keep ? { kcas: flownKcas } : solvePopSpeed(climbOf, speeds[n]);
         if (pop.error) { angleErrors[n] = speedErrors[n] = pop.error; continue; }
         if (speedErrors[n]) { delete angleErrors[n]; delete speedErrors[n]; }
-        if (!(Math.abs(pop.kcas - (settings[n].popupSpeedKcas ?? NaN)) <= POPUP_FLIGHT_V0_1.speedSettleKt)) moved = true;
+        if (!(Math.abs(pop.kcas - flownKcas) <= POPUP_FLIGHT_V0_1.speedSettleKt)) moved = true;
         settings[n].popupSpeedKcas = pop.kcas;
       }
       // AUTO Roll-in Speed: the MIL arrival at this angle and Roll-in Altitude becomes the BDP's Roll-in Speed.
