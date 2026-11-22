@@ -13,6 +13,10 @@
 // when none). Each shows its result under the button's head; the Save/Load panel's status says the same.
 // 0.1.3 (owner's VIP-mode callsign ini, 2026-11-22): in VIP mode the DTE lines are keyed by the IP STPT (VIP = IP; BMS
 // writes `VIP=6,…`, `VIPPUP=6,…`, `OA1-6=…` from the VIP's steerpoint), and Reload checks the VIP page against it.
+// 0.1.4 (owner 2026-11-22, "Read Again 옆에 Apply 버튼을 넣자 … Loading #1은 의미 없다"): the mission's Apply sits next to
+// Read Again and is named "Apply" (it was "Apply to #1" under the STPT fields); the same action, #1's fields, the Flight
+// follows. Release Mission stays under the STPT fields. The DTE ship selector is one of the buttons (owner: "#1 고르는 창을
+// Write DTE와 정렬 하고 크기도 맞춰줘라"): no stacked "Ship" label, the buttons' height, border and font.
 import {
   BMS_DTC_V0_1,
   parseBmsDtc,
@@ -26,7 +30,7 @@ import {
 import { createHandleStore, fileTimeText, fileSizeText } from "./shared/flight-file-browser-v0.1.mjs?v=0.1.2";
 import { currentMagVarDeg, magVarText, trueFromMagneticDeg } from "./shared/mag-var-v0.1.mjs?v=0.1.0";
 
-export const BMS_MISSION_PANEL_V0_1 = Object.freeze({ id: "offset-bms-mission-panel-v0.1", version: "0.1.3", be: `${BMS_DTC_V0_1.id} ${BMS_DTC_V0_1.version}` });
+export const BMS_MISSION_PANEL_V0_1 = Object.freeze({ id: "offset-bms-mission-panel-v0.1", version: "0.1.4", be: `${BMS_DTC_V0_1.id} ${BMS_DTC_V0_1.version}` });
 
 const HANDLE_KEY = "bms-dtc";
 const BACKUP_KEY = "bms-dtc.backup";
@@ -68,10 +72,12 @@ const TOOL_TEXT = Object.freeze({
 export function bmsMissionPanelMarkup({ tool = "offset" } = {}) {
   const text = TOOL_TEXT[tool] ?? TOOL_TEXT.offset;
   return `<div class="bms-mission-head"><h3 id="bms-mission-title">BMS Mission (DTC)</h3><span class="mode" id="bms-mission-state">DTC 없음</span></div>
-<p class="flight-draft-note">BMS에서 DTC SAVE를 누른 뒤, <code>User\\Config\\&lt;콜사인&gt;.ini</code>(DTC)를 고르세요. 경로·표적을 읽어 TGT와 IP STPT를 정하고, <b>Apply to #1</b>은 #1의 IP(Run-In · Range, IP LOCK)와 Target Elevation을 바꿉니다. Attack Heading은 미션이 정하지 않습니다(Run-In이 바뀌면 지금처럼 형상 전체가 같이 돌아가니, 적용 뒤 Attack Heading을 확인하세요).</p>
+<p class="flight-draft-note">BMS에서 DTC SAVE를 누른 뒤, <code>User\\Config\\&lt;콜사인&gt;.ini</code>(DTC)를 고르세요. 경로·표적을 읽어 TGT와 IP STPT를 정하고, <b>Apply</b>는 #1의 IP(Run-In · Range, IP LOCK)와 Target Elevation을 바꿉니다(#2–#4는 편대로 다시 계산됩니다). Attack Heading은 미션이 정하지 않습니다(Run-In이 바뀌면 지금처럼 형상 전체가 같이 돌아가니, 적용 뒤 Attack Heading을 확인하세요).</p>
+<p class="flight-draft-note"><b>순서</b>(매번): BMS에서 미션 → 해당 Flight 선택 → DTC SAVE → 여기서 Read Again → Apply → Write DTE → BMS에서 DTC LOAD. 다른 미션·Flight에서 저장한 같은 이름의 ini를 넣는 것으로는 보통 적용되지 않습니다(소유자 확인 2026-11-22).</p>
 <div class="save-actions">
   <button class="btn" id="bms-dtc-open" type="button" title="Choose the callsign ini (DTC)">Open DTC</button>
   <button class="btn" id="bms-dtc-reload" type="button" title="Read the same file again (after a DTC SAVE in BMS)" disabled>Read Again</button>
+  <button class="btn" id="bms-mission-apply" type="button" title="#1 (the Flight follows): Run-In Heading and IP Range from IP STPT → TGT STPT, IP LOCK, Target Elevation" disabled>Apply</button>
 </div>
 <p class="flight-draft-note" id="bms-dtc-file">DTC 파일: 없음</p>
 <p class="flight-draft-note" id="bms-dtc-route" hidden></p>
@@ -82,14 +88,13 @@ export function bmsMissionPanelMarkup({ tool = "offset" } = {}) {
 </div>
 <p class="flight-draft-note" id="bms-mission-geometry">-</p>
 <div class="save-actions">
-  <button class="btn" id="bms-mission-apply" type="button" title="#1: Run-In Heading and IP Range from IP STPT → TGT STPT, IP LOCK, Target Elevation" disabled>Apply to #1</button>
   <button class="btn" id="bms-mission-release" type="button" title="Forget the mission (the inputs stay as they are)" disabled>Release Mission</button>
 </div>
 <p class="flight-draft-note" id="bms-mission-applied">미션: 적용 안 됨</p>
 <div class="bms-mission-head"><h3 id="bms-dte-title">DTE (NAV OFFSETS)</h3></div>
 <p class="flight-draft-note">${text.dte} 다른 줄은 그대로 둡니다. 쓰기 전 파일을 한 번 보관해 두고 Undo로 되돌립니다.</p>
 <div class="save-actions">
-  <label class="field bms-dte-ship"><span>Ship</span><select id="bms-dte-ship" aria-label="Ship number for the DTE"><option value="1">#1</option></select></label>
+  <select class="btn bms-dte-ship" id="bms-dte-ship" aria-label="Ship number for the DTE" title="Ship"><option value="1">#1</option></select>
   <button class="btn" id="bms-dte-write" type="button" disabled>Write DTE</button>
   <button class="btn" id="bms-dte-clear" type="button" title="Delete the VIP / VIPPUP / VRP / VRPPUP / OA1 / OA2 lines only" disabled>Clear DTE</button>
   <button class="btn" id="bms-dte-undo" type="button" title="Write back the file as it was before the last DTE write or Clear" disabled>Undo DTE</button>
@@ -101,7 +106,7 @@ export function bmsMissionPanelMarkup({ tool = "offset" } = {}) {
     <tr><td>Save / Save As</td><td>-</td><td>${text.save} + this browser</td></tr>
     <tr><td>Load</td><td>${text.save}</td><td>this browser</td></tr>
     <tr><td>Load Default</td><td>-</td><td>- (this browser after Save)</td></tr>
-    <tr><td>Open DTC / Apply to #1</td><td>callsign ini (DTC)</td><td>-</td></tr>
+    <tr><td>Open DTC / Apply</td><td>callsign ini (DTC)</td><td>-</td></tr>
     <tr><td>Write / Clear / Undo DTE</td><td>callsign ini (DTC)</td><td>callsign ini <code>[NAV OFFSETS]</code> only</td></tr>
   </tbody>
 </table>`;

@@ -1,4 +1,4 @@
-@import url("./common/ui/value-states-v0.1.css?v=3134e16c2df3");
+@import url("./common/ui/value-states-v0.1.css?v=52490c0496dd");
 
 :root{
   color-scheme:light dark;
@@ -147,7 +147,7 @@ svg{display:block;width:100%;background:#fff}
 /* BMS Mission (DTC) panels in the Save/Load tab (2026-11-12): Offset / POP-UP (DTE) and BOX / Wheel / Wheel-BOX (Run-In). */
 .bms-mission{display:grid;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
 .bms-mission-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.bms-mission-head h3{margin:0;font-size:14px;font-weight:900}
-.bms-mission .save-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:end}.bms-mission .bms-dte-ship{min-width:88px}
+.bms-mission .save-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.bms-mission select.bms-dte-ship{min-width:72px;width:auto;margin:0;min-height:0;padding-block:0;align-self:stretch;font:inherit;font-weight:800;line-height:normal}
 .bms-mission-messages{margin:0;padding-left:18px;font-size:12px;line-height:1.5}.bms-mission-messages:empty{display:none}.bms-mission-messages .warning{color:var(--amber)}.bms-mission-messages .invalid{color:var(--red)}
 .bms-mission-stpts{grid-template-columns:repeat(2,minmax(0,1fr))}
 .bms-mission code{font-size:11px}.bms-file-table{width:100%;border-collapse:collapse;font-size:11px;color:var(--muted)}.bms-file-table th,.bms-file-table td{padding:4px 6px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
