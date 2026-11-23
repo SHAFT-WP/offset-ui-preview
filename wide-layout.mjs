@@ -5,11 +5,12 @@
 // shared set of shown aircraft. This module gives the Offset tabs and what each draws.
 // SEM & Rejoin (2026-10-13): its own module, mounted once into the S&R input tab and the centre
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=151742be63eb";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=151742be63eb";
-import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=151742be63eb";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=1d2abbc3808f";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=1d2abbc3808f";
+import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=1d2abbc3808f";
 import { mountWideWorkspace } from "./shared/wide-workspace-v0.1.mjs?v=0.1.3";
 import { mountPopupDesignGraph } from "./popup-design-graph-v0.1.mjs?v=0.1.10";
+import { mountOffsetDesignGraph } from "./offset-design-graph-v0.1.mjs?v=0.1.5";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
@@ -54,8 +55,9 @@ const workspace = mountWideWorkspace({
     ["topview", "Offset Top View", { section: document.getElementById("offset-top-view")?.closest("section") }],
     ["bdp", "BDP", { title: "BDP", blocks: true }],
     ["sem", "SEM & Rejoin", { title: "SEM & Rejoin", host: true }],
-    // POP-UP Design tab (owner 2026-11-18): the dependency graph of #1 (popup-design-graph-v0.1).
-    ...(POPUP_PAGE ? [["design", "Design", { title: "Design · Graph (#1)", host: true }]] : []),
+    // Design tab: the dependency graph of #1 — POP-UP (owner 2026-11-18, popup-design-graph-v0.1) and Offset (owner
+    // 2026-11-23, offset-design-graph-v0.1).
+    ["design", "Design", { title: "Design · Graph (#1)", host: true }],
   ],
   centerOfInput: CENTER_OF_INPUT,
   inputOfCenter: INPUT_OF_CENTER,
@@ -91,8 +93,8 @@ semRejoin = mountSemRejoin({
   getEditAircraft: () => workspace.editAircraft(),
   requestEditAircraft: (number) => workspace.selectEditAircraft(number),
 });
-designGraph = POPUP_PAGE ? mountPopupDesignGraph({ host: workspace.centerHost("design"), offsetUi: offsetIndexUi }) : null;
-if (designGraph) globalThis.popupDesignGraph = designGraph;
+designGraph = (POPUP_PAGE ? mountPopupDesignGraph : mountOffsetDesignGraph)({ host: workspace.centerHost("design"), offsetUi: offsetIndexUi });
+globalThis[POPUP_PAGE ? "popupDesignGraph" : "offsetDesignGraph"] = designGraph;
 // BMS Mission (DTC) and DTE (2026-11-12, plan S7 / S8): the Offset index Save/Load tab; the POP-UP page too (owner
 // 2026-11-19, plan S10), whose DTE also writes VRPPUP / VIPPUP and OA2.
 const bmsMissionRoot = document.getElementById("bms-mission");

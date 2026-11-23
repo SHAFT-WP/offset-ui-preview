@@ -18,7 +18,15 @@ import { OFFSET_VIEW_COLORS as C } from "./AG/bombing/offset-bombing/view/offset
 import { createOpenArrowMarker } from "./common/diagram/svg-primitives-v0.1.mjs?v=0.1.6";
 import { appendNorthMark } from "./common/diagram/svg-north-mark-v0.1.mjs";
 
-export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.7", canvas: Object.freeze({ width: 640, height: 600 }) });
+// 0.1.8 (owner 2026-11-23, the Offset page's planning steps): `labels` gives the level names, the footer and the point
+// tooltip's last part, so the Offset Design tab draws its region with the same picture (no Approach-Pop there). The
+// defaults are the POP-UP texts, unchanged.
+export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.8", canvas: Object.freeze({ width: 640, height: 600 }) });
+const POPUP_LABELS = Object.freeze({
+  ok: "App-Pop Time ≥ 2초", warn: "App-Pop Time 0–2초", okDot: "≥ 2초 점", warnDot: "0–2초 점",
+  footer: "R/L = Roll-in 방향 · App-Pop = Approach-Pop",
+  pointTail: (p) => ` · Approach-Pop ${p.holdDownSec.toFixed(1)} s`,
+});
 
 const NS = "http://www.w3.org/2000/svg";
 const svgEl = (tag, attrs = {}, text = null) => {
@@ -37,7 +45,8 @@ const SIDE_TEXT = Object.freeze({ RIGHT: "R", LEFT: "L" });
 
 // points: region points (both sides); current: { geometry, popPoint, approachRangeNm, attackHeadingDeg } of the answer;
 // summaries: { RIGHT, LEFT } from regionSummary per side.
-export function renderRegionTopView(svg, { points: worldPoints = [], current: worldCurrent = null, summaries = {}, upHeadingDeg = 0 } = {}) {
+export function renderRegionTopView(svg, { points: worldPoints = [], current: worldCurrent = null, summaries = {}, upHeadingDeg = 0, labels: labelsIn = null } = {}) {
+  const labels = { ...POPUP_LABELS, ...(labelsIn ?? {}) };
   svg.replaceChildren();
   // The view turned about the Target (the Offset Top View's rotation): `upHeadingDeg` is drawn up.
   const up = Number.isFinite(Number(upHeadingDeg)) ? Number(upHeadingDeg) : 0;
@@ -135,7 +144,7 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
     const drawn = all.filter((p) => p.level !== "bad" && pt(p.rollIn));
     for (const p of drawn) {
       const dot = svgEl("circle", { cx: X(p.rollIn.x), cy: Y(p.rollIn.y), r: 3, fill: p.level === "ok" ? REGION_COLORS.yellow : "#fff", stroke: REGION_COLORS.yellow, "stroke-width": 1.5, "data-region-point": `${SIDE_TEXT[side]}${p.angleOffDeg}` });
-      dot.append(svgEl("title", {}, `${side === "RIGHT" ? "오른쪽" : "왼쪽"} Roll-in · Angle Off ${Math.round(p.angleOffDeg)}° · Attack Heading ${hdg(p.attackHeadingDeg + up)} · Offset Angle ${p.offsetAngleDeg.toFixed(1)}° · Roll-in Distance ${Math.hypot(p.rollIn.x, p.rollIn.y).toFixed(2)} NM · MAP ${finite(p.mapNm) ? p.mapNm.toFixed(2) : "-"} NM · Approach ${p.approachRangeNm.toFixed(2)} NM · Approach-Pop ${p.holdDownSec.toFixed(1)} s`));
+      dot.append(svgEl("title", {}, `${side === "RIGHT" ? "오른쪽" : "왼쪽"} Roll-in · Angle Off ${Math.round(p.angleOffDeg)}° · Attack Heading ${hdg(p.attackHeadingDeg + up)} · Offset Angle ${p.offsetAngleDeg.toFixed(1)}° · Roll-in Distance ${Math.hypot(p.rollIn.x, p.rollIn.y).toFixed(2)} NM · MAP ${finite(p.mapNm) ? p.mapNm.toFixed(2) : "-"} NM · Approach ${p.approachRangeNm.toFixed(2)} NM${labels.pointTail(p)}`));
       svg.append(dot);
       if (Math.round(p.angleOffDeg) % 15 === 0) {
         const len = Math.hypot(p.rollIn.x, p.rollIn.y) || 1;
@@ -240,14 +249,14 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
     svg.append(svgEl("circle", { cx: x + 10, cy: y - 4, r: 3.5, fill: filled ? REGION_COLORS.yellow : "#fff", stroke: REGION_COLORS.yellow, "stroke-width": 1.5 }));
     svg.append(svgEl("text", { x: x + 25, y, "font-size": 10.5, fill: "#2e2d2a" }, text));
   };
-  key(10, ly1, REGION_COLORS.yellow, 0.9, "Roll-in Point · App-Pop Time ≥ 2초");
-  key(236, ly1, REGION_COLORS.yellow, 0.35, "Roll-in Point · App-Pop Time 0–2초");
-  dot(462, ly1, true, "≥ 2초 점");
-  dot(540, ly1, false, "0–2초 점");
-  key(10, ly, REGION_COLORS.green, 0.9, "Attack Heading · App-Pop Time ≥ 2초");
-  key(236, ly, REGION_COLORS.green, 0.35, "Attack Heading · App-Pop Time 0–2초");
+  key(10, ly1, REGION_COLORS.yellow, 0.9, `Roll-in Point · ${labels.ok}`);
+  key(236, ly1, REGION_COLORS.yellow, 0.35, `Roll-in Point · ${labels.warn}`);
+  dot(462, ly1, true, labels.okDot);
+  dot(540, ly1, false, labels.warnDot);
+  key(10, ly, REGION_COLORS.green, 0.9, `Attack Heading · ${labels.ok}`);
+  key(236, ly, REGION_COLORS.green, 0.35, `Attack Heading · ${labels.warn}`);
   key(462, ly, REGION_COLORS.red, 1, "선택한 Attack Heading");
-  svg.append(svgEl("text", { x: W - 8, y: H - 44, "text-anchor": "end", "font-size": 10.5, fill: "#5f5e5a" }, "R/L = Roll-in 방향 · App-Pop = Approach-Pop"));
+  svg.append(svgEl("text", { x: W - 8, y: H - 44, "text-anchor": "end", "font-size": 10.5, fill: "#5f5e5a" }, labels.footer));
   untangleLabels(svg);
 }
 

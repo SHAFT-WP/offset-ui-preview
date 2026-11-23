@@ -1,0 +1,143 @@
+// Offset Design tab step 3 Fine tune (owner 2026-11-23, "핍업 부분 뺀 나머지를 옮겨줘": POP-UP's step-4 Fine tune,
+// popup-fine-tune-v0.1, without the pop-up targets): finds the value of one existing input that gives the target the
+// user typed, by calling the existing Offset Flight a few times (secant). No new formula.
+//   target "approachSec"          Approach Time (Turn End → Roll-in Start), 0.1 s.
+//   target "approachRangeNm"      Approach Range.
+//   target "rollInAltitudeMslFt"  Roll-in Altitude.
+//   knob "bdp"    (the default) the BDP side: Roll-in Altitude in height / Roll-in LOCK mode, Tracking Time in time mode
+//                 (the Roll-in Altitude solved from it). The MAP and the Roll-in Point move with it.
+//   knob "offset" the Offset Angle, through the step-2 LOCK (Angle Off, else Attack Heading) with the VRP held.
+//                 Not always one way: scanned around the page's value, then refined.
+// The answer is the input value to type; the page then flies it as any other edit. Pure calculation: no DOM, no storage.
+import { calculateOffsetFlightUnfittedFull } from "./offset-flight-v0.1.mjs?v=0.1.22";
+
+export const OFFSET_FINE_TUNE_V0_1 = Object.freeze({
+  id: "offset-fine-tune-v0.1",
+  version: "0.1.0",
+  maxRuns: 8,
+  tolerance: Object.freeze({ approachSec: 0.1, approachRangeNm: 0.01, rollInAltitudeMslFt: 15 }),
+  // Field precision of each knob (the value typed back).
+  step: Object.freeze({ rollInAltitudeMslFt: 10, trackingTimeSec: 0.1, angleOffDeg: 1, attackHeadingDeg: 1 }),
+  minTrackingTimeSec: 2,
+  offsetScanDeg: Object.freeze([-30, -20, -10, 10, 20, 30]),
+});
+
+const finite = (v) => Number.isFinite(v);
+const clone = (v) => structuredClone(v);
+export const OFFSET_FINE_TUNE_TARGETS = Object.freeze({
+  approachSec: (ar) => ar?.result?.timing?.approachSec,
+  approachRangeNm: (ar) => ar?.result?.resolved?.approachRangeNm,
+  rollInAltitudeMslFt: (ar) => ar?.result?.profile?.public?.resolvedInitialAltitudeMslFt,
+});
+
+// The baseline: #1's record as the page will send it next (the answer's nextInput: its drivers and LOCKs as they are),
+// so the value found is the one the page flies.
+export function fineTuneBaseline(answer) {
+  const record = answer?.output?.nextInput?.aircraft?.[1] ?? answer?.input?.aircraft?.[1];
+  if (!record?.values) throw new Error("No #1 record to fine tune");
+  const base = clone(record);
+  base.state ||= {};
+  return base;
+}
+
+// The knob for a request: { key, value } now (the page's value).
+export function fineTuneKnob(base, knob = "bdp") {
+  if (knob === "offset") {
+    const key = base.locks?.attackHeadingDeg === true && base.locks?.angleOffDeg !== true ? "attackHeadingDeg" : "angleOffDeg";
+    return { key, value: Number(base.values[key]) };
+  }
+  if (base.state?.solveMode === "time") return { key: "trackingTimeSec", value: Number(base.state?.enteredTrackingTimeSec ?? base.values.trackingTimeSec) };
+  return { key: "rollInAltitudeMslFt", value: Number(base.values.rollInAltitudeMslFt) };
+}
+
+function fly(base, key, value, calculate) {
+  const record = clone(base);
+  record.values[key] = value;
+  if (key === "trackingTimeSec") record.state.enteredTrackingTimeSec = value;
+  // A Roll-in Altitude LINKed to the Initial Altitude moves both (as the page's edit does).
+  if (key === "rollInAltitudeMslFt" && record.state.rollInAltitudeLinked) record.values.initialAltitudeMslFt = value;
+  if (key === "angleOffDeg" || key === "attackHeadingDeg") {
+    record.locks = { ...(record.locks ?? {}), [key]: true, offsetAngleDeg: false, actionRangeNm: false, approachRangeNm: false };
+  }
+  try {
+    return calculate({ schemaVersion: 2, flightSize: 1, aircraft: { 1: record } })?.aircraftResults?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// request = { target, value, knob }. Returns { status: "OK" | "CLOSEST" | "FAILED", key, value (to type), achieved,
+// runs, message }.
+export function fineTune(base, request, calculate = calculateOffsetFlightUnfittedFull) {
+  const { target, knob = "bdp" } = request ?? {};
+  const measure = OFFSET_FINE_TUNE_TARGETS[target];
+  if (!measure) return { status: "FAILED", runs: 0, message: `Unknown target ${target}` };
+  const want = Number(request.value);
+  if (!finite(want)) return { status: "FAILED", runs: 0, message: "목표값을 넣어 주세요" };
+  const { key, value: start } = fineTuneKnob(base, knob);
+  if (!finite(start)) return { status: "FAILED", runs: 0, message: `${key} has no value` };
+  const cfg = OFFSET_FINE_TUNE_V0_1;
+  const step = cfg.step[key];
+  const tol = cfg.tolerance[target];
+  const snap = (v) => {
+    let x = Math.round(v / step) * step;
+    if (key === "trackingTimeSec") x = Math.max(cfg.minTrackingTimeSec, x);
+    return +x.toFixed(6);
+  };
+  let runs = 0;
+  const tried = new Map();
+  const f = (v) => {
+    const x = snap(v);
+    if (tried.has(x)) return tried.get(x);
+    runs += 1;
+    const ar = fly(base, key, x, calculate);
+    const m = measure(ar);
+    const ok = ar && (ar.status === "VALID" || ar.status === "WARNING") && finite(m);
+    const r = { x, y: ok ? m - want : null, achieved: ok ? m : null, status: ar?.status ?? "FAILED" };
+    tried.set(x, r);
+    return r;
+  };
+  const best = () => [...tried.values()].filter((r) => r.y !== null).sort((a, b) => Math.abs(a.y) - Math.abs(b.y))[0] ?? null;
+  let a = f(start);
+  if (a.y !== null && Math.abs(a.y) <= tol) return done("OK");
+  if (knob === "offset") {
+    for (const d of cfg.offsetScanDeg) f(start + d);
+    const pts = [...tried.values()].filter((r) => r.y !== null).sort((p, q) => p.x - q.x);
+    let pair = null;
+    for (let i = 1; i < pts.length; i += 1) if (Math.sign(pts[i - 1].y) !== Math.sign(pts[i].y)) { pair = [pts[i - 1], pts[i]]; break; }
+    for (let i = 0; pair && i < 4 && runs < cfg.maxRuns + 6; i += 1) {
+      const [p, q] = pair;
+      if (Math.abs(q.x - p.x) <= step) break;
+      const m = f(p.x - (p.y * (q.x - p.x)) / (q.y - p.y));
+      if (m.y === null) break;
+      if (Math.abs(m.y) <= tol) break;
+      pair = Math.sign(m.y) === Math.sign(p.y) ? [m, q] : [p, m];
+    }
+    return done(best() && Math.abs(best().y) <= tol ? "OK" : "CLOSEST");
+  }
+  // BDP side: secant from the page's value (first trial step 200 ft / 0.5 s).
+  let b = f(start + (key === "trackingTimeSec" ? 0.5 : 200));
+  for (let i = 0; runs < cfg.maxRuns; i += 1) {
+    if (a.y === null || b.y === null || b.y === a.y) break;
+    const c = f(b.x - (b.y * (b.x - a.x)) / (b.y - a.y));
+    if (c.y === null) break;
+    if (Math.abs(c.y) <= tol || c.x === b.x) break;
+    a = b; b = c;
+  }
+  return done(best() && Math.abs(best().y) <= tol ? "OK" : "CLOSEST");
+
+  function done(status) {
+    const r = best();
+    if (!r) return { status: "FAILED", key, runs, message: "이 범위에서 날 수 있는 값이 없습니다" };
+    return {
+      status: status === "OK" ? "OK" : "CLOSEST",
+      key,
+      value: r.x,
+      target,
+      want,
+      achieved: r.achieved,
+      runs,
+      message: status === "OK" ? "" : `정확히 맞는 값이 없어 가장 가까운 값입니다 (차이 ${r.y.toFixed(target === "rollInAltitudeMslFt" ? 0 : 2)})`,
+    };
+  }
+}
