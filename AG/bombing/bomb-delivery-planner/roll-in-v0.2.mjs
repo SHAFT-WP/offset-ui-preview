@@ -25,10 +25,13 @@ import { ADOPTED_ACCELERATION_GRID_V0_1, adoptedAccelerationGrid } from "../../.
 // below it the MIL acceleration is unchanged. A Roll-in that starts above the cap (the climb's end speed) is not
 // slowed: it decelerates at MIL as before and, if it would gain speed at or above the cap, holds its speed instead.
 // Absent: every result is 0.2.2's.
+// 0.2.4 (2026-11-23, review of the POP-UP no-solution cases): the hold-time solve also bisects when its Newton steps
+// stop halving the heading error (solveHoldForBank). Roll-ins whose hold solve converged are unchanged; the ones it left
+// short (steep start FPA, Angle Off near the Dive) now solve.
 
 export const ROLL_IN_V0_2_MODEL = Object.freeze({
   id: "bdp-roll-in-v0.2-model-b-rate-onset",
-  version: "0.2.3",
+  version: "0.2.4",
   technique: "B",
   onsetShape: "LINEAR",
   speedHold: "ENTERED_MODE",
@@ -268,6 +271,13 @@ function solveHoldForBank(dyn, onset, target, bankRad) {
   // The roll-out adds about the same heading wherever it starts, so the first guess is where the hold heading
   // reaches Angle Off minus the zero-hold roll-out increment; then Newton with the hold turn rate as the slope,
   // kept inside [0, t] by bisection when a step leaves the bracket.
+  // 0.2.4 (review 2026-11-23): … or when the heading error has not halved over the last two steps. The hold turn rate is
+  // only part of the slope (a longer hold also changes the speed and path the roll-out starts from, so the roll-out
+  // adds more heading): from a steep Popup angle near Angle Off ≈ Dive the true slope was about twice the rate, each
+  // Newton step overshot by as much, and the steps went back and forth inside the bracket (2.709 s ↔ 4.94 s for a
+  // root at 3.756 s) until the 60 iterations ran out, 5° of heading short. The bank solve then took that end dive
+  // as real and reported no Roll-in Bank. Newton that converges cuts the error far faster than that, so those answers
+  // are as before, bit for bit.
   const rollOutIncrement = atZero.end[4] - holdStart[4];
   const aim = target.angleOffRad - rollOutIncrement;
   let k = holds.findIndex((h) => h.s[4] >= aim);
@@ -282,6 +292,7 @@ function solveHoldForBank(dyn, onset, target, bankRad) {
   let lo = 0;
   let hi = t;
   let best = { holdSec: 0, ...atZero, error: atZero.end[4] - target.angleOffRad };
+  const errors = [];
   for (let i = 0; i < 60; i += 1) {
     const start = stateAt(holdSec);
     const r = rollOutEnd(start);
@@ -291,7 +302,9 @@ function solveHoldForBank(dyn, onset, target, bankRad) {
     if (error > 0) hi = holdSec; else lo = holdSec;
     const rate = dyn.derivative(start, plan.holdControls())[4];
     let next = holdSec - error / rate;
-    if (!(next > lo && next < hi)) next = (lo + hi) / 2;
+    errors.push(Math.abs(error));
+    const stalled = errors.length >= 3 && errors[errors.length - 1] > errors[errors.length - 3] / 2;
+    if (!(next > lo && next < hi) || stalled) next = (lo + hi) / 2;
     holdSec = next;
   }
   return { ...best, plan, holdStart };
