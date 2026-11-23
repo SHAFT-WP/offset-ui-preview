@@ -8,14 +8,14 @@
 //     3 VRP and one of Angle Off / Attack Heading (exclusive, decision 3); the Offset Angle / Action / Approach Range
 //     LOCKs are released so the BE solves them. Step 4's Fine tune comes with S4.
 // The graph, ranges, Top View region and Fine tune are S2–S4 (DESIGN-STEPS.md §5).
-import { sweepBaseline } from "./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.2";
+import { sweepBaseline } from "./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.3";
 import { POPUP_ANGLE_GRID, popupAngleRange, popupProfileLine } from "./AG/bombing/popup/popup-design-steps-v0.1.mjs?v=0.1.2";
-import { defaultPopupAngleDeg } from "./AG/bombing/popup/popup-be-v0.2.mjs?v=0.2.5";
+import { defaultPopupAngleDeg } from "./AG/bombing/popup/popup-be-v0.2.mjs?v=0.2.6";
 import { renderAngleCharts, renderProfile } from "./popup-design-popup-chart-v0.1.mjs?v=0.1.3";
-import { ANGLE_OFF_GRID, coarseFirst, insideSpan, regionBaseline, regionMirrorBaseline, regionSummary } from "./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.1";
+import { ANGLE_OFF_GRID, coarseFirst, insideSpan, regionBaseline, regionMirrorBaseline, regionSummary } from "./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.2";
 import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.7";
 import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
-import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=0.1.0";
+import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=0.1.1";
 
 // 0.1.1 (S2): step 2 shows the Popup Angle sweep first (five small charts over the Popup Angle: Exposure, Apex speed,
 // Min Pop-up Distance, Approach-Pop Distance / Time; Apex 300–350 KCAS area, AUTO angle, the range), the range
@@ -33,7 +33,9 @@ import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=
 // (common svg-viewport: − / % / + / Fit, drag when zoomed); the profile draws the Approach-Pop leg before the Pop;
 // the Top View region is solved on both Roll-in sides (the Attack Heading mirrored about the Run-In) and drawn in
 // the Offset Top View symbols with the turn paths.
-export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.10" });
+export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.11" });
+// 0.1.11 (review 2026-11-23): 확정 / 해제, the linked LOCKs and Fine tune start once the page is idle and each press waits
+// for the page to be idle again (every edit answered), not for the first answer within 6 s.
 // 0.1.9 (owner 2026-11-22): Action Range / Offset Angle are linked fields (step 2 and 3) and every linked field whose page field has a LOCK has a Design LOCK that follows it.
 // 0.1.8 (owner 2026-11-22): step 2 also shows Action Range and Offset Angle (BE results); step 3 shows Action Range too.
 // 0.1.7 (owner 2026-11-22): the IP Bottom button sits in the Top View zoom row, left of the size buttons (zoomable lead).
@@ -280,11 +282,18 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     const done = () => { clearTimeout(timer); resolve(); };
     waiting.push(done);
   });
+  // 0.1.11 (review 2026-11-23): a press / field waits until every edit sent has its answer (the page's calculation
+  // scheduler is idle), not for the first answer within 6 s. A Flight that took longer (Dive 30–40°, a slow Offset
+  // solve: 10–25 s) let the next press go out on the old answer, so a confirm could read stale LOCK states. A long
+  // guard (120 s) keeps the wizard from waiting forever on a lost answer.
+  const IDLE_GUARD_MS = 120000;
+  const settled = (sent) => (typeof offsetUi.whenIdle !== "function" ? sent
+    : Promise.race([offsetUi.whenIdle(), new Promise((resolve) => setTimeout(resolve, IDLE_GUARD_MS))]));
   const press = async (button, on) => {
     if (!button || pressed(button) === on) return;
     const answered = nextAnswer();
     button.click();
-    await answered;
+    await settled(answered);
   };
   const setField = async (key, text) => {
     const input = mainField(key);
@@ -293,14 +302,16 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     input.value = text;
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    await answered;
+    await settled(answered);
   };
   let busy = false;
   const run = async (job) => {
     if (busy) return;
     busy = true;
     root.classList.add("design-wizard-busy");
-    try { await job(); } finally { busy = false; root.classList.remove("design-wizard-busy"); render(); }
+    // 0.1.11: a step reads the last answer (e.g. step 2 the Popup Angle to LOCK), so it starts once the answer to
+    // every edit already sent is in; pressed while an edit was still being calculated, it read the older answer.
+    try { await settled(Promise.resolve()); await job(); } finally { busy = false; root.classList.remove("design-wizard-busy"); render(); }
   };
   const releaseSolved = async () => {
     for (const key of ["offsetAngleDeg", "actionRangeNm", "approachRangeNm"]) await press(mainLock(key), false);

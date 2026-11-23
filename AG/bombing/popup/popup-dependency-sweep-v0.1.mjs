@@ -1,4 +1,4 @@
-import { calculatePopupFlightFull } from "./popup-flight-v0.1.mjs?v=0.1.23";
+import { calculatePopupFlightFull } from "./popup-flight-v0.1.mjs?v=0.1.24";
 
 // POP-UP dependency sweep (owner 2026-11-18, Design tab graph: "고정방식 해보자", "지금껏 그림 그려서 해석했던 방식을
 // 프로그램에서"): how one result depends on one input, under the page's current conditions, VALID or not.

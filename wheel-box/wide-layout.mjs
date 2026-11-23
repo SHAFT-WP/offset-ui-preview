@@ -2,7 +2,7 @@
 // controller's live nodes. Left = Edit aircraft + input tabs, centre = Wheel Top View / BDP / Spacer Turn, right =
 // Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft (owner 2026-10-25: a page
 // like BOX's).
-import { wheelIndexUi } from "./controller-v0.1.mjs?v=b9f023e72f31";
+import { wheelIndexUi } from "./controller-v0.1.mjs?v=e141b79d3cd0";
 import { mountWideWorkspace } from "../shared/wide-workspace-v0.1.mjs?v=0.1.3";
 
 const app = document.getElementById("wheel-calculator");

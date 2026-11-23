@@ -22,7 +22,11 @@ export const POPUP_BE_V0_2 = Object.freeze({
   // flown (it threw, which failed the whole Flight answer at Dive 30°); a ground distance no angle can fly names the
   // cause instead of "reachable Infinity–-Infinity NM".
   // 0.2.5 (owner 2026-11-17, "기본값은 4G"): a missing Popup G defaults to 4 G (was 3 G).
-  version: "0.2.5",
+  // 0.2.6 (review 2026-11-23, "충돌나거나 해가 안나오는 경우"): a ground distance or an exposure time reached only past
+  // the scan — between the last scan angle that flies and the steepest angle that does, or just above the shortest
+  // exposure between two scan angles — is solved instead of INVALID; message numbers without binary tails. Results that
+  // the scan already found are unchanged.
+  version: "0.2.6",
   status: "Work / Not Official",
   bdpModel: `${BOMB_DELIVERY_PLANNER_MODEL_V0_4.id} ${BOMB_DELIVERY_PLANNER_MODEL_V0_4.version}`,
   climbModel: `${POPUP_CLIMB_V0_2.id} ${POPUP_CLIMB_V0_2.version}`,
@@ -116,6 +120,45 @@ function scan(f) {
   });
 }
 
+// 0.2.6: between a scan angle that flies and a neighbour that does not (e.g. the steepest angles, whose pull-up arc
+// passes the Roll-in Altitude), the last angle that flies (bisection to angleToleranceDeg) is added to the points, so
+// a value reached only between the last flown scan angle and that limit is found.
+function withFlyableEnds(f, points) {
+  const ends = [];
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1];
+    const b = points[i];
+    if ((a.value === null) === (b.value === null)) continue;
+    let ok = a.value !== null ? a : b;
+    let bad = a.value !== null ? b : a;
+    while (Math.abs(bad.angleDeg - ok.angleDeg) > POPUP_BE_V0_2.angleToleranceDeg) {
+      const mid = (ok.angleDeg + bad.angleDeg) / 2;
+      let value = null;
+      try { value = f(mid); } catch { value = null; }
+      if (value === null || !Number.isFinite(value)) bad = { angleDeg: mid, value: null }; else ok = { angleDeg: mid, value };
+    }
+    if (ok !== a && ok !== b) ends.push(ok);
+  }
+  return ends.length ? [...points, ...ends].sort((x, y) => x.angleDeg - y.angleDeg) : points;
+}
+
+// The roots of f between successive flown points of opposite sign (each by bisection), smallest angle first;
+// `first`: only the first one.
+function rootsOf(f, points, { first = false } = {}) {
+  const roots = [];
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1];
+    const b = points[i];
+    if (a.value === null || b.value === null || Math.sign(a.value) === Math.sign(b.value)) continue;
+    roots.push(bisectAngle(f, a.angleDeg, b.angleDeg, a.value));
+    if (first) break;
+  }
+  return roots;
+}
+
+// Numbers in the messages: at most `digits` decimals, no binary tail (0.30000000000000004 → 0.3).
+const shown = (value, digits = 3) => String(Number(value.toFixed(digits)));
+
 export function resolvePopupAngle(p) {
   const diveAngleDeg = finite("diveAngleDeg", p.bdp.diveAngleDeg);
   if (p.driver === "DEFAULT") return { angleDeg: defaultPopupAngleDeg(diveAngleDeg), note: "automatic rule" };
@@ -128,17 +171,18 @@ export function resolvePopupAngle(p) {
   if (p.driver === "GROUND_DISTANCE") {
     if (!(p.groundDistanceNm > 0)) throw new RangeError("Popup ground distance must be > 0 NM");
     const f = (angleDeg) => groundDistanceAt(p, rollInAltitudeAt(angleDeg), angleDeg) - p.groundDistanceNm;
-    const points = scan(f);
-    for (let i = 1; i < points.length; i += 1) {
-      const a = points[i - 1];
-      const b = points[i];
-      if (a.value !== null && b.value !== null && Math.sign(a.value) !== Math.sign(b.value)) return { angleDeg: bisectAngle(f, a.angleDeg, b.angleDeg, a.value) };
-      if (b.value === 0) return { angleDeg: b.angleDeg };
+    let points = scan(f);
+    let [root] = rootsOf(f, points, { first: true });
+    // 0.2.6: none on the scan — look again with the last angles that fly next to the ones that do not.
+    if (root === undefined) {
+      points = withFlyableEnds(f, points);
+      [root] = rootsOf(f, points, { first: true });
     }
+    if (root !== undefined) return { angleDeg: root };
     const reachable = points.filter((x) => x.value !== null).map((x) => x.value + p.groundDistanceNm);
     // 0.2.4: no angle on the scan flies at all — say why (the first angle's error) instead of an empty range.
-    if (!reachable.length) throw new RangeError(`No Popup angle can be flown for a ground distance of ${p.groundDistanceNm} NM${points[0]?.error ? ` (${points[0].error})` : ""}`);
-    throw new RangeError(`No Popup angle gives a ground distance of ${p.groundDistanceNm} NM (reachable ${Math.min(...reachable).toFixed(2)}–${Math.max(...reachable).toFixed(2)} NM)`);
+    if (!reachable.length) throw new RangeError(`No Popup angle can be flown for a ground distance of ${shown(p.groundDistanceNm)} NM${points[0]?.error ? ` (${points[0].error})` : ""}`);
+    throw new RangeError(`No Popup angle gives a ground distance of ${shown(p.groundDistanceNm)} NM (reachable ${Math.min(...reachable).toFixed(2)}–${Math.max(...reachable).toFixed(2)} NM)`);
   }
   // EXPOSURE_TIME: not monotonic in the angle; the smallest angle with the time is used and the others are listed.
   if (!(p.exposureTimeSec > 0)) throw new RangeError("Popup exposure time must be > 0 s");
@@ -147,19 +191,56 @@ export function resolvePopupAngle(p) {
     if (fly.exposureTimeSec === null) throw new Error("no Apex");
     return fly.exposureTimeSec - p.exposureTimeSec;
   };
-  const points = scan(f);
-  const roots = [];
-  for (let i = 1; i < points.length; i += 1) {
-    const a = points[i - 1];
-    const b = points[i];
-    if (a.value !== null && b.value !== null && Math.sign(a.value) !== Math.sign(b.value)) roots.push(bisectAngle(f, a.angleDeg, b.angleDeg, a.value));
+  let points = scan(f);
+  let roots = rootsOf(f, points);
+  // 0.2.6: none on the scan — (1) the last angles that fly next to the ones that do not; (2) the time has its
+  // minimum between scan angles (it falls, then rises with the angle), so a time just above that minimum is crossed
+  // twice inside one scan interval: the minimum is refined (golden section) and both sides are bisected.
+  if (!roots.length) {
+    points = withFlyableEnds(f, points);
+    roots = rootsOf(f, points);
+  }
+  if (!roots.length) {
+    const flown = points.filter((x) => x.value !== null);
+    const minimum = refinedMinimum((angleDeg) => { try { const v = f(angleDeg); return Number.isFinite(v) ? v : Infinity; } catch { return Infinity; } }, flown);
+    if (minimum && minimum.value <= 0) {
+      const i = flown.findIndex((x) => x.angleDeg > minimum.angleDeg);
+      const left = flown[i - 1];
+      const right = flown[i];
+      if (left && left.value > 0) roots.push(bisectAngle(f, left.angleDeg, minimum.angleDeg, left.value));
+      if (right && right.value > 0) roots.push(bisectAngle(f, minimum.angleDeg, right.angleDeg, minimum.value));
+    }
   }
   if (!roots.length) {
     const flown = points.filter((x) => x.value !== null);
     const best = flown.reduce((m, x) => (!m || x.value < m.value ? x : m), null);
-    throw new RangeError(`No Popup angle gives an exposure time of ${p.exposureTimeSec} s${best ? ` (the shortest on the scan is ${(best.value + p.exposureTimeSec).toFixed(1)} s at ${best.angleDeg}°; see the minimum exposure)` : ""}`);
+    const longest = flown.reduce((m, x) => (!m || x.value > m.value ? x : m), null);
+    // 0.2.6: a time longer than every one flown names the longest (the shallowest angles), not the shortest.
+    const hint = !best ? "" : best.value > 0
+      ? ` (the shortest on the scan is ${(best.value + p.exposureTimeSec).toFixed(1)} s at ${shown(best.angleDeg, 2)}°; see the minimum exposure)`
+      : ` (the longest on the scan is ${(longest.value + p.exposureTimeSec).toFixed(1)} s at ${shown(longest.angleDeg, 2)}°)`;
+    throw new RangeError(`No Popup angle gives an exposure time of ${shown(p.exposureTimeSec, 2)} s${hint}`);
   }
   return { angleDeg: roots[0], otherSolutionsDeg: roots.slice(1) };
+}
+
+// 0.2.6: the minimum of f near the smallest of the flown points (golden section between its neighbours, as the
+// minimum exposure); the point itself when the refinement finds nothing lower. null without points.
+function refinedMinimum(f, flown) {
+  if (!flown.length) return null;
+  const i = flown.reduce((best, x, k) => (x.value < flown[best].value ? k : best), 0);
+  let a = flown[Math.max(0, i - 1)].angleDeg;
+  let b = flown[Math.min(flown.length - 1, i + 1)].angleDeg;
+  const r = (Math.sqrt(5) - 1) / 2;
+  let c = b - r * (b - a);
+  let d = a + r * (b - a);
+  let fc = f(c);
+  let fd = f(d);
+  while (b - a > POPUP_BE_V0_2.angleToleranceDeg * 10) {
+    if (fc < fd) { b = d; d = c; fd = fc; c = b - r * (b - a); fc = f(c); } else { a = c; c = d; fc = fd; d = a + r * (b - a); fd = f(d); }
+  }
+  const refined = fc < fd ? { angleDeg: c, value: fc } : { angleDeg: d, value: fd };
+  return refined.value < flown[i].value ? refined : flown[i];
 }
 
 function event(name, fields) {
@@ -268,23 +349,10 @@ export function calculatePopupMinimumExposureFull(input) {
   };
   const points = scan(exposure).filter((x) => x.value !== null);
   if (!points.length) return { status: "UNAVAILABLE", reason: "No Popup angle on the scan can be flown" };
-  const i = points.reduce((best, x, k) => (x.value < points[best].value ? k : best), 0);
-  let a = points[Math.max(0, i - 1)].angleDeg;
-  let b = points[Math.min(points.length - 1, i + 1)].angleDeg;
-  const r = (Math.sqrt(5) - 1) / 2;
   // 0.2.4: an angle between two scan points that cannot be flown counts as the longest exposure (it is skipped, as
-  // on the scan), so one unflyable trial no longer ends the search with an error.
-  const trial = (angleDeg) => { try { return exposure(angleDeg); } catch { return Infinity; } };
-  let c = b - r * (b - a);
-  let d = a + r * (b - a);
-  let fc = trial(c);
-  let fd = trial(d);
-  while (b - a > POPUP_BE_V0_2.angleToleranceDeg * 10) {
-    if (fc < fd) { b = d; d = c; fd = fc; c = b - r * (b - a); fc = trial(c); } else { a = c; c = d; fc = fd; d = a + r * (b - a); fd = trial(d); }
-  }
-  // The scan's best point stays the answer when the refinement found nothing shorter that flies.
-  const refined = fc < fd ? { angleDeg: c, value: fc } : { angleDeg: d, value: fd };
-  const best = refined.value < points[i].value ? refined : points[i];
+  // on the scan), so one unflyable trial no longer ends the search with an error. The scan's best point stays the
+  // answer when the refinement found nothing shorter that flies (0.2.6: the refinement is refinedMinimum).
+  const best = refinedMinimum((angleDeg) => { try { return exposure(angleDeg); } catch { return Infinity; } }, points);
   return { status: "VALID", angleDeg: best.angleDeg, exposureTimeSec: best.value, scan: points.map(({ angleDeg: x, value }) => ({ angleDeg: x, exposureTimeSec: value })) };
 }
 

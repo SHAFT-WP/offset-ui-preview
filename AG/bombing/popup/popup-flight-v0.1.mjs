@@ -3,7 +3,7 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 import { OFFSET_FLIGHT_PROFILE_LINK, OFFSET_FLIGHT_V0_1, calculateOffsetFlightUnfittedFull as calculateOffsetFlightFull, createOffsetFlightSession, profileLinkStates } from "../offset-bombing/offset-flight-v0.1.mjs?v=0.1.22";
 import { calculateWithIaaEdit } from "../offset-bombing/offset-iaa-edit-v0.1.mjs";
 import { calculateWithClearFit, clearFitFieldLocked, clearFitRange } from "../offset-bombing/offset-clear-fit-v0.1.mjs";
-import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs?v=0.2.5";
+import { POPUP_BE_V0_2, assemblePopupAttack, calculatePopupMinimumExposureFull, defaultPopupAngleDeg, normalizePopupInput, resolvePopupAngle } from "./popup-be-v0.2.mjs?v=0.2.6";
 import { calculatePopupClimbFull } from "./popup-climb-v0.2.mjs";
 import { computeDropOrderDeltaFull } from "../offset-bombing/offset-formation-v0.1.mjs";
 import { dropOrderTiming } from "../../../flight/flight-bombing-tactics/flight-composition-v0.1.mjs";
@@ -95,7 +95,15 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // POP-UP page (VRPPUP / VIPPUP) and OA2 ELEV are the aircraft's Initial Altitude (= its VRP / VIP page ELEV), no
   // longer the Target Elevation. RNG / TBRG unchanged. Offset Flight 0.1.20's IAA edit (offset-iaa-edit-v0.1) on this
   // page too: calculatePopupFlightFull and the page session turn a typed IAA into the Release Altitude that flies it.
-  version: "0.1.23",
+  // 0.1.24 (review 2026-11-23, "충돌나거나 해가 안나오는 경우 … 로직 업그레이드 … 최적화"; SPEC §13.8ag): (1) the AUTO angle lowered
+  // for the pull-up arc no longer flips between the rule's angle and the lowered one when the Roll-in Altitude is
+  // solved from the Tracking Time (it moves with the angle): bisection between the steepest angle that fitted and the
+  // shallowest that did not (Pop at 3,000 ft: INVALID → 28.4°); (2) the Apex guard treats a trial whose Offset solve
+  // failed as a gap, not as an Offset-Popup Range < 0, and searches below it (Dive 40°: 50° LOW SPEED 245 KCAS →
+  // 31° at 301 KCAS); (3) speed: the AUTO Roll-in Speed fixed point takes a secant step, the angle searches' trials
+  // start from the nearest settled speed, and the raise's answer reuses its trial (about a third fewer whole Flight
+  // solves; values move within speedSettleKt). POP-UP BE 0.2.6.
+  version: "0.1.24",
   defaultPopupG: 4,
   angleIterations: 12,
   autoAngleMinDeg: 1,
@@ -518,7 +526,11 @@ function popupFlight(rawInput, offsetFlight) {
   for (const [n, source] of Object.entries(linkedTo)) settings[n] = { ...settings[source], locks: { ...settings[source].locks } };
   // One solve of every aircraft's angle and AUTO Roll-in Speed. `autoAngles` (0.1.14): the AUTO angle to fly instead
   // of the automatic rule's, for the aircraft whose climb did not fit ({} = the rule).
-  const solve = (autoAngles = {}) => {
+  // 0.1.24 `warm`: a trial of the AUTO angle searches (raise, Apex guard) starts each AUTO Roll-in Speed from the
+  // settled speed of the solve already flown nearest its angle, instead of the field's (a trial 15° away started
+  // 70 kt off and took six whole Flight solves to settle). The first solve and the answer's start from the field.
+  const settledSpeeds = [];
+  const solve = (autoAngles = {}, { warm = false } = {}) => {
     // First angles: the driver's own value or the automatic rule on the aircraft's Dive.
     const angles = {};
     const ruleAngles = {};
@@ -535,6 +547,10 @@ function popupFlight(rawInput, offsetFlight) {
     const speeds = {};
     for (const n of numbers) {
       if (Number.isFinite(settings[n].rollInSpeedKcas)) speeds[n] = settings[n].rollInSpeedKcas;
+      if (warm && !linkedTo[n] && !settings[n].locks.rollInSpeed) {
+        const near = settledSpeeds.filter((x) => Number.isFinite(x.angles[n]) && Number.isFinite(x.speeds[n])).sort((a, b) => Math.abs(a.angles[n] - angles[n]) - Math.abs(b.angles[n] - angles[n]))[0];
+        if (near) speeds[n] = near.speeds[n];
+      }
     }
     // A linked aircraft flies its source's angle and Roll-in Speed (and its errors); it is not solved on its own.
     const followSources = () => {
@@ -551,6 +567,7 @@ function popupFlight(rawInput, offsetFlight) {
     const autoSpeed = numbers.filter((n) => !linkedTo[n] && !settings[n].locks.rollInSpeed);
     const backSolve = numbers.filter((n) => !linkedTo[n] && settings[n].locks.rollInSpeed && Number.isFinite(speeds[n]));
     const speedErrors = {};
+    const speedHistory = {};
     // 0.1.16: the Roll-in Speeds of the last Offset Flight flown (the ones `output` was calculated with).
     let flownSpeeds = {};
     const fly = () => { flownSpeeds = { ...speeds }; return offsetFlight(withAngles(input, angles, speeds)); };
@@ -558,6 +575,12 @@ function popupFlight(rawInput, offsetFlight) {
     // AUTO Popup angle (0.1.9): the automatic rule's angle, lowered to the steepest one whose pull-up arc stays below
     // the Roll-in Altitude when the rule's angle cannot be flown.
     const autoAngle = numbers.filter((n) => !linkedTo[n] && settings[n].driver === "DEFAULT");
+    // 0.1.24: what the arc check learned of each AUTO angle in this solve — `ceiling` the shallowest angle flown
+    // (or asked) whose pull-up arc passed its own Roll-in Altitude, `floor` the steepest flown whose arc fitted.
+    // With the Roll-in Altitude solved from the Tracking Time it changes with the angle (a shallower angle gives a
+    // higher one), so the angle asked can fit at the lowered angle's Roll-in Altitude and fail again at its own;
+    // before, each round asked it again and the solve flipped between the two until it stopped on either.
+    const arcBounds = Object.fromEntries(autoAngle.map((n) => [n, { floor: null, ceiling: Infinity }]));
     const needsSolve = numbers.filter((n) => !linkedTo[n] && ["GROUND_DISTANCE", "EXPOSURE_TIME"].includes(settings[n].driver));
     for (let iteration = 0; (needsSolve.length || autoSpeed.length || autoAngle.length || backSolve.length) && iteration < POPUP_FLIGHT_V0_1.angleIterations; iteration += 1) {
       let moved = false;
@@ -582,11 +605,23 @@ function popupFlight(rawInput, offsetFlight) {
         const climbInput = { ...popState(r.resolved, settings[n].popupSpeedKcas), rollInAltitudeMslFt: r.profile.public.resolvedInitialAltitudeMslFt, popupG: settings[n].popupG, gOnsetRateGSec: r.profile.canonicalInputs.gOnsetRateGSec };
         const ruleDeg = ruleAngles[n];
         const askedDeg = Number.isFinite(autoAngles[n]) ? autoAngles[n] : ruleDeg;
+        const bounds = arcBounds[n];
+        const tol = POPUP_FLIGHT_V0_1.autoAngleToleranceDeg;
+        // The angle this output was flown with, checked at its own Roll-in Altitude.
+        const flownDeg = angles[n];
+        const flownFits = climbFits(climbFull, climbInput, flownDeg);
+        if (flownFits) bounds.floor = Math.max(bounds.floor ?? -Infinity, flownDeg);
+        else bounds.ceiling = Math.min(bounds.ceiling, flownDeg);
         let target = askedDeg;
-        if (!climbFits(climbFull, climbInput, askedDeg)) {
-          const fit = steepestFittingAngle(climbFull, climbInput, askedDeg);
+        if (!(flownFits && flownDeg >= askedDeg - 1e-9)) {
+          // The arc limits the angle: the steepest that fits at this Roll-in Altitude (0.1.9) …
+          const fit = steepestFittingAngle(climbFull, climbInput, Math.min(askedDeg, bounds.ceiling));
           if (fit === null) continue;
-          target = fit;
+          if (bounds.floor === null) target = fit;
+          // … settled when the angle flown is already it (always so when the Roll-in Altitude is entered) …
+          else if (flownFits && fit - flownDeg <= tol) target = flownDeg;
+          // … else (0.1.24) bisection between the steepest angle that fitted and the shallowest that did not.
+          else target = bounds.ceiling - bounds.floor <= tol ? bounds.floor : (bounds.floor + bounds.ceiling) / 2;
         }
         // Below the rule's angle: the pull-up arc limits it (0.1.9's warning).
         // 0.1.19: only what the arc lowered (an Apex-guard angle asked below the rule is not "lowered").
@@ -620,8 +655,29 @@ function popupFlight(rawInput, offsetFlight) {
         if (!r?.profile?.canonicalInputs || angleErrors[n]) continue;
         try {
           const arrival = climbFull({ ...popState(r.resolved, settings[n].popupSpeedKcas), rollInAltitudeMslFt: r.profile.public.resolvedInitialAltitudeMslFt, popupAngleDeg: angles[n], popupG: settings[n].popupG, gOnsetRateGSec: r.profile.canonicalInputs.gOnsetRateGSec }).rollInStart.casKt;
+          const flown = flownSpeeds[n];
           if (!(Math.abs(arrival - speeds[n]) <= POPUP_FLIGHT_V0_1.speedSettleKt)) moved = true;
-          speeds[n] = arrival;
+          // 0.1.24: the speed is the fixed point of speed flown → MIL arrival (the arrival moves with the Roll-in
+          // Altitude the speed gives). Two rounds at the same angle and Pop-up Speed give its secant, which lands
+          // near the fixed point at once; before, the plain iteration overshot and took four to six rounds.
+          const history = (speedHistory[n] ||= []);
+          const same = history.length && history.at(-1).angle === angles[n] && history.at(-1).pop === settings[n].popupSpeedKcas;
+          if (!same) history.length = 0;
+          let next = arrival;
+          if (Number.isFinite(flown)) {
+            history.push({ angle: angles[n], pop: settings[n].popupSpeedKcas, x: flown, g: arrival });
+            if (history.length >= 2) {
+              const [a, b] = history.slice(-2);
+              const ha = a.g - a.x;
+              const hb = b.g - b.x;
+              const secant = hb !== ha ? b.x - (hb * (b.x - a.x)) / (hb - ha) : NaN;
+              // Kept only between the last speed and its arrival widened by their gap (a safe step).
+              const lo = Math.min(b.x, b.g) - Math.abs(hb);
+              const hi = Math.max(b.x, b.g) + Math.abs(hb);
+              if (Number.isFinite(secant) && secant >= lo && secant <= hi) next = secant;
+            }
+          }
+          speeds[n] = next;
         } catch { /* the climb error is reported below */ }
       }
       if (!moved) {
@@ -634,6 +690,7 @@ function popupFlight(rawInput, offsetFlight) {
       followSources();
       output = fly();
     }
+    settledSpeeds.push({ angles: { ...angles }, speeds: { ...speeds } });
     return { output, angles, speeds, solved, angleErrors, lowered };
   };
   // Hold-Down (0.1.14, owner 2026-11-16): an aircraft whose climb is longer than its Approach (Hold-Down < 0) and
@@ -662,6 +719,8 @@ function popupFlight(rawInput, offsetFlight) {
     };
     const overrides = {};
     const done = {};
+    // 0.1.24: the trials flown, so the answer reuses the one flown with its angles.
+    const raiseSols = [];
     for (let iteration = 0; iteration < POPUP_FLIGHT_V0_1.autoAngleRaiseTrials; iteration += 1) {
       const active = short.filter((n) => !done[n]);
       for (const n of active) {
@@ -674,7 +733,8 @@ function popupFlight(rawInput, offsetFlight) {
         } else overrides[n] = next;
       }
       if (short.every((n) => done[n])) break;
-      const trial = solve({ ...overrides });
+      const trial = solve({ ...overrides }, { warm: true });
+      raiseSols.push(trial);
       for (const n of active) {
         if (done[n]) continue;
         tried[n].push(entry(overrides[n], trial.angles[n], holdDownState(climbFull, trial, n, settings[n]), need[n]));
@@ -684,7 +744,11 @@ function popupFlight(rawInput, offsetFlight) {
       const ok = pick(n);
       if (ok && ok.deg > tried[n][0].deg) raisedAngle[n] = { ruleDeg: tried[n][0].deg, angleDeg: ok.deg };
     }
-    if (Object.keys(raisedAngle).length) sol = solve(Object.fromEntries(Object.entries(raisedAngle).map(([n, r]) => [n, r.angleDeg])));
+    if (Object.keys(raisedAngle).length) {
+      const final = Object.fromEntries(Object.entries(raisedAngle).map(([n, r]) => [n, r.angleDeg]));
+      const reuse = raiseSols.find((trial) => numbers.filter(autoRaiseable).every((k) => Math.abs(trial.angles[k] - (final[k] ?? sol.angles[k])) < 1e-9));
+      sol = reuse ?? solve(final);
+    }
     for (const n of Object.keys(raisedAngle)) {
       raisedAngle[n].angleDeg = sol.angles[n];
       if (!(sol.angles[n] > raisedAngle[n].ruleDeg)) delete raisedAngle[n];
@@ -705,7 +769,7 @@ function popupFlight(rawInput, offsetFlight) {
     const isGood = (x) => Number.isFinite(x.slow) && x.slow >= lowLine && Number.isFinite(x.real) && x.real >= 0;
     const known = [{ deg: fromDeg, slow: state.slowKcas, real: state.holdDownNm }, ...(raiseTried[n] ?? []).filter((x) => !x.failed && Number.isFinite(x.flown)).map((x) => ({ deg: x.flown, slow: x.slow, real: x.real }))];
     const tryAngle = (deg) => {
-      const trial = solve({ ...guardAngles(), [n]: deg });
+      const trial = solve({ ...guardAngles(), [n]: deg }, { warm: true });
       const st = holdDownState(climbFull, trial, n, settings[n]);
       const point = { deg: trial.angles[n], slow: st.failed ? null : st.slowKcas, real: st.failed ? null : st.holdDownNm, sol: trial };
       known.push(point);
@@ -717,13 +781,20 @@ function popupFlight(rawInput, offsetFlight) {
       const hi = known.filter((x) => x.deg <= fromDeg + 1e-9 && Number.isFinite(x.slow) && x.slow < lowLine && (!lo || x.deg > lo.deg)).sort((a, b) => a.deg - b.deg)[0];
       if (!hi || (lo && hi.deg - lo.deg <= grid + 1e-9)) break;
       // A shallower angle only shortens the Offset-Popup Range: below a Range < 0 nothing good is left.
-      if (!lo && known.some((x) => x.deg < hi.deg && !(Number.isFinite(x.real) && x.real >= 0))) break;
+      // 0.1.24: only a Range known to be < 0 says so. A trial whose Offset solve failed (no value: e.g. a gap of the
+      // Roll-in solve near Angle Off ≈ Dive) is a gap, not a short Range: the search goes on below it.
+      if (!lo && known.some((x) => x.deg < hi.deg && Number.isFinite(x.real) && x.real < 0)) break;
       // Where the slowest speed reaches the line: the secant of the two nearest, else about 4 KCAS per degree.
       const below = lo ?? known.filter((x) => x.deg < hi.deg && Number.isFinite(x.slow)).sort((a, b) => b.deg - a.deg)[0];
       let at = below && below.slow !== hi.slow ? below.deg + (hi.deg - below.deg) * (lowLine - below.slow) / (hi.slow - below.slow) : hi.deg - (lowLine - hi.slow) / 4;
       if (!lo) at = Math.min(at, hi.deg - grid);
       let deg = Math.floor(at / grid + 1e-9) * grid;
       if (lo) deg = Math.min(Math.max(deg, lo.deg + grid), hi.deg - grid);
+      // 0.1.24: an angle at or past a failed trial (between it and the lowest good one, or below it with none good)
+      // is not asked again: the next one is halfway from that failure toward the good side, at least 2° past it.
+      const gap = known.filter((x) => !Number.isFinite(x.slow) && x.deg < hi.deg && (!lo || x.deg > lo.deg) && deg >= x.deg - 1e-9).sort((a, b) => a.deg - b.deg)[0];
+      if (gap) deg = Math.floor((lo ? (lo.deg + gap.deg) / 2 : gap.deg - Math.max(2, (hi.deg - gap.deg) / 2)) / grid + 1e-9) * grid;
+      if (lo && !(deg > lo.deg)) break;
       if (!(deg >= POPUP_FLIGHT_V0_1.autoAngleMinDeg) || known.some((x) => Math.abs(x.deg - deg) < 1e-6)) break;
       tryAngle(deg);
     }
