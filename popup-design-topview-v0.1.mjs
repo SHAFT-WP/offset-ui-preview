@@ -21,7 +21,7 @@ import { appendNorthMark } from "./common/diagram/svg-north-mark-v0.1.mjs";
 // 0.1.8 (owner 2026-11-23, the Offset page's planning steps): `labels` gives the level names, the footer and the point
 // tooltip's last part, so the Offset Design tab draws its region with the same picture (no Approach-Pop there). The
 // defaults are the POP-UP texts, unchanged.
-export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.9", canvas: Object.freeze({ width: 640, height: 600 }) });
+export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.10", canvas: Object.freeze({ width: 640, height: 600 }) });
 const POPUP_LABELS = Object.freeze({
   ok: "App-Pop Time ≥ 2초", warn: "App-Pop Time 0–2초", okDot: "≥ 2초 점", warnDot: "0–2초 점",
   footer: "R/L = Roll-in 방향 · App-Pop = Approach-Pop",
@@ -45,7 +45,7 @@ const SIDE_TEXT = Object.freeze({ RIGHT: "R", LEFT: "L" });
 
 // points: region points (both sides); current: { geometry, popPoint, approachRangeNm, attackHeadingDeg } of the answer;
 // summaries: { RIGHT, LEFT } from regionSummary per side.
-export function renderRegionTopView(svg, { points: worldPoints = [], current: worldCurrent = null, summaries = {}, upHeadingDeg = 0, labels: labelsIn = null, maxJoinDeg = Infinity } = {}) {
+export function renderRegionTopView(svg, { points: worldPoints = [], current: worldCurrent = null, summaries = {}, upHeadingDeg = 0, labels: labelsIn = null, maxJoinDeg = Infinity, marks: worldMarks = [] } = {}) {
   const labels = { ...POPUP_LABELS, ...(labelsIn ?? {}) };
   svg.replaceChildren();
   // The view turned about the Target (the Offset Top View's rotation): `upHeadingDeg` is drawn up.
@@ -234,6 +234,21 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
       label(p.rollStart, "Roll-in", C.rollText, 10, 16);
     }
     if (pt(p.trackPoint)) svg.append(svgEl("circle", { cx: X(p.trackPoint.x), cy: Y(p.trackPoint.y), r: 4.5, fill: "#fff", stroke: C.roll, "stroke-width": 2, "data-station": "track" }));
+  }
+  // 0.1.10 (Offset step 3, owner 2026-11-24 "가용 오프셋 영역이나 헤딩 영역 그래프가 나오지 않고 그냥 픽스된 값만"): marks = the
+  // points that fit a set value (the Roll-in Altitude held: the Angle Offs giving the set Offset Angle), drawn as red
+  // rings on the region (Roll-in Point and Attack Heading) with their Angle Off.
+  for (const m of worldMarks) {
+    if (!pt(m?.rollIn) || !finite(m.angleOffDeg) || (shownSide && m.rollDirection && m.rollDirection !== shownSide)) continue;
+    const q = { ...m, rollIn: turn(m.rollIn), attackHeadingDeg: turnHdg(m.attackHeadingDeg) };
+    const ring = (c) => svgEl("circle", { cx: X(c.x), cy: Y(c.y), r: 7, fill: "none", stroke: REGION_COLORS.red, "stroke-width": 2.2, "data-region-mark": String(m.angleOffDeg) });
+    const r1 = ring(q.rollIn);
+    r1.append(svgEl("title", {}, `${m.label ?? ""}Angle Off ${m.angleOffDeg.toFixed(1)}° · Attack Heading ${finite(m.attackHeadingDeg) ? hdg(m.attackHeadingDeg) : "-"} · Offset Angle ${finite(m.offsetAngleDeg) ? Math.abs(m.offsetAngleDeg).toFixed(1) : "-"}°`));
+    svg.append(r1);
+    if (finite(q.attackHeadingDeg)) svg.append(ring(attackMark(q)));
+    const len = Math.hypot(q.rollIn.x, q.rollIn.y) || 1;
+    const k = -20 / s;
+    svg.append(svgEl("text", { x: X(q.rollIn.x + (q.rollIn.x / len) * k), y: Y(q.rollIn.y + (q.rollIn.y / len) * k) + 4, "text-anchor": "middle", "font-size": 11, "font-weight": 700, fill: REGION_COLORS.red, "data-region-end": "mark" }, `AO ${m.angleOffDeg.toFixed(1)}°`));
   }
   // Target (BDP Target marker).
   svg.append(svgEl("circle", { cx: X(0), cy: Y(0), r: 6, fill: C.target, stroke: "#fff", "stroke-width": 2, "data-station": "target" }));

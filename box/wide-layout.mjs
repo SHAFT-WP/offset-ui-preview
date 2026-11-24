@@ -4,7 +4,7 @@
 // Offset FE layout).
 // Speed conversions under every kcas / Mach speed input (owner 2026-11-24), shared by all BE pages.
 import "../shared/speed-readout-v0.1.mjs?v=0.1.0";
-import { boxIndexUi } from "./controller-v0.1.mjs?v=e5801a69a97f";
+import { boxIndexUi } from "./controller-v0.1.mjs?v=ea5c06ac1c9d";
 import { mountWideWorkspace } from "../shared/wide-workspace-v0.1.mjs?v=0.1.3";
 
 const app = document.getElementById("box-calculator");
