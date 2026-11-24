@@ -4,7 +4,24 @@
 // buttons, a unit or mode select). Pressing a proxy presses the page's own control; every sync copies the page
 // control's state (pressed, text, disabled, hidden, value) back, so both sides always show the same state.
 // Shared by the Offset and POP-UP Design tabs. DOM only, no calculation.
-export const DESIGN_FIELD_MIRROR_V0_1 = Object.freeze({ id: "design-field-mirror-v0.1", version: "0.1.0" });
+export const DESIGN_FIELD_MIRROR_V0_1 = Object.freeze({ id: "design-field-mirror-v0.1", version: "0.1.1" });
+
+// Every mirrored Design input, so a change on a page control (a LOCK press, a kcas / Mach select) shows on its proxy
+// at once, not only on the next render.
+const mirrored = new Set();
+function syncAll() {
+  for (const input of mirrored) {
+    if (!input.isConnected) { mirrored.delete(input); continue; }
+    syncFieldControls(input, { busy: input.__mirrorBusy ?? false });
+  }
+}
+if (typeof document !== "undefined" && !globalThis.__designFieldMirrorInstalled) {
+  globalThis.__designFieldMirrorInstalled = true;
+  const later = () => queueMicrotask(syncAll);
+  document.addEventListener("input", later, true);
+  document.addEventListener("change", later, true);
+  document.addEventListener("click", () => setTimeout(syncAll, 0), true);
+}
 
 const container = (main) => main?.closest("label, .field, .offset-card") ?? null;
 
@@ -17,6 +34,7 @@ export function mirrorFieldControls(input, main, { covered = () => false, press 
   if (input.__mirror) for (const [proxy] of [...input.__mirror.buttons, ...input.__mirror.selects]) proxy.remove();
   const mirror = { main, buttons: [], selects: [] };
   input.__mirror = mirror;
+  mirrored.add(input);
   if (!host || !field) return mirror;
   // A page LOCK the Design field already stands for with its own button (data-design-lock = the same key) is skipped.
   const own = new Set([...field.querySelectorAll("[data-design-lock]")].map((b) => b.getAttribute("data-design-lock")));
@@ -64,6 +82,7 @@ export function mirrorFieldControls(input, main, { covered = () => false, press 
 export function syncFieldControls(input, { busy = false } = {}) {
   const mirror = input.__mirror;
   if (!mirror) return;
+  input.__mirrorBusy = busy;
   for (const [proxy, b] of mirror.buttons) {
     proxy.textContent = b.textContent;
     proxy.className = b.className;

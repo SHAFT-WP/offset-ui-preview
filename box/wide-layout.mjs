@@ -2,7 +2,9 @@
 // controller's live nodes. Left = Edit aircraft + input tabs, centre = BOX Top View / BDP / Spacer Turn, right =
 // Result / Z-Diagram / DED, every output tab showing the one shared set of shown aircraft (owner 2026-10-23 / 25: the
 // Offset FE layout).
-import { boxIndexUi } from "./controller-v0.1.mjs?v=c3b6526efcbd";
+// Speed conversions under every kcas / Mach speed input (owner 2026-11-24), shared by all BE pages.
+import "../shared/speed-readout-v0.1.mjs?v=0.1.0";
+import { boxIndexUi } from "./controller-v0.1.mjs?v=e5801a69a97f";
 import { mountWideWorkspace } from "../shared/wide-workspace-v0.1.mjs?v=0.1.3";
 
 const app = document.getElementById("box-calculator");
