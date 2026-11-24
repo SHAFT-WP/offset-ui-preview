@@ -18,21 +18,34 @@
 //   knob "leadDive"       #1's Dive Angle (LOCKed).
 //   knob "rollInAltitude" #2's Roll-in Altitude (LOCKed, height mode); requiredPitchDeg tells the constant-speed climb /
 //                         descent from the Approach start to 3 s before the Roll-in (followerPitch).
+//   #2 Tracking Time / Dive (0.1.4, owner 2026-11-24: "3초까지는 트래킹 타임을 먼저 줄이고 그다음에는 다이브를 바꾸되",
+//   "dive는 #1처럼, 단 전체 다 50초과의 다이브 각도는 사용하지 않는다", "2초까지 줄여"), #2's Roll-in Altitude held
+//   (Roll-in Altitude LOCK, "release" mode: the Release Altitude is solved):
+//   knob "trackingTime"     #2's Tracking Time from its baseline (request.trackFromSec, else the flown one) down to 3 s;
+//                           the longest that fits.
+//   knob "followerDive"     #2's Dive Angle 10–50° at Tracking Time 3 s (or the baseline if shorter).
+//   knob "trackingTimeMin"  #2's Tracking Time 3 → 2 s at its Dive Angle.
+//   No Dive Angle above 50° is tried (leadDive too). Every knob's answer keeps #n's Tracking Time ≥ 2 s (Offset BE 0.2.21
+//   minimum); a 0–2 s WARNING answer is not used.
 // The answer is the input value to type; the page then flies it as any other edit. Pure calculation: no DOM, no storage.
 import { calculateOffsetFlightUnfittedFull } from "./offset-flight-v0.1.mjs?v=0.1.22";
 
 export const OFFSET_FOLLOWER_TIME_V0_1 = Object.freeze({
   id: "offset-follower-time-v0.1",
-  version: "0.1.3",
+  version: "0.1.4",
   pitchLeadSec: 3,
   toleranceSec: 0.1,
   maxRuns: 40,
-  step: Object.freeze({ angleOffDeg: 0.1, approachRangeNm: 0.01, offsetAngleDeg: 0.1, actionRangeNm: 0.01, diveAngleDeg: 0.1, rollInAltitudeMslFt: 10 }),
+  step: Object.freeze({ angleOffDeg: 0.1, approachRangeNm: 0.01, offsetAngleDeg: 0.1, actionRangeNm: 0.01, diveAngleDeg: 0.1, rollInAltitudeMslFt: 10, trackingTimeSec: 0.1 }),
+  maxDiveDeg: 50,
+  trackFloorSec: 3,
+  trackMinSec: 2,
   angleOffScanDeg: Object.freeze(Array.from({ length: 17 }, (_, i) => 10 + i * 10)),
   approachLimitsNm: Object.freeze([0, 15]),
   offsetAngleScanDeg: Object.freeze(Array.from({ length: 17 }, (_, i) => i * 5)),
   leadAngleOffScanDeg: Object.freeze(Array.from({ length: 15 }, (_, i) => 20 + i * 10)),
-  leadDiveScanDeg: Object.freeze(Array.from({ length: 11 }, (_, i) => 10 + i * 5)),
+  leadDiveScanDeg: Object.freeze(Array.from({ length: 9 }, (_, i) => 10 + i * 5)),
+  followerDiveScanDeg: Object.freeze(Array.from({ length: 9 }, (_, i) => 10 + i * 5)),
   rollInAltitudeScanFt: Object.freeze(Array.from({ length: 15 }, (_, i) => 6000 + i * 2000)),
   actionRangeScanNm: Object.freeze(Array.from({ length: 16 }, (_, i) => 1 + i)),
 });
@@ -55,7 +68,8 @@ export function followerTimeBaseline(answer, number = 2) {
 }
 
 // The record for a trial value of the knob.
-export const FOLLOWER_KNOB_KEYS = Object.freeze({ angleOff: "angleOffDeg", approach: "approachRangeNm", offsetAngle: "offsetAngleDeg", actionRange: "actionRangeNm", leadAngleOff: "angleOffDeg", leadDive: "diveAngleDeg", rollInAltitude: "rollInAltitudeMslFt" });
+export const FOLLOWER_KNOB_KEYS = Object.freeze({ angleOff: "angleOffDeg", approach: "approachRangeNm", offsetAngle: "offsetAngleDeg", actionRange: "actionRangeNm", leadAngleOff: "angleOffDeg", leadDive: "diveAngleDeg", rollInAltitude: "rollInAltitudeMslFt", trackingTime: "trackingTimeSec", followerDive: "diveAngleDeg", trackingTimeMin: "trackingTimeSec" });
+const TRACK_KNOBS = new Set(["trackingTime", "followerDive", "trackingTimeMin"]);
 // The aircraft each knob moves (the follower's own, or #1).
 export const knobAircraft = (knob, number) => (knob === "leadAngleOff" || knob === "leadDive" ? 1 : number);
 
@@ -76,7 +90,8 @@ export function followerPitch(output, number, fromAltitudeMslFt) {
   return { deltaFt, groundNm, sec, requiredPitchDeg: (Math.atan2(deltaFt, groundNm * 6076.115) * 180) / Math.PI, verticalFpm: (deltaFt / sec) * 60 };
 }
 
-export function withFollowerKnob(input, number, knob, value, currentAngleOffDeg) {
+// extra (0.1.4, the Tracking Time / Dive knobs): { rollInAltitudeMslFt (held), trackingTimeSec (followerDive) }.
+export function withFollowerKnob(input, number, knob, value, currentAngleOffDeg, extra = {}) {
   const next = clone(input);
   if (knob === "leadAngleOff" || knob === "leadDive") {
     const lead = next.aircraft[1];
@@ -96,6 +111,22 @@ export function withFollowerKnob(input, number, knob, value, currentAngleOffDeg)
   }
   const rec = next.aircraft[number];
   rec.options = { ...(rec.options ?? {}) };
+  if (TRACK_KNOBS.has(knob)) {
+    // Roll-in Altitude held (LOCK): a Tracking Time entry is the "release" mode (the Release Altitude is solved).
+    const tt = knob === "followerDive" ? extra.trackingTimeSec : value;
+    if (finite(extra.rollInAltitudeMslFt)) {
+      rec.values.rollInAltitudeMslFt = extra.rollInAltitudeMslFt;
+      if (rec.state?.rollInAltitudeLinked) rec.values.initialAltitudeMslFt = extra.rollInAltitudeMslFt;
+    }
+    rec.options.rollInAltitudeLocked = true;
+    rec.values.trackingTimeSec = tt;
+    rec.state = { ...(rec.state ?? {}), solveMode: "release", enteredTrackingTimeSec: tt };
+    if (knob === "followerDive") {
+      rec.values.diveAngleDeg = value;
+      rec.options.diveAngleLocked = true;
+    }
+    return next;
+  }
   if (knob === "rollInAltitude") {
     rec.values.rollInAltitudeMslFt = value;
     if (rec.state?.rollInAltitudeLinked) rec.values.initialAltitudeMslFt = value;
@@ -144,20 +175,39 @@ export function solveFollowerReleaseTime(input, number, request, calculate = cal
   const knobRec = input.aircraft[knobAircraft(knob, number)];
   // #2's altitude at its IP before the change (the pitch is from there to the new Roll-in Altitude).
   const fromAltitude = nowAr?.result?.profile?.public?.resolvedInitialAltitudeMslFt ?? Number(input.aircraft[number].values.initialAltitudeMslFt);
-  const start = knob === "angleOff" ? currentAo
+  // 0.1.4: the Tracking Time / Dive knobs. T0 = the baseline Tracking Time (the user's, request.trackFromSec), else the
+  // one flown now; the Roll-in Altitude held at the one flown now.
+  const nowTrack = nowAr?.result?.profile?.public?.trackingTimeSec;
+  const trackFrom = finite(Number(request?.trackFromSec)) ? Number(request.trackFromSec) : nowTrack;
+  const extra = { rollInAltitudeMslFt: nowAr?.result?.profile?.public?.resolvedInitialAltitudeMslFt };
+  let trackRange = null;
+  if (knob === "trackingTime") trackRange = [cfg.trackFloorSec, trackFrom];
+  if (knob === "trackingTimeMin") trackRange = [cfg.trackMinSec, Math.min(cfg.trackFloorSec, finite(trackFrom) ? trackFrom : cfg.trackFloorSec)];
+  if (knob === "followerDive") extra.trackingTimeSec = Math.round(Math.max(cfg.trackMinSec, Math.min(cfg.trackFloorSec, finite(trackFrom) ? trackFrom : cfg.trackFloorSec)) * 10) / 10;
+  if (TRACK_KNOBS.has(knob) && !finite(extra.rollInAltitudeMslFt)) return { status: "FAILED", key, runs, message: "#2의 Roll-in Altitude를 알 수 없습니다" };
+  if (trackRange && !(finite(trackRange[1]) && trackRange[1] > trackRange[0] + 0.05)) {
+    return { status: "FAILED", key, runs, message: `Tracking Time이 이미 ${trackRange[0]} s 이하입니다` };
+  }
+  let start = knob === "angleOff" ? currentAo
     : knob === "rollInAltitude" ? (nowAr?.result?.profile?.public?.resolvedInitialAltitudeMslFt ?? Number(knobRec.values[key]))
+    : trackRange ? trackRange[1]
+    : knob === "followerDive" ? Number(knobRec.values.diveAngleDeg)
     : (knobAr?.result?.resolved?.[key] ?? Number(knobRec.values[key]));
+  // No Dive Angle above 50° (0.1.4).
+  if ((knob === "leadDive" || knob === "followerDive") && finite(start) && start > cfg.maxDiveDeg) start = null;
   const step = cfg.step[key];
   const snap = (v) => +(Math.round(v / step) * step).toFixed(6);
   const tried = new Map();
   const f = (v) => {
     const x = snap(v);
     if (tried.has(x)) return tried.get(x);
-    const out = fly(withFollowerKnob(input, number, knob, x, currentAo));
+    const out = fly(withFollowerKnob(input, number, knob, x, currentAo, extra));
     const ar = out?.aircraftResults?.[number];
     const t = releaseFromPredecessorImpactSec(out, number);
     const lead = knobAircraft(knob, number) === 1 ? out?.aircraftResults?.[1] : ar;
-    const ok = ar && (ar.status === "VALID" || ar.status === "WARNING") && lead && lead.status !== "INVALID" && finite(t);
+    // 0.1.4: #n's Tracking Time ≥ 2 s (a 0–2 s WARNING answer is not used).
+    const track = ar?.result?.profile?.public?.trackingTimeSec;
+    const ok = ar && (ar.status === "VALID" || ar.status === "WARNING") && lead && lead.status !== "INVALID" && finite(t) && (!finite(track) || track >= cfg.trackMinSec - 0.05);
     const r = { x, y: ok ? t - want : null, achieved: ok ? t : null, status: ar?.status ?? "FAILED", output: ok ? out : null };
     tried.set(x, r);
     return r;
@@ -168,7 +218,7 @@ export function solveFollowerReleaseTime(input, number, request, calculate = cal
     if (!r) return { status: "FAILED", key, runs, message: "이 범위에서 날 수 있는 값이 없습니다" };
     const ok = Math.abs(r.y) <= cfg.toleranceSec; // within tolerance is OK however the search ended
     const pitch = knob === "rollInAltitude" ? followerPitch(r.output, number, fromAltitude) : null;
-    return { status: ok ? "OK" : "CLOSEST", knob, aircraft: knobAircraft(knob, number), key, value: r.x, want, achieved: r.achieved, runs, pitch, message: ok ? "" : `정확히 맞는 값이 없어 가장 가까운 값입니다 (차이 ${r.y.toFixed(2)} s)` };
+    return { status: ok ? "OK" : "CLOSEST", knob, aircraft: knobAircraft(knob, number), key, value: r.x, want, achieved: r.achieved, runs, pitch, trackFromSec: trackRange || knob === "followerDive" ? trackFrom : null, trackingTimeSec: knob === "followerDive" ? extra.trackingTimeSec : null, message: ok ? "" : `정확히 맞는 값이 없어 가장 가까운 값입니다 (차이 ${r.y.toFixed(2)} s)` };
   };
   if (finite(start)) {
     const a = f(start);
@@ -182,6 +232,10 @@ export function solveFollowerReleaseTime(input, number, request, calculate = cal
     leadAngleOff: cfg.leadAngleOffScanDeg,
     leadDive: cfg.leadDiveScanDeg,
     rollInAltitude: cfg.rollInAltitudeScanFt,
+    followerDive: cfg.followerDiveScanDeg,
+    // Tracking Time: from the top of the range down in 0.5 s, the floor included.
+    trackingTime: trackRange ? Array.from({ length: Math.floor((trackRange[1] - trackRange[0]) / 0.5) + 1 }, (_, i) => trackRange[1] - i * 0.5).concat(trackRange[0]) : null,
+    trackingTimeMin: trackRange ? Array.from({ length: Math.floor((trackRange[1] - trackRange[0]) / 0.5) + 1 }, (_, i) => trackRange[1] - i * 0.5).concat(trackRange[0]) : null,
   }[knob] ?? cfg.angleOffScanDeg;
   for (const x of grid) f(x);
   const pts = [...tried.values()].filter((r) => r.y !== null).sort((p, q) => p.x - q.x);

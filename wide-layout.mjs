@@ -7,12 +7,12 @@
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
 // Speed conversions under every kcas / Mach speed input (owner 2026-11-24), shared by all BE pages.
 import "./shared/speed-readout-v0.1.mjs?v=0.1.0";
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=c91996f1fd9d";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=c91996f1fd9d";
-import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=c91996f1fd9d";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=416f6b7496e2";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=416f6b7496e2";
+import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=416f6b7496e2";
 import { mountWideWorkspace } from "./shared/wide-workspace-v0.1.mjs?v=0.1.3";
 import { mountPopupDesignGraph } from "./popup-design-graph-v0.1.mjs?v=0.1.13";
-import { mountOffsetDesignGraph } from "./offset-design-graph-v0.1.mjs?v=0.1.11";
+import { mountOffsetDesignGraph } from "./offset-design-graph-v0.1.mjs?v=0.1.12";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");

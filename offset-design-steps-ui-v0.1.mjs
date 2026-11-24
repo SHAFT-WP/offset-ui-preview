@@ -11,7 +11,7 @@
 import { mirrorFieldControls, syncFieldControls } from "./shared/design-field-mirror-v0.1.mjs?v=0.1.1";
 import { ANGLE_OFF_GRID, coarseFirst, regionBaseline, regionSummary } from "./AG/bombing/offset-bombing/offset-design-region-v0.1.mjs?v=0.2.2";
 import { fineTuneBaseline } from "./AG/bombing/offset-bombing/offset-fine-tune-v0.1.mjs?v=0.1.0";
-import { followerTimeBaseline, releaseFromPredecessorImpactSec } from "./AG/bombing/offset-bombing/offset-follower-time-v0.1.mjs?v=0.1.3";
+import { followerTimeBaseline, releaseFromPredecessorImpactSec } from "./AG/bombing/offset-bombing/offset-follower-time-v0.1.mjs?v=0.1.4";
 import { attackPairing, pumpingPath } from "./AG/bombing/offset-bombing/offset-follower-pumping-v0.1.mjs?v=0.1.0";
 import { OFFSET_DESIGN_VRP_MAP_V0_1, renderVrpMap } from "./offset-design-vrp-map-v0.1.mjs?v=0.1.0";
 import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.11";
@@ -21,7 +21,14 @@ import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1
 // (and whether a cross-over is needed; the cross-over path itself is S2), the release time relative to #1's impact as
 // a target (− = before the impact) with #1's Bomb TOF beside it, #2's Offset fields with their LOCKs (copies of the #2
 // slot's fields), and "시간 맞추기" (offset-follower-time-v0.1: #2's Angle Off or its Roll-in position).
-export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.10" });
+export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.11" });
+// 0.1.11 (owner 2026-11-24): #2 시간 맞추기 — "3초까지는 트래킹 타임을 먼저 줄이고 그다음에는 다이브를 바꾸되 유저가 입력을
+// 새로 넣으면 그 기준으로 다시 계산", "dive는 #1처럼, 단 전체 다 50초과의 다이브 각도는 사용하지 않는다", "2초까지 줄여",
+// "roll in 고도 변경 체크는 피치 값을 주고 (Roll-in고도 변경 피치, fpm) 그 위에 lock 버튼 … 디폴트는 lock". The order is
+// #2 Angle Off → Offset Angle → Action Range → #2 Tracking Time (→ 3 s) → #2 Dive (Track 3 s, ≤ 50°) → #2 Tracking Time
+// (3 → 2 s) → #1 Angle Off → #1 Dive (≤ 50°) → #2 Roll-in Altitude (only with its LOCK released). The baseline is the
+// #2 Tracking Time / Dive the user typed: what the matcher typed is put back before the next run unless the user has
+// typed a new value since. The Roll-in Altitude change shows its constant-speed climb / descent in fpm.
 // 0.1.10 (owner 2026-11-24): "2초 라인의 범위를 연한 색으로 … 오프셋도 마찬가지" — with the Roll-in Altitude held, each step-3
 // sweep point carries its Tracking Time 2 s point (offset-design-region-v0.1 0.2.2 regionTask, minTrack), drawn as a
 // light band on the Top View; a point flown with less than 2 s of tracking is not part of the region (either mode).
@@ -230,9 +237,16 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     el("option", { value: "angleOff", text: "#2 Angle Off" }),
     el("option", { value: "offsetAngle", text: "Roll-in 위치: #2 Offset Angle" }),
     el("option", { value: "actionRange", text: "Roll-in 위치: #2 Action Range" }),
+    el("option", { value: "trackingTime", text: "#2 Tracking Time (입력값 → 3 s)" }),
+    el("option", { value: "followerDive", text: "#2 Dive Angle (Track 3 s, 50° 이하)" }),
+    el("option", { value: "trackingTimeMin", text: "#2 Tracking Time (3 → 2 s)" }),
     el("option", { value: "leadAngleOff", text: "해가 없을 때: #1 Angle Off" }),
-    el("option", { value: "leadDive", text: "해가 없을 때: #1 Dive Angle" }),
-    el("option", { value: "rollInAltitude", text: "그래도 없을 때: #2 Roll-in Altitude (피치)" }));
+    el("option", { value: "leadDive", text: "해가 없을 때: #1 Dive Angle (50° 이하)" }),
+    el("option", { value: "rollInAltitude", text: "그래도 없을 때: #2 Roll-in Altitude (LOCK 해제 시)" }));
+  // Roll-in 고도 변경 (0.1.11): LOCK (default) = the matcher never changes #2's Roll-in Altitude; released, it may, and
+  // the field shows the climb / descent it needs (fpm, constant speed, Approach start → 3 s before the Roll-in).
+  const altLock = el("button", { class: "lock-button active", type: "button", "data-design-alt-change-lock": "", "aria-pressed": "true", "aria-label": "Lock Roll-in 고도 변경", text: "LOCKED" });
+  const altPitch = el("input", { type: "text", readonly: "", "aria-label": "Roll-in 고도 변경 피치 (fpm)", "data-design-alt-change-fpm": "", placeholder: "-" });
   const timeButton = el("button", { class: "btn", type: "button", "data-design-time-solve": "", text: "시간 맞추기" });
   const timeStatus = el("p", { class: "design-graph-status", role: "status", "data-design-time-status": "", text: "목표 시간을 넣고 시간 맞추기를 누르세요. − = #1 Impact 전." });
   const pumpG = el("input", { type: "text", inputmode: "decimal", "aria-label": "Pumping G", "data-design-pump-g": "", value: "4" });
@@ -249,7 +263,8 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
       followerLink("attackHeadingDeg", "Attack Heading (deg)", "#2", ["attackHeadingLocked"]),
       followerLink("actionRangeNm", "Action Range (NM)", "#2", ["actionRangeLocked", "sameTimeAsLead"]),
       followerLink("approachRangeNm", "Approach Range (NM)", "#2 · Roll-in 위치", ["approachRangeLocked"])),
-    grid(tuneField("목표: #1 Impact 기준 Release (s)", timeTarget, "− = Impact 전"), tuneField("맞추는 쪽", timeKnob, "자동: #2 → #1 Angle Off·Dive → #2 고도")),
+    grid(tuneField("목표: #1 Impact 기준 Release (s)", timeTarget, "− = Impact 전"), tuneField("맞추는 쪽", timeKnob, "자동: #2 → Track 3 s → Dive → Track 2 s → #1 → #2 고도"),
+      el("label", { class: "field" }, el("span", { class: "lock-title" }, el("span", { text: "Roll-in 고도 변경 피치 (fpm)" }), altLock), altPitch, el("span", { class: "unit", text: "LOCK = 고도 안 바꿈 · 풀면 #2 고도도 써서 맞춤" }))),
     el("div", { class: "design-graph-actions" }, timeButton),
     timeStatus,
   ]);
@@ -438,8 +453,34 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
   }
 
   // ---- #2 step ----
-  const AUTO_ORDER = ["angleOff", "offsetAngle", "actionRange", "leadAngleOff", "leadDive", "rollInAltitude"];
-  const KNOB_LABEL = { angleOff: "#2 Angle Off", offsetAngle: "#2 Offset Angle", actionRange: "#2 Action Range", leadAngleOff: "#1 Angle Off", leadDive: "#1 Dive", rollInAltitude: "#2 Roll-in Altitude" };
+  const AUTO_ORDER = ["angleOff", "offsetAngle", "actionRange", "trackingTime", "followerDive", "trackingTimeMin", "leadAngleOff", "leadDive", "rollInAltitude"];
+  const KNOB_LABEL = { angleOff: "#2 Angle Off", offsetAngle: "#2 Offset Angle", actionRange: "#2 Action Range", trackingTime: "#2 Tracking Time → 3 s", followerDive: "#2 Dive (Track 3 s)", trackingTimeMin: "#2 Tracking Time → 2 s", leadAngleOff: "#1 Angle Off", leadDive: "#1 Dive", rollInAltitude: "#2 Roll-in Altitude" };
+  const TRACK_KNOBS = new Set(["trackingTime", "followerDive", "trackingTimeMin"]);
+  let altChangeLocked = true;
+  altLock.addEventListener("click", (event) => {
+    event.preventDefault();
+    altChangeLocked = !altChangeLocked;
+    altLock.setAttribute("aria-pressed", String(altChangeLocked));
+    altLock.classList.toggle("active", altChangeLocked);
+    altLock.textContent = altChangeLocked ? "LOCKED" : "LOCK";
+  });
+  // The baseline (0.1.11): #2's Tracking Time / Dive state as the user left it, and what the matcher typed over it.
+  // { snapshot: { mode, rollInLocked, trackingTimeSec, rollInAltitudeMslFt, releaseAltitudeMslFt, diveAngleDeg, diveLocked },
+  //   applied: { tt, dive } } (the "release" mode the matcher flies solves #2's Release Altitude, so it goes back too).
+  let followerBase = null;
+  const followerRecord = () => answer?.output?.nextInput?.aircraft?.[FOLLOWER] ?? answer?.input?.aircraft?.[FOLLOWER] ?? null;
+  const followerSnapshot = () => {
+    const rec = followerRecord();
+    const pub = answer?.output?.aircraftResults?.[FOLLOWER]?.result?.profile?.public ?? {};
+    return {
+      mode: rec?.state?.solveMode ?? "height", rollInLocked: rec?.options?.rollInAltitudeLocked === true,
+      trackingTimeSec: Number.isFinite(pub.trackingTimeSec) ? Math.round(pub.trackingTimeSec * 10) / 10 : Number(rec?.values?.trackingTimeSec),
+      rollInAltitudeMslFt: Number.isFinite(pub.resolvedInitialAltitudeMslFt) ? Math.round(pub.resolvedInitialAltitudeMslFt) : Number(rec?.values?.rollInAltitudeMslFt),
+      releaseAltitudeMslFt: Number(rec?.values?.releaseAltitudeMslFt),
+      diveAngleDeg: Number(rec?.values?.diveAngleDeg), diveLocked: rec?.options?.diveAngleLocked === true,
+    };
+  };
+  const nearly = (a, b, tol) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= tol;
   const SIDE_LR = { LEFT: "L", RIGHT: "R" };
   let timeEdited = false;
   function renderFollower() {
@@ -507,22 +548,10 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     let base;
     try { base = followerTimeBaseline(answer, FOLLOWER); } catch { timeStatus.textContent = "#2의 계산 결과가 있어야 합니다."; return; }
     const knob = timeKnob.value;
+    if (knob === "rollInAltitude" && altChangeLocked) { timeStatus.textContent = "Roll-in 고도 변경이 LOCK입니다. 고도를 바꿔도 되면 LOCK을 푸세요."; return; }
     const started = performance.now();
     timeStatus.textContent = "시간 맞추는 중…";
-    // 자동 (owner 2026-11-23): #2's Angle Off / Roll-in position first, then #1's Angle Off / Dive, then #2's altitude;
-    // the first that fits is used, else the closest of all.
-    const order = knob === "auto" ? AUTO_ORDER : [knob];
-    let r = null;
-    const missed = [];
-    for (const k of order) {
-      timeStatus.textContent = `시간 맞추는 중… (${KNOB_LABEL[k]})`;
-      const res = await tunePool.point(base, { number: FOLLOWER, request: { value, knob: k } }, "followerTime");
-      if (res && res.status !== "FAILED" && Number.isFinite(res.value) && (!r || Math.abs(res.achieved - value) < Math.abs(r.achieved - value))) r = res;
-      if (res?.status === "OK") break;
-      missed.push(KNOB_LABEL[k]);
-    }
-    if (!r || r.status === "FAILED" || !Number.isFinite(r.value)) { timeStatus.textContent = `실패: ${r?.message ?? "답이 없습니다"}`; return; }
-    // Type the value into #2's own field, its LOCK on (Roll-in position: Angle Off LOCKed as it is, then the Approach).
+    // Setting #2's own fields (the slot's), each waiting for its answer.
     const setFollower = async (key, text) => {
       const main = followerMain(key);
       if (!main) return;
@@ -534,6 +563,47 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     };
     const lockOn = async (key) => { const main = followerMain(key); if (main && !pressed(main)) { const answered = nextAnswer(); main.click(); await settled(answered); } };
     const lockOff = async (key) => { const main = followerMain(key); if (main && pressed(main)) { const answered = nextAnswer(); main.click(); await settled(answered); } };
+    // 0.1.11 baseline: if #2's Tracking Time / Dive are still what the matcher typed, put the user's back first (the
+    // results do not pile up); a value the user typed since is the new baseline.
+    const nowSnap = followerSnapshot();
+    if (followerBase && nearly(nowSnap.trackingTimeSec, followerBase.applied.tt, 0.05) && nearly(nowSnap.diveAngleDeg, followerBase.applied.dive, 0.05)) {
+      const b = followerBase.snapshot;
+      timeStatus.textContent = `입력 기준으로 되돌리는 중… (Tracking ${b.trackingTimeSec} s · Dive ${b.diveAngleDeg}°)`;
+      if (Number.isFinite(b.diveAngleDeg) && !nearly(nowSnap.diveAngleDeg, b.diveAngleDeg, 0.05)) await setFollower("diveAngleDeg", b.diveAngleDeg.toFixed(1));
+      if (b.diveLocked) await lockOn("diveAngleLocked"); else await lockOff("diveAngleLocked");
+      if (b.mode !== "release" && Number.isFinite(b.releaseAltitudeMslFt)) {
+        if (!b.rollInLocked) await lockOff("rollInAltitudeLocked");
+        await setFollower("releaseAltitudeMslFt", String(Math.round(b.releaseAltitudeMslFt)));
+      }
+      if (b.mode === "height") {
+        if (b.rollInLocked) await lockOn("rollInAltitudeLocked"); else await lockOff("rollInAltitudeLocked");
+        await setFollower("rollInAltitudeMslFt", String(b.rollInAltitudeMslFt));
+      } else {
+        if (b.mode === "release" || b.rollInLocked) await lockOn("rollInAltitudeLocked"); else await lockOff("rollInAltitudeLocked");
+        await setFollower("trackingTimeSec", b.trackingTimeSec.toFixed(1));
+      }
+      try { base = followerTimeBaseline(answer, FOLLOWER); } catch { timeStatus.textContent = "#2의 계산 결과가 있어야 합니다."; return; }
+    } else {
+      followerBase = null;
+    }
+    const baseSnap = followerBase?.snapshot ?? followerSnapshot();
+    // 자동 (owner 2026-11-23, 0.1.11): #2's Angle Off / Roll-in position, then #2's Tracking Time → 3 s, Dive at 3 s,
+    // Tracking Time → 2 s, then #1's Angle Off / Dive, then #2's altitude (its LOCK released); the first that fits is
+    // used, else the closest of all.
+    const order = knob === "auto" ? AUTO_ORDER.filter((k) => k !== "rollInAltitude" || !altChangeLocked) : [knob];
+    let r = null;
+    let lastFailure = "";
+    const missed = [];
+    for (const k of order) {
+      timeStatus.textContent = `시간 맞추는 중… (${KNOB_LABEL[k]})`;
+      const res = await tunePool.point(base, { number: FOLLOWER, request: { value, knob: k, trackFromSec: baseSnap.trackingTimeSec } }, "followerTime");
+      if (res && res.status !== "FAILED" && Number.isFinite(res.value) && (!r || Math.abs(res.achieved - value) < Math.abs(r.achieved - value))) r = res;
+      if (res?.status === "FAILED" && res.message) lastFailure = `${KNOB_LABEL[k]}: ${res.message}`;
+      if (res?.status === "OK") break;
+      missed.push(KNOB_LABEL[k]);
+    }
+    if (!r || r.status === "FAILED" || !Number.isFinite(r.value)) { timeStatus.textContent = `실패: ${r?.message ?? (lastFailure || "답이 없습니다")}`; return; }
+    // Type the value into #2's own field, its LOCK on (Roll-in position: Angle Off LOCKed as it is, then the Approach).
     if (r.knob === "leadAngleOff") {
       await press(mainLock("attackHeadingDeg"), false);
       await releaseSolved();
@@ -545,6 +615,16 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     } else if (r.knob === "rollInAltitude") {
       await setFollower("rollInAltitudeMslFt", String(Math.round(r.value)));
       await lockOn("rollInAltitudeLocked");
+    } else if (TRACK_KNOBS.has(r.knob)) {
+      // #2's Roll-in Altitude held (LOCK): the Tracking Time entry flies the "release" mode.
+      await lockOn("rollInAltitudeLocked");
+      if (r.knob === "followerDive") {
+        await setFollower("trackingTimeSec", r.trackingTimeSec.toFixed(1));
+        await setFollower("diveAngleDeg", r.value.toFixed(1));
+        await lockOn("diveAngleLocked");
+      } else {
+        await setFollower("trackingTimeSec", r.value.toFixed(1));
+      }
     } else {
     await lockOn("angleOffLocked");
     if (r.key === "angleOffDeg") {
@@ -562,10 +642,19 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     }
     }
     timeEdited = false;
+    // 0.1.11: remember the user's baseline while the matcher's Tracking Time / Dive stand on #2.
+    if (TRACK_KNOBS.has(r.knob)) {
+      const after = followerSnapshot();
+      followerBase = { snapshot: baseSnap, applied: { tt: after.trackingTimeSec, dive: after.diveAngleDeg } };
+    }
+    if (r.knob === "rollInAltitude" && r.pitch && Number.isFinite(r.pitch.verticalFpm)) altPitch.value = `${r.pitch.verticalFpm >= 0 ? "+" : ""}${Math.round(r.pitch.verticalFpm).toLocaleString("en-US")}`;
     const flown = releaseFromPredecessorImpactSec(answer?.output, FOLLOWER);
     const label = {
       angleOff: `#2 Angle Off ${r.value.toFixed(1)}°`, offsetAngle: `#2 Offset Angle ${r.value.toFixed(1)}°`, actionRange: `#2 Action Range ${r.value.toFixed(2)} NM`,
       leadAngleOff: `#1 Angle Off ${r.value.toFixed(1)}°`, leadDive: `#1 Dive Angle ${r.value.toFixed(1)}°`,
+      trackingTime: `#2 Tracking Time 입력 ${baseSnap.trackingTimeSec} s → 적용 ${r.value.toFixed(1)} s (Roll-in 고도 유지, Release 고도 풀림)`,
+      trackingTimeMin: `#2 Tracking Time 입력 ${baseSnap.trackingTimeSec} s → 적용 ${r.value.toFixed(1)} s (Roll-in 고도 유지)`,
+      followerDive: `#2 Dive 입력 ${baseSnap.diveAngleDeg}° → 적용 ${r.value.toFixed(1)}° · Tracking 입력 ${baseSnap.trackingTimeSec} s → ${r.trackingTimeSec?.toFixed(1)} s`,
       rollInAltitude: `#2 Roll-in Altitude ${Math.round(r.value).toLocaleString("en-US")} ft${r.pitch ? ` · 요구 피치 ${r.pitch.requiredPitchDeg >= 0 ? "+" : ""}${r.pitch.requiredPitchDeg.toFixed(1)}° (${r.pitch.deltaFt >= 0 ? "+" : ""}${Math.round(r.pitch.deltaFt).toLocaleString("en-US")} ft / ${r.pitch.groundNm.toFixed(1)} NM, ${Math.round(r.pitch.verticalFpm).toLocaleString("en-US")} fpm, Approach 시작 → Roll-in 3초 전, 등속)` : ""}`,
     }[r.knob] ?? `${r.key} ${r.value}`;
     timeStatus.textContent = `${label} 입력 → #1 Impact 기준 Release ${Number.isFinite(flown) ? `${flown >= 0 ? "+" : ""}${flown.toFixed(1)}` : "-"} s (목표 ${r.want}) · 계산 ${r.runs}회, ${((performance.now() - started) / 1000).toFixed(1)} s${r.status === "CLOSEST" ? ` · ${r.message}` : ""}${knob === "auto" && missed.length && r.status === "OK" ? ` · 앞 단계(${missed.join(", ")})로는 안 맞음` : ""}`;
