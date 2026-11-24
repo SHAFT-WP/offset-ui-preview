@@ -21,7 +21,7 @@ import { appendNorthMark } from "./common/diagram/svg-north-mark-v0.1.mjs";
 // 0.1.8 (owner 2026-11-23, the Offset page's planning steps): `labels` gives the level names, the footer and the point
 // tooltip's last part, so the Offset Design tab draws its region with the same picture (no Approach-Pop there). The
 // defaults are the POP-UP texts, unchanged.
-export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.8", canvas: Object.freeze({ width: 640, height: 600 }) });
+export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.9", canvas: Object.freeze({ width: 640, height: 600 }) });
 const POPUP_LABELS = Object.freeze({
   ok: "App-Pop Time ≥ 2초", warn: "App-Pop Time 0–2초", okDot: "≥ 2초 점", warnDot: "0–2초 점",
   footer: "R/L = Roll-in 방향 · App-Pop = Approach-Pop",
@@ -45,7 +45,7 @@ const SIDE_TEXT = Object.freeze({ RIGHT: "R", LEFT: "L" });
 
 // points: region points (both sides); current: { geometry, popPoint, approachRangeNm, attackHeadingDeg } of the answer;
 // summaries: { RIGHT, LEFT } from regionSummary per side.
-export function renderRegionTopView(svg, { points: worldPoints = [], current: worldCurrent = null, summaries = {}, upHeadingDeg = 0, labels: labelsIn = null } = {}) {
+export function renderRegionTopView(svg, { points: worldPoints = [], current: worldCurrent = null, summaries = {}, upHeadingDeg = 0, labels: labelsIn = null, maxJoinDeg = Infinity } = {}) {
   const labels = { ...POPUP_LABELS, ...(labelsIn ?? {}) };
   svg.replaceChildren();
   // The view turned about the Target (the Offset Top View's rotation): `upHeadingDeg` is drawn up.
@@ -120,6 +120,7 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   if (withRollIn.length >= 2) {
     for (const side of sides) {
       const line = withRollIn.filter((p) => p.rollDirection === side).sort((a, b) => a.angleOffDeg - b.angleOffDeg);
+      if (line.length >= 2 && Number.isFinite(maxJoinDeg) && line.some((p, i) => i && p.angleOffDeg - line[i - 1].angleOffDeg > maxJoinDeg)) continue;
       if (line.length >= 2) {
         svg.append(svgEl("path", { d: d(line.map((p) => p.rollIn)), fill: "none", stroke: REGION_COLORS.circle, "stroke-width": 1.2, "stroke-dasharray": "6 4", "data-top": "roll-in-distance", "data-side": side }));
       }
@@ -132,7 +133,9 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
     const all = points.filter((p) => p.rollDirection === side).sort((a, b) => a.angleOffDeg - b.angleOffDeg);
     for (let i = 1; i < all.length; i += 1) {
       const a = all[i - 1], b = all[i];
-      if (a.level === "bad" || b.level === "bad" || !pt(a.rollIn) || !pt(b.rollIn)) continue;
+      // 0.1.9 (Offset step 3, 2026-11-24): points farther apart than maxJoinDeg of Angle Off are not joined (a gap,
+      // or separate solutions); the default joins all as before.
+      if (a.level === "bad" || b.level === "bad" || !pt(a.rollIn) || !pt(b.rollIn) || b.angleOffDeg - a.angleOffDeg > maxJoinDeg) continue;
       const light = a.level === "warn" || b.level === "warn";
       const style = { "stroke-width": light ? 5 : 8, "stroke-linecap": "round", opacity: light ? 0.35 : 0.9 };
       svg.append(svgEl("line", { x1: X(a.rollIn.x), y1: Y(a.rollIn.y), x2: X(b.rollIn.x), y2: Y(b.rollIn.y), stroke: REGION_COLORS.yellow, ...style, "data-arc": "rollIn", "data-side": side }));

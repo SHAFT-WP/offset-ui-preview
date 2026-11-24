@@ -12,7 +12,20 @@
 import { calculateOffsetFlightUnfittedFull } from "./offset-flight-v0.1.mjs?v=0.1.22";
 import { sweepBaseline } from "./offset-dependency-sweep-v0.1.mjs?v=0.1.0";
 
-export const OFFSET_DESIGN_REGION_V0_1 = Object.freeze({ id: "offset-design-region-v0.1", version: "0.1.0" });
+// 0.2.0 (owner 2026-11-24: "1. bdp 셋팅 2. offset 조건 셋팅 (vrp, offset angle, roll in 고도 변경 유무 체크) 3. angle off 가용범위
+// 도시 4. 미세튜닝"): the Angle Off range for a set VRP and Offset Angle (angleOffCandidate). With the VRP, the Offset
+// Angle and the Angle Off all held the geometry is closed by the BDP alone, so:
+//   Roll-in Altitude held   → each Angle Off gives its own Offset Angle (VRP + Angle Off LOCK, Offset Angle solved by the
+//                             BE); the Angle Off that fits is where that Offset Angle crosses the set one (one or a few).
+//   Roll-in Altitude free   → for each Angle Off the Roll-in Altitude (height mode, 10 ft) is searched so the solved
+//                             Offset Angle equals the set one; the Angle Off range is where such an altitude flies.
+export const OFFSET_DESIGN_REGION_V0_1 = Object.freeze({
+  id: "offset-design-region-v0.1",
+  version: "0.2.0",
+  offsetToleranceDeg: 0.2,
+  altitudeStepFt: 10,
+  altitudeScanFt: Object.freeze({ aboveReleaseFt: 1000, maxFt: 35000, stepFt: 2000 }),
+});
 
 const range = (from, to, step) => Array.from({ length: Math.round((to - from) / step) + 1 }, (_, i) => +(from + i * step).toFixed(6));
 // Angle Off grid (5°): coarse points (every 15°) are solved first so the region shows early.
@@ -102,4 +115,83 @@ export function insideSpan(span, key, value) {
   const to = span[`${key}ToDeg`];
   if (!finite(from) || !finite(to)) return null;
   return value >= Math.min(from, to) - 0.5 && value <= Math.max(from, to) + 0.5;
+}
+
+const offsetOf = (p) => (finite(p?.offsetAngleDeg) ? Math.abs(p.offsetAngleDeg) : null);
+
+// The record with a Roll-in Altitude typed (height mode; a LINKed Initial Altitude moves with it, as on the page).
+export function withRollInAltitude(base, altitudeFt) {
+  const record = clone(base);
+  record.values.rollInAltitudeMslFt = altitudeFt;
+  if (record.state?.rollInAltitudeLinked) record.values.initialAltitudeMslFt = altitudeFt;
+  record.state = { ...(record.state ?? {}), solveMode: "height" };
+  return record;
+}
+
+// One Angle Off for a set Offset Angle. Returns the region point (regionPoint) with
+//   offsetResidualDeg  solved |Offset Angle| − set one (Roll-in Altitude held), or after the altitude search;
+//   rollInAltitudeMslFt the Roll-in Altitude used (found when rollInFree);
+//   fits               |residual| ≤ tolerance and the point flies (level ok / warn).
+export function angleOffCandidate(base, angleOffDeg, { offsetAngleDeg, rollInFree = false } = {}, calculate = calculateOffsetFlightUnfittedFull) {
+  const cfg = OFFSET_DESIGN_REGION_V0_1;
+  const want = Math.abs(Number(offsetAngleDeg));
+  const heldAlt = Number(base.values.rollInAltitudeMslFt);
+  const at = (alt) => {
+    const p = regionPoint(alt === null ? base : withRollInAltitude(base, alt), angleOffDeg, calculate);
+    const oa = offsetOf(p);
+    return { ...p, rollInAltitudeMslFt: alt ?? (finite(heldAlt) ? heldAlt : null), offsetResidualDeg: oa === null || p.level === "bad" ? null : oa - want };
+  };
+  const finish = (p, runs) => ({ ...p, targetOffsetAngleDeg: want, rollInFree, runs, fits: p.offsetResidualDeg !== null && Math.abs(p.offsetResidualDeg) <= cfg.offsetToleranceDeg && p.level !== "bad" });
+  if (!finite(want)) return finish(at(null), 1);
+  if (!rollInFree) return finish(at(null), 1);
+  // Search the Roll-in Altitude: a coarse scan, then bisection on the bracket nearest the page's altitude.
+  const step = cfg.altitudeStepFt;
+  const snap = (v) => Math.round(v / step) * step;
+  const low = snap(Number(base.values.releaseAltitudeMslFt) + cfg.altitudeScanFt.aboveReleaseFt);
+  const tried = new Map();
+  const f = (alt) => { const x = snap(alt); if (!tried.has(x)) tried.set(x, at(x)); return tried.get(x); };
+  const grid = [];
+  for (let a = finite(low) ? low : 8000; a <= cfg.altitudeScanFt.maxFt; a += cfg.altitudeScanFt.stepFt) grid.push(a);
+  if (finite(heldAlt)) grid.push(snap(heldAlt));
+  grid.sort((a, b) => a - b).forEach(f);
+  const pts = [...tried.values()].filter((p) => p.offsetResidualDeg !== null).sort((a, b) => a.rollInAltitudeMslFt - b.rollInAltitudeMslFt);
+  const pairs = [];
+  for (let i = 1; i < pts.length; i += 1) if (Math.sign(pts[i - 1].offsetResidualDeg) !== Math.sign(pts[i].offsetResidualDeg)) pairs.push([pts[i - 1], pts[i]]);
+  const best = () => [...tried.values()].filter((p) => p.offsetResidualDeg !== null).sort((a, b) => Math.abs(a.offsetResidualDeg) - Math.abs(b.offsetResidualDeg))[0] ?? at(null);
+  if (!pairs.length) return finish(best(), tried.size);
+  const ref = finite(heldAlt) ? heldAlt : 0;
+  pairs.sort((p, q) => Math.abs((p[0].rollInAltitudeMslFt + p[1].rollInAltitudeMslFt) / 2 - ref) - Math.abs((q[0].rollInAltitudeMslFt + q[1].rollInAltitudeMslFt) / 2 - ref));
+  let [p, q] = pairs[0];
+  for (let i = 0; i < 14 && q.rollInAltitudeMslFt - p.rollInAltitudeMslFt > step; i += 1) {
+    let x = p.rollInAltitudeMslFt - (p.offsetResidualDeg * (q.rollInAltitudeMslFt - p.rollInAltitudeMslFt)) / (q.offsetResidualDeg - p.offsetResidualDeg);
+    if (!(x > p.rollInAltitudeMslFt + step / 2 && x < q.rollInAltitudeMslFt - step / 2)) x = (p.rollInAltitudeMslFt + q.rollInAltitudeMslFt) / 2;
+    const m = f(x);
+    if (m.offsetResidualDeg === null) { const b = f((p.rollInAltitudeMslFt + q.rollInAltitudeMslFt) / 2); if (b.offsetResidualDeg === null) break; if (Math.sign(b.offsetResidualDeg) === Math.sign(p.offsetResidualDeg)) p = b; else q = b; continue; }
+    if (Math.abs(m.offsetResidualDeg) <= cfg.offsetToleranceDeg / 2) break;
+    if (Math.sign(m.offsetResidualDeg) === Math.sign(p.offsetResidualDeg)) p = m; else q = m;
+  }
+  return finish(best(), tried.size);
+}
+
+// Roll-in Altitude held: the Angle Offs where the solved Offset Angle crosses the set one, from a sweep of
+// angleOffCandidate points (rollInFree false), refined by bisection to 0.1°. Returns the fitting candidates.
+export function heldAltitudeSolutions(base, points, offsetAngleDeg, calculate = calculateOffsetFlightUnfittedFull) {
+  const pts = [...points].filter((p) => p && p.offsetResidualDeg !== null && p.offsetResidualDeg !== undefined).sort((a, b) => a.angleOffDeg - b.angleOffDeg);
+  const out = [];
+  for (let i = 1; i < pts.length; i += 1) {
+    let p = pts[i - 1];
+    let q = pts[i];
+    if (Math.sign(p.offsetResidualDeg) === Math.sign(q.offsetResidualDeg) || q.angleOffDeg - p.angleOffDeg > 10) continue;
+    let m = null;
+    for (let k = 0; k < 12 && q.angleOffDeg - p.angleOffDeg > 0.1; k += 1) {
+      const x = +((p.angleOffDeg + q.angleOffDeg) / 2).toFixed(2);
+      m = angleOffCandidate(base, x, { offsetAngleDeg }, calculate);
+      if (m.offsetResidualDeg === null) break;
+      if (Math.abs(m.offsetResidualDeg) <= OFFSET_DESIGN_REGION_V0_1.offsetToleranceDeg / 4) break;
+      if (Math.sign(m.offsetResidualDeg) === Math.sign(p.offsetResidualDeg)) p = m; else q = m;
+    }
+    const best = [p, q, m].filter((c) => c && c.offsetResidualDeg !== null).sort((a, b) => Math.abs(a.offsetResidualDeg) - Math.abs(b.offsetResidualDeg))[0];
+    if (best) out.push({ ...best, angleOffDeg: +best.angleOffDeg.toFixed(1), fits: Math.abs(best.offsetResidualDeg) <= OFFSET_DESIGN_REGION_V0_1.offsetToleranceDeg && best.level !== "bad" });
+  }
+  return out;
 }
