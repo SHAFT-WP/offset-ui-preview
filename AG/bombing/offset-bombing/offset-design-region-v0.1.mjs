@@ -21,7 +21,7 @@ import { sweepBaseline } from "./offset-dependency-sweep-v0.1.mjs?v=0.1.0";
 //                             Offset Angle equals the set one; the Angle Off range is where such an altitude flies.
 export const OFFSET_DESIGN_REGION_V0_1 = Object.freeze({
   id: "offset-design-region-v0.1",
-  version: "0.2.0",
+  version: "0.2.1",
   offsetToleranceDeg: 0.2,
   altitudeStepFt: 10,
   altitudeScanFt: Object.freeze({ aboveReleaseFt: 1000, maxFt: 35000, stepFt: 2000 }),
@@ -132,7 +132,7 @@ export function withRollInAltitude(base, altitudeFt) {
 //   offsetResidualDeg  solved |Offset Angle| − set one (Roll-in Altitude held), or after the altitude search;
 //   rollInAltitudeMslFt the Roll-in Altitude used (found when rollInFree);
 //   fits               |residual| ≤ tolerance and the point flies (level ok / warn).
-export function angleOffCandidate(base, angleOffDeg, { offsetAngleDeg, rollInFree = false } = {}, calculate = calculateOffsetFlightUnfittedFull) {
+export function angleOffCandidate(base, angleOffDeg, { offsetAngleDeg, rollInFree = false, startAltitudeFt = null } = {}, calculate = calculateOffsetFlightUnfittedFull) {
   const cfg = OFFSET_DESIGN_REGION_V0_1;
   const want = Math.abs(Number(offsetAngleDeg));
   const heldAlt = Number(base.values.rollInAltitudeMslFt);
@@ -144,30 +144,46 @@ export function angleOffCandidate(base, angleOffDeg, { offsetAngleDeg, rollInFre
   const finish = (p, runs) => ({ ...p, targetOffsetAngleDeg: want, rollInFree, runs, fits: p.offsetResidualDeg !== null && Math.abs(p.offsetResidualDeg) <= cfg.offsetToleranceDeg && p.level !== "bad" });
   if (!finite(want)) return finish(at(null), 1);
   if (!rollInFree) return finish(at(null), 1);
-  // Search the Roll-in Altitude: a coarse scan, then bisection on the bracket nearest the page's altitude.
+  // Search the Roll-in Altitude (0.2.1, owner 2026-11-24 "16초면 팝업보다 오래 걸려"): the solved Offset Angle moves
+  // smoothly with the altitude, so a secant from the page's altitude (or the caller's start) usually lands in 3–5
+  // solves; only when it does not, a coarse scan (4,000 ft) and bisection.
   const step = cfg.altitudeStepFt;
   const snap = (v) => Math.round(v / step) * step;
-  const low = snap(Number(base.values.releaseAltitudeMslFt) + cfg.altitudeScanFt.aboveReleaseFt);
+  const lowRaw = snap(Number(base.values.releaseAltitudeMslFt) + cfg.altitudeScanFt.aboveReleaseFt);
+  const low = finite(lowRaw) ? lowRaw : 8000;
+  const high = cfg.altitudeScanFt.maxFt;
+  const clampAlt = (v) => Math.min(high, Math.max(low, snap(v)));
   const tried = new Map();
-  const f = (alt) => { const x = snap(alt); if (!tried.has(x)) tried.set(x, at(x)); return tried.get(x); };
-  const grid = [];
-  for (let a = finite(low) ? low : 8000; a <= cfg.altitudeScanFt.maxFt; a += cfg.altitudeScanFt.stepFt) grid.push(a);
-  if (finite(heldAlt)) grid.push(snap(heldAlt));
-  grid.sort((a, b) => a - b).forEach(f);
-  const pts = [...tried.values()].filter((p) => p.offsetResidualDeg !== null).sort((a, b) => a.rollInAltitudeMslFt - b.rollInAltitudeMslFt);
+  const f = (alt) => { const x = clampAlt(alt); if (!tried.has(x)) tried.set(x, at(x)); return tried.get(x); };
+  const good = (p) => p.offsetResidualDeg !== null && Math.abs(p.offsetResidualDeg) <= cfg.offsetToleranceDeg / 2;
+  const best = () => [...tried.values()].filter((p) => p.offsetResidualDeg !== null).sort((a, b) => Math.abs(a.offsetResidualDeg) - Math.abs(b.offsetResidualDeg))[0] ?? at(null);
+  const start = clampAlt(finite(startAltitudeFt) ? startAltitudeFt : finite(heldAlt) ? heldAlt : (low + high) / 2);
+  let p = f(start);
+  if (good(p)) return finish(p, tried.size);
+  let q = f(start + (start + 2000 <= high ? 2000 : -2000));
+  for (let i = 0; i < 5 && p.offsetResidualDeg !== null && q.offsetResidualDeg !== null && !good(q); i += 1) {
+    const dy = q.offsetResidualDeg - p.offsetResidualDeg;
+    if (dy === 0) break;
+    const x = clampAlt(q.rollInAltitudeMslFt - (q.offsetResidualDeg * (q.rollInAltitudeMslFt - p.rollInAltitudeMslFt)) / dy);
+    if (tried.has(x)) break;
+    p = q;
+    q = f(x);
+  }
+  if (good(best())) return finish(best(), tried.size);
+  // Fallback: a coarse scan, then bisection on the bracket nearest the start.
+  for (let a = low; a <= high; a += 4000) f(a);
+  const pts = [...tried.values()].filter((r) => r.offsetResidualDeg !== null).sort((a, b) => a.rollInAltitudeMslFt - b.rollInAltitudeMslFt);
   const pairs = [];
   for (let i = 1; i < pts.length; i += 1) if (Math.sign(pts[i - 1].offsetResidualDeg) !== Math.sign(pts[i].offsetResidualDeg)) pairs.push([pts[i - 1], pts[i]]);
-  const best = () => [...tried.values()].filter((p) => p.offsetResidualDeg !== null).sort((a, b) => Math.abs(a.offsetResidualDeg) - Math.abs(b.offsetResidualDeg))[0] ?? at(null);
   if (!pairs.length) return finish(best(), tried.size);
-  const ref = finite(heldAlt) ? heldAlt : 0;
-  pairs.sort((p, q) => Math.abs((p[0].rollInAltitudeMslFt + p[1].rollInAltitudeMslFt) / 2 - ref) - Math.abs((q[0].rollInAltitudeMslFt + q[1].rollInAltitudeMslFt) / 2 - ref));
-  let [p, q] = pairs[0];
-  for (let i = 0; i < 14 && q.rollInAltitudeMslFt - p.rollInAltitudeMslFt > step; i += 1) {
+  pairs.sort((u, v) => Math.abs((u[0].rollInAltitudeMslFt + u[1].rollInAltitudeMslFt) / 2 - start) - Math.abs((v[0].rollInAltitudeMslFt + v[1].rollInAltitudeMslFt) / 2 - start));
+  [p, q] = pairs[0];
+  for (let i = 0; i < 12 && q.rollInAltitudeMslFt - p.rollInAltitudeMslFt > step; i += 1) {
     let x = p.rollInAltitudeMslFt - (p.offsetResidualDeg * (q.rollInAltitudeMslFt - p.rollInAltitudeMslFt)) / (q.offsetResidualDeg - p.offsetResidualDeg);
     if (!(x > p.rollInAltitudeMslFt + step / 2 && x < q.rollInAltitudeMslFt - step / 2)) x = (p.rollInAltitudeMslFt + q.rollInAltitudeMslFt) / 2;
     const m = f(x);
-    if (m.offsetResidualDeg === null) { const b = f((p.rollInAltitudeMslFt + q.rollInAltitudeMslFt) / 2); if (b.offsetResidualDeg === null) break; if (Math.sign(b.offsetResidualDeg) === Math.sign(p.offsetResidualDeg)) p = b; else q = b; continue; }
-    if (Math.abs(m.offsetResidualDeg) <= cfg.offsetToleranceDeg / 2) break;
+    if (m.offsetResidualDeg === null) break;
+    if (good(m)) break;
     if (Math.sign(m.offsetResidualDeg) === Math.sign(p.offsetResidualDeg)) p = m; else q = m;
   }
   return finish(best(), tried.size);

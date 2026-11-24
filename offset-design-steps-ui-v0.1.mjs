@@ -8,7 +8,7 @@
 //   확정 / 해제: each step turns its bundle of the page's existing LOCKs on or off by pressing the page's own LOCK
 //     buttons: 1 Dive Angle; 2 VRP and one of Angle Off / Attack Heading (exclusive), with the Offset Angle / Action /
 //     Approach Range LOCKs released so the BE solves them.
-import { ANGLE_OFF_GRID, coarseFirst, regionBaseline, regionSummary } from "./AG/bombing/offset-bombing/offset-design-region-v0.1.mjs?v=0.2.0";
+import { ANGLE_OFF_GRID, coarseFirst, regionBaseline, regionSummary } from "./AG/bombing/offset-bombing/offset-design-region-v0.1.mjs?v=0.2.1";
 import { fineTuneBaseline } from "./AG/bombing/offset-bombing/offset-fine-tune-v0.1.mjs?v=0.1.0";
 import { followerTimeBaseline, releaseFromPredecessorImpactSec } from "./AG/bombing/offset-bombing/offset-follower-time-v0.1.mjs?v=0.1.3";
 import { attackPairing, pumpingPath } from "./AG/bombing/offset-bombing/offset-follower-pumping-v0.1.mjs?v=0.1.0";
@@ -19,7 +19,7 @@ import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1
 // (and whether a cross-over is needed; the cross-over path itself is S2), the release time relative to #1's impact as
 // a target (− = before the impact) with #1's Bomb TOF beside it, #2's Offset fields with their LOCKs (copies of the #2
 // slot's fields), and "시간 맞추기" (offset-follower-time-v0.1: #2's Angle Off or its Roll-in position).
-export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.5" });
+export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.6" });
 
 // The Top View's texts on the Offset page: the level is the Flight's status (there is no Approach-Pop).
 const REGION_LABELS = Object.freeze({
