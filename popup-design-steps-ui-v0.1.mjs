@@ -13,8 +13,8 @@ import { sweepBaseline } from "./AG/bombing/popup/popup-dependency-sweep-v0.1.mj
 import { POPUP_ANGLE_GRID, popupAngleRange, popupProfileLine } from "./AG/bombing/popup/popup-design-steps-v0.1.mjs?v=0.1.2";
 import { defaultPopupAngleDeg } from "./AG/bombing/popup/popup-be-v0.2.mjs?v=0.2.6";
 import { renderAngleCharts, renderProfile } from "./popup-design-popup-chart-v0.1.mjs?v=0.1.3";
-import { ANGLE_OFF_GRID, coarseFirst, insideSpan, regionBaseline, regionMirrorBaseline, regionSummary } from "./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.2";
-import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.7";
+import { ANGLE_OFF_GRID, coarseFirst, insideSpan, regionBaseline, regionSummary } from "./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.3";
+import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.11";
 import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=0.1.1";
 
@@ -34,7 +34,13 @@ import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=
 // (common svg-viewport: − / % / + / Fit, drag when zoomed); the profile draws the Approach-Pop leg before the Pop;
 // the Top View region is solved on both Roll-in sides (the Attack Heading mirrored about the Run-In) and drawn in
 // the Offset Top View symbols with the turn paths.
-export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.13" });
+export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.14" });
+// 0.1.14 (owner 2026-11-24): "왼쪽으로 오프셋했을 때, 롤인턴 방향이 반대인 경우(즉 왼쪽)는 roll in 가능영역이 아닌 것으로
+// 처리해" — the possible region is only the Roll-in side opposite the Offset turn (the side flown: the BE pairs a left
+// Offset with a right Roll-in and the other way round). The mirrored side (regionMirrorBaseline, 0.1.4) is no longer
+// solved, drawn or written in the readouts; a point on the other side is left out. And "2초 라인의 범위를 연한 색으로":
+// each region point carries its Tracking Time 2 s point (popup-offset-region-v0.1 0.1.3 regionTask), drawn as a light
+// band on the Top View; a point flown with less than 2 s of tracking is not part of the region.
 // 0.1.11 (review 2026-11-23): 확정 / 해제, the linked LOCKs and Fine tune start once the page is idle and each press waits
 // for the page to be idle again (every edit answered), not for the first answer within 6 s.
 // 0.1.9 (owner 2026-11-22): Action Range / Offset Angle are linked fields (step 2 and 3) and every linked field whose page field has a LOCK has a Design LOCK that follows it.
@@ -572,12 +578,13 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
   };
   function scheduleRegion() {
     if (!active || !regionPool || isVip()) return;
-    let base, mirror;
-    try { base = regionBaseline(answer); mirror = regionMirrorBaseline(base, answer); } catch { return; }
+    let base;
+    try { base = regionBaseline(answer); } catch { return; }
     const signature = regionSignatureOf(base);
     if (region?.signature === signature) return;
     clearTimeout(regionTimer);
-    regionTimer = setTimeout(() => runRegion([base, mirror], signature), 700);
+    // 0.1.14: the Roll-in side flown only (opposite the Offset turn); the mirrored side is not a possible region.
+    regionTimer = setTimeout(() => runRegion([base], signature), 700);
   }
   async function runRegion(bases, signature) {
     const id = ++regionJob;
@@ -587,7 +594,7 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     region = { signature, points, done: 0, total: ANGLE_OFF_GRID.length * bases.length, ms: 0 };
     renderRegionStep(answer?.output?.aircraftResults?.[1]);
     let queued = false;
-    // Coarse points of both sides first, so both arcs show early.
+    // Coarse points first, so the arc shows early.
     const jobs = coarseFirst(ANGLE_OFF_GRID).flatMap((ao) => bases.map((base) => [base, ao]));
     await Promise.all(jobs.map(([base, ao]) => regionPool.point(base, { angleOffDeg: ao }, "region").then((point) => {
       if (id !== regionJob || !point) return;
@@ -606,24 +613,26 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
   function renderRegionStep(ar) {
     const g = ar?.result?.geometry;
     const p = ar?.popup;
-    const summaries = region ? { RIGHT: regionSummary(region.points, "RIGHT"), LEFT: regionSummary(region.points, "LEFT") } : {};
     const side = g?.direction?.rollDirection ?? null;
+    // 0.1.14: only the Roll-in side opposite the Offset turn (the side flown) is a possible region.
+    const sidePoints = (region?.points ?? []).filter((q) => !side || !q.rollDirection || q.rollDirection === side);
+    const summaries = region && side ? { [side]: regionSummary(sidePoints, side) } : {};
     const summary = side ? summaries[side] : null;
     if (isVip()) {
       regionStatus.textContent = "VIP 모드: 가능 영역은 VRP 모드에서 그립니다 (VIP도 Angle Off에 따라 Approach Range가 바뀝니다).";
     } else {
       regionStatus.textContent = !regionPool ? "-" : !region ? "Top View 가능 영역: 계산 대기" : region.done < region.total
-        ? `Top View 가능 영역 계산 중 ${region.done} / ${region.total} (VRP 고정, 양쪽 Roll-in, Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}°)`
-        : `VRP 고정 · Popup Angle ${one(p?.popupAngleDeg)}° · 그림은 현재 Roll-in 쪽 · Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}° 5° 간격 · ${(region.ms / 1000).toFixed(1)} s · 점에 마우스를 올리면 값`;
+        ? `Top View 가능 영역 계산 중 ${region.done} / ${region.total} (VRP 고정, Offset 반대쪽 Roll-in, Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}°)`
+        : `VRP 고정 · Popup Angle ${one(p?.popupAngleDeg)}° · Roll-in은 Offset 반대쪽(${SIDE_NAME[side] ?? "-"})만 · 연한 띠 = Tracking Time 2 s까지 (2 s 미만 제외) · Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}° 5° 간격 · ${(region.ms / 1000).toFixed(1)} s · 점에 마우스를 올리면 값`;
     }
-    renderRegionTopView(topSvg, { points: region?.points ?? [], summaries, current: g ? { geometry: g, popPoint: p?.popPoint, approachRangeNm: ar.result.resolved?.approachRangeNm, attackHeadingDeg: g.attackHeadingDeg } : null, upHeadingDeg: topIpBottom ? Number(ar?.result?.resolved?.runInHeadingDeg ?? g?.runInHeadingDeg ?? 0) : 0 });
+    renderRegionTopView(topSvg, { points: sidePoints, summaries, current: g ? { geometry: g, popPoint: p?.popPoint, approachRangeNm: ar.result.resolved?.approachRangeNm, attackHeadingDeg: g.attackHeadingDeg } : null, upHeadingDeg: topIpBottom ? Number(ar?.result?.resolved?.runInHeadingDeg ?? g?.runInHeadingDeg ?? 0) : 0 });
     topSvg.__viewport?.refresh();
     const done = region && region.done >= region.total;
     const bothSides = (key, f) => {
-      const parts = ["RIGHT", "LEFT"].map((sd) => {
+      const parts = (side ? [side] : []).map((sd) => {
         const a = span(summaries[sd]?.possible, key, f);
         const b = span(summaries[sd]?.recommended, key, f);
-        return a ? `${SIDE_NAME[sd]}${sd === side ? "(현재)" : ""} ${a}${b && b !== a ? ` (2 s↑ ${b})` : ""}` : null;
+        return a ? `${SIDE_NAME[sd]} ${a}${b && b !== a ? ` (2 s↑ ${b})` : ""}` : null;
       }).filter(Boolean);
       return parts.length ? parts.join(" · ") : done ? "없음" : "-";
     };
@@ -632,8 +641,8 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     // A value outside the region still calculates; the range is said beside it (DESIGN-STEPS.md §3.5).
     const aoIn = insideSpan(summary?.possible, "angleOff", g?.angleOffDeg);
     const atkIn = insideSpan(summary?.possible, "attackHeading", g?.attackHeadingDeg);
-    const other = side === "RIGHT" ? "LEFT" : "RIGHT";
-    const otherText = summaries[other]?.possible ? ` 반대쪽(${SIDE_NAME[other]}) Roll-in은 Attack Heading ${span(summaries[other].possible, "attackHeading", hdg3)}을 Attack Heading LOCK으로 넣으면 됩니다.` : "";
+    // 0.1.14: the other Roll-in side (same side as the Offset turn) is not offered.
+    const otherText = "";
     regionNote.textContent = !done || !g ? "" : !summary?.possible ? `이 VRP와 Popup Angle로는 현재 쪽(${SIDE_NAME[side] ?? "-"}) Approach-Pop ≥ 0 s인 Angle Off가 없습니다. VRP Range를 늘리거나 2단계 Popup Angle을 바꿔 보세요.${otherText}`
       : aoIn === false || atkIn === false ? `현재 Angle Off ${deg0(g.angleOffDeg)} / Attack Heading ${hdg3(g.attackHeadingDeg)}은 가능 영역(5° 간격으로 계산) 밖입니다. 현재 쪽(${SIDE_NAME[side]}) 가능 범위: Angle Off ${span(summary.possible, "angleOff", deg0)}, Attack Heading ${span(summary.possible, "attackHeading", hdg3)}.${otherText}`
       : "";

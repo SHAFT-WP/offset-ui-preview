@@ -6,7 +6,7 @@
 // cursor (Shift: X only, Alt: Y only), drag pans, double-click resets; on a phone two fingers pinch. Points are solved
 // in Web Workers side by side (in-thread when a Worker cannot start). Nothing is saved.
 import { POPUP_SWEEP_INPUTS, POPUP_SWEEP_OUTPUTS, sweepBaseline, sweepInputValue, sweepModeOf, sweepValues } from "./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.3";
-import { mountPopupDesignSteps } from "./popup-design-steps-ui-v0.1.mjs?v=0.1.13";
+import { mountPopupDesignSteps } from "./popup-design-steps-ui-v0.1.mjs?v=0.1.14";
 import { OFFSET_ANGLE_GRID, POPUP_ANGLE_GRID, POPUP_DESIGN_LIMITS, designSteps, offsetAngleRange, popupAngleWindow } from "./AG/bombing/popup/popup-design-steps-v0.1.mjs?v=0.1.1";
 
 // 0.1.1 (owner 2026-11-18, the planning procedure): Step by Step above the graph — BDP, Popup Angle window (Offset-Popup
@@ -21,9 +21,9 @@ export const POPUP_DESIGN_GRAPH_V0_1 = Object.freeze({ id: "popup-design-graph-v
 // 0.1.5 (owner 2026-11-22): mounts steps UI 0.1.6 (step-2 range Approach-Pop 2 s .. Apex 300; Top View one side).
 // 0.1.4 (owner 2026-11-22): mounts steps UI 0.1.5 (Top View IP Bottom button, default on).
 
-const WORKER_URL = new URL("./AG/bombing/popup/popup-dependency-worker-v0.1.mjs?v=0.1.6", import.meta.url);
+const WORKER_URL = new URL("./AG/bombing/popup/popup-dependency-worker-v0.1.mjs?v=0.1.7", import.meta.url);
 const FINE_TUNE_URL = new URL("./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=0.1.1", import.meta.url);
-const REGION_URL = new URL("./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.2", import.meta.url);
+const REGION_URL = new URL("./AG/bombing/popup/popup-offset-region-v0.1.mjs?v=0.1.3", import.meta.url);
 const SWEEP_URL = new URL("./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.3", import.meta.url);
 const COLORS = ["#2a78d6", "#e34948", "#1baf7a", "#eb6834", "#8e5bd6"];
 const MAX_CONDITIONS = 5;
@@ -100,7 +100,7 @@ function createPool() {
       busy.set("thread", job);
       // 0.1.10: a point that throws in-thread is a FAILED point (as a Worker's), so the pool goes on; before, the
       // promise rejected, "thread" stayed busy and every later point of the page waited forever.
-      setTimeout(() => (job.kind === "region" ? import(REGION_URL.href).then((m) => m.regionPoint(job.base, job.assignments.angleOffDeg))
+      setTimeout(() => (job.kind === "region" ? import(REGION_URL.href).then((m) => m.regionTask(job.base, job.assignments))
         : job.kind === "fineTune" ? import(FINE_TUNE_URL.href).then((m) => m.fineTune(job.base, job.assignments)) : inThread.then((m) => m.sweepPoint(job.base, job.assignments)))
         .catch((error) => ({ status: "FAILED", messages: [error?.message ?? String(error)], y: {} }))
         .then((point) => { busy.delete("thread"); job.resolve(point); pump(); }), 0);

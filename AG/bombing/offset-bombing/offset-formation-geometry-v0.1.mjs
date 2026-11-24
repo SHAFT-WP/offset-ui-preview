@@ -1,6 +1,6 @@
 import { casToTas, machToTas } from "../../../common/airspeed/airspeed-v0.1.mjs";
 import { calculateBombDeliveryV0_4Full as calculateBombDeliveryV0_4 } from "../bomb-delivery-planner/bomb-delivery-planner-v0.4.mjs";
-import { bdpWindDirectionDeg, nonFiniteResultFields, offsetAngleScanMaxDeg, offsetOnsetTurn, resolveOffsetTurn } from "./offset-be-v0.2.mjs";
+import { bdpWindDirectionDeg, nonFiniteResultFields, offsetAngleScanMaxDeg, offsetOnsetTurn, resolveOffsetTurn, trackingTimeIssue } from "./offset-be-v0.2.mjs";
 import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs";
 import {
   add,
@@ -39,7 +39,9 @@ export const OFFSET_FORMATION_GEOMETRY_V0_1 = Object.freeze({
   // 0.1.13 (owner 2026-11-04): the CSEM defaults of offset BE 0.2.17 (Dive + 10°, the CSEM turn at 12,000 ft AGL).
   // 0.1.14 (owner 2026-11-11): an Action Point behind the aircraft's own IP is a WARNING (actionPointBeyondIp); the
   // Flight IP limit (ipLimitPoint / result.ipLimit) is removed — each aircraft compares only its own IP and VRP.
-  version: "0.1.14",
+  // 0.1.15 (owner 2026-11-24): the Tracking Time 2 s minimum of offset-be-v0.2 0.2.21 (trackingTimeIssue): below 0 s
+  // INVALID, 0–2 s WARNING, the message with the fix.
+  version: "0.1.15",
   status: "work",
   purpose:
     "Off-axis Offset geometry for a Flight follower whose IP is displaced from the shared Target-through Run-In axis by its Formation position, while Target and Run-In heading stay shared with its element lead. Reuses offset-geometry-v0.2.mjs's pure heading/vector helpers without modifying offset-be-v0.2.mjs or offset-geometry-v0.2.mjs's own single-aircraft (on-axis) contract.",
@@ -351,6 +353,8 @@ export function calculateOffAxisOffsetFull(input) {
   const candidateValidation = validateOffAxisOffsetCandidate(candidate);
   errors.push(...candidateValidation.errors);
   warnings.push(...candidateValidation.warnings);
+  const trackingIssue = trackingTimeIssue(candidate.profile, canonicalProfileInput(input, candidate.angleOffDeg, candidate.attackHeadingDeg, direction.rollDirection, runInHeadingDeg));
+  if (trackingIssue) (trackingIssue.level === "error" ? errors : warnings).push(trackingIssue.text);
 
   const speedFps = turn.offsetTasKt * KT_TO_FPS;
   // Signed IP -> Action leg (negative when the Action Point is behind this aircraft's own IP):
@@ -372,6 +376,7 @@ export function calculateOffAxisOffsetFull(input) {
     state: errors.length ? "INVALID" : warnings.length ? "WARNING" : "VALID",
     errors,
     warnings,
+    trackingIssue: trackingIssue ?? null,
     locks: { ...locks },
     driver,
     turnDriver: input.turnDriver ?? "offsetG",

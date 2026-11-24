@@ -19,9 +19,15 @@ import { sweepBaseline } from "./offset-dependency-sweep-v0.1.mjs?v=0.1.0";
 //                             BE); the Angle Off that fits is where that Offset Angle crosses the set one (one or a few).
 //   Roll-in Altitude free   → for each Angle Off the Roll-in Altitude (height mode, 10 ft) is searched so the solved
 //                             Offset Angle equals the set one; the Angle Off range is where such an altitude flies.
+// 0.2.2 (owner 2026-11-24, "트랙 타임도 미니멈 2초 룰만 어기지 않으면 바꿔도 돼", "2초 라인의 범위를 연한 색으로 … 오프셋도
+// 마찬가지"): a point flown with less than 2 s of tracking is "bad" (with the Roll-in Altitude held, a large Angle Off
+// spends the altitude in the Roll-in and the Track Point fell below the Release Altitude, still VALID before). With the
+// Roll-in Altitude held, each region task also answers the same Angle Off flown with the Tracking Time at 2 s ("time"
+// mode, the Roll-in Altitude solved) as point.min, the other edge of the light band on the Top View (regionTask).
 export const OFFSET_DESIGN_REGION_V0_1 = Object.freeze({
   id: "offset-design-region-v0.1",
-  version: "0.2.1",
+  version: "0.2.2",
+  minTrackingSec: 2,
   offsetToleranceDeg: 0.2,
   altitudeStepFt: 10,
   altitudeScanFt: Object.freeze({ aboveReleaseFt: 1000, maxFt: 35000, stepFt: 2000 }),
@@ -71,13 +77,19 @@ export function regionPoint(base, angleOffDeg, calculate = calculateOffsetFlight
   const messages = [...(ar?.errors ?? []), ...(ar?.warnings ?? [])].slice(0, 2);
   if (!g?.points?.rollStart) return { angleOffDeg, status: ar?.status ?? "FAILED", level: "bad", messages };
   const approachRangeNm = finite(g.approachRangeNm) ? g.approachRangeNm : null;
-  const level = approachRangeNm === null || approachRangeNm < 0 ? "bad" : ar.status === "VALID" ? "ok" : ar.status === "WARNING" ? "warn" : "bad";
+  const pub = ar.result?.profile?.public ?? {};
+  const trackingTimeSec = finite(pub.trackingTimeSec) ? pub.trackingTimeSec : null;
+  const shortTrack = trackingTimeSec !== null && trackingTimeSec < OFFSET_DESIGN_REGION_V0_1.minTrackingSec - 0.05;
+  if (shortTrack) messages.unshift(`Tracking Time ${trackingTimeSec.toFixed(1)} s < ${OFFSET_DESIGN_REGION_V0_1.minTrackingSec} s`);
+  const level = approachRangeNm === null || approachRangeNm < 0 || shortTrack ? "bad" : ar.status === "VALID" ? "ok" : ar.status === "WARNING" ? "warn" : "bad";
   return {
     angleOffDeg,
     status: ar.status,
     level,
     rollDirection: g.direction?.rollDirection ?? null,
-    messages,
+    messages: messages.slice(0, 2),
+    trackingTimeSec,
+    rollInAltitudeFlownFt: finite(pub.resolvedInitialAltitudeMslFt) ? pub.resolvedInitialAltitudeMslFt : null,
     attackHeadingDeg: g.attackHeadingDeg,
     offsetAngleDeg: g.offsetAngleDeg,
     approachRangeNm,
@@ -86,6 +98,37 @@ export function regionPoint(base, angleOffDeg, calculate = calculateOffsetFlight
     rollInRangeNm: g.rollInRangeNm,
     mapNm: g.groundRangeNm,
   };
+}
+
+// The record flown with the Tracking Time at the 2 s minimum: "time" mode (the Roll-in Altitude solved; a Roll-in LOCK
+// released), everything else as the baseline.
+export function minTrackRecord(base) {
+  const record = clone(base);
+  const sec = OFFSET_DESIGN_REGION_V0_1.minTrackingSec;
+  record.values.trackingTimeSec = sec;
+  record.state = { ...(record.state ?? {}), solveMode: "time", enteredTrackingTimeSec: sec };
+  record.locks = { ...(record.locks ?? {}), rollInAltitudeMslFt: false };
+  return record;
+}
+
+// The 2 s point of one Angle Off (what the Top View needs of it).
+export function minTrackPoint(base, angleOffDeg, calculate = calculateOffsetFlightUnfittedFull) {
+  const p = regionPoint(minTrackRecord(base), angleOffDeg, calculate);
+  return {
+    level: p.level, rollDirection: p.rollDirection ?? null, rollIn: p.rollIn ?? null, trackingTimeSec: p.trackingTimeSec ?? null,
+    rollInAltitudeFlownFt: p.rollInAltitudeFlownFt ?? null, mapNm: p.mapNm ?? null, offsetAngleDeg: p.offsetAngleDeg ?? null,
+    attackHeadingDeg: p.attackHeadingDeg ?? null,
+  };
+}
+
+// One region task (the worker's, and the page's when there is no worker): the point (angleOffCandidate when a set
+// Offset Angle is given) and, when asked (assignments.minTrack: the step-3 sweep with the Roll-in Altitude held), its
+// 2 s point. The VRP map asks without it.
+export function regionTask(base, assignments, calculate = calculateOffsetFlightUnfittedFull) {
+  const { angleOffDeg } = assignments;
+  const point = Number.isFinite(assignments.offsetAngleDeg) ? angleOffCandidate(base, angleOffDeg, assignments, calculate) : regionPoint(base, angleOffDeg, calculate);
+  if (assignments.minTrack === true) point.min = minTrackPoint(base, angleOffDeg, calculate);
+  return point;
 }
 
 // The region from the solved points: the Angle Off / Attack Heading range at each end of the drawn arcs (VALID or

@@ -9,7 +9,7 @@
 //                 and not always one way (Hold-Down 4.5 / 4.3 / 4.7 s at Angle Off 35 / 50 / 65°): scanned, then refined.
 // The Apex is never an input (owner: "APEX는 유저가 튜닝할 필요는 없어"). The answer is the input value to type; the
 // page then flies it as any other edit. Pure calculation: no DOM, no storage.
-import { calculatePopupFlightFull } from "./popup-flight-v0.1.mjs?v=0.1.24";
+import { calculatePopupFlightFull } from "./popup-flight-v0.1.mjs?v=0.1.25";
 
 export const POPUP_FINE_TUNE_V0_1 = Object.freeze({
   id: "popup-fine-tune-v0.1",

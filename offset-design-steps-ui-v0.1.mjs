@@ -9,19 +9,24 @@
 //     buttons: 1 Dive Angle; 2 VRP and one of Angle Off / Attack Heading (exclusive), with the Offset Angle / Action /
 //     Approach Range LOCKs released so the BE solves them.
 import { mirrorFieldControls, syncFieldControls } from "./shared/design-field-mirror-v0.1.mjs?v=0.1.1";
-import { ANGLE_OFF_GRID, coarseFirst, regionBaseline, regionSummary } from "./AG/bombing/offset-bombing/offset-design-region-v0.1.mjs?v=0.2.1";
+import { ANGLE_OFF_GRID, coarseFirst, regionBaseline, regionSummary } from "./AG/bombing/offset-bombing/offset-design-region-v0.1.mjs?v=0.2.2";
 import { fineTuneBaseline } from "./AG/bombing/offset-bombing/offset-fine-tune-v0.1.mjs?v=0.1.0";
 import { followerTimeBaseline, releaseFromPredecessorImpactSec } from "./AG/bombing/offset-bombing/offset-follower-time-v0.1.mjs?v=0.1.3";
 import { attackPairing, pumpingPath } from "./AG/bombing/offset-bombing/offset-follower-pumping-v0.1.mjs?v=0.1.0";
 import { OFFSET_DESIGN_VRP_MAP_V0_1, renderVrpMap } from "./offset-design-vrp-map-v0.1.mjs?v=0.1.0";
-import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.10";
+import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.11";
 import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 
 // 0.1.1 (owner 2026-11-23, "2번기 셋팅은 좀 다르다", S1): a #2 step after the three — the Formation, the attack side
 // (and whether a cross-over is needed; the cross-over path itself is S2), the release time relative to #1's impact as
 // a target (− = before the impact) with #1's Bomb TOF beside it, #2's Offset fields with their LOCKs (copies of the #2
 // slot's fields), and "시간 맞추기" (offset-follower-time-v0.1: #2's Angle Off or its Roll-in position).
-export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.9" });
+export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.10" });
+// 0.1.10 (owner 2026-11-24): "2초 라인의 범위를 연한 색으로 … 오프셋도 마찬가지" — with the Roll-in Altitude held, each step-3
+// sweep point carries its Tracking Time 2 s point (offset-design-region-v0.1 0.2.2 regionTask, minTrack), drawn as a
+// light band on the Top View; a point flown with less than 2 s of tracking is not part of the region (either mode).
+// "왼쪽으로 오프셋했을 때, 롤인턴 방향이 반대인 경우(즉 왼쪽)는 roll in 가능영역이 아닌 것으로 처리해" — only the Roll-in side
+// opposite the Offset turn (the side flown) is a possible region; a point on the other side is left out.
 
 // The Top View's texts on the Offset page: the level is the Flight's status (there is no Approach-Pop).
 const REGION_LABELS = Object.freeze({
@@ -647,7 +652,7 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     region = { signature, base, points, solutions: [], done: 0, total: ANGLE_OFF_GRID.length, ms: 0, rollInFree, offsetAngleDeg };
     renderRegionStep(answer?.output?.aircraftResults?.[1]);
     let queued = false;
-    await Promise.all(coarseFirst(ANGLE_OFF_GRID).map((ao) => regionPool.point(base, { angleOffDeg: ao, offsetAngleDeg, rollInFree }, "region").then((point) => {
+    await Promise.all(coarseFirst(ANGLE_OFF_GRID).map((ao) => regionPool.point(base, { angleOffDeg: ao, offsetAngleDeg, rollInFree, minTrack: !rollInFree }, "region").then((point) => {
       if (id !== regionJob || !point) return;
       points.push(point);
       region.done += 1;
@@ -664,13 +669,16 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     region.ms = performance.now() - started;
     renderRegionStep(answer?.output?.aircraftResults?.[1]);
   }
+  // 0.1.10: only the Roll-in side opposite the Offset turn (the side flown) is a possible region.
+  const flownSide = () => answer?.output?.aircraftResults?.[1]?.result?.geometry?.direction?.rollDirection ?? null;
+  const onSide = (p) => { const sd = flownSide(); return !sd || !p?.rollDirection || p.rollDirection === sd; };
   // The points drawn: with the altitude free, every Angle Off that found its Roll-in Altitude; held, the solutions only.
-  const drawnPoints = () => (!region ? [] : region.rollInFree ? region.points.map((p) => (p.fits ? p : { ...p, level: "bad" })) : region.solutions);
+  const drawnPoints = () => (!region ? [] : (region.rollInFree ? region.points.map((p) => (p.fits ? p : { ...p, level: "bad" })) : region.solutions).filter(onSide));
   // The Top View (owner 2026-11-24, "vrp와 옵셋 앵글을 변화시키면서 가용 오프셋 영역이나 헤딩 영역 그래프가 나오지 않고 그냥 픽스된
   // 값만 나오네"): with the Roll-in Altitude held, the region drawn is the whole Angle Off sweep at this VRP, each point
   // with the Offset Angle it gives (the Offset Angle changing along it), and the set Offset Angle's solutions are red
   // rings on it. With the altitude free, the points that fit.
-  const regionDrawn = () => (!region ? [] : region.rollInFree ? drawnPoints() : region.points);
+  const regionDrawn = () => (!region ? [] : region.rollInFree ? drawnPoints() : region.points.filter(onSide));
   const regionMarks = () => (!region || region.rollInFree ? [] : region.solutions.filter((p) => p.level !== "bad").map((p) => ({ ...p, label: `Offset Angle ${region.offsetAngleDeg}° · ` })));
   const span = (r, key, f) => (r && Number.isFinite(r[`${key}FromDeg`]) ? `${f(r[`${key}FromDeg`])}–${f(r[`${key}ToDeg`])}` : null);
   const hdg3 = (v) => String(Math.round(((v % 360) + 360) % 360)).padStart(3, "0");
@@ -693,7 +701,7 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
       const mode = region.rollInFree ? "Roll-in 고도 변경 허용" : "Roll-in 고도 고정";
       regionStatus.textContent = !done
         ? `Angle Off 가용 범위 계산 중 ${region.done} / ${region.total} (VRP 고정, Offset Angle ${region.offsetAngleDeg}°, ${mode})`
-        : `VRP 고정 · ${region.rollInFree ? `Offset Angle ${region.offsetAngleDeg}°` : `선은 Offset Angle이 변하는 Angle Off 전체 (점 옆 숫자 = Offset Angle), 빨간 원 = Offset Angle ${region.offsetAngleDeg}°`} · ${mode} · 현재 Roll-in 쪽 · Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}° 5° 간격 · ${(region.ms / 1000).toFixed(1)} s · 점에 마우스를 올리면 값`;
+        : `VRP 고정 · ${region.rollInFree ? `Offset Angle ${region.offsetAngleDeg}°` : `선은 Offset Angle이 변하는 Angle Off 전체 (점 옆 숫자 = Offset Angle), 빨간 원 = Offset Angle ${region.offsetAngleDeg}°, 연한 띠 = Tracking Time 2 s까지`} · ${mode} · Track 2 s 미만 제외 · Roll-in은 Offset 반대쪽만 · Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}° 5° 간격 · ${(region.ms / 1000).toFixed(1)} s · 점에 마우스를 올리면 값`;
     }
     renderRegionTopView(topSvg, {
       points: regionDrawn(), marks: regionMarks(), summaries: region && !region.rollInFree ? (side ? { [side]: sweep } : {}) : summaries, labels: REGION_LABELS, maxJoinDeg: 5.01,

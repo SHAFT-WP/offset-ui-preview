@@ -21,7 +21,11 @@ import { appendNorthMark } from "./common/diagram/svg-north-mark-v0.1.mjs";
 // 0.1.8 (owner 2026-11-23, the Offset page's planning steps): `labels` gives the level names, the footer and the point
 // tooltip's last part, so the Offset Design tab draws its region with the same picture (no Approach-Pop there). The
 // defaults are the POP-UP texts, unchanged.
-export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.10", canvas: Object.freeze({ width: 640, height: 600 }) });
+// 0.1.11 (owner 2026-11-24, "2초 라인의 범위를 연한 색으로 표현해주라. 오프셋도 마찬가지"): a point may carry `min`, the same
+// Angle Off flown with the Tracking Time at 2 s (the region modules' regionTask). Between each Roll-in Point and its
+// 2 s point a light yellow band is drawn (where the point itself is not drawn, the 2 s line alone), the 2 s points
+// joined by a light line; a legend row says so. The point tooltip gives its Tracking Time.
+export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.11", canvas: Object.freeze({ width: 640, height: 600 }) });
 const POPUP_LABELS = Object.freeze({
   ok: "App-Pop Time ≥ 2초", warn: "App-Pop Time 0–2초", okDot: "≥ 2초 점", warnDot: "0–2초 점",
   footer: "R/L = Roll-in 방향 · App-Pop = Approach-Pop",
@@ -58,7 +62,10 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   // ranges stay in the readouts.
   const shownSide = worldCurrent?.geometry?.direction?.rollDirection ?? null;
   const sides = shownSide ? [shownSide] : ["RIGHT", "LEFT"];
-  const points = worldPoints.filter((p) => !shownSide || p.rollDirection === shownSide).map((p) => ({ ...p, rollIn: turn(p.rollIn), attackHeadingDeg: turnHdg(p.attackHeadingDeg) }));
+  const points = worldPoints.filter((p) => !shownSide || p.rollDirection === shownSide).map((p) => ({ ...p, rollIn: turn(p.rollIn), attackHeadingDeg: turnHdg(p.attackHeadingDeg), min: p.min ? { ...p.min, rollIn: turn(p.min.rollIn) } : null }));
+  // The 2 s points that fly (0.1.11).
+  const minOk = (p) => !!p.min && p.min.level !== "bad" && pt(p.min.rollIn);
+  const banded = points.some(minOk);
   const wg = worldCurrent?.geometry;
   const current = worldCurrent ? {
     ...worldCurrent,
@@ -89,13 +96,14 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   // tooltip.
   const attackMark = (p) => { const r = finite(mapNm) ? mapNm : Math.hypot(p.rollIn.x, p.rollIn.y); return { x: r * Math.sin(p.attackHeadingDeg * DEG), y: r * Math.cos(p.attackHeadingDeg * DEG) }; };
   // Extent: the MAP circle, the Roll-in Points, the VRP and the flown path.
-  const xy = [{ x: 0, y: 0 }, ...withRollIn.map((p) => p.rollIn), ...withRollIn.map(attackMark)];
+  const xy = [{ x: 0, y: 0 }, ...withRollIn.map((p) => p.rollIn), ...withRollIn.map(attackMark), ...points.filter(minOk).map((p) => p.min.rollIn)];
   if (finite(mapNm)) xy.push({ x: mapNm * 1.3, y: mapNm * 1.3 }, { x: -mapNm * 1.3, y: -mapNm * 1.3 });
   if (pt(g?.points?.vrp)) xy.push(g.points.vrp);
   for (const p of g?.offsetTurnPath ?? []) if (pt(p)) xy.push(p);
   const minX = Math.min(...xy.map((p) => p.x)), maxX = Math.max(...xy.map((p) => p.x));
   const minY = Math.min(...xy.map((p) => p.y)), maxY = Math.max(...xy.map((p) => p.y));
-  const top = 34, bottom = 62;
+  const top = 34, bottom = banded ? 78 : 62;
+  const noteY = H - (banded ? 60 : 44);
   const span = Math.max((maxX - minX) / W, (maxY - minY) / (H - top - bottom), 1e-3) * 1.12;
   const s = 1 / span;
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
@@ -126,7 +134,27 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
       }
     }
     const dist = withRollIn.map((p) => Math.hypot(p.rollIn.x, p.rollIn.y));
-    svg.append(svgEl("text", { x: 10, y: H - 44, "font-size": 10.5, fill: "#5f5e5a" }, `Roll-in Distance (점선) ${Math.min(...dist).toFixed(2)}–${Math.max(...dist).toFixed(2)} NM · Angle Off에 따라 바뀜`));
+    svg.append(svgEl("text", { x: 10, y: noteY, "font-size": 10.5, fill: "#5f5e5a" }, `Roll-in Distance (점선) ${Math.min(...dist).toFixed(2)}–${Math.max(...dist).toFixed(2)} NM · Angle Off에 따라 바뀜`));
+  }
+  // 0.1.11: the Tracking Time 2 s band, per side, under the arcs: from each Roll-in Point (or, where the point is not
+  // drawn, its 2 s point) to its 2 s point, consecutive Angle Offs joined; the 2 s points joined by a light line.
+  for (const side of sides) {
+    const all = points.filter((p) => p.rollDirection === side || (!p.rollDirection && p.min?.rollDirection === side)).sort((a, b) => a.angleOffDeg - b.angleOffDeg);
+    const outer = (p) => (p.level !== "bad" && pt(p.rollIn) ? p.rollIn : p.min.rollIn);
+    for (let i = 1; i < all.length; i += 1) {
+      const a = all[i - 1], b = all[i];
+      if (!minOk(a) || !minOk(b) || b.angleOffDeg - a.angleOffDeg > maxJoinDeg) continue;
+      const band = svgEl("path", { d: `${d([outer(a), outer(b), b.min.rollIn, a.min.rollIn])}Z`, fill: REGION_COLORS.yellow, "fill-opacity": 0.2, stroke: "none", "data-band": side });
+      band.append(svgEl("title", {}, `Tracking Time 2 s까지 · Angle Off ${Math.round(a.angleOffDeg)}–${Math.round(b.angleOffDeg)}°`));
+      svg.append(band, svgEl("line", { x1: X(a.min.rollIn.x), y1: Y(a.min.rollIn.y), x2: X(b.min.rollIn.x), y2: Y(b.min.rollIn.y), stroke: REGION_COLORS.yellow, "stroke-width": 2.5, opacity: 0.55, "stroke-linecap": "round", "data-band-edge": side }));
+    }
+    for (const p of all.filter(minOk)) {
+      const q = p.min;
+      // Not drawn (a hollow dot reads as a WARNING point): a clear hover target for the tooltip only.
+      const dot = svgEl("circle", { cx: X(q.rollIn.x), cy: Y(q.rollIn.y), r: 4, fill: "transparent", stroke: "none", "data-band-point": `${SIDE_TEXT[side]}${p.angleOffDeg}` });
+      dot.append(svgEl("title", {}, `Tracking 2 s · Angle Off ${Math.round(p.angleOffDeg)}° · Roll-in Distance ${Math.hypot(q.rollIn.x, q.rollIn.y).toFixed(2)} NM${finite(q.rollInAltitudeFlownFt) ? ` · Roll-in ${Math.round(q.rollInAltitudeFlownFt).toLocaleString("en-US")} ft` : ""}${finite(q.mapNm) ? ` · MAP ${q.mapNm.toFixed(2)} NM` : ""}${finite(q.offsetAngleDeg) ? ` · Offset Angle ${Math.abs(q.offsetAngleDeg).toFixed(1)}°` : ""}`));
+      svg.append(dot);
+    }
   }
   // Region arcs, per side: consecutive Angle Offs joined, solid / light by the weaker of the two.
   for (const side of sides) {
@@ -147,7 +175,7 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
     const drawn = all.filter((p) => p.level !== "bad" && pt(p.rollIn));
     for (const p of drawn) {
       const dot = svgEl("circle", { cx: X(p.rollIn.x), cy: Y(p.rollIn.y), r: 3, fill: p.level === "ok" ? REGION_COLORS.yellow : "#fff", stroke: REGION_COLORS.yellow, "stroke-width": 1.5, "data-region-point": `${SIDE_TEXT[side]}${p.angleOffDeg}` });
-      dot.append(svgEl("title", {}, `${side === "RIGHT" ? "오른쪽" : "왼쪽"} Roll-in · Angle Off ${Math.round(p.angleOffDeg)}° · Attack Heading ${hdg(p.attackHeadingDeg + up)} · Offset Angle ${p.offsetAngleDeg.toFixed(1)}° · Roll-in Distance ${Math.hypot(p.rollIn.x, p.rollIn.y).toFixed(2)} NM · MAP ${finite(p.mapNm) ? p.mapNm.toFixed(2) : "-"} NM · Approach ${p.approachRangeNm.toFixed(2)} NM${labels.pointTail(p)}`));
+      dot.append(svgEl("title", {}, `${side === "RIGHT" ? "오른쪽" : "왼쪽"} Roll-in · Angle Off ${Math.round(p.angleOffDeg)}° · Attack Heading ${hdg(p.attackHeadingDeg + up)} · Offset Angle ${p.offsetAngleDeg.toFixed(1)}° · Roll-in Distance ${Math.hypot(p.rollIn.x, p.rollIn.y).toFixed(2)} NM · MAP ${finite(p.mapNm) ? p.mapNm.toFixed(2) : "-"} NM${finite(p.trackingTimeSec) ? ` · Track ${p.trackingTimeSec.toFixed(1)} s` : ""} · Approach ${p.approachRangeNm.toFixed(2)} NM${labels.pointTail(p)}`));
       svg.append(dot);
       if (Math.round(p.angleOffDeg) % 15 === 0) {
         const len = Math.hypot(p.rollIn.x, p.rollIn.y) || 1;
@@ -274,7 +302,13 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   key(10, ly, REGION_COLORS.green, 0.9, `Attack Heading · ${labels.ok}`);
   key(236, ly, REGION_COLORS.green, 0.35, `Attack Heading · ${labels.warn}`);
   key(462, ly, REGION_COLORS.red, 1, "선택한 Attack Heading");
-  svg.append(svgEl("text", { x: W - 8, y: H - 44, "text-anchor": "end", "font-size": 10.5, fill: "#5f5e5a" }, labels.footer));
+  if (banded) {
+    const ly2 = H - 42;
+    svg.append(svgEl("rect", { x: 10, y: ly2 - 10, width: 20, height: 9, fill: REGION_COLORS.yellow, "fill-opacity": 0.2 }));
+    svg.append(svgEl("line", { x1: 10, x2: 30, y1: ly2 - 1.5, y2: ly2 - 1.5, stroke: REGION_COLORS.yellow, "stroke-width": 2.5, opacity: 0.55 }));
+    svg.append(svgEl("text", { x: 35, y: ly2, "font-size": 10.5, fill: "#2e2d2a" }, "연한 띠 = Tracking Time 2 s까지의 Roll-in Point · 연한 선 = 2 s · Track 2 s 미만 점은 제외"));
+  }
+  svg.append(svgEl("text", { x: W - 8, y: noteY, "text-anchor": "end", "font-size": 10.5, fill: "#5f5e5a" }, labels.footer));
   untangleLabels(svg);
 }
 

@@ -42,7 +42,13 @@ import { truncateBeOutput } from "../../../common/ui/display-precision-v0.1.mjs"
 // result.actionPointBeyondIp marks that the path starts at the Action Point. Values are unchanged.
 // 0.2.20 (owner 2026-11-18, speed): the VRP second pass tries the first pass's Offset Angle first (offsetAngleRootHintDeg);
 // with geometry 0.2.10's coarse scan the answers are the same, with about a third of the BDP solves.
-export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.20", status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
+// 0.2.21 (owner 2026-11-24, "트래킹 음수인 경우 … 첫번째 설명한대로 해답을 주는 식으로 적용하자"): the Tracking Time minimum is
+// 2 s. Below 0 s the Track Point is under the Release (the Roll-in ends past the release point) — INVALID; 0–2 s —
+// WARNING. The message gives the fix: with the Roll-in Altitude entered (height), the Roll-in Altitude that flies 2 s
+// (one BDP solve at Tracking Time 2 s, same Angle Off / Attack Heading); with the Tracking Time entered, the minimum.
+// The geometry is still produced (allowNegativeTrackingTime is unchanged), so the views show the shortfall; the result
+// carries the issue as `trackingIssue`.
+export const OFFSET_BE_V0_2 = Object.freeze({ id: "offset-be-v0.2", version: "0.2.21", minTrackingTimeSec: 2, status: "work", deliveryAuthority: "bomb-delivery-planner-v0.4", offsetTurnModel: `${ONSET_LEVEL_TURN_MODEL_V0_1.id} ${ONSET_LEVEL_TURN_MODEL_V0_1.version}` });
 
 const FT_PER_NM = 6076.11549;
 const KT_TO_FPS = 1.687809857;
@@ -210,6 +216,31 @@ function canonicalProfileInput(input, angleOffDeg, attackHeadingDeg, rollDirecti
     ...(profile.diveSpeedModel === "MIL" ? { diveSpeedModel: "MIL" } : {}),
     ...(profile.semSpeedModel === "MIL" ? { semSpeedModel: "MIL" } : {}),
   };
+}
+
+// 0.2.21: a Tracking Time under the 2 s minimum, with its fix: null, or { level: "error" | "warning", text }.
+// `profileInput` is the BDP input the profile was flown with (the caller's canonical profile input), so the fix is
+// the same delivery at Tracking Time 2 s. Shared with the follower (off-axis) BE.
+export function trackingTimeIssue(profile, profileInput) {
+  const min = OFFSET_BE_V0_2.minTrackingTimeSec;
+  const sec = profile?.public?.trackingTimeSec;
+  if (!Number.isFinite(sec) || sec >= min - 0.05) return null;
+  const below = sec < -0.05;
+  const head = `Tracking Time ${sec.toFixed(1)} s ${below ? "(Track Point below Release)" : `is under the ${min} s minimum`}`;
+  const fmt = (ft) => Math.round(ft).toLocaleString("en-US");
+  let fix = `enter a Tracking Time of ${min} s or more`;
+  if (profileInput?.solveMode === "height") {
+    fix = `raise the Roll-in Altitude until the Tracking Time is ${min} s`;
+    try {
+      const need = calculateBombDeliveryV0_4({ ...profileInput, solveMode: "time", trackingTimeSec: min }).public.resolvedInitialAltitudeMslFt;
+      const now = profile.public.resolvedInitialAltitudeMslFt;
+      if (Number.isFinite(need)) {
+        const up = Math.ceil(need / 10) * 10;
+        fix = `Roll-in Altitude ${fmt(up)} ft${Number.isFinite(now) ? ` (+${fmt(Math.max(0, up - now))} ft)` : ""} flies ${min} s`;
+      }
+    } catch { /* the fix is only advice; the answer stands without it */ }
+  }
+  return { level: below ? "error" : "warning", text: `${head}: ${fix}` };
 }
 
 function attackHeadingFromOffsetAndAngleOff(runInHeadingDeg, offsetAngleDeg, angleOffDeg, direction) {
@@ -431,6 +462,9 @@ export function calculateOffsetV0_2Full(input) {
   if (Number.isFinite(enteredReleaseMslFt) && Number.isFinite(nltReleaseMslFt) && enteredReleaseMslFt < nltReleaseMslFt - 0.5) {
     warnings.push(`Release Altitude ${Math.round(enteredReleaseMslFt).toLocaleString("en-US")} ft is below NLT ${Math.round(nltReleaseMslFt).toLocaleString("en-US")} ft (frag / recovery): flown as entered`);
   }
+  // 0.2.21: Tracking Time under the 2 s minimum — below 0 s INVALID, 0–2 s WARNING, with the fix.
+  const trackingIssue = trackingTimeIssue(candidate.profile, canonicalProfileInput(input, candidate.angleOffDeg, candidate.attackHeadingDeg, direction.rollDirection, runInHeadingDeg));
+  if (trackingIssue) (trackingIssue.level === "error" ? errors : warnings).push(trackingIssue.text);
 
   const speedFps = turn.offsetTasKt * KT_TO_FPS;
   // Signed IP -> Action Point leg: negative when the Action Point lies beyond IP (the turn starts
@@ -450,6 +484,8 @@ export function calculateOffsetV0_2Full(input) {
     model: { ...OFFSET_BE_V0_2 },
     state: errors.length ? "INVALID" : warnings.length ? "WARNING" : "VALID",
     errors, warnings, locks: { ...locks }, driver, turnDriver: input.turnDriver ?? "offsetG", referenceMode,
+    // 0.2.21: the Tracking Time issue in errors / warnings (null when none), so a caller can tell it from the others.
+    trackingIssue: trackingIssue ?? null,
     // True when the Action Point (VRP) lies beyond this aircraft's own IP: the path starts there.
     actionPointBeyondIp: candidateValidation.actionPointBeyondIp,
     resolved: {

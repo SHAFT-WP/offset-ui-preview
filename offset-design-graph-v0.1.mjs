@@ -6,7 +6,7 @@
 // Points are solved in Web Workers side by side (in-thread when a Worker cannot start). Nothing is saved.
 // The drawing and controls are the POP-UP graph's (popup-design-graph-v0.1 0.1.10) without its POP-UP planning steps.
 // Styles: ../popup/popup-design-graph-v0.1.css.
-import { mountOffsetDesignSteps } from "./offset-design-steps-ui-v0.1.mjs?v=0.1.9";
+import { mountOffsetDesignSteps } from "./offset-design-steps-ui-v0.1.mjs?v=0.1.10";
 import { OFFSET_SWEEP_INPUTS, OFFSET_SWEEP_OUTPUTS, sweepBaseline, sweepInputInMode, sweepInputValue, sweepModeOf, sweepValues } from "./AG/bombing/offset-bombing/offset-dependency-sweep-v0.1.mjs?v=0.1.0";
 
 // 0.1.1 (owner 2026-11-23, "핍업 부분 뺀 나머지를 옮겨줘"): the planning steps (offset-design-steps-ui-v0.1: BDP, Offset
@@ -14,8 +14,8 @@ import { OFFSET_SWEEP_INPUTS, OFFSET_SWEEP_OUTPUTS, sweepBaseline, sweepInputInM
 // 0.1.2 (owner 2026-11-23): steps UI 0.1.1 (the #2 step); the pool answers "followerTime" too.
 export const OFFSET_DESIGN_GRAPH_V0_1 = Object.freeze({ id: "offset-design-graph-v0.1", version: "0.1.10" });
 
-const WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-dependency-worker-v0.1.mjs?v=0.1.7", import.meta.url);
-const REGION_URL = new URL("./AG/bombing/offset-bombing/offset-design-region-v0.1.mjs?v=0.2.1", import.meta.url);
+const WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-dependency-worker-v0.1.mjs?v=0.1.8", import.meta.url);
+const REGION_URL = new URL("./AG/bombing/offset-bombing/offset-design-region-v0.1.mjs?v=0.2.2", import.meta.url);
 const FINE_TUNE_URL = new URL("./AG/bombing/offset-bombing/offset-fine-tune-v0.1.mjs?v=0.1.0", import.meta.url);
 const FOLLOWER_TIME_URL = new URL("./AG/bombing/offset-bombing/offset-follower-time-v0.1.mjs?v=0.1.3", import.meta.url);
 const SWEEP_URL = new URL("./AG/bombing/offset-bombing/offset-dependency-sweep-v0.1.mjs?v=0.1.0", import.meta.url);
@@ -95,7 +95,7 @@ function createPool() {
       const job = queue.shift();
       busy.set("thread", job);
       // A point that throws in-thread is a FAILED point (as a Worker's), so the pool goes on.
-      setTimeout(() => (job.kind === "region" ? import(REGION_URL.href).then((m) => (Number.isFinite(job.assignments.offsetAngleDeg) ? m.angleOffCandidate(job.base, job.assignments.angleOffDeg, job.assignments) : m.regionPoint(job.base, job.assignments.angleOffDeg)))
+      setTimeout(() => (job.kind === "region" ? import(REGION_URL.href).then((m) => m.regionTask(job.base, job.assignments))
         : job.kind === "regionHeld" ? import(REGION_URL.href).then((m) => m.heldAltitudeSolutions(job.base, job.assignments.points, job.assignments.offsetAngleDeg))
         : job.kind === "fineTune" ? import(FINE_TUNE_URL.href).then((m) => m.fineTune(job.base, job.assignments))
         : job.kind === "followerTime" ? import(FOLLOWER_TIME_URL.href).then((m) => m.solveFollowerReleaseTime(job.base, job.assignments.number, job.assignments.request)) : inThread.then((m) => m.sweepPoint(job.base, job.assignments)))

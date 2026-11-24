@@ -103,7 +103,10 @@ export const POPUP_FLIGHT_V0_1 = Object.freeze({
   // 31° at 301 KCAS); (3) speed: the AUTO Roll-in Speed fixed point takes a secant step, the angle searches' trials
   // start from the nearest settled speed, and the raise's answer reuses its trial (about a third fewer whole Flight
   // solves; values move within speedSettleKt). POP-UP BE 0.2.6.
-  version: "0.1.24",
+  // 0.1.25 (owner 2026-11-24, Offset BE 0.2.21): an Offset answer that is INVALID only for its Tracking Time (below 0 s,
+  // result.trackingIssue) still flies its climb, so the POP-UP checks (Offset-Popup Range, …) are said beside the
+  // Tracking Time fix instead of after it.
+  version: "0.1.25",
   defaultPopupG: 4,
   angleIterations: 12,
   autoAngleMinDeg: 1,
@@ -834,7 +837,10 @@ function popupFlight(rawInput, offsetFlight) {
     };
     if (!offset) { aircraftResults[n] = { status: "FAILED", errors: ["No Offset result"], warnings: [], popup: base }; continue; }
     if (angleErrors[n]) { aircraftResults[n] = merge({}, [angleErrors[n]], []); continue; }
-    if (!offset.result?.profile?.canonicalInputs || !(offset.status === "VALID" || offset.status === "WARNING")) {
+    // 0.1.25: INVALID only for the Tracking Time (Offset BE 0.2.21) still flies the climb; its error stays.
+    const issue = offset.result?.trackingIssue;
+    const onlyTracking = offset.status === "INVALID" && issue?.level === "error" && (offset.errors ?? []).length > 0 && offset.errors.every((e) => e === issue.text);
+    if (!offset.result?.profile?.canonicalInputs || !(offset.status === "VALID" || offset.status === "WARNING" || onlyTracking)) {
       // 0.1.9: the Turn End past the Roll-in Start is the same shortage as a Hold-Down < 0; say how it could fit.
       const errors = (offset.errors ?? []).map((e) => (/Offset Turn End has passed Roll-in Start/.test(e) ? `${e}; a steeper Popup angle does not fit it: lower the Offset Angle or change this aircraft's position` : e));
       aircraftResults[n] = { ...offset, errors, popup: base };

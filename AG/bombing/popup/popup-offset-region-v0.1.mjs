@@ -8,11 +8,15 @@
 // side of the Attack Heading it is given (directionRule: Attack Heading right of the Run-In = right Roll-in); the other
 // side is the same sweep from a baseline with the Attack Heading mirrored about the Run-In (regionMirrorBaseline).
 // Each point carries its rollDirection; regionSummary takes a side.
+// 0.1.3 (owner 2026-11-24, "pop up에서 track time도 미니멈 2초 룰만 어기지 않으면 바꿔도 돼", "2초 라인의 범위를 연한 색으로
+// 표현해주라"): the Tracking Time may change down to 2 s. A point flown with less than 2 s of tracking is "bad" (not
+// drawn); each region task also answers the same Angle Off flown with the Tracking Time at 2 s ("time" mode, the
+// Roll-in Altitude solved) as point.min, the inner edge of the light band on the Top View (regionTask).
 // Pure calculation: no DOM, no storage.
-import { calculatePopupFlightFull } from "./popup-flight-v0.1.mjs?v=0.1.24";
+import { calculatePopupFlightFull } from "./popup-flight-v0.1.mjs?v=0.1.25";
 import { sweepBaseline } from "./popup-dependency-sweep-v0.1.mjs?v=0.1.3";
 
-export const POPUP_OFFSET_REGION_V0_1 = Object.freeze({ id: "popup-offset-region-v0.1", version: "0.1.1", recommendedSec: 2 });
+export const POPUP_OFFSET_REGION_V0_1 = Object.freeze({ id: "popup-offset-region-v0.1", version: "0.1.3", recommendedSec: 2, minTrackingSec: 2 });
 
 const range = (from, to, step) => Array.from({ length: Math.round((to - from) / step) + 1 }, (_, i) => +(from + i * step).toFixed(6));
 // Angle Off grid (5°): coarse points (every 15°) are solved first so the region shows early.
@@ -61,13 +65,19 @@ export function regionPoint(base, angleOffDeg, calculate = calculatePopupFlightF
   if (!g?.points?.rollStart) return { angleOffDeg, status: ar?.status ?? "FAILED", level: "bad", messages };
   const holdDownSec = finite(p?.holdDownSec) ? p.holdDownSec : null;
   const flies = ar.status === "VALID" || ar.status === "WARNING";
-  const level = !flies || holdDownSec === null || holdDownSec < 0 ? "bad" : holdDownSec < POPUP_OFFSET_REGION_V0_1.recommendedSec ? "warn" : "ok";
+  const pub = ar.result?.profile?.public ?? {};
+  const trackingTimeSec = finite(pub.trackingTimeSec) ? pub.trackingTimeSec : null;
+  const shortTrack = trackingTimeSec !== null && trackingTimeSec < POPUP_OFFSET_REGION_V0_1.minTrackingSec - 0.05;
+  if (shortTrack) messages.unshift(`Tracking Time ${trackingTimeSec.toFixed(1)} s < ${POPUP_OFFSET_REGION_V0_1.minTrackingSec} s`);
+  const level = !flies || shortTrack || holdDownSec === null || holdDownSec < 0 ? "bad" : holdDownSec < POPUP_OFFSET_REGION_V0_1.recommendedSec ? "warn" : "ok";
   return {
     angleOffDeg,
     status: ar.status,
     level,
     rollDirection: g.direction?.rollDirection ?? null,
-    messages,
+    messages: messages.slice(0, 2),
+    trackingTimeSec,
+    rollInAltitudeFlownFt: finite(pub.resolvedInitialAltitudeMslFt) ? pub.resolvedInitialAltitudeMslFt : null,
     attackHeadingDeg: g.attackHeadingDeg,
     offsetAngleDeg: g.offsetAngleDeg,
     approachRangeNm: g.approachRangeNm,
@@ -77,6 +87,34 @@ export function regionPoint(base, angleOffDeg, calculate = calculatePopupFlightF
     rollInRangeNm: g.rollInRangeNm,
     mapNm: g.groundRangeNm,
   };
+}
+
+// The record flown with the Tracking Time at the 2 s minimum: "time" mode (the Roll-in Altitude solved; a Roll-in LOCK
+// released), everything else as the baseline.
+export function minTrackRecord(base) {
+  const record = clone(base);
+  const sec = POPUP_OFFSET_REGION_V0_1.minTrackingSec;
+  record.values.trackingTimeSec = sec;
+  record.state = { ...(record.state ?? {}), solveMode: "time", enteredTrackingTimeSec: sec };
+  record.locks = { ...(record.locks ?? {}), rollInAltitudeMslFt: false };
+  return record;
+}
+
+// The 2 s point of one Angle Off (what the Top View needs of it).
+export function minTrackPoint(base, angleOffDeg, calculate = calculatePopupFlightFull) {
+  const p = regionPoint(minTrackRecord(base), angleOffDeg, calculate);
+  return {
+    level: p.level, rollDirection: p.rollDirection ?? null, rollIn: p.rollIn ?? null, trackingTimeSec: p.trackingTimeSec ?? null,
+    rollInAltitudeFlownFt: p.rollInAltitudeFlownFt ?? null, mapNm: p.mapNm ?? null, offsetAngleDeg: p.offsetAngleDeg ?? null,
+    attackHeadingDeg: p.attackHeadingDeg ?? null, holdDownSec: p.holdDownSec ?? null,
+  };
+}
+
+// One region task (the worker's, and the page's when there is no worker): the point and its 2 s point.
+export function regionTask(base, { angleOffDeg }, calculate = calculatePopupFlightFull) {
+  const point = regionPoint(base, angleOffDeg, calculate);
+  point.min = minTrackPoint(base, angleOffDeg, calculate);
+  return point;
 }
 
 // The region from the solved points: the Angle Off / Attack Heading range at each end of the drawn arcs (Approach-Pop
