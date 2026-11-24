@@ -8,6 +8,7 @@
 //     3 VRP and one of Angle Off / Attack Heading (exclusive, decision 3); the Offset Angle / Action / Approach Range
 //     LOCKs are released so the BE solves them. Step 4's Fine tune comes with S4.
 // The graph, ranges, Top View region and Fine tune are S2–S4 (DESIGN-STEPS.md §5).
+import { mirrorFieldControls, syncFieldControls } from "./shared/design-field-mirror-v0.1.mjs?v=0.1.0";
 import { sweepBaseline } from "./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.3";
 import { POPUP_ANGLE_GRID, popupAngleRange, popupProfileLine } from "./AG/bombing/popup/popup-design-steps-v0.1.mjs?v=0.1.2";
 import { defaultPopupAngleDeg } from "./AG/bombing/popup/popup-be-v0.2.mjs?v=0.2.6";
@@ -33,7 +34,7 @@ import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=
 // (common svg-viewport: − / % / + / Fit, drag when zoomed); the profile draws the Approach-Pop leg before the Pop;
 // the Top View region is solved on both Roll-in sides (the Attack Heading mirrored about the Run-In) and drawn in
 // the Offset Top View symbols with the turn paths.
-export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.11" });
+export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.12" });
 // 0.1.11 (review 2026-11-23): 확정 / 해제, the linked LOCKs and Fine tune start once the page is idle and each press waits
 // for the page to be idle again (every edit answered), not for the first answer within 6 s.
 // 0.1.9 (owner 2026-11-22): Action Range / Offset Angle are linked fields (step 2 and 3) and every linked field whose page field has a LOCK has a Design LOCK that follows it.
@@ -371,6 +372,7 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
     out.textContent = text;
     if (level) out.dataset.level = level; else delete out.dataset.level;
   };
+  const mirrorPress = (fn) => run(async () => { const answered = nextAnswer(); fn(); await settled(answered); });
   function syncLinks() {
     for (const input of linkInputs) {
       if (document.activeElement === input) continue;
@@ -380,6 +382,9 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
       input.placeholder = main.placeholder ?? "";
       input.readOnly = main.readOnly;
       input.toggleAttribute("data-lock-solved", main.hasAttribute("data-lock-solved"));
+      // Every other control of the page field (LINK, TIME / ANGLE, unit select) mirrored, same state both sides.
+      mirrorFieldControls(input, main, { covered: (b) => linkLocks.some(([, kind, name]) => (kind === "popup" ? mainPopupLock(name) : mainLock(name)) === b), press: mirrorPress });
+      syncFieldControls(input, { busy });
     }
   }
   function render() {

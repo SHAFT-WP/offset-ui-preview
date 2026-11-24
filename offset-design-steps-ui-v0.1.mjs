@@ -8,10 +8,12 @@
 //   확정 / 해제: each step turns its bundle of the page's existing LOCKs on or off by pressing the page's own LOCK
 //     buttons: 1 Dive Angle; 2 VRP and one of Angle Off / Attack Heading (exclusive), with the Offset Angle / Action /
 //     Approach Range LOCKs released so the BE solves them.
+import { mirrorFieldControls, syncFieldControls } from "./shared/design-field-mirror-v0.1.mjs?v=0.1.0";
 import { ANGLE_OFF_GRID, coarseFirst, regionBaseline, regionSummary } from "./AG/bombing/offset-bombing/offset-design-region-v0.1.mjs?v=0.2.1";
 import { fineTuneBaseline } from "./AG/bombing/offset-bombing/offset-fine-tune-v0.1.mjs?v=0.1.0";
 import { followerTimeBaseline, releaseFromPredecessorImpactSec } from "./AG/bombing/offset-bombing/offset-follower-time-v0.1.mjs?v=0.1.3";
 import { attackPairing, pumpingPath } from "./AG/bombing/offset-bombing/offset-follower-pumping-v0.1.mjs?v=0.1.0";
+import { OFFSET_DESIGN_VRP_MAP_V0_1, renderVrpMap } from "./offset-design-vrp-map-v0.1.mjs?v=0.1.0";
 import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.9";
 import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 
@@ -19,7 +21,7 @@ import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1
 // (and whether a cross-over is needed; the cross-over path itself is S2), the release time relative to #1's impact as
 // a target (− = before the impact) with #1's Bomb TOF beside it, #2's Offset fields with their LOCKs (copies of the #2
 // slot's fields), and "시간 맞추기" (offset-follower-time-v0.1: #2's Angle Off or its Roll-in position).
-export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.6" });
+export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.7" });
 
 // The Top View's texts on the Offset page: the level is the Flight's status (there is no Approach-Pop).
 const REGION_LABELS = Object.freeze({
@@ -107,7 +109,7 @@ const LINK_LOCKS = Object.freeze({
 const mainOf = (selector, host) => [...document.querySelectorAll(selector)].find((node) => !host.contains(node) && !node.closest(".flight-slot")) ?? null;
 const pressed = (button) => button?.getAttribute("aria-pressed") === "true";
 
-export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tunePool = null }) {
+export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tunePool = null, mapPool = null }) {
   const root = el("section", { class: "design-wizard", "data-design-wizard": "" });
   const statusLine = el("p", { class: "design-graph-status", role: "status", text: "-" });
   const outs = new Map();
@@ -167,6 +169,13 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
   const altFree = el("input", { type: "checkbox", "data-design-alt-free": "", "aria-label": "Roll-in 고도 변경 허용" });
   const altFreeField = el("label", { class: "field design-check" }, el("span", { text: "Roll-in 고도 변경" }), el("span", { class: "design-check-row" }, altFree, el("span", { text: "허용 (Angle Off마다 Roll-in Altitude를 찾음)" })), el("span", { class: "unit", text: "끄면 지금 Roll-in Altitude 그대로" }));
   let targetEdited = false;
+  // Step 3, the VRP × Angle Off map (owner 2026-11-24): the Offset Angle of every VRP / Angle Off pair, altitude held.
+  const mapSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  mapSvg.setAttribute("class", "design-steps-svg design-vrp-map-svg");
+  mapSvg.setAttribute("data-design-vrp-map", "");
+  mapSvg.setAttribute("role", "img");
+  mapSvg.setAttribute("aria-label", "VRP Range by Angle Off map of the Offset Angle");
+  const mapStatus = el("p", { class: "design-graph-status", role: "status", "data-design-map-status": "", text: "VRP × Angle Off 지도: Design 탭을 열면 계산합니다." });
   // Step 3: the Angle Off to fly (applied with 확정).
   const pickAo = el("input", { type: "text", inputmode: "decimal", "aria-label": "Angle Off (deg)", "data-design-pick-ao": "" });
   const angleOffLock = lockButton("angleOffDeg", "Angle Off");
@@ -251,12 +260,15 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
       grid(readout("reference", "Reference", "VRP / VIP"), link("vrpRangeNm"),
         tuneField("Offset Angle (deg)", targetOa, "Run-In → Approaching Heading · 목표"), altFreeField),
     ]),
-    card(3, "Angle Off 가용 범위", "2단계의 VRP와 Offset Angle로 Angle Off 5–175°를 5° 간격으로 계산해 Top View에 그립니다 (현재 Roll-in 쪽). 확정 = 고른 Angle Off LOCK (Offset Angle은 BE가 풀어 목표와 같아짐), 고도 변경 허용이면 그 Angle Off의 Roll-in Altitude도 입력.", [
+    card(3, "Angle Off 가용 범위", "위 지도: Roll-in 고도를 고정하면 VRP와 Angle Off가 Offset Angle을 정합니다. VRP Range(세로)와 Angle Off(가로)마다 나오는 Offset Angle을 색으로, 목표 Offset Angle이 되는 곳을 빨간 점으로 그립니다. 칸을 누르면 그 VRP와 Angle Off가 페이지에 들어갑니다. 아래 Top View: 2단계의 VRP와 Offset Angle로 Angle Off 5–175°를 5° 간격으로 계산해 Top View에 그립니다 (현재 Roll-in 쪽). 확정 = 고른 Angle Off LOCK (Offset Angle은 BE가 풀어 목표와 같아짐), 고도 변경 허용이면 그 Angle Off의 Roll-in Altitude도 입력.", [
+      mapStatus,
+      el("div", { class: "design-steps-shell" }, zoomable(mapSvg, OFFSET_DESIGN_VRP_MAP_V0_1.canvas.width, OFFSET_DESIGN_VRP_MAP_V0_1.canvas.height)),
+      grid(readout("mapTarget", "목표 Offset Angle이 되는 VRP / Angle Off", "지도의 빨간 점 · VRP NM: Angle Off")),
       regionStatus,
       el("div", { class: "design-steps-shell" }, zoomable(topSvg, POPUP_DESIGN_TOPVIEW_V0_1.canvas.width, POPUP_DESIGN_TOPVIEW_V0_1.canvas.height, { lead: [ipBottomButton] })),
       grid(readout("regionAo", "가능 Angle Off", "VALID · WARNING (VALID만)"), readout("regionAtk", "가능 Attack Heading", "VALID · WARNING"), readout("regionAlt", "필요 Roll-in Altitude (ft)", "고도 변경 허용일 때")),
       regionNote,
-      grid(tuneField("Angle Off (deg)", pickAo, "가능 범위 안에서 고르기"), readout("pickOa", "Offset Angle (deg)", "현재 계산값"),
+      grid(el("label", { class: "field" }, el("span", { class: "lock-title" }, el("span", { text: "Angle Off (deg)" }), angleOffLock), pickAo, el("span", { class: "unit", text: "가능 범위 안에서 고르기 · LOCK = 페이지 Angle Off LOCK" })), readout("pickOa", "Offset Angle (deg)", "현재 계산값"),
         readout("approach", "Approach Range (NM)", "Turn End → Roll-in Start"), readout("approachSec", "Approach Time (sec)", "Turn End → Roll-in Start")),
     ]),
     card(4, "미세튜닝", "G와 속도·고도로 다듬습니다. Fine tune: Approach Time, Approach Range, Roll-in Alt 중 하나를 목표로 고치고 누르면, BE가 BDP 쪽(Roll-in Altitude 또는 Tracking Time) 또는 Offset Angle(3단계 LOCK)을 바꿔 맞춥니다. BDP 쪽을 바꾸면 MAP과 Roll-in Point도 같이 바뀝니다.", [
@@ -355,6 +367,7 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     out.textContent = text;
     if (level) out.dataset.level = level; else delete out.dataset.level;
   };
+  const mirrorPress = (fn) => run(async () => { const answered = nextAnswer(); fn(); await settled(answered); });
   function syncLinks() {
     for (const input of linkInputs) {
       if (document.activeElement === input) continue;
@@ -364,6 +377,9 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
       input.placeholder = main.placeholder ?? "";
       input.readOnly = main.readOnly;
       input.toggleAttribute("data-lock-solved", main.hasAttribute("data-lock-solved"));
+      // Every other control of the page field (LINK, TIME / ANGLE, unit select) mirrored, same state both sides.
+      mirrorFieldControls(input, main, { covered: (b) => linkLocks.some(([, name]) => mainLock(name) === b), press: mirrorPress });
+      syncFieldControls(input, { busy });
     }
   }
   function render() {
@@ -402,6 +418,7 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     if (document.activeElement !== pickAo && !pickEdited) pickAo.value = Number.isFinite(ar?.result?.geometry?.angleOffDeg) ? ar.result.geometry.angleOffDeg.toFixed(1) : "";
     setOut("pickOa", Number.isFinite(ar?.result?.geometry?.offsetAngleDeg) ? one(Math.abs(ar.result.geometry.offsetAngleDeg)) : "-");
     renderRegionStep(ar);
+    if (vrpMap) renderMapStep(ar);
     syncTune(ar);
     renderFollower();
     for (const n of [1, 2, 3]) {
@@ -717,19 +734,110 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     await setField("angleOffDeg", ao.toFixed(1));
     pickEdited = false;
   }
+  // ---- step 3: the VRP × Angle Off map ----
+  const MAP_AO = Object.freeze(Array.from({ length: 17 }, (_, i) => 10 + i * 10));
+  let vrpMap = null; // { signature, vrps, cells, done, total, ms }
+  let mapJob = 0;
+  let mapTimer = null;
+  const mapSignatureOf = (base) => {
+    const b = structuredClone(base);
+    for (const key of ["angleOffDeg", "attackHeadingDeg", "offsetAngleDeg", "actionRangeNm", "approachRangeNm", "vrpRangeNm", "ipRangeNm"]) delete b.values[key];
+    delete b.locks; delete b.state.driver;
+    return JSON.stringify(b, round);
+  };
+  const mapVrps = (cur) => {
+    const c = Math.round(Number.isFinite(cur) ? cur : 7);
+    const from = Math.max(2, c - 5);
+    return Array.from({ length: 11 }, (_, i) => from + i);
+  };
+  function scheduleMap() {
+    if (!active || !mapPool || isVip()) return;
+    let base;
+    try { base = regionBaseline(answer); } catch { return; }
+    const signature = mapSignatureOf(base);
+    const vrps = mapVrps(Number(base.values.vrpRangeNm));
+    // A VRP outside the drawn rows redraws the rows; otherwise the same map stays.
+    if (vrpMap?.signature === signature && vrpMap.vrps.includes(Math.round(Number(base.values.vrpRangeNm)))) return;
+    clearTimeout(mapTimer);
+    mapTimer = setTimeout(() => runMap(base, vrps, signature), 700);
+  }
+  async function runMap(base, vrps, signature) {
+    const id = ++mapJob;
+    mapPool.clear();
+    const started = performance.now();
+    const cells = [];
+    vrpMap = { signature, vrps, cells, done: 0, total: vrps.length * MAP_AO.length, ms: 0 };
+    renderMapStep(answer?.output?.aircraftResults?.[1]);
+    let queued = false;
+    // Coarse first (every 15° and every other VRP), so the map shows early.
+    const jobs = vrps.flatMap((v, vi) => MAP_AO.map((ao) => [v, ao, (ao % 30 === 10 && vi % 2 === 0) ? 0 : 1])).sort((a, b) => a[2] - b[2]);
+    await Promise.all(jobs.map(([v, ao]) => {
+      const b = structuredClone(base);
+      b.values.vrpRangeNm = v;
+      return mapPool.point(b, { angleOffDeg: ao }, "region").then((cell) => {
+        if (id !== mapJob || !cell) return;
+        cells.push({ ...cell, vrpRangeNm: v, angleOffDeg: ao });
+        vrpMap.done += 1;
+        if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; if (id === mapJob) renderMapStep(answer?.output?.aircraftResults?.[1]); }); }
+      });
+    }));
+    if (id !== mapJob) return;
+    vrpMap.ms = performance.now() - started;
+    renderMapStep(answer?.output?.aircraftResults?.[1]);
+  }
+  function renderMapStep(ar) {
+    if (isVip()) { mapStatus.textContent = "VIP 모드: 지도는 VRP 모드에서 그립니다."; mapSvg.replaceChildren(); setOut("mapTarget", "-"); return; }
+    if (!vrpMap) { mapStatus.textContent = mapPool ? "VRP × Angle Off 지도: 계산 대기" : "-"; return; }
+    const g = ar?.result?.geometry;
+    const out = renderVrpMap(mapSvg, vrpMap.cells, {
+      vrps: vrpMap.vrps, angleOffs: MAP_AO, targetOffsetAngleDeg: wantOa(),
+      current: g ? { vrpRangeNm: Number(ar?.result?.resolved?.vrpRangeNm), angleOffDeg: g.angleOffDeg } : null,
+      onPick: busy ? null : pickCell,
+    });
+    mapSvg.__viewport?.refresh();
+    const done = vrpMap.done >= vrpMap.total && vrpMap.ms > 0;
+    mapStatus.textContent = done
+      ? `Roll-in ${ft(Number(regionBaseOf()?.values?.rollInAltitudeMslFt))} ft 고정 · VRP ${vrpMap.vrps[0]}–${vrpMap.vrps.at(-1)} NM × Angle Off ${MAP_AO[0]}–${MAP_AO.at(-1)}° · ${vrpMap.total}칸 ${(vrpMap.ms / 1000).toFixed(1)} s · 칸에 마우스를 올리면 값, 누르면 적용`
+      : `VRP × Angle Off 지도 계산 중 ${vrpMap.done} / ${vrpMap.total}`;
+    const byVrp = new Map();
+    for (const c of out?.crossings ?? []) byVrp.set(c.vrpRangeNm, [...(byVrp.get(c.vrpRangeNm) ?? []), c.angleOffDeg]);
+    setOut("mapTarget", !(wantOa() > 0) ? "2단계에 Offset Angle을 넣으세요" : byVrp.size
+      ? [...byVrp].sort((a, b) => a[0] - b[0]).map(([v, aos]) => `${v}: ${aos.map((a) => `${Math.round(a)}°`).join("/")}`).join(" · ")
+      : done ? `이 범위에 Offset Angle ${wantOa()}°가 되는 곳이 없습니다` : "-");
+  }
+  const regionBaseOf = () => { try { return regionBaseline(answer); } catch { return null; } };
+  // A cell pressed: its VRP and Angle Off go to the page (VRP LOCK, Angle Off LOCK; the Offset Angle is solved), and
+  // its Offset Angle becomes the step-2 target so the Top View below follows.
+  function pickCell(cell) {
+    run(async () => {
+      targetOa.value = Math.abs(cell.offsetAngleDeg).toFixed(1);
+      targetEdited = true;
+      await setField("vrpRangeNm", String(cell.vrpRangeNm));
+      await press(mainLock("vrpReference"), true);
+      await press(mainLock("attackHeadingDeg"), false);
+      await releaseSolved();
+      await press(mainLock("angleOffDeg"), true);
+      await setField("angleOffDeg", String(cell.angleOffDeg));
+      pickEdited = false;
+      scheduleRegion(0);
+    });
+  }
+  targetOa.addEventListener("input", () => renderMapStep(answer?.output?.aircraftResults?.[1]));
+
   offsetUi.onFlightAnswer?.((next) => {
     answer = next;
     const done = waiting;
     waiting = [];
     render();
     scheduleRegion();
+    scheduleMap();
     done.forEach((resolve) => resolve());
   });
   return {
     root,
-    activate() { active = true; answer = offsetUi.flightAnswer?.() ?? answer; render(); scheduleRegion(); },
+    activate() { active = true; answer = offsetUi.flightAnswer?.() ?? answer; render(); scheduleRegion(); scheduleMap(); },
     deactivate() { active = false; },
     // Read-only hook for the browser checks.
-    state: () => ({ busy, confirmed: { 1: confirmed[1](), 2: confirmed[2](), 3: confirmed[3]() }, region: region && { done: region.done, total: region.total, ms: region.ms, rollInFree: region.rollInFree, offsetAngleDeg: region.offsetAngleDeg, summary: regionSummary(drawnPoints()), solutions: region.solutions.map((p) => p.angleOffDeg), fitting: drawnPoints().filter((p) => p.level !== "bad").map((p) => [p.angleOffDeg, p.rollInAltitudeMslFt]) } }),
+    state: () => ({ busy, map: vrpMap && { done: vrpMap.done, total: vrpMap.total, ms: vrpMap.ms, vrps: vrpMap.vrps, flying: vrpMap.cells.filter((c) => c.level !== "bad").length }, confirmed: { 1: confirmed[1](), 2: confirmed[2](), 3: confirmed[3]() }, region: region && { done: region.done, total: region.total, ms: region.ms, rollInFree: region.rollInFree, offsetAngleDeg: region.offsetAngleDeg, summary: regionSummary(drawnPoints()), solutions: region.solutions.map((p) => p.angleOffDeg), fitting: drawnPoints().filter((p) => p.level !== "bad").map((p) => [p.angleOffDeg, p.rollInAltitudeMslFt]) } }),
   };
 }
