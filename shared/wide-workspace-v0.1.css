@@ -216,6 +216,10 @@ body.bombing-wide { --wide-input-width:400px; --wide-review-width:420px; }
 }
 @media(min-width:761px) and (max-width:1099px) {
   .bombing-wide .wide-workspace { grid-template-columns:270px minmax(0,1fr); }
+  /* Owner 2026-11-23 ("빈 공간"): the sticky input pane is drawn at zoom 0.75, which also scales its 100dvh height
+     and 12px offset, so it stopped at 75 % of the screen and left a blank band under it. Divide by the scale so
+     the pane is as tall as the screen again (its own scroll still shows the rest of the tab). */
+  .bombing-wide .wide-inputs { top:calc(12px / .75); max-height:calc((100dvh - 24px) / .75); }
 }
 
 /* Input groups fold (owner 2026-10-12): the group heading is the summary, "＋/−" at its right. */
