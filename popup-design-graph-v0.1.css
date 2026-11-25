@@ -67,3 +67,8 @@
 .design-chart-key .key-derivative{height:0;border-top:2px solid #4f8fd6}
 .design-chart-key [data-design-derivative]{min-height:26px;padding:2px 9px;font-size:12px;margin-left:4px}
 .design-topview-svg text{paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}
+/* Offset Design steps 1 / 3 (2026-11-25): sub-headings, the 확정 hint, the target buttons under the VRP map. */
+.design-step-sub{margin:6px 0 0;font-size:13px;font-weight:800;color:var(--text)}
+.design-confirm-hint{align-self:center;font-size:12px;color:var(--muted, #8a8f98)}
+.design-map-targets{display:flex;flex-wrap:wrap;gap:6px}
+.design-map-target{min-height:30px;padding:4px 10px;font-size:13px}

@@ -4,6 +4,7 @@ import { OFFSET_DEPENDENCY_SWEEP_V0_1, sweepPoint } from "./offset-dependency-sw
 import { heldAltitudeSolutions, regionTask } from "./offset-design-region-v0.1.mjs?v=0.2.2";
 import { fineTune } from "./offset-fine-tune-v0.1.mjs?v=0.1.0";
 import { solveFollowerReleaseTime } from "./offset-follower-time-v0.1.mjs?v=0.1.4";
+import { followerRegionPoint } from "./offset-follower-region-v0.1.mjs?v=0.1.0";
 
 // 0.1.1 (owner 2026-11-23, the planning steps): { kind: "region", base, assignments: { angleOffDeg } } answers one
 // step-2 region point (offset-design-region-v0.1); { kind: "fineTune", base, assignments: request } one step-3 Fine tune
@@ -16,7 +17,9 @@ import { solveFollowerReleaseTime } from "./offset-follower-time-v0.1.mjs?v=0.1.
 // 0.1.8 (owner 2026-11-24, the 2 s tracking band): "region" answers regionTask (the point and, Roll-in Altitude held,
 // its 2 s point).
 // 0.1.9 (owner 2026-11-24): offset-follower-time 0.1.4 (#2 Tracking Time / Dive knobs).
-export const OFFSET_DEPENDENCY_WORKER_V0_1 = Object.freeze({ id: "offset-dependency-worker-v0.1", version: "0.1.9", sweep: OFFSET_DEPENDENCY_SWEEP_V0_1.version });
+// 0.1.10 (owner 2026-11-25, step 5 #2 Top View): "followerRegion" { number, angleOffDeg } with the whole Flight as base
+// answers one follower region point (offset-follower-region-v0.1).
+export const OFFSET_DEPENDENCY_WORKER_V0_1 = Object.freeze({ id: "offset-dependency-worker-v0.1", version: "0.1.10", sweep: OFFSET_DEPENDENCY_SWEEP_V0_1.version });
 
 if (typeof self !== "undefined" && typeof self.postMessage === "function" && typeof window === "undefined") {
   self.onmessage = (event) => {
@@ -27,6 +30,7 @@ if (typeof self !== "undefined" && typeof self.postMessage === "function" && typ
         : kind === "regionHeld" ? heldAltitudeSolutions(base, assignments.points, assignments.offsetAngleDeg)
         : kind === "fineTune" ? fineTune(base, assignments)
           : kind === "followerTime" ? solveFollowerReleaseTime(base, assignments.number, assignments.request)
+          : kind === "followerRegion" ? followerRegionPoint(base, assignments.number, assignments.angleOffDeg)
             : sweepPoint(base, assignments);
     } catch (error) { point = { status: "FAILED", messages: [error.message], y: {} }; }
     self.postMessage({ id, point });

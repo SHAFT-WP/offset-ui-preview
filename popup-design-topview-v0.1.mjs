@@ -25,7 +25,7 @@ import { appendNorthMark } from "./common/diagram/svg-north-mark-v0.1.mjs";
 // Angle Off flown with the Tracking Time at 2 s (the region modules' regionTask). Between each Roll-in Point and its
 // 2 s point a light yellow band is drawn (where the point itself is not drawn, the 2 s line alone), the 2 s points
 // joined by a light line; a legend row says so. The point tooltip gives its Tracking Time.
-export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.11", canvas: Object.freeze({ width: 640, height: 600 }) });
+export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.12", canvas: Object.freeze({ width: 640, height: 600 }) });
 const POPUP_LABELS = Object.freeze({
   ok: "App-Pop Time ≥ 2초", warn: "App-Pop Time 0–2초", okDot: "≥ 2초 점", warnDot: "0–2초 점",
   footer: "R/L = Roll-in 방향 · App-Pop = Approach-Pop",
@@ -49,7 +49,7 @@ const SIDE_TEXT = Object.freeze({ RIGHT: "R", LEFT: "L" });
 
 // points: region points (both sides); current: { geometry, popPoint, approachRangeNm, attackHeadingDeg } of the answer;
 // summaries: { RIGHT, LEFT } from regionSummary per side.
-export function renderRegionTopView(svg, { points: worldPoints = [], current: worldCurrent = null, summaries = {}, upHeadingDeg = 0, labels: labelsIn = null, maxJoinDeg = Infinity, marks: worldMarks = [] } = {}) {
+export function renderRegionTopView(svg, { points: worldPoints = [], current: worldCurrent = null, summaries = {}, upHeadingDeg = 0, labels: labelsIn = null, maxJoinDeg = Infinity, marks: worldMarks = [], ghosts: worldGhosts = [], aircraftLabel = "#1" } = {}) {
   const labels = { ...POPUP_LABELS, ...(labelsIn ?? {}) };
   svg.replaceChildren();
   // The view turned about the Target (the Offset Top View's rotation): `upHeadingDeg` is drawn up.
@@ -95,8 +95,20 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   // for every point so the arc lies on the circle; each point's own MAP (it changes a little with the Angle Off) is in its
   // tooltip.
   const attackMark = (p) => { const r = finite(mapNm) ? mapNm : Math.hypot(p.rollIn.x, p.rollIn.y); return { x: r * Math.sin(p.attackHeadingDeg * DEG), y: r * Math.cos(p.attackHeadingDeg * DEG) }; };
+  // 0.1.12 (Offset step 5, owner 2026-11-25 "2번기 ... 탑뷰에서 1번기의 영역도"): ghosts = other aircraft's regions,
+  // drawn under this one in grey: [{ label, points (region points), geometry (its flown answer) }], each on its own
+  // Roll-in side; included in the extent.
+  const ghosts = (worldGhosts ?? []).map((gh) => {
+    const side = gh.geometry?.direction?.rollDirection ?? null;
+    const gg = gh.geometry;
+    return {
+      label: gh.label ?? "",
+      points: (gh.points ?? []).filter((p) => p && p.level !== "bad" && pt(p.rollIn) && (!side || p.rollDirection === side)).map((p) => ({ ...p, rollIn: turn(p.rollIn), attackHeadingDeg: turnHdg(p.attackHeadingDeg) })).sort((a, b) => a.angleOffDeg - b.angleOffDeg),
+      geometry: gg ? { points: turnPoints(gg.points), offsetTurnPath: (gg.offsetTurnPath ?? []).map(turn), rollInTrajectorySamples: (gg.rollInTrajectorySamples ?? []).map(turn) } : null,
+    };
+  });
   // Extent: the MAP circle, the Roll-in Points, the VRP and the flown path.
-  const xy = [{ x: 0, y: 0 }, ...withRollIn.map((p) => p.rollIn), ...withRollIn.map(attackMark), ...points.filter(minOk).map((p) => p.min.rollIn)];
+  const xy = [...ghosts.flatMap((gh) => [...gh.points.map((p) => p.rollIn), ...(pt(gh.geometry?.points?.vrp) ? [gh.geometry.points.vrp] : []), ...(gh.geometry?.offsetTurnPath ?? []).filter(pt)]), { x: 0, y: 0 }, ...withRollIn.map((p) => p.rollIn), ...withRollIn.map(attackMark), ...points.filter(minOk).map((p) => p.min.rollIn)];
   if (finite(mapNm)) xy.push({ x: mapNm * 1.3, y: mapNm * 1.3 }, { x: -mapNm * 1.3, y: -mapNm * 1.3 });
   if (pt(g?.points?.vrp)) xy.push(g.points.vrp);
   for (const p of g?.offsetTurnPath ?? []) if (pt(p)) xy.push(p);
@@ -112,9 +124,36 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   const P = (p) => ({ x: X(p.x), y: Y(p.y) });
   const d = (pts) => pts.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join("");
 
-  svg.append(svgEl("text", { x: 10, y: 20, "font-size": 13, "font-weight": 700, fill: "#2e2d2a" }, `Top View · 가능 영역 (#1, ${shownSide === "RIGHT" ? "오른쪽(R) Roll-in" : shownSide === "LEFT" ? "왼쪽(L) Roll-in" : "양쪽 Roll-in"})`));
+  svg.append(svgEl("text", { x: 10, y: 20, "font-size": 13, "font-weight": 700, fill: "#2e2d2a" }, `Top View · 가능 영역 (${aircraftLabel}, ${shownSide === "RIGHT" ? "오른쪽(R) Roll-in" : shownSide === "LEFT" ? "왼쪽(L) Roll-in" : "양쪽 Roll-in"})`));
   appendNorthMark(svg, { cx: W - 26, cy: 34, size: 14, rotationDeg: -up });
 
+  // Ghost regions (grey, under everything): Roll-in arc, Attack Heading arc, the flown path, a label.
+  const GHOST = "#8a8f98";
+  const ghostLabels = [];
+  for (const gh of ghosts) {
+    const pts = gh.points;
+    for (let i = 1; i < pts.length; i += 1) {
+      const a = pts[i - 1], b = pts[i];
+      if (b.angleOffDeg - a.angleOffDeg > maxJoinDeg) continue;
+      svg.append(svgEl("line", { x1: X(a.rollIn.x), y1: Y(a.rollIn.y), x2: X(b.rollIn.x), y2: Y(b.rollIn.y), stroke: GHOST, "stroke-width": 6, "stroke-linecap": "round", opacity: 0.45, "data-ghost-arc": "rollIn" }));
+      const pa = attackMark(a), pb = attackMark(b);
+      svg.append(svgEl("line", { x1: X(pa.x), y1: Y(pa.y), x2: X(pb.x), y2: Y(pb.y), stroke: GHOST, "stroke-width": 6, "stroke-linecap": "round", opacity: 0.3, "data-ghost-arc": "attack" }));
+    }
+    for (const p of pts) {
+      const dot = svgEl("circle", { cx: X(p.rollIn.x), cy: Y(p.rollIn.y), r: 2.5, fill: GHOST, opacity: 0.7, "data-ghost-point": `${gh.label}${p.angleOffDeg}` });
+      dot.append(svgEl("title", {}, `${gh.label} Roll-in · Angle Off ${Math.round(p.angleOffDeg)}° · Attack Heading ${hdg(p.attackHeadingDeg + up)}${finite(p.offsetAngleDeg) ? ` · Offset Angle ${Math.abs(p.offsetAngleDeg).toFixed(1)}°` : ""}`));
+      svg.append(dot);
+    }
+    const gp = gh.geometry?.points;
+    if (gp) {
+      const path = [gp.vrp, ...(gh.geometry.offsetTurnPath ?? []), gp.rollStart, ...(gh.geometry.rollInTrajectorySamples ?? []), gp.trackPoint].filter(pt);
+      if (path.length >= 2) svg.append(svgEl("path", { d: d(path), fill: "none", stroke: GHOST, "stroke-width": 2, "stroke-dasharray": "5 4", "data-ghost-path": gh.label }));
+      // At the start of its path (its VRP), clear of this aircraft's labels around the Roll-in.
+      const at = pt(gp.vrp) ? gp.vrp : pt(gp.rollStart) ? gp.rollStart : pts[0]?.rollIn;
+      // Written last (over the arcs), moved clear of the other labels as an end tag.
+      if (pt(at)) ghostLabels.push(svgEl("text", { x: X(at.x) - 10, y: Y(at.y) - 8, "text-anchor": "end", "font-size": 12, "font-weight": 800, fill: "#5f5e5a", "data-ghost-label": gh.label, "data-region-end": "ghost" }, `${gh.label} (회색)`));
+    }
+  }
   // MAP circle.
   if (finite(mapNm)) {
     svg.append(svgEl("circle", { cx: X(0), cy: Y(0), r: mapNm * s, fill: "none", stroke: C.attack, "stroke-width": 1.4, "stroke-dasharray": "9 7", "data-top": "map" }));
@@ -309,6 +348,7 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
     svg.append(svgEl("text", { x: 35, y: ly2, "font-size": 10.5, fill: "#2e2d2a" }, "연한 띠 = Tracking Time 2 s까지의 Roll-in Point · 연한 선 = 2 s · Track 2 s 미만 점은 제외"));
   }
   svg.append(svgEl("text", { x: W - 8, y: noteY, "text-anchor": "end", "font-size": 10.5, fill: "#5f5e5a" }, labels.footer));
+  svg.append(...ghostLabels);
   untangleLabels(svg);
 }
 

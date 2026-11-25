@@ -5,7 +5,7 @@
 // cells hatched, the wanted Offset Angle as a line through the cells where it is crossed, and the page's own VRP /
 // Angle Off as a ring. Reading it: pick a VRP row, follow it to the line, read the Angle Off; or pick an Offset Angle
 // (the colour) and see the VRP / Angle Off pairs that give it. Pure SVG drawing: no calculation, no storage.
-export const OFFSET_DESIGN_VRP_MAP_V0_1 = Object.freeze({ id: "offset-design-vrp-map-v0.1", version: "0.1.0", canvas: Object.freeze({ width: 640, height: 380 }) });
+export const OFFSET_DESIGN_VRP_MAP_V0_1 = Object.freeze({ id: "offset-design-vrp-map-v0.1", version: "0.1.1", canvas: Object.freeze({ width: 640, height: 380 }) });
 
 const NS = "http://www.w3.org/2000/svg";
 const svgEl = (tag, attrs = {}, text = null) => {
@@ -114,32 +114,60 @@ export function renderVrpMap(svg, cells, { vrps = [], angleOffs = [], targetOffs
       svg.append(svgEl("circle", { cx: Xc(current.angleOffDeg), cy: Y(nearest), r: 7, fill: "none", stroke: ink, "stroke-width": 2, "data-vrp-current": "" }));
     }
   }
+  // 0.1.1 (owner 2026-11-25, the map zoomed on a phone hid the Angle Off axis and the legend): the axes and the legend
+  // stay on screen when zoomed (pinVrpMap). Bands in the surface colour behind them, then the labels:
+  //   data-pin="screen" fixed to the visible frame at its 100% size; "x" follows the columns, kept at the bottom;
+  //   "y" follows the rows, kept at the left.
+  const surface = dark ? "#1b1b19" : "#ffffff";
+  const screen = svgEl("g", { "data-pin": "screen" });
+  screen.append(svgEl("rect", { x: 0, y: T + ph, width: W, height: H - T - ph, fill: surface }), svgEl("rect", { x: 0, y: 0, width: L, height: H, fill: surface }));
+  svg.append(screen);
+  const pinned = (mode, attrs, text) => svgEl("text", { ...attrs, "data-pin": mode }, text);
   // Axes: Angle Off below (every 30°), VRP Range left (every row).
-  for (const a of angleOffs) if (a % 30 === 0) svg.append(svgEl("text", { x: X(a), y: T + ph + 14, "text-anchor": "middle", "font-size": 10.5, fill: muted }, `${a}°`));
-  svg.append(svgEl("text", { x: L + pw / 2, y: T + ph + 30, "text-anchor": "middle", "font-size": 11, fill: muted }, "Angle Off"));
-  for (const v of vrps) svg.append(svgEl("text", { x: L - 6, y: Y(v) + 4, "text-anchor": "end", "font-size": 10.5, fill: muted }, String(v)));
-  svg.append(svgEl("text", { x: 12, y: T + ph / 2, "text-anchor": "middle", "font-size": 11, fill: muted, transform: `rotate(-90 12 ${T + ph / 2})` }, "VRP Range (NM)"));
+  for (const a of angleOffs) if (a % 30 === 0) svg.append(pinned("x", { x: X(a), y: T + ph + 14, "text-anchor": "middle", "font-size": 10.5, fill: muted }, `${a}°`));
+  for (const v of vrps) svg.append(pinned("y", { x: L - 6, y: Y(v) + 4, "text-anchor": "end", "font-size": 10.5, fill: muted }, String(v)));
+  const legend = svgEl("g", { "data-pin": "screen" });
+  svg.append(legend);
+  legend.append(svgEl("text", { x: L + pw / 2, y: T + ph + 30, "text-anchor": "middle", "font-size": 11, fill: muted }, "Angle Off"));
+  legend.append(svgEl("text", { x: 12, y: T + ph / 2, "text-anchor": "middle", "font-size": 11, fill: muted, transform: `rotate(-90 12 ${T + ph / 2})` }, "VRP Range (NM)"));
   // Legend: the ramp with its ends, the line, the ring, WARNING, empty.
   const ly = H - 22;
   const steps = 24, lw = 150;
-  for (let i = 0; i < steps; i += 1) svg.append(svgEl("rect", { x: L + (i * lw) / steps, y: ly - 9, width: lw / steps + 0.5, height: 10, fill: rampColor(i / (steps - 1), dark) }));
-  svg.append(svgEl("text", { x: L, y: ly + 14, "font-size": 10, fill: muted }, oas.length ? `${lo.toFixed(0)}°` : "-"));
-  svg.append(svgEl("text", { x: L + lw, y: ly + 14, "text-anchor": "end", "font-size": 10, fill: muted }, oas.length ? `${hi.toFixed(0)}°` : "-"));
-  svg.append(svgEl("text", { x: L + lw / 2, y: ly + 14, "text-anchor": "middle", "font-size": 10, fill: muted }, "Offset Angle"));
+  for (let i = 0; i < steps; i += 1) legend.append(svgEl("rect", { x: L + (i * lw) / steps, y: ly - 9, width: lw / steps + 0.5, height: 10, fill: rampColor(i / (steps - 1), dark) }));
+  legend.append(svgEl("text", { x: L, y: ly + 14, "font-size": 10, fill: muted }, oas.length ? `${lo.toFixed(0)}°` : "-"));
+  legend.append(svgEl("text", { x: L + lw, y: ly + 14, "text-anchor": "end", "font-size": 10, fill: muted }, oas.length ? `${hi.toFixed(0)}°` : "-"));
+  legend.append(svgEl("text", { x: L + lw / 2, y: ly + 14, "text-anchor": "middle", "font-size": 10, fill: muted }, "Offset Angle"));
   let lx = L + lw + 18;
   if (want > 0) {
-    svg.append(svgEl("circle", { cx: lx + 4, cy: ly - 4, r: 4, fill: accent }));
-    svg.append(svgEl("text", { x: lx + 12, y: ly, "font-size": 10.5, fill: ink }, `목표 ${want.toFixed(1)}°`));
+    legend.append(svgEl("circle", { cx: lx + 4, cy: ly - 4, r: 4, fill: accent }));
+    legend.append(svgEl("text", { x: lx + 12, y: ly, "font-size": 10.5, fill: ink }, `목표 ${want.toFixed(1)}°`));
     lx += 82;
   }
-  svg.append(svgEl("circle", { cx: lx + 6, cy: ly - 4, r: 6, fill: "none", stroke: ink, "stroke-width": 2 }));
-  svg.append(svgEl("text", { x: lx + 16, y: ly, "font-size": 10.5, fill: ink }, "현재"));
+  legend.append(svgEl("circle", { cx: lx + 6, cy: ly - 4, r: 6, fill: "none", stroke: ink, "stroke-width": 2 }));
+  legend.append(svgEl("text", { x: lx + 16, y: ly, "font-size": 10.5, fill: ink }, "현재"));
   lx += 52;
-  svg.append(svgEl("rect", { x: lx, y: ly - 9, width: 12, height: 10, fill: rampColor(0.6, dark) }));
-  svg.append(svgEl("rect", { x: lx, y: ly - 9, width: 12, height: 10, fill: "url(#vrp-map-hatch)" }));
-  svg.append(svgEl("text", { x: lx + 16, y: ly, "font-size": 10.5, fill: ink }, "WARNING"));
+  legend.append(svgEl("rect", { x: lx, y: ly - 9, width: 12, height: 10, fill: rampColor(0.6, dark) }));
+  legend.append(svgEl("rect", { x: lx, y: ly - 9, width: 12, height: 10, fill: "url(#vrp-map-hatch)" }));
+  legend.append(svgEl("text", { x: lx + 16, y: ly, "font-size": 10.5, fill: ink }, "WARNING"));
   lx += 74;
-  svg.append(svgEl("rect", { x: lx, y: ly - 9, width: 12, height: 10, fill: "none", stroke: grid }));
-  svg.append(svgEl("text", { x: lx + 16, y: ly, "font-size": 10.5, fill: ink }, "빈 칸 = 날 수 없음"));
+  legend.append(svgEl("rect", { x: lx, y: ly - 9, width: 12, height: 10, fill: "none", stroke: grid }));
+  legend.append(svgEl("text", { x: lx + 16, y: ly, "font-size": 10.5, fill: ink }, "빈 칸 = 날 수 없음"));
   return { crossings, range: oas.length ? [lo, hi] : null };
+}
+
+// Keeps the pinned axes and legend on screen for the visible box { x, y, w, h } (call on every zoom / pan and after a
+// render). At 100% every transform is the identity.
+export function pinVrpMap(svg, box) {
+  const { width: W, height: H } = OFFSET_DESIGN_VRP_MAP_V0_1.canvas;
+  if (!box || !(box.w > 0)) return;
+  const k = box.w / W; // 1 / zoom
+  for (const node of svg.querySelectorAll("[data-pin]")) {
+    const mode = node.getAttribute("data-pin");
+    if (k === 1 && box.x === 0 && box.y === 0) { node.removeAttribute("transform"); continue; }
+    if (mode === "screen") { node.setAttribute("transform", `translate(${box.x} ${box.y}) scale(${k})`); continue; }
+    const x0 = Number(node.getAttribute("x")), y0 = Number(node.getAttribute("y"));
+    const tx = mode === "y" ? box.x + x0 * k : x0;
+    const ty = mode === "x" ? box.y + box.h - (H - y0) * k : y0;
+    node.setAttribute("transform", `translate(${tx} ${ty}) scale(${k}) translate(${-x0} ${-y0})`);
+  }
 }
