@@ -11,17 +11,17 @@
 import { mirrorFieldControls, syncFieldControls } from "./shared/design-field-mirror-v0.1.mjs?v=0.1.1";
 import { ANGLE_OFF_GRID, coarseFirst, regionBaseline, regionSummary } from "./AG/bombing/offset-bombing/offset-design-region-v0.1.mjs?v=0.2.2";
 import { fineTuneBaseline } from "./AG/bombing/offset-bombing/offset-fine-tune-v0.1.mjs?v=0.1.0";
-import { followerTimeBaseline, releaseFromPredecessorImpactSec } from "./AG/bombing/offset-bombing/offset-follower-time-v0.1.mjs?v=0.1.4";
+import { followerTimeBaseline, releaseFromPredecessorImpactSec } from "./AG/bombing/offset-bombing/offset-follower-time-v0.1.mjs?v=0.1.5";
 import { attackPairing, pumpingPath } from "./AG/bombing/offset-bombing/offset-follower-pumping-v0.1.mjs?v=0.1.0";
 import { OFFSET_DESIGN_VRP_MAP_V0_1, pinVrpMap, renderVrpMap } from "./offset-design-vrp-map-v0.1.mjs?v=0.1.1";
-import { POPUP_DESIGN_TOPVIEW_V0_1, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.12";
+import { POPUP_DESIGN_TOPVIEW_V0_1, pinTopView, renderRegionTopView } from "./popup-design-topview-v0.1.mjs?v=0.1.13";
 import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1.5";
 
 // 0.1.1 (owner 2026-11-23, "2번기 셋팅은 좀 다르다", S1): a #2 step after the three — the Formation, the attack side
 // (and whether a cross-over is needed; the cross-over path itself is S2), the release time relative to #1's impact as
 // a target (− = before the impact) with #1's Bomb TOF beside it, #2's Offset fields with their LOCKs (copies of the #2
 // slot's fields), and "시간 맞추기" (offset-follower-time-v0.1: #2's Angle Off or its Roll-in position).
-export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.12" });
+export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.13" });
 // 0.1.11 (owner 2026-11-24): #2 시간 맞추기 — "3초까지는 트래킹 타임을 먼저 줄이고 그다음에는 다이브를 바꾸되 유저가 입력을
 // 새로 넣으면 그 기준으로 다시 계산", "dive는 #1처럼, 단 전체 다 50초과의 다이브 각도는 사용하지 않는다", "2초까지 줄여",
 // "roll in 고도 변경 체크는 피치 값을 주고 (Roll-in고도 변경 피치, fpm) 그 위에 lock 버튼 … 디폴트는 lock". The order is
@@ -247,6 +247,7 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
   const timeTarget = el("input", { type: "text", inputmode: "decimal", "aria-label": "#1 Impact 기준 #2 Release (s)", "data-design-time-target": "" });
   const timeKnob = el("select", { "aria-label": "시간 맞추는 쪽", "data-design-time-knob": "" },
     el("option", { value: "auto", text: "자동 (아래 순서대로)" }),
+    el("option", { value: "angleOffTime", text: "추천: #2 Angle Off (TIME #1 켜고 Offset 조건 계산)" }),
     el("option", { value: "angleOff", text: "#2 Angle Off" }),
     el("option", { value: "offsetAngle", text: "Roll-in 위치: #2 Offset Angle" }),
     el("option", { value: "actionRange", text: "Roll-in 위치: #2 Action Range" }),
@@ -255,7 +256,9 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     el("option", { value: "trackingTimeMin", text: "#2 Tracking Time (3 → 2 s)" }),
     el("option", { value: "leadAngleOff", text: "해가 없을 때: #1 Angle Off" }),
     el("option", { value: "leadDive", text: "해가 없을 때: #1 Dive Angle (50° 이하)" }),
-    el("option", { value: "rollInAltitude", text: "그래도 없을 때: #2 Roll-in Altitude (LOCK 해제 시)" }));
+    el("option", { value: "rollInAltitude", text: "그래도 없을 때: #2 Roll-in Altitude (LOCK 해제 시)" }),
+    el("option", { value: "formationDistance", text: "마지막: #2 Formation 거리" }),
+    el("option", { value: "formationBearing", text: "마지막: #2 Formation 각도" }));
   // Roll-in 고도 변경 (0.1.11): LOCK (default) = the matcher never changes #2's Roll-in Altitude; released, it may, and
   // the field shows the climb / descent it needs (fpm, constant speed, Approach start → 3 s before the Roll-in).
   const altLock = el("button", { class: "lock-button active", type: "button", "data-design-alt-change-lock": "", "aria-pressed": "true", "aria-label": "Lock Roll-in 고도 변경", text: "LOCKED" });
@@ -280,7 +283,7 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
       followerLink("attackHeadingDeg", "Attack Heading (deg)", "#2", ["attackHeadingLocked"]),
       followerLink("actionRangeNm", "Action Range (NM)", "#2", ["actionRangeLocked", "sameTimeAsLead"]),
       followerLink("approachRangeNm", "Approach Range (NM)", "#2 · Roll-in 위치", ["approachRangeLocked"])),
-    grid(tuneField("목표: #1 Impact 기준 Release (s)", timeTarget, "− = Impact 전"), tuneField("맞추는 쪽", timeKnob, "자동: #2 → Track 3 s → Dive → Track 2 s → #1 → #2 고도"),
+    grid(tuneField("목표: #1 Impact 기준 Release (s)", timeTarget, "− = Impact 전"), tuneField("맞추는 쪽", timeKnob, "자동: TIME #1 + #2 Angle Off → #2 → Track 3 s → Dive → Track 2 s → #1 → #2 고도 → Formation"),
       el("label", { class: "field" }, el("span", { class: "lock-title" }, el("span", { text: "Roll-in 고도 변경 피치 (fpm)" }), altLock), altPitch, el("span", { class: "unit", text: "LOCK = 고도 안 바꿈 · 풀면 #2 고도도 써서 맞춤" }))),
     el("div", { class: "design-graph-actions" }, timeButton),
     timeStatus,
@@ -481,8 +484,9 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
   }
 
   // ---- #2 step ----
-  const AUTO_ORDER = ["angleOff", "offsetAngle", "actionRange", "trackingTime", "followerDive", "trackingTimeMin", "leadAngleOff", "leadDive", "rollInAltitude"];
-  const KNOB_LABEL = { angleOff: "#2 Angle Off", offsetAngle: "#2 Offset Angle", actionRange: "#2 Action Range", trackingTime: "#2 Tracking Time → 3 s", followerDive: "#2 Dive (Track 3 s)", trackingTimeMin: "#2 Tracking Time → 2 s", leadAngleOff: "#1 Angle Off", leadDive: "#1 Dive", rollInAltitude: "#2 Roll-in Altitude" };
+  // 0.1.13 (owner 2026-11-25): TIME #1 with the Angle Off first (recommended), the formation last.
+  const AUTO_ORDER = ["angleOffTime", "angleOff", "offsetAngle", "actionRange", "trackingTime", "followerDive", "trackingTimeMin", "leadAngleOff", "leadDive", "rollInAltitude", "formationDistance", "formationBearing"];
+  const KNOB_LABEL = { angleOffTime: "#2 Angle Off (TIME #1)", formationDistance: "#2 Formation 거리", formationBearing: "#2 Formation 각도", angleOff: "#2 Angle Off", offsetAngle: "#2 Offset Angle", actionRange: "#2 Action Range", trackingTime: "#2 Tracking Time → 3 s", followerDive: "#2 Dive (Track 3 s)", trackingTimeMin: "#2 Tracking Time → 2 s", leadAngleOff: "#1 Angle Off", leadDive: "#1 Dive", rollInAltitude: "#2 Roll-in Altitude" };
   const TRACK_KNOBS = new Set(["trackingTime", "followerDive", "trackingTimeMin"]);
   let altChangeLocked = true;
   altLock.addEventListener("click", (event) => {
@@ -640,6 +644,14 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     } else if (r.knob === "leadDive") {
       await setField("diveAngleDeg", r.value.toFixed(1));
       await press(mainLock("diveAngleDeg"), true);
+    } else if (r.knob === "formationDistance" || r.knob === "formationBearing") {
+      await setFollower(r.key, r.knob === "formationDistance" ? r.value.toFixed(2) : r.value.toFixed(1));
+    } else if (r.knob === "angleOffTime") {
+      // TIME #1 on: the Offset Angle / Action Range follow #1's timing (ANGLE #1 and their LOCKs off), Angle Off LOCKed.
+      for (const k of ["sameAngleAsLead", "offsetAngleLocked", "actionRangeLocked", "approachRangeLocked"]) await lockOff(k);
+      await lockOn("sameTimeAsLead");
+      await lockOn("angleOffLocked");
+      await setFollower("angleOffDeg", r.value.toFixed(1));
     } else if (r.knob === "rollInAltitude") {
       await setFollower("rollInAltitudeMslFt", String(Math.round(r.value)));
       await lockOn("rollInAltitudeLocked");
@@ -678,6 +690,7 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     if (r.knob === "rollInAltitude" && r.pitch && Number.isFinite(r.pitch.verticalFpm)) altPitch.value = `${r.pitch.verticalFpm >= 0 ? "+" : ""}${Math.round(r.pitch.verticalFpm).toLocaleString("en-US")}`;
     const flown = releaseFromPredecessorImpactSec(answer?.output, FOLLOWER);
     const label = {
+      angleOffTime: `TIME #1 + #2 Angle Off ${r.value.toFixed(1)}°`, formationDistance: `#2 Formation 거리 ${r.value.toFixed(2)} NM`, formationBearing: `#2 Formation 각도 ${r.value.toFixed(1)}°`,
       angleOff: `#2 Angle Off ${r.value.toFixed(1)}°`, offsetAngle: `#2 Offset Angle ${r.value.toFixed(1)}°`, actionRange: `#2 Action Range ${r.value.toFixed(2)} NM`,
       leadAngleOff: `#1 Angle Off ${r.value.toFixed(1)}°`, leadDive: `#1 Dive Angle ${r.value.toFixed(1)}°`,
       trackingTime: `#2 Tracking Time 입력 ${baseSnap.trackingTimeSec} s → 적용 ${r.value.toFixed(1)} s (Roll-in 고도 유지, Release 고도 풀림)`,
@@ -825,6 +838,7 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
       current: g ? { geometry: g, popPoint: null, approachRangeNm: ar.result.resolved?.approachRangeNm, attackHeadingDeg: g.attackHeadingDeg } : null,
       upHeadingDeg: topIpBottom ? Number(ar?.result?.resolved?.runInHeadingDeg ?? g?.runInHeadingDeg ?? 0) : 0,
     });
+    topSvg.__onView = (box) => pinTopView(topSvg, box);
     topSvg.__viewport?.refresh();
     if (!followerCard.hidden) renderFollowerRegion(); // #1's region is drawn in grey there
     const fitting = pts.filter((p) => p.level === "ok" || p.level === "warn").sort((a, b) => a.angleOffDeg - b.angleOffDeg);
@@ -1038,6 +1052,7 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
       current: g2 ? { geometry: g2, popPoint: null, approachRangeNm: ar2.result.resolved?.approachRangeNm, attackHeadingDeg: g2.attackHeadingDeg } : null,
       upHeadingDeg: topIpBottom ? Number(ar2?.result?.resolved?.runInHeadingDeg ?? g2?.runInHeadingDeg ?? 0) : 0,
     });
+    followerSvg.__onView = (box) => pinTopView(followerSvg, box);
     followerSvg.__viewport?.refresh();
     ipBottomButton2.setAttribute("aria-pressed", String(topIpBottom));
     ipBottomButton2.classList.toggle("active", topIpBottom);

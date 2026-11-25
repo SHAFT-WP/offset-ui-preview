@@ -25,7 +25,7 @@ import { appendNorthMark } from "./common/diagram/svg-north-mark-v0.1.mjs";
 // Angle Off flown with the Tracking Time at 2 s (the region modules' regionTask). Between each Roll-in Point and its
 // 2 s point a light yellow band is drawn (where the point itself is not drawn, the 2 s line alone), the 2 s points
 // joined by a light line; a legend row says so. The point tooltip gives its Tracking Time.
-export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.12", canvas: Object.freeze({ width: 640, height: 600 }) });
+export const POPUP_DESIGN_TOPVIEW_V0_1 = Object.freeze({ id: "popup-design-topview-v0.1", version: "0.1.13", canvas: Object.freeze({ width: 640, height: 600 }) });
 const POPUP_LABELS = Object.freeze({
   ok: "App-Pop Time ≥ 2초", warn: "App-Pop Time 0–2초", okDot: "≥ 2초 점", warnDot: "0–2초 점",
   footer: "R/L = Roll-in 방향 · App-Pop = Approach-Pop",
@@ -104,6 +104,7 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
     return {
       label: gh.label ?? "",
       points: (gh.points ?? []).filter((p) => p && p.level !== "bad" && pt(p.rollIn) && (!side || p.rollDirection === side)).map((p) => ({ ...p, rollIn: turn(p.rollIn), attackHeadingDeg: turnHdg(p.attackHeadingDeg) })).sort((a, b) => a.angleOffDeg - b.angleOffDeg),
+      attackHeadingDeg: turnHdg(gg?.attackHeadingDeg),
       geometry: gg ? { points: turnPoints(gg.points), offsetTurnPath: (gg.offsetTurnPath ?? []).map(turn), rollInTrajectorySamples: (gg.rollInTrajectorySamples ?? []).map(turn) } : null,
     };
   });
@@ -150,6 +151,14 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
       if (path.length >= 2) svg.append(svgEl("path", { d: d(path), fill: "none", stroke: GHOST, "stroke-width": 2, "stroke-dasharray": "5 4", "data-ghost-path": gh.label }));
       // At the start of its path (its VRP), clear of this aircraft's labels around the Roll-in.
       const at = pt(gp.vrp) ? gp.vrp : pt(gp.rollStart) ? gp.rollStart : pts[0]?.rollIn;
+      // 0.1.13 (owner 2026-11-25, "#1의 어택헤딩도 표현해 주고"): its Attack Heading, a grey arrow through the Target.
+      if (finite(gh.attackHeadingDeg)) {
+        const r = finite(mapNm) ? mapNm : 1;
+        const ux = Math.sin(gh.attackHeadingDeg * DEG), uy = Math.cos(gh.attackHeadingDeg * DEG);
+        const a = { x: -ux * r, y: -uy * r }, b = { x: ux * r * 1.3, y: uy * r * 1.3 };
+        svg.append(svgEl("path", { d: d([a, b]), fill: "none", stroke: GHOST, "stroke-width": 2.5, "stroke-dasharray": "8 5", "marker-end": arrow("ghost-attack", GHOST), "data-ghost-attack": gh.label }));
+        ghostLabels.push(svgEl("text", { x: X(b.x) + 6, y: Y(b.y) + 4, "font-size": 11, "font-weight": 700, fill: "#5f5e5a", "data-region-end": "ghost" }, `${gh.label} Attack ${hdg(gh.attackHeadingDeg + up)}°`));
+      }
       // Written last (over the arcs), moved clear of the other labels as an end tag.
       if (pt(at)) ghostLabels.push(svgEl("text", { x: X(at.x) - 10, y: Y(at.y) - 8, "text-anchor": "end", "font-size": 12, "font-weight": 800, fill: "#5f5e5a", "data-ghost-label": gh.label, "data-region-end": "ghost" }, `${gh.label} (회색)`));
     }
@@ -173,7 +182,7 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
       }
     }
     const dist = withRollIn.map((p) => Math.hypot(p.rollIn.x, p.rollIn.y));
-    svg.append(svgEl("text", { x: 10, y: noteY, "font-size": 10.5, fill: "#5f5e5a" }, `Roll-in Distance (점선) ${Math.min(...dist).toFixed(2)}–${Math.max(...dist).toFixed(2)} NM · Angle Off에 따라 바뀜`));
+    svg.append(svgEl("text", { x: 10, y: noteY, "font-size": 10.5, fill: "#5f5e5a", "data-legend-note": "" }, `Roll-in Distance (점선) ${Math.min(...dist).toFixed(2)}–${Math.max(...dist).toFixed(2)} NM · Angle Off에 따라 바뀜`));
   }
   // 0.1.11: the Tracking Time 2 s band, per side, under the arcs: from each Roll-in Point (or, where the point is not
   // drawn, its 2 s point) to its 2 s point, consecutive Angle Offs joined; the 2 s points joined by a light line.
@@ -326,13 +335,18 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   // Legend, two rows (owner 2026-11-22: the light green is written too): solid = Approach-Pop ≥ 2 s, light = 0–2 s;
   // a filled dot is a ≥ 2 s Roll-in Point, a hollow one 0–2 s.
   const ly = H - 10, ly1 = H - 26;
+  // 0.1.13 (owner 2026-11-25): the legend stays on screen when zoomed (pinTopView), on a white band.
+  const lg = svgEl("g", { "data-pin": "screen" });
+  lg.append(svgEl("rect", { x: 0, y: noteY - 14, width: W, height: H - noteY + 14, fill: "#fff", opacity: 0.92 }));
+  svg.append(lg);
+  for (const note of svg.querySelectorAll("[data-legend-note]")) lg.append(note); // over the band, pinned with it
   const key = (x, y, color, opacity, text) => {
-    svg.append(svgEl("line", { x1: x, x2: x + 20, y1: y - 4, y2: y - 4, stroke: color, "stroke-width": 7, opacity, "stroke-linecap": "round" }));
-    svg.append(svgEl("text", { x: x + 25, y, "font-size": 10.5, fill: "#2e2d2a" }, text));
+    lg.append(svgEl("line", { x1: x, x2: x + 20, y1: y - 4, y2: y - 4, stroke: color, "stroke-width": 7, opacity, "stroke-linecap": "round" }));
+    lg.append(svgEl("text", { x: x + 25, y, "font-size": 10.5, fill: "#2e2d2a" }, text));
   };
   const dot = (x, y, filled, text) => {
-    svg.append(svgEl("circle", { cx: x + 10, cy: y - 4, r: 3.5, fill: filled ? REGION_COLORS.yellow : "#fff", stroke: REGION_COLORS.yellow, "stroke-width": 1.5 }));
-    svg.append(svgEl("text", { x: x + 25, y, "font-size": 10.5, fill: "#2e2d2a" }, text));
+    lg.append(svgEl("circle", { cx: x + 10, cy: y - 4, r: 3.5, fill: filled ? REGION_COLORS.yellow : "#fff", stroke: REGION_COLORS.yellow, "stroke-width": 1.5 }));
+    lg.append(svgEl("text", { x: x + 25, y, "font-size": 10.5, fill: "#2e2d2a" }, text));
   };
   key(10, ly1, REGION_COLORS.yellow, 0.9, `Roll-in Point · ${labels.ok}`);
   key(236, ly1, REGION_COLORS.yellow, 0.35, `Roll-in Point · ${labels.warn}`);
@@ -343,13 +357,26 @@ export function renderRegionTopView(svg, { points: worldPoints = [], current: wo
   key(462, ly, REGION_COLORS.red, 1, "선택한 Attack Heading");
   if (banded) {
     const ly2 = H - 42;
-    svg.append(svgEl("rect", { x: 10, y: ly2 - 10, width: 20, height: 9, fill: REGION_COLORS.yellow, "fill-opacity": 0.2 }));
-    svg.append(svgEl("line", { x1: 10, x2: 30, y1: ly2 - 1.5, y2: ly2 - 1.5, stroke: REGION_COLORS.yellow, "stroke-width": 2.5, opacity: 0.55 }));
-    svg.append(svgEl("text", { x: 35, y: ly2, "font-size": 10.5, fill: "#2e2d2a" }, "연한 띠 = Tracking Time 2 s까지의 Roll-in Point · 연한 선 = 2 s · Track 2 s 미만 점은 제외"));
+    lg.append(svgEl("rect", { x: 10, y: ly2 - 10, width: 20, height: 9, fill: REGION_COLORS.yellow, "fill-opacity": 0.2 }));
+    lg.append(svgEl("line", { x1: 10, x2: 30, y1: ly2 - 1.5, y2: ly2 - 1.5, stroke: REGION_COLORS.yellow, "stroke-width": 2.5, opacity: 0.55 }));
+    // Reworded (owner 2026-11-25, "색이 칠해진 부분과 점으로만 표현되 지점의 차이는"): solid = as set now, light = Tracking Time cut to 2 s.
+    lg.append(svgEl("text", { x: 35, y: ly2, "font-size": 10.5, fill: "#2e2d2a" }, "진한 띠 = 지금 조건 · 연한 띠/점선 = Tracking Time을 2 s까지 줄이면 (Roll-in 고도 바뀜)"));
   }
-  svg.append(svgEl("text", { x: W - 8, y: noteY, "text-anchor": "end", "font-size": 10.5, fill: "#5f5e5a" }, labels.footer));
+  lg.append(svgEl("text", { x: W - 8, y: noteY, "text-anchor": "end", "font-size": 10.5, fill: "#5f5e5a" }, labels.footer));
   svg.append(...ghostLabels);
   untangleLabels(svg);
+}
+
+// Keeps the legend (data-pin="screen") on screen at its 100% size for the visible box { x, y, w, h } (call on every zoom
+// / pan and after a render).
+export function pinTopView(svg, box) {
+  const W = POPUP_DESIGN_TOPVIEW_V0_1.canvas.width;
+  if (!box || !(box.w > 0)) return;
+  const k = box.w / W;
+  for (const node of svg.querySelectorAll('[data-pin="screen"]')) {
+    if (k === 1 && box.x === 0 && box.y === 0) node.removeAttribute("transform");
+    else node.setAttribute("transform", `translate(${box.x} ${box.y}) scale(${k})`);
+  }
 }
 
 // 0.1.4 (owner 2026-11-22, "글자들 겹치지 않게"): after drawing, an end tag that hits another label moves down a line at a

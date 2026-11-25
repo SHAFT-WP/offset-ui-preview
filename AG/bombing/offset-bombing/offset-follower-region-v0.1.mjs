@@ -5,9 +5,9 @@
 // Offset Angle, Approach, level (VALID / WARNING / not drawn), plus the release time from the predecessor's impact.
 // Pure calculation: no DOM, no storage.
 import { calculateOffsetFlightUnfittedFull } from "./offset-flight-v0.1.mjs?v=0.1.22";
-import { releaseFromPredecessorImpactSec, withFollowerKnob } from "./offset-follower-time-v0.1.mjs?v=0.1.4";
+import { releaseFromPredecessorImpactSec, withFollowerKnob } from "./offset-follower-time-v0.1.mjs?v=0.1.5";
 
-export const OFFSET_FOLLOWER_REGION_V0_1 = Object.freeze({ id: "offset-follower-region-v0.1", version: "0.1.0", minTrackingSec: 2 });
+export const OFFSET_FOLLOWER_REGION_V0_1 = Object.freeze({ id: "offset-follower-region-v0.1", version: "0.1.1", minTrackingSec: 2 });
 
 const finite = (v) => Number.isFinite(v);
 

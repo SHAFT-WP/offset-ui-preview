@@ -27,16 +27,22 @@
 //   knob "trackingTimeMin"  #2's Tracking Time 3 → 2 s at its Dive Angle.
 //   No Dive Angle above 50° is tried (leadDive too). Every knob's answer keeps #n's Tracking Time ≥ 2 s (Offset BE 0.2.21
 //   minimum); a 0–2 s WARNING answer is not used.
+//   0.1.5 (owner 2026-11-25: "오프셋 타이밍 각도도 락하지 말고 계산해봐 (레코멘드는 오프셋 타이밍 맞추기) / 그래도 안되면 포메이션
+//   조건을 건드려"):
+//   knob "angleOffTime"       #2's Angle Off with TIME #n on (the Action timing aligned to #n-1: the Offset Angle and the
+//                             Action Range solved, ANGLE #n and their LOCKs off) — the recommended first try.
+//   knob "formationDistance"  #2's formation distance (NM), the rest as set; the last resort.
+//   knob "formationBearing"   #2's formation bearing (deg, from the leader's abeam line, aft positive).
 // The answer is the input value to type; the page then flies it as any other edit. Pure calculation: no DOM, no storage.
 import { calculateOffsetFlightUnfittedFull } from "./offset-flight-v0.1.mjs?v=0.1.22";
 
 export const OFFSET_FOLLOWER_TIME_V0_1 = Object.freeze({
   id: "offset-follower-time-v0.1",
-  version: "0.1.4",
+  version: "0.1.5",
   pitchLeadSec: 3,
   toleranceSec: 0.1,
   maxRuns: 40,
-  step: Object.freeze({ angleOffDeg: 0.1, approachRangeNm: 0.01, offsetAngleDeg: 0.1, actionRangeNm: 0.01, diveAngleDeg: 0.1, rollInAltitudeMslFt: 10, trackingTimeSec: 0.1 }),
+  step: Object.freeze({ distanceNm: 0.01, bearingDeg: 0.1, angleOffDeg: 0.1, approachRangeNm: 0.01, offsetAngleDeg: 0.1, actionRangeNm: 0.01, diveAngleDeg: 0.1, rollInAltitudeMslFt: 10, trackingTimeSec: 0.1 }),
   maxDiveDeg: 50,
   trackFloorSec: 3,
   trackMinSec: 2,
@@ -48,6 +54,8 @@ export const OFFSET_FOLLOWER_TIME_V0_1 = Object.freeze({
   followerDiveScanDeg: Object.freeze(Array.from({ length: 9 }, (_, i) => 10 + i * 5)),
   rollInAltitudeScanFt: Object.freeze(Array.from({ length: 15 }, (_, i) => 6000 + i * 2000)),
   actionRangeScanNm: Object.freeze(Array.from({ length: 16 }, (_, i) => 1 + i)),
+  formationDistanceScanNm: Object.freeze(Array.from({ length: 12 }, (_, i) => 0.5 + i * 0.5)),
+  formationBearingScanDeg: Object.freeze(Array.from({ length: 17 }, (_, i) => -20 + i * 5)),
 });
 
 const finite = (v) => Number.isFinite(v);
@@ -68,7 +76,7 @@ export function followerTimeBaseline(answer, number = 2) {
 }
 
 // The record for a trial value of the knob.
-export const FOLLOWER_KNOB_KEYS = Object.freeze({ angleOff: "angleOffDeg", approach: "approachRangeNm", offsetAngle: "offsetAngleDeg", actionRange: "actionRangeNm", leadAngleOff: "angleOffDeg", leadDive: "diveAngleDeg", rollInAltitude: "rollInAltitudeMslFt", trackingTime: "trackingTimeSec", followerDive: "diveAngleDeg", trackingTimeMin: "trackingTimeSec" });
+export const FOLLOWER_KNOB_KEYS = Object.freeze({ angleOff: "angleOffDeg", approach: "approachRangeNm", offsetAngle: "offsetAngleDeg", actionRange: "actionRangeNm", leadAngleOff: "angleOffDeg", leadDive: "diveAngleDeg", rollInAltitude: "rollInAltitudeMslFt", trackingTime: "trackingTimeSec", followerDive: "diveAngleDeg", trackingTimeMin: "trackingTimeSec", angleOffTime: "angleOffDeg", formationDistance: "distanceNm", formationBearing: "bearingDeg" });
 const TRACK_KNOBS = new Set(["trackingTime", "followerDive", "trackingTimeMin"]);
 // The aircraft each knob moves (the follower's own, or #1).
 export const knobAircraft = (knob, number) => (knob === "leadAngleOff" || knob === "leadDive" ? 1 : number);
@@ -111,6 +119,15 @@ export function withFollowerKnob(input, number, knob, value, currentAngleOffDeg,
   }
   const rec = next.aircraft[number];
   rec.options = { ...(rec.options ?? {}) };
+  if (knob === "formationDistance" || knob === "formationBearing") {
+    rec.formation = { ...(rec.formation ?? {}), [knob === "formationDistance" ? "distanceNm" : "bearingDeg"]: value };
+    return next;
+  }
+  if (knob === "angleOffTime") {
+    rec.values.angleOffDeg = value;
+    Object.assign(rec.options, { sameTimeAsLead: true, sameAngleAsLead: false, offsetAngleLocked: false, actionRangeLocked: false, approachRangeLocked: false, angleOffLocked: true, attackHeadingLocked: false });
+    return next;
+  }
   if (TRACK_KNOBS.has(knob)) {
     // Roll-in Altitude held (LOCK): a Tracking Time entry is the "release" mode (the Release Altitude is solved).
     const tt = knob === "followerDive" ? extra.trackingTimeSec : value;
@@ -188,7 +205,9 @@ export function solveFollowerReleaseTime(input, number, request, calculate = cal
   if (trackRange && !(finite(trackRange[1]) && trackRange[1] > trackRange[0] + 0.05)) {
     return { status: "FAILED", key, runs, message: `Tracking Time이 이미 ${trackRange[0]} s 이하입니다` };
   }
-  let start = knob === "angleOff" ? currentAo
+  const formationKey = knob === "formationDistance" ? "distanceNm" : knob === "formationBearing" ? "bearingDeg" : null;
+  let start = knob === "angleOff" || knob === "angleOffTime" ? currentAo
+    : formationKey ? Number(knobRec.formation?.[formationKey])
     : knob === "rollInAltitude" ? (nowAr?.result?.profile?.public?.resolvedInitialAltitudeMslFt ?? Number(knobRec.values[key]))
     : trackRange ? trackRange[1]
     : knob === "followerDive" ? Number(knobRec.values.diveAngleDeg)
@@ -234,6 +253,8 @@ export function solveFollowerReleaseTime(input, number, request, calculate = cal
     rollInAltitude: cfg.rollInAltitudeScanFt,
     followerDive: cfg.followerDiveScanDeg,
     // Tracking Time: from the top of the range down in 0.5 s, the floor included.
+    formationDistance: cfg.formationDistanceScanNm,
+    formationBearing: cfg.formationBearingScanDeg,
     trackingTime: trackRange ? Array.from({ length: Math.floor((trackRange[1] - trackRange[0]) / 0.5) + 1 }, (_, i) => trackRange[1] - i * 0.5).concat(trackRange[0]) : null,
     trackingTimeMin: trackRange ? Array.from({ length: Math.floor((trackRange[1] - trackRange[0]) / 0.5) + 1 }, (_, i) => trackRange[1] - i * 0.5).concat(trackRange[0]) : null,
   }[knob] ?? cfg.angleOffScanDeg;
