@@ -7,9 +7,9 @@
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
 // Speed conversions under every kcas / Mach speed input (owner 2026-11-24), shared by all BE pages.
 import "./shared/speed-readout-v0.1.mjs?v=0.1.0";
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=658df1f12cfc";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=658df1f12cfc";
-import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=658df1f12cfc";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=e2410457b931";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=e2410457b931";
+import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=e2410457b931";
 import { mountWideWorkspace } from "./shared/wide-workspace-v0.1.mjs?v=0.1.3";
 import { mountPopupDesignGraph } from "./popup-design-graph-v0.1.mjs?v=0.1.13";
 import { mountOffsetDesignGraph } from "./offset-design-graph-v0.1.mjs?v=0.1.13";

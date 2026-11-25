@@ -2703,7 +2703,9 @@ function renderFollowerStatus(number, state, message) {
   }
   const status = $(`#flight-status-${number}`);
   if (status) {
-    status.textContent = message ?? "-";
+    // Written as #1's line (owner 2026-11-25, "이거 녹색은 뭐냐": a VALID follower showed a bare "-"): the state, then the
+    // message when there is one.
+    status.textContent = message && message !== "-" && message !== state ? `${state} · ${message}` : state;
     status.className = `status-message ${state === "VALID" ? "valid" : state === "WARNING" ? "warning" : "invalid"}`;
   }
   markInvalidFields(number, state === "INVALID" ? [message] : []);
