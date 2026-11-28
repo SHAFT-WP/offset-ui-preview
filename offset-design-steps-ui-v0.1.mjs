@@ -21,7 +21,7 @@ import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1
 // (and whether a cross-over is needed; the cross-over path itself is S2), the release time relative to #1's impact as
 // a target (− = before the impact) with #1's Bomb TOF beside it, #2's Offset fields with their LOCKs (copies of the #2
 // slot's fields), and "시간 맞추기" (offset-follower-time-v0.1: #2's Angle Off or its Roll-in position).
-export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.13" });
+export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.14" });
 // 0.1.11 (owner 2026-11-24): #2 시간 맞추기 — "3초까지는 트래킹 타임을 먼저 줄이고 그다음에는 다이브를 바꾸되 유저가 입력을
 // 새로 넣으면 그 기준으로 다시 계산", "dive는 #1처럼, 단 전체 다 50초과의 다이브 각도는 사용하지 않는다", "2초까지 줄여",
 // "roll in 고도 변경 체크는 피치 값을 주고 (Roll-in고도 변경 피치, fpm) 그 위에 lock 버튼 … 디폴트는 lock". The order is
@@ -219,6 +219,7 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
 
   // ---- #2 step: copies of the #2 slot's fields (data-flight-field) and LOCK / Angle #1 / Time #1 buttons ----
   const FOLLOWER = 2;
+  let followerRegion = null; // step-5 #2 region: { signature, points, done, total, ms }
   const slotOf = () => document.querySelector(`.flight-slot[data-aircraft="${FOLLOWER}"]`);
   const followerMain = (key) => slotOf()?.querySelector(`[data-flight-field="${key}"]`) ?? null;
   const followerInputs = [];
@@ -523,12 +524,27 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     const ar2 = answer?.output?.aircraftResults?.[FOLLOWER];
     const f = rec?.formation;
     setOut("formation2", f ? `${SIDE_LR[f.side] ?? f.side} ${one(Number(f.bearingDeg), 0)}° · ${one(Number(f.distanceNm), 1)} NM` : "-");
-    const attack = ar2?.result?.geometry?.direction?.rollDirection ?? null;
+    // The Roll-in side (owner 2026-11-28, "요기보면 아예 입력이 안되는뎅": #2 without a geometry left every pumping field
+    // "-"): #2's own Roll-in direction; else from #2's Attack Heading against the Run-In (its answer, else its input);
+    // else the side of #2's region points nearest its Angle Off.
+    const runIn = Number(answer?.output?.aircraftResults?.[1]?.result?.geometry?.runInHeadingDeg ?? answer?.output?.aircraftResults?.[1]?.result?.resolved?.runInHeadingDeg);
+    const sideOf = (atk) => { if (!Number.isFinite(atk) || !Number.isFinite(runIn)) return null; const dl = ((atk - runIn + 540) % 360) - 180; return Math.abs(dl) < 0.5 ? null : dl > 0 ? "RIGHT" : "LEFT"; };
+    const ao2 = Number(ar2?.result?.resolved?.angleOffDeg ?? rec?.values?.angleOffDeg);
+    const nearRegion = (followerRegion?.points ?? []).filter((p) => p.level !== "bad" && p.rollDirection).sort((a, b) => Math.abs(a.angleOffDeg - ao2) - Math.abs(b.angleOffDeg - ao2))[0];
+    const attack = ar2?.result?.geometry?.direction?.rollDirection
+      ?? sideOf(Number(ar2?.result?.resolved?.attackHeadingDeg ?? ar2?.result?.geometry?.attackHeadingDeg))
+      ?? sideOf(Number(rec?.values?.attackHeadingDeg))
+      ?? (Number.isFinite(ao2) ? nearRegion?.rollDirection : null)
+      ?? null;
+    const attackGuessed = attack && !ar2?.result?.geometry?.direction?.rollDirection;
+    const why2 = ar2?.errors?.[0] ?? ar2?.error ?? ar2?.messages?.[0] ?? null;
     const pairing = attackPairing(answer?.output?.aircraftResults?.[1]?.result?.geometry?.direction?.rollDirection, attack);
-    setOut("attackSide2", attack ? `${SIDE_LR[attack]} · ${pairing === "ECHELON" ? "Echelon" : pairing === "BRACKET" ? "Bracket" : "-"}` : "-");
+    setOut("attackSide2", attack ? `${SIDE_LR[attack]} · ${pairing === "ECHELON" ? "Echelon" : pairing === "BRACKET" ? "Bracket" : "-"}${attackGuessed ? " (#2 결과 없음, 입력값 기준)" : ""}` : `- (#2 계산 결과 없음${why2 ? `: ${why2}` : ""})`, attack ? null : "warn");
     const cross = f && attack ? f.side !== attack : null;
     setOut("crossover2", cross === null ? "-" : cross ? `필요 (편대 ${SIDE_LR[f.side]} → 공격 ${SIDE_LR[attack]})` : "불필요", cross ? "warn" : cross === false ? "ok" : null);
-    pump = cross ? pumpingPath({ formation: f, attackSide: attack, tasKt: ar2?.result?.resolved?.offsetTasKt, g: Number(pumpG.value) }) : null;
+    // #2's Offset TAS, else #1's (#2 without an answer).
+    const tas2 = ar2?.result?.resolved?.offsetTasKt ?? answer?.output?.aircraftResults?.[1]?.result?.resolved?.offsetTasKt;
+    pump = cross ? pumpingPath({ formation: f, attackSide: attack, tasKt: tas2, g: Number(pumpG.value) }) : null;
     setOut("pumpPath", pump?.needed && pump.radiusNm ? `R ${one(pump.radiusNm, 2)} NM · 직선 ${one(pump.legNm, 2)} NM · ${one(pump.timeSec)} s` : "-", pump?.message ? "warn" : null);
     setOut("pumpEnd", pump?.end ? `${SIDE_LR[pump.end.side]} ${one(pump.end.bearingDeg)}° · ${one(pump.end.distanceNm, 2)} NM` : "-");
     if (!pumpEdited) pumpStatus.textContent = pump?.message ?? (cross === false ? "포메이션 쪽 = 공격방향: pumping 없이 갑니다." : "");
@@ -992,7 +1008,6 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
   // ---- step 5: the #2 Top View (owner 2026-11-25, "2번기 angle off와 attack heading 구하는 탑뷰에서 1번기의 영역도 구해줘") ----
   // #2's Angle Off swept 5–175° (5°) with the whole Flight as the page sends it (offset-follower-region-v0.1, one Flight
   // solve each), drawn as the step-3 region; #1's step-3 region and flown path in grey under it.
-  let followerRegion = null; // { signature, points, done, total, ms }
   let followerJob = 0;
   let followerTimer = null;
   const followerSignatureOf = (base) => {
@@ -1029,6 +1044,7 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     if (id !== followerJob) return;
     followerRegion.ms = performance.now() - started;
     renderFollowerRegion();
+    renderFollower(); // the Roll-in side may come from the region when #2 has no answer
   }
   function renderFollowerRegion() {
     if (followerCard.hidden) return;
