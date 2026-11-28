@@ -6,18 +6,20 @@
 // Points are solved in Web Workers side by side (in-thread when a Worker cannot start). Nothing is saved.
 // The drawing and controls are the POP-UP graph's (popup-design-graph-v0.1 0.1.10) without its POP-UP planning steps.
 // Styles: ../popup/popup-design-graph-v0.1.css.
-import { mountOffsetDesignSteps } from "./offset-design-steps-ui-v0.1.mjs?v=0.1.14";
+import { mountOffsetDesignSteps } from "./offset-design-steps-ui-v0.1.mjs?v=0.1.16";
 import { OFFSET_SWEEP_INPUTS, OFFSET_SWEEP_OUTPUTS, sweepBaseline, sweepInputInMode, sweepInputValue, sweepModeOf, sweepValues } from "./AG/bombing/offset-bombing/offset-dependency-sweep-v0.1.mjs?v=0.1.0";
 
 // 0.1.1 (owner 2026-11-23, "핍업 부분 뺀 나머지를 옮겨줘"): the planning steps (offset-design-steps-ui-v0.1: BDP, Offset
 // conditions with the Top View region, Fine tune) on top; the graph stays below.
 // 0.1.2 (owner 2026-11-23): steps UI 0.1.1 (the #2 step); the pool answers "followerTime" too.
-export const OFFSET_DESIGN_GRAPH_V0_1 = Object.freeze({ id: "offset-design-graph-v0.1", version: "0.1.15" });
+export const OFFSET_DESIGN_GRAPH_V0_1 = Object.freeze({ id: "offset-design-graph-v0.1", version: "0.1.17" });
+// 0.1.16 (owner 2026-11-28, "디자이너 빠져나가면 계산 중지"): pool.stop() — leaving the Design tab drops the queue and
+// terminates the running Workers; an unfinished graph is drawn again on the next entry.
 // 0.1.11 (owner 2026-11-24): steps UI 0.1.11, worker 0.1.9 (#2 Tracking Time / Dive time matching).
 
-const WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-dependency-worker-v0.1.mjs?v=0.1.11", import.meta.url);
+const WORKER_URL = new URL("./AG/bombing/offset-bombing/offset-dependency-worker-v0.1.mjs?v=0.1.12", import.meta.url);
 const REGION_URL = new URL("./AG/bombing/offset-bombing/offset-design-region-v0.1.mjs?v=0.2.2", import.meta.url);
-const FINE_TUNE_URL = new URL("./AG/bombing/offset-bombing/offset-fine-tune-v0.1.mjs?v=0.1.0", import.meta.url);
+const FINE_TUNE_URL = new URL("./AG/bombing/offset-bombing/offset-fine-tune-v0.1.mjs?v=0.2.0", import.meta.url);
 const FOLLOWER_REGION_URL = new URL("./AG/bombing/offset-bombing/offset-follower-region-v0.1.mjs?v=0.1.1", import.meta.url);
 const FOLLOWER_TIME_URL = new URL("./AG/bombing/offset-bombing/offset-follower-time-v0.1.mjs?v=0.1.5", import.meta.url);
 const SWEEP_URL = new URL("./AG/bombing/offset-bombing/offset-dependency-sweep-v0.1.mjs?v=0.1.0", import.meta.url);
@@ -122,6 +124,15 @@ function createPool() {
     },
     // Drops the points not started yet (a new graph replaces the old one).
     clear() { queue.splice(0).forEach((job) => job.resolve(null)); },
+    // Leaving the Design tab (owner 2026-11-28, "디자이너 빠져나가면 계산 중지"): the queue is dropped and the running
+    // Workers are terminated (their points resolve null); the next point starts new Workers. In-thread, the point
+    // already running finishes.
+    stop() {
+      queue.splice(0).forEach((job) => job.resolve(null));
+      if (!workers) return;
+      for (const w of workers) { const job = busy.get(w); busy.delete(w); w.terminate(); job?.resolve(null); }
+      workers = null;
+    },
   };
 }
 
@@ -484,9 +495,15 @@ export function mountOffsetDesignGraph({ host, offsetUi }) {
         setXDefaults();
         setCondDefaults();
         if (base) { drawnOnce = true; draw(); } else renderStatus();
-      } else renderStatus();
+      } else if (graph && !graph.doneMs && base) draw(); // stopped when the tab was left: drawn again
+      else renderStatus();
     },
-    deactivate() { active = false; wizard.deactivate(); },
+    // Leaving the tab stops every unfinished calculation (owner 2026-11-28); they run again on the next entry.
+    deactivate() {
+      active = false;
+      if (graph && !graph.doneMs) { job += 1; pool.stop(); }
+      wizard.deactivate();
+    },
     // Read-only hooks for the browser checks.
     state: () => ({ active, graph, view, mode, wizard: wizard.state() }),
   };

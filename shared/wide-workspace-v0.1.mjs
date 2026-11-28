@@ -14,7 +14,9 @@ import { AIRCRAFT_COLORS, AIRCRAFT_NUMBERS, showAircraftRow } from "./flight-ui-
 // content shrinks with it down to 80 % of its default width, then keeps that size and is cut, with a horizontal scroll
 // bar (DED, Z-Diagram, Result and inputs never squeeze their text). Widths are kept per page in this browser only
 // (never in a save); double-click a bar or "Reset panels" returns to the default widths.
-export const WIDE_WORKSPACE_V0_1 = Object.freeze({ id: "bombing-wide-workspace-v0.1", version: "0.1.3" });
+export const WIDE_WORKSPACE_V0_1 = Object.freeze({ id: "bombing-wide-workspace-v0.1", version: "0.1.4" });
+// 0.1.4 (owner 2026-11-28, Offset / POP-UP input tabs no longer bring a centre tab): start({ input }) names the first
+// input tab; without it, the input tab of the first centre tab (centerOfInput / inputOfCenter) as before.
 
 // Pane resize limits (px): a side pane's narrowest width and the centre's narrowest width.
 const RESIZE_SIDE_MIN_PX = 200;
@@ -546,15 +548,15 @@ export function mountWideWorkspace(options) {
     selectEditAircraft,
     inputPane: (key) => paneSections.get(key),
     centerHost: (key) => centerHosts[key],
-    // First entry: the input tab of `center`, that centre tab, the `review` tab, the saved edited aircraft (else #1),
-    // the shown aircraft. Call after the page mounted what fills the panes.
-    start({ center: firstCenter, review: firstReview }) {
+    // First entry: the `input` tab (else the input tab of `center`), that centre tab, the `review` tab, the saved edited
+    // aircraft (else #1), the shown aircraft. Call after the page mounted what fills the panes.
+    start({ center: firstCenter, review: firstReview, input: firstInput = null }) {
       syncOutputs();
       ui.onVisibleAircraftChange(applyShown);
       ui.syncShowAircraftButtons();
       ui.registerEditAircraft(() => editAircraft);
       selectEditAircraft(ui.savedEditAircraft() ?? 1);
-      activateWorkspace(firstCenter);
+      if (firstInput) { applyInputTab(firstInput); applyCenterTab(firstCenter); } else activateWorkspace(firstCenter);
       chooseReview(firstReview);
       syncFollowers();
       measureHeader();

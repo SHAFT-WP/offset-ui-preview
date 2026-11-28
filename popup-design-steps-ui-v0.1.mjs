@@ -34,7 +34,7 @@ import { fineTuneBaseline } from "./AG/bombing/popup/popup-fine-tune-v0.1.mjs?v=
 // (common svg-viewport: − / % / + / Fit, drag when zoomed); the profile draws the Approach-Pop leg before the Pop;
 // the Top View region is solved on both Roll-in sides (the Attack Heading mirrored about the Run-In) and drawn in
 // the Offset Top View symbols with the turn paths.
-export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.14" });
+export const POPUP_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "popup-design-steps-ui-v0.1", version: "0.1.15" });
 // 0.1.14 (owner 2026-11-24): "왼쪽으로 오프셋했을 때, 롤인턴 방향이 반대인 경우(즉 왼쪽)는 roll in 가능영역이 아닌 것으로
 // 처리해" — the possible region is only the Roll-in side opposite the Offset turn (the side flown: the BE pairs a left
 // Offset with a right Roll-in and the other way round). The mirrored side (regionMirrorBaseline, 0.1.4) is no longer
@@ -670,7 +670,15 @@ export function mountPopupDesignSteps({ host, offsetUi, rangeTools = null, pool 
   return {
     root,
     activate() { active = true; answer = offsetUi.flightAnswer?.() ?? answer; render(); scheduleSweep(); scheduleRegion(); },
-    deactivate() { active = false; },
+    // Leaving the Design tab (owner 2026-11-28): the automatic sweeps (Popup Angle, region) stop and an unfinished one
+    // is dropped, so it runs again on the next entry. Fine tune, which the user started, finishes.
+    deactivate() {
+      active = false;
+      clearTimeout(sweepTimer); clearTimeout(regionTimer);
+      if (sweep && !(sweep.ms > 0)) { sweepJob += 1; sweep = null; }
+      if (region && !(region.ms > 0)) { regionJob += 1; region = null; }
+      pool?.stop?.(); regionPool?.stop?.();
+    },
     // Read-only hook for the browser checks.
     state: () => ({ busy, confirmed: { 1: confirmed[1](), 2: confirmed[2](), 3: confirmed[3]() }, sweep: sweep && { done: sweep.done, total: sweep.total, ms: sweep.ms }, region: region && { done: region.done, total: region.total, ms: region.ms, summary: regionSummary(region.points), right: regionSummary(region.points, "RIGHT"), left: regionSummary(region.points, "LEFT") } }),
   };

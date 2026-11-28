@@ -6,7 +6,7 @@
 // cursor (Shift: X only, Alt: Y only), drag pans, double-click resets; on a phone two fingers pinch. Points are solved
 // in Web Workers side by side (in-thread when a Worker cannot start). Nothing is saved.
 import { POPUP_SWEEP_INPUTS, POPUP_SWEEP_OUTPUTS, sweepBaseline, sweepInputValue, sweepModeOf, sweepValues } from "./AG/bombing/popup/popup-dependency-sweep-v0.1.mjs?v=0.1.3";
-import { mountPopupDesignSteps } from "./popup-design-steps-ui-v0.1.mjs?v=0.1.14";
+import { mountPopupDesignSteps } from "./popup-design-steps-ui-v0.1.mjs?v=0.1.15";
 import { OFFSET_ANGLE_GRID, POPUP_ANGLE_GRID, POPUP_DESIGN_LIMITS, designSteps, offsetAngleRange, popupAngleWindow } from "./AG/bombing/popup/popup-design-steps-v0.1.mjs?v=0.1.1";
 
 // 0.1.1 (owner 2026-11-18, the planning procedure): Step by Step above the graph — BDP, Popup Angle window (Offset-Popup
@@ -15,7 +15,9 @@ import { OFFSET_ANGLE_GRID, POPUP_ANGLE_GRID, POPUP_DESIGN_LIMITS, designSteps, 
 // 0.1.2 (owner 2026-11-20, DESIGN-STEPS.md S1): the four planning steps (popup-design-steps-ui-v0.1) on top; the
 // Step by Step box folds inside step 2 as "범위 계산" until S2 replaces it; the graph stays below.
 // 0.1.3 (owner 2026-11-20 follow-up): import tokens only (steps UI 0.1.4, worker 0.1.5, region 0.1.1 both Roll-in sides).
-export const POPUP_DESIGN_GRAPH_V0_1 = Object.freeze({ id: "popup-design-graph-v0.1", version: "0.1.12" });
+export const POPUP_DESIGN_GRAPH_V0_1 = Object.freeze({ id: "popup-design-graph-v0.1", version: "0.1.13" });
+// 0.1.13 (owner 2026-11-28, "디자이너 빠져나가면 계산 중지"): pool.stop() — leaving the Design tab stops the graph, the
+// Step by Step sweeps and the step cards' automatic sweeps; an unfinished graph is drawn again on the next entry.
 // 0.1.6: mounts steps UI 0.1.7 (IP Bottom in the zoom row).
 // 0.1.7: mounts steps UI 0.1.8 (Action Range / Offset Angle in step 2).
 // 0.1.5 (owner 2026-11-22): mounts steps UI 0.1.6 (step-2 range Approach-Pop 2 s .. Apex 300; Top View one side).
@@ -122,6 +124,15 @@ function createPool() {
     },
     // Drops the points not started yet (a new graph replaces the old one).
     clear() { queue.splice(0).forEach((job) => job.resolve(null)); },
+    // Leaving the Design tab (owner 2026-11-28, "디자이너 빠져나가면 계산 중지"): the queue is dropped and the running
+    // Workers are terminated (their points resolve null); the next point starts new Workers. In-thread, the point
+    // already running finishes.
+    stop() {
+      queue.splice(0).forEach((job) => job.resolve(null));
+      if (!workers) return;
+      for (const w of workers) { const job = busy.get(w); busy.delete(w); w.terminate(); job?.resolve(null); }
+      workers = null;
+    },
   };
 }
 
@@ -472,6 +483,7 @@ export function mountPopupDesignGraph({ host, offsetUi }) {
   // ---- Step by Step: the sweeps, the windows, the picture ----
   let steps = null;
   let stepsJob = 0;
+  let stepsRunning = false;
   const num1 = (v, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : "-");
   const ft = (v) => (Number.isFinite(v) ? Math.round(v).toLocaleString("en-US") : "-");
   async function runSteps() {
@@ -480,6 +492,7 @@ export function mountPopupDesignGraph({ host, offsetUi }) {
     const ar = answer?.output?.aircraftResults?.[1];
     if (!base || !ar?.result) { stepsStatus.textContent = "#1의 계산 결과가 있어야 계산할 수 있습니다."; return; }
     const id = ++stepsJob;
+    stepsRunning = true;
     stepsPool.clear();
     const started = performance.now();
     const pub = ar.result.profile?.public ?? {};
@@ -510,6 +523,7 @@ export function mountPopupDesignGraph({ host, offsetUi }) {
       popup2 = await sweep(POPUP_ANGLE_GRID, "popupAngleDeg", { offsetAngleDeg: againAt }, "Step 5 반복");
       if (id !== stepsJob) return;
     }
+    stepsRunning = false;
     steps = { ...designSteps({ current, popup, offset, popup2 }), atPopup, againAt, current, ms: performance.now() - started };
     renderSteps();
   }
@@ -609,9 +623,16 @@ export function mountPopupDesignGraph({ host, offsetUi }) {
         setXDefaults();
         setCondDefaults();
         if (base) { drawnOnce = true; draw(); } else renderStatus();
-      } else renderStatus();
+      } else if (graph && !graph.doneMs && base) draw(); // stopped when the tab was left: drawn again
+      else renderStatus();
     },
-    deactivate() { active = false; wizard.deactivate(); },
+    // Leaving the tab stops every unfinished calculation (owner 2026-11-28); they run again on the next entry.
+    deactivate() {
+      active = false;
+      if (graph && !graph.doneMs) { job += 1; pool.stop(); }
+      if (stepsRunning) { stepsJob += 1; stepsPool.stop(); stepsRunning = false; stepsStatus.textContent = "Design 탭을 떠나 계산을 멈췄습니다. 다시 계산하려면 버튼을 누르세요."; applyBtn.disabled = true; }
+      wizard.deactivate();
+    },
     // Read-only hooks for the browser checks.
     state: () => ({ active, graph, view, mode, steps, wizard: wizard.state() }),
   };

@@ -3,7 +3,7 @@
 // DED, every output tab showing the one shared set of shown aircraft (owner 2026-10-27: the Wheel as BOX's page).
 // Speed conversions under every kcas / Mach speed input (owner 2026-11-24), shared by all BE pages.
 import "../shared/speed-readout-v0.1.mjs?v=0.1.0";
-import { wheelIndexUi } from "./controller-v0.1.mjs?v=09c0bb62971d";
+import { wheelIndexUi } from "./controller-v0.1.mjs?v=ec7d2332c7c7";
 import { mountWideWorkspace } from "../shared/wide-workspace-v0.1.mjs?v=0.1.3";
 
 const app = document.getElementById("wheel-calculator");

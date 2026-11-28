@@ -10,7 +10,7 @@
 //     Approach Range LOCKs released so the BE solves them.
 import { mirrorFieldControls, syncFieldControls } from "./shared/design-field-mirror-v0.1.mjs?v=0.1.1";
 import { ANGLE_OFF_GRID, coarseFirst, regionBaseline, regionSummary } from "./AG/bombing/offset-bombing/offset-design-region-v0.1.mjs?v=0.2.2";
-import { fineTuneBaseline } from "./AG/bombing/offset-bombing/offset-fine-tune-v0.1.mjs?v=0.1.0";
+import { OFFSET_FINE_TUNE_V0_1, fineTuneBaseline } from "./AG/bombing/offset-bombing/offset-fine-tune-v0.1.mjs?v=0.2.0";
 import { followerTimeBaseline, releaseFromPredecessorImpactSec } from "./AG/bombing/offset-bombing/offset-follower-time-v0.1.mjs?v=0.1.5";
 import { attackPairing, pumpingPath } from "./AG/bombing/offset-bombing/offset-follower-pumping-v0.1.mjs?v=0.1.0";
 import { OFFSET_DESIGN_VRP_MAP_V0_1, pinVrpMap, renderVrpMap } from "./offset-design-vrp-map-v0.1.mjs?v=0.1.1";
@@ -21,7 +21,13 @@ import { installSvgViewport } from "./common/diagram/svg-viewport-v0.1.mjs?v=0.1
 // (and whether a cross-over is needed; the cross-over path itself is S2), the release time relative to #1's impact as
 // a target (− = before the impact) with #1's Bomb TOF beside it, #2's Offset fields with their LOCKs (copies of the #2
 // slot's fields), and "시간 맞추기" (offset-follower-time-v0.1: #2's Angle Off or its Roll-in position).
-export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.14" });
+export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-steps-ui-v0.1", version: "0.1.16" });
+// 0.1.15 (owner 2026-11-28: "롤인 고도를 움직이는 이유는 해가 없는 상황을 극복하기 위한 것", "미세 튜닝으로 옮기는 것이 좋겠네",
+// "approaching range에서 속도 유지하면서 상승하려면 한계가 클 것", "디자이너 빠져나가면 계산 중지"): step 2's "Roll-in 고도 변경
+// 허용" is gone (with the VRP and the Offset Angle held it drew every Roll-in Point on the one Approach line); step 3 is
+// the Roll-in Altitude held sweep only. The make-up is step 4's Fine tune target "Offset Angle" by the Roll-in Altitude,
+// with a climb / descent limit (fpm, constant speed, Approach start → 3 s before the Roll-in; default +3,000 / −4,000).
+// Leaving the Design tab stops the automatic calculations.
 // 0.1.11 (owner 2026-11-24): #2 시간 맞추기 — "3초까지는 트래킹 타임을 먼저 줄이고 그다음에는 다이브를 바꾸되 유저가 입력을
 // 새로 넣으면 그 기준으로 다시 계산", "dive는 #1처럼, 단 전체 다 50초과의 다이브 각도는 사용하지 않는다", "2초까지 줄여",
 // "roll in 고도 변경 체크는 피치 값을 주고 (Roll-in고도 변경 피치, fpm) 그 위에 lock 버튼 … 디폴트는 lock". The order is
@@ -39,7 +45,7 @@ export const OFFSET_DESIGN_STEPS_UI_V0_1 = Object.freeze({ id: "offset-design-st
 const REGION_LABELS = Object.freeze({
   ok: "VALID", warn: "WARNING", okDot: "VALID 점", warnDot: "WARNING 점",
   footer: "R/L = Roll-in 방향 · INVALID / Approach < 0은 그리지 않음",
-  pointTail: (p) => `${p.rollInFree && Number.isFinite(p.rollInAltitudeMslFt) ? ` · Roll-in ${Math.round(p.rollInAltitudeMslFt).toLocaleString("en-US")} ft` : ""}${Number.isFinite(p.approachSec) ? ` · Approach ${p.approachSec.toFixed(1)} s` : ""}`,
+  pointTail: (p) => (Number.isFinite(p.approachSec) ? ` · Approach ${p.approachSec.toFixed(1)} s` : ""),
 });
 
 const el = (tag, attrs = {}, ...children) => {
@@ -188,10 +194,8 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
   followerSvg.setAttribute("role", "img");
   followerSvg.setAttribute("aria-label", "Top View possible region of #2 with #1");
   const followerRegionStatus = el("p", { class: "design-graph-status", role: "status", "data-design-follower-region-status": "", text: "" });
-  // Step 2 (owner 2026-11-24): the Offset Angle wanted and whether the Roll-in Altitude may change.
+  // Step 2 (owner 2026-11-24): the Offset Angle wanted. Its Roll-in Altitude make-up is step 4's (0.1.15).
   const targetOa = el("input", { type: "text", inputmode: "decimal", "aria-label": "Offset Angle (deg)", "data-design-target-oa": "" });
-  const altFree = el("input", { type: "checkbox", "data-design-alt-free": "", "aria-label": "Roll-in 고도 변경 허용" });
-  const altFreeField = el("label", { class: "field design-check" }, el("span", { text: "Roll-in 고도 변경" }), el("span", { class: "design-check-row" }, altFree, el("span", { text: "허용 (Angle Off마다 Roll-in Altitude를 찾음)" })), el("span", { class: "unit", text: "끄면 지금 Roll-in Altitude 그대로" }));
   let targetEdited = false;
   // Step 3, the VRP × Angle Off map (owner 2026-11-24): the Offset Angle of every VRP / Angle Off pair, altitude held.
   const mapTargets = el("div", { class: "design-map-targets", "data-design-map-targets": "" }, el("span", { class: "unit", text: "-" }));
@@ -209,7 +213,11 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
   const tuneTarget = el("select", { "aria-label": "Fine tune target", "data-design-tune-target": "" },
     el("option", { value: "approachSec", text: "Approach Time (s)" }),
     el("option", { value: "approachRangeNm", text: "Approach Range (NM)" }),
-    el("option", { value: "rollInAltitudeMslFt", text: "Roll-in Alt (ft)" }));
+    el("option", { value: "rollInAltitudeMslFt", text: "Roll-in Alt (ft)" }),
+    el("option", { value: "offsetAngleDeg", text: "Offset Angle (Roll-in 고도)" }));
+  // 0.1.15: the Roll-in Altitude change limit (constant speed, Approach start → 3 s before the Roll-in). Design values.
+  const climbLimit = el("input", { type: "text", inputmode: "decimal", "aria-label": "상승 한도 (fpm)", "data-design-climb-limit": "", value: String(OFFSET_FINE_TUNE_V0_1.defaultLimits.climbFpm) });
+  const descentLimit = el("input", { type: "text", inputmode: "decimal", "aria-label": "하강 한도 (fpm)", "data-design-descent-limit": "", value: String(OFFSET_FINE_TUNE_V0_1.defaultLimits.descentFpm) });
   const tuneValue = el("input", { type: "text", inputmode: "decimal", "aria-label": "Fine tune value", "data-design-tune-value": "" });
   const tuneKnob = el("select", { "aria-label": "Fine tune knob", "data-design-tune-knob": "" },
     el("option", { value: "bdp", text: "BDP 쪽 (기본)" }),
@@ -270,6 +278,15 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
   const pumpButton = el("button", { class: "btn", type: "button", "data-design-pump-apply": "", text: "Pumping 적용" });
   const pumpStatus = el("p", { class: "design-graph-status", role: "status", "data-design-pump-status": "", text: "" });
   const followerCard = card(5, "#2 설정", "2번기는 포메이션부터 봅니다. 공격방향(L/R)은 #1과 같으면 Echelon, 반대면 Bracket. 공격방향이 포메이션 쪽과 다르면 pumping: 공격 쪽으로 90° 선회, Run-In을 가로질러 리더 꼬리 뒤를 지날 때 반대로 90° 선회 (기본 4G, #2 Offset 속도). Pumping 적용은 끝난 위치를 #2 Formation에 넣습니다. 시간차 = #1 폭탄 Impact 기준 #2 Release 시간 (− = Impact 전 몇 초). 시간 맞추기는 #2의 Angle Off, 또는 Offset 조건(Offset Angle / Action Range, Angle Off는 그대로)으로 Roll-in 위치를 옮겨 맞춥니다.", [
+    // #2 BDP (owner 2026-11-28, "넘버2도 bdp있어야 할 것"): #2's own BDP inputs (its slot's fields, LOCKs shared) and results.
+    sub("#2 BDP (폭탄 투하 조건)"),
+    grid(followerLink("diveAngleDeg", "Dive Angle (deg)", "#2 강하각", ["diveAngleLocked"]),
+      followerLink("releaseAltitudeMslFt", "Release Altitude (ft MSL)", "#2 폭탄 투하 고도"),
+      followerLink("releaseSpeedKcas", "Release Speed (kcas)", "#2 투하 속도")),
+    grid(followerLink("trackingTimeSec", "Tracking Time (sec)", "#2 · Roll-in 고도와 짝"),
+      followerLink("rollInAltitudeMslFt", "Roll-in Altitude (ft MSL)", "#2 · Tracking Time과 짝", ["rollInAltitudeLocked"]),
+      readout("map2", "MAP #2 (NM)", "Roll-in 지점 ~ 표적 거리"), readout("minAlt2", "MINALT #2 (ft MSL)", "회복 최저 고도")),
+    sub("#2 Formation · Pumping"),
     grid(readout("formation2", "Formation #2", "#1 기준 · L/R · 각도 · 거리"), readout("attackSide2", "공격방향 #2", "Roll-in 방향"), readout("crossover2", "Pumping", "포메이션 쪽 ≠ 공격방향")),
     grid(tuneField("Pumping G (G)", pumpG, "기본 4G · 수평 선회"), readout("pumpPath", "Pumping 경로", "선회반경 · 직선 · 시간"), readout("pumpEnd", "Pumping 후 #2", "공격 쪽 · 각도 · 거리")),
     el("div", { class: "design-graph-actions" }, pumpButton),
@@ -303,9 +320,9 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
       sub("결과"),
       grid(readout("map", "MAP (NM)", "Roll-in 지점 ~ 표적 거리"), readout("minAlt", "MINALT (ft MSL)", "회복 최저 고도")),
     ], "확정하면 Dive Angle이 LOCK되어 다음 단계에서 바뀌지 않습니다."),
-    card(2, "Offset 조건", "VRP와 Offset Angle을 정하고, Roll-in 고도를 바꿔도 되는지 고릅니다. VRP·Offset Angle·Angle Off를 모두 고정하면 BDP(Roll-in 고도)만 남으므로, 고도를 고정하면 맞는 Angle Off가 한두 개뿐이고, 고도 변경을 허용하면 Angle Off마다 맞는 Roll-in 고도를 찾습니다. 확정 = VRP LOCK.", [
+    card(2, "Offset 조건", "VRP와 Offset Angle을 정합니다. 지금 Roll-in 고도로 그 Offset Angle이 나오는 Angle Off를 3단계에서 찾고, 해가 없거나 조금 어긋나면 4단계 미세튜닝에서 Roll-in 고도로 메이크업합니다(상승·하강 한도 안에서). 확정 = VRP LOCK.", [
       grid(readout("reference", "Reference", "VRP / VIP"), link("vrpRangeNm"),
-        tuneField("Offset Angle (deg)", targetOa, "Run-In → Approaching Heading · 목표"), altFreeField),
+        tuneField("Offset Angle (deg)", targetOa, "Run-In → Approaching Heading · 목표")),
     ]),
     // Step 3 (owner 2026-11-25): a short note, the map (3-1) and the Top View (3-2) under their own headings, the target
     // crossings as buttons that apply.
@@ -318,15 +335,17 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
       sub("3-2 Top View (현재 VRP의 가능 영역)"),
       regionStatus,
       el("div", { class: "design-steps-shell" }, zoomable(topSvg, POPUP_DESIGN_TOPVIEW_V0_1.canvas.width, POPUP_DESIGN_TOPVIEW_V0_1.canvas.height, { lead: [ipBottomButton] })),
-      grid(readout("regionAo", "가능 Angle Off", "VALID · WARNING (VALID만)"), readout("regionAtk", "가능 Attack Heading", "VALID · WARNING"), readout("regionAlt", "필요 Roll-in Altitude (ft)", "고도 변경 허용일 때")),
+      grid(readout("regionAo", "가능 Angle Off", "VALID · WARNING (VALID만)"), readout("regionAtk", "가능 Attack Heading", "VALID · WARNING")),
       regionNote,
       grid(el("label", { class: "field" }, el("span", { class: "lock-title" }, el("span", { text: "Angle Off (deg)" }), angleOffLock), pickAo, el("span", { class: "unit", text: "가능 범위 안에서 고르기 · LOCK = 페이지 Angle Off LOCK" })), readout("pickOa", "Offset Angle (deg)", "현재 계산값"),
         readout("approach", "Approach Range (NM)", "Turn End → Roll-in Start"), readout("approachSec", "Approach Time (sec)", "Turn End → Roll-in Start")),
     ], "확정하면 고른 Angle Off가 LOCK되고 Offset Angle은 목표값으로 풀립니다."),
-    card(4, "미세튜닝", "G와 속도·고도로 다듬습니다. Fine tune: Approach Time, Approach Range, Roll-in Alt 중 하나를 목표로 고치고 누르면, BE가 BDP 쪽(Roll-in Altitude 또는 Tracking Time) 또는 Offset Angle(3단계 LOCK)을 바꿔 맞춥니다. BDP 쪽을 바꾸면 MAP과 Roll-in Point도 같이 바뀝니다.", [
+    card(4, "미세튜닝", "G와 속도·고도로 다듬습니다. Fine tune: Approach Time, Approach Range, Roll-in Alt, Offset Angle 중 하나를 목표로 고치고 누르면, BE가 BDP 쪽(Roll-in Altitude 또는 Tracking Time) 또는 Offset Angle(3단계 LOCK)을 바꿔 맞춥니다. BDP 쪽을 바꾸면 MAP과 Roll-in Point도 같이 바뀝니다. Roll-in 고도 메이크업 = 목표 Offset Angle(2단계 값)을 Roll-in 고도로 맞추기(3단계 확정 후). 고도 변경은 Approach 시작부터 Roll-in 3초 전까지 속도를 유지하며 오르내린다고 보고, 상승·하강 한도(fpm)를 넘으면 한도 안의 가장 가까운 값을 넣습니다.", [
       grid(link("rollInG"), link("offsetG"), link("gOnsetRateGSec"), link("offsetSpeedValue"), link("initialSpeedValue"), link("initialAltitudeMslFt"),
         readout("approachSec3", "Approach Time (sec)", "result"), readout("approach3", "Approach Range (NM)", "result"), readout("rollInAlt3", "Roll-in Altitude (ft MSL)", "result")),
-      grid(tuneField("Fine tune 목표", tuneTarget, "하나만 고릅니다"), tuneField("목표값", tuneValue, "계산값에서 고치기"), tuneField("맞추는 쪽", tuneKnob, "Offset Angle은 Approach만, 3단계 확정 후")),
+      grid(tuneField("Fine tune 목표", tuneTarget, "하나만 고릅니다"), tuneField("목표값", tuneValue, "계산값에서 고치기 · Offset Angle은 2단계 목표값"), tuneField("맞추는 쪽", tuneKnob, "Offset Angle은 Approach만, 3단계 확정 후")),
+      grid(tuneField("상승 한도 (fpm)", climbLimit, "Roll-in 고도를 올릴 때 · 등속 (기본 +3,000)"), tuneField("하강 한도 (fpm)", descentLimit, "Roll-in 고도를 내릴 때 · 등속 (기본 −4,000)"),
+        readout("tuneFpm", "Roll-in 고도 변경 (fpm)", "Fine tune 결과 · Approach 시작 → Roll-in 3초 전")),
       el("div", { class: "design-graph-actions" }, fineTune),
       tuneStatus,
     ]),
@@ -549,6 +568,9 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     setOut("pumpEnd", pump?.end ? `${SIDE_LR[pump.end.side]} ${one(pump.end.bearingDeg)}° · ${one(pump.end.distanceNm, 2)} NM` : "-");
     if (!pumpEdited) pumpStatus.textContent = pump?.message ?? (cross === false ? "포메이션 쪽 = 공격방향: pumping 없이 갑니다." : "");
     pumpButton.disabled = busy || !pump?.end;
+    const pub2 = ar2?.result?.profile?.public ?? {};
+    setOut("map2", Number.isFinite(pub2.groundRangeNm) ? one(pub2.groundRangeNm, 2) : "-");
+    setOut("minAlt2", ft(pub2.minAltMslFt));
     const t = releaseFromPredecessorImpactSec(answer?.output, FOLLOWER);
     setOut("release2", Number.isFinite(t) ? `${t >= 0 ? "+" : ""}${one(t)}${ar2 && ar2.status === "INVALID" ? " · #2 INVALID" : ""}` : "-", ar2?.status === "INVALID" ? "bad" : null);
     setOut("tof1", one(answer?.output?.flightTiming?.[FOLLOWER]?.predecessorBombTofSec ?? answer?.output?.aircraftResults?.[1]?.result?.profile?.public?.bombTofSec));
@@ -723,11 +745,15 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     const t = tuneTarget.value;
     if (t === "approachSec") return Number.isFinite(ar?.result?.timing?.approachSec) ? ar.result.timing.approachSec.toFixed(1) : "";
     if (t === "approachRangeNm") return Number.isFinite(ar?.result?.resolved?.approachRangeNm) ? ar.result.resolved.approachRangeNm.toFixed(2) : "";
+    if (t === "offsetAngleDeg") return wantOa() > 0 ? String(wantOa()) : Number.isFinite(ar?.result?.geometry?.offsetAngleDeg) ? Math.abs(ar.result.geometry.offsetAngleDeg).toFixed(1) : "";
     const alt = ar?.result?.profile?.public?.resolvedInitialAltitudeMslFt;
     return Number.isFinite(alt) ? String(Math.round(alt)) : "";
   };
+  // What the target reads now (the "목표값" field starts from it, except the Offset Angle, which starts from step 2).
+  const tuneFlown = (ar, t) => (t === "offsetAngleDeg" ? (Number.isFinite(ar?.result?.geometry?.offsetAngleDeg) ? Math.abs(ar.result.geometry.offsetAngleDeg).toFixed(1) : "") : tuneNow(ar));
+  const limitValue = (input, fallback) => { const v = Number(input.value); return Number.isFinite(v) ? Math.abs(v) : fallback; };
   function syncTune(ar) {
-    tuneKnob.disabled = tuneTarget.value === "rollInAltitudeMslFt";
+    tuneKnob.disabled = tuneTarget.value === "rollInAltitudeMslFt" || tuneTarget.value === "offsetAngleDeg";
     if (tuneKnob.disabled) tuneKnob.value = "bdp";
     if (!tuneEdited && document.activeElement !== tuneValue) tuneValue.value = tuneNow(ar);
     fineTune.disabled = busy || !tunePool || !ar;
@@ -735,14 +761,20 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
   tuneTarget.addEventListener("change", () => { tuneEdited = false; syncTune(answer?.output?.aircraftResults?.[1]); });
   tuneValue.addEventListener("input", () => { tuneEdited = true; });
   const KNOB_TEXT = { rollInAltitudeMslFt: ["Roll-in Altitude", "ft", 0], trackingTimeSec: ["Tracking Time", "s", 1], angleOffDeg: ["Angle Off", "°", 0], attackHeadingDeg: ["Attack Heading", "°", 0] };
-  const TARGET_TEXT = { approachSec: ["Approach Time", "s", 1], approachRangeNm: ["Approach Range", "NM", 2], rollInAltitudeMslFt: ["Roll-in Alt", "ft", 0] };
+  const TARGET_TEXT = { approachSec: ["Approach Time", "s", 1], approachRangeNm: ["Approach Range", "NM", 2], rollInAltitudeMslFt: ["Roll-in Alt", "ft", 0], offsetAngleDeg: ["Offset Angle", "°", 1] };
+  const fpmText = (v) => (Number.isFinite(v) ? `${v >= 0 ? "+" : "−"}${Math.abs(Math.round(v)).toLocaleString("en-US")}` : "Approach 3 s 이하");
   fineTune.addEventListener("click", () => run(async () => {
-    const request = { target: tuneTarget.value, value: Number(tuneValue.value), knob: tuneKnob.value };
+    const limits = { climbFpm: limitValue(climbLimit, OFFSET_FINE_TUNE_V0_1.defaultLimits.climbFpm), descentFpm: limitValue(descentLimit, OFFSET_FINE_TUNE_V0_1.defaultLimits.descentFpm) };
+    const request = { target: tuneTarget.value, value: Number(tuneValue.value), knob: tuneKnob.value, limits };
     if (!Number.isFinite(request.value)) { tuneStatus.textContent = "목표값을 숫자로 넣어 주세요."; return; }
-    if (request.knob === "offset" && !((isVip() || pressed(mainLock("vrpReference"))) && (pressed(mainLock("angleOffDeg")) || pressed(mainLock("attackHeadingDeg"))))) {
-      tuneStatus.textContent = "Offset Angle로 맞추려면 3단계를 먼저 확정하세요 (VRP LOCK + Angle Off 또는 Attack Heading LOCK).";
+    const step3 = (isVip() || pressed(mainLock("vrpReference"))) && (pressed(mainLock("angleOffDeg")) || pressed(mainLock("attackHeadingDeg")));
+    if ((request.knob === "offset" || request.target === "offsetAngleDeg") && !step3) {
+      tuneStatus.textContent = request.target === "offsetAngleDeg"
+        ? "Roll-in 고도로 Offset Angle을 맞추려면 3단계를 먼저 확정하세요 (VRP LOCK + Angle Off 또는 Attack Heading LOCK, Offset Angle은 풀림)."
+        : "Offset Angle로 맞추려면 3단계를 먼저 확정하세요 (VRP LOCK + Angle Off 또는 Attack Heading LOCK).";
       return;
     }
+    if (request.target === "offsetAngleDeg" && pressed(mainLock("offsetAngleDeg"))) { tuneStatus.textContent = "Offset Angle이 LOCK이면 Roll-in 고도로 바뀌지 않습니다. Offset Angle LOCK을 푸세요."; return; }
     let base;
     try { base = fineTuneBaseline(answer); } catch { tuneStatus.textContent = "#1의 계산 결과가 있어야 합니다."; return; }
     const started = performance.now();
@@ -754,8 +786,13 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     const text = r.key === "trackingTimeSec" ? r.value.toFixed(1) : String(Math.round(r.value));
     await setField(r.key, text);
     tuneEdited = false;
-    const flown = Number(tuneNow(answer?.output?.aircraftResults?.[1]));
-    tuneStatus.textContent = `${kLabel} ${Number(text).toFixed(kDigits)}${kUnit === "°" ? "°" : ` ${kUnit}`} 입력 → ${tLabel} ${Number.isFinite(flown) ? flown.toFixed(tDigits) : "-"} ${tUnit} (목표 ${r.want}) · 계산 ${r.runs}회, ${((performance.now() - started) / 1000).toFixed(1)} s${r.status === "CLOSEST" ? ` · ${r.message}` : ""}`;
+    const flown = Number(tuneFlown(answer?.output?.aircraftResults?.[1], r.target));
+    const c = r.change;
+    const fpm = c && Math.abs(c.deltaFt) >= 0.5 ? `${fpmText(c.verticalFpm)} fpm (${c.deltaFt >= 0 ? "+" : "−"}${ft(Math.abs(c.deltaFt))} ft / ${Number.isFinite(c.sec) ? c.sec.toFixed(1) : "-"} s)` : c ? "0 (고도 그대로)" : "-";
+    setOut("tuneFpm", fpm);
+    const over = c && r.target === "rollInAltitudeMslFt" && (c.verticalFpm > limits.climbFpm || c.verticalFpm < -limits.descentFpm) ? ` · 한도(+${limits.climbFpm.toLocaleString("en-US")} / −${limits.descentFpm.toLocaleString("en-US")} fpm) 초과` : "";
+    tuneStatus.textContent = `${kLabel} ${Number(text).toFixed(kDigits)}${kUnit === "°" ? "°" : ` ${kUnit}`} 입력 → ${tLabel} ${Number.isFinite(flown) ? flown.toFixed(tDigits) : "-"}${tUnit === "°" ? "°" : ` ${tUnit}`} (목표 ${r.want}) · Roll-in 고도 변경 ${fpm}${over} · 계산 ${r.runs}회, ${((performance.now() - started) / 1000).toFixed(1)} s${r.status === "CLOSEST" || r.status === "LIMIT" ? ` · ${r.message}` : ""}`;
+    tuneStatus.dataset.level = r.status === "LIMIT" || over ? "warn" : "none";
   }));
 
   // ---- step 3: the Angle Off range for the step-2 VRP and Offset Angle ----
@@ -771,9 +808,8 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
   const regionSignatureOf = (base) => {
     const b = structuredClone(base);
     for (const key of ["angleOffDeg", "attackHeadingDeg", "offsetAngleDeg", "actionRangeNm", "approachRangeNm"]) delete b.values[key];
-    if (altFree.checked) { delete b.values.rollInAltitudeMslFt; delete b.values.initialAltitudeMslFt; delete b.values.trackingTimeSec; delete b.state.enteredTrackingTimeSec; delete b.state.solveMode; }
     delete b.locks; delete b.state.driver;
-    return JSON.stringify([b, wantOa(), altFree.checked], round);
+    return JSON.stringify([b, wantOa()], round);
   };
   function scheduleRegion(delay = 700) {
     if (!active || !regionPool || isVip() || !(wantOa() > 0)) return;
@@ -786,7 +822,6 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
   }
   targetOa.addEventListener("input", () => { targetEdited = true; scheduleRegion(900); });
   targetOa.addEventListener("change", () => { targetEdited = true; scheduleRegion(0); });
-  altFree.addEventListener("change", () => scheduleRegion(0));
   pickAo.addEventListener("input", () => { pickEdited = true; });
   async function runRegion(base, signature) {
     const id = ++regionJob;
@@ -794,7 +829,8 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     const started = performance.now();
     const points = [];
     const offsetAngleDeg = wantOa();
-    const rollInFree = altFree.checked;
+    // 0.1.15: the Roll-in Altitude is held (its make-up is step 4's Fine tune).
+    const rollInFree = false;
     region = { signature, base, points, solutions: [], done: 0, total: ANGLE_OFF_GRID.length, ms: 0, rollInFree, offsetAngleDeg };
     renderRegionStep(answer?.output?.aircraftResults?.[1]);
     let queued = false;
@@ -819,13 +855,13 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
   const flownSide = () => answer?.output?.aircraftResults?.[1]?.result?.geometry?.direction?.rollDirection ?? null;
   const onSide = (p) => { const sd = flownSide(); return !sd || !p?.rollDirection || p.rollDirection === sd; };
   // The points drawn: with the altitude free, every Angle Off that found its Roll-in Altitude; held, the solutions only.
-  const drawnPoints = () => (!region ? [] : (region.rollInFree ? region.points.map((p) => (p.fits ? p : { ...p, level: "bad" })) : region.solutions).filter(onSide));
+  const drawnPoints = () => (!region ? [] : region.solutions.filter(onSide));
   // The Top View (owner 2026-11-24, "vrp와 옵셋 앵글을 변화시키면서 가용 오프셋 영역이나 헤딩 영역 그래프가 나오지 않고 그냥 픽스된
   // 값만 나오네"): with the Roll-in Altitude held, the region drawn is the whole Angle Off sweep at this VRP, each point
   // with the Offset Angle it gives (the Offset Angle changing along it), and the set Offset Angle's solutions are red
   // rings on it. With the altitude free, the points that fit.
-  const regionDrawn = () => (!region ? [] : region.rollInFree ? drawnPoints() : region.points.filter(onSide));
-  const regionMarks = () => (!region || region.rollInFree ? [] : region.solutions.filter((p) => p.level !== "bad").map((p) => ({ ...p, label: `Offset Angle ${region.offsetAngleDeg}° · ` })));
+  const regionDrawn = () => (!region ? [] : region.points.filter(onSide));
+  const regionMarks = () => (!region ? [] : region.solutions.filter((p) => p.level !== "bad").map((p) => ({ ...p, label: `Offset Angle ${region.offsetAngleDeg}° · ` })));
   const span = (r, key, f) => (r && Number.isFinite(r[`${key}FromDeg`]) ? `${f(r[`${key}FromDeg`])}–${f(r[`${key}ToDeg`])}` : null);
   const hdg3 = (v) => String(Math.round(((v % 360) + 360) % 360)).padStart(3, "0");
   const deg0 = (v) => `${Math.round(v)}°`;
@@ -835,22 +871,20 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     const g = ar?.result?.geometry;
     const pts = drawnPoints();
     const side = g?.direction?.rollDirection ?? null;
-    const summary = regionSummary(pts);
-    const sweep = region && !region.rollInFree ? regionSummary(region.points, side) : null;
-    const summaries = side ? { [side]: summary } : {};
+    const sweep = region ? regionSummary(region.points, side) : null;
     const done = region && region.done >= region.total && region.ms > 0;
     if (isVip()) regionStatus.textContent = "VIP 모드: 가능 범위는 VRP 모드에서 그립니다.";
     else if (!(wantOa() > 0)) regionStatus.textContent = "2단계에 Offset Angle을 넣으세요.";
     else if (!regionPool) regionStatus.textContent = "-";
     else if (!region) regionStatus.textContent = "Angle Off 가용 범위: 계산 대기";
     else {
-      const mode = region.rollInFree ? "Roll-in 고도 변경 허용" : "Roll-in 고도 고정";
+      const mode = "Roll-in 고도 고정";
       regionStatus.textContent = !done
         ? `Angle Off 가용 범위 계산 중 ${region.done} / ${region.total} (VRP 고정, Offset Angle ${region.offsetAngleDeg}°, ${mode})`
-        : `VRP 고정 · ${region.rollInFree ? `Offset Angle ${region.offsetAngleDeg}°` : `선은 Offset Angle이 변하는 Angle Off 전체 (점 옆 숫자 = Offset Angle), 빨간 원 = Offset Angle ${region.offsetAngleDeg}°, 연한 띠 = Tracking Time 2 s까지`} · ${mode} · Track 2 s 미만 제외 · Roll-in은 Offset 반대쪽만 · Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}° 5° 간격 · ${(region.ms / 1000).toFixed(1)} s · 점에 마우스를 올리면 값`;
+        : `VRP 고정 · 선은 Offset Angle이 변하는 Angle Off 전체 (점 옆 숫자 = Offset Angle), 빨간 원 = Offset Angle ${region.offsetAngleDeg}°, 연한 띠 = Tracking Time 2 s까지 · ${mode} · Track 2 s 미만 제외 · Roll-in은 Offset 반대쪽만 · Angle Off ${ANGLE_OFF_GRID[0]}–${ANGLE_OFF_GRID.at(-1)}° 5° 간격 · ${(region.ms / 1000).toFixed(1)} s · 점에 마우스를 올리면 값`;
     }
     renderRegionTopView(topSvg, {
-      points: regionDrawn(), marks: regionMarks(), summaries: region && !region.rollInFree ? (side ? { [side]: sweep } : {}) : summaries, labels: REGION_LABELS, maxJoinDeg: 5.01,
+      points: regionDrawn(), marks: regionMarks(), summaries: region && side ? { [side]: sweep } : {}, labels: REGION_LABELS, maxJoinDeg: 5.01,
       current: g ? { geometry: g, popPoint: null, approachRangeNm: ar.result.resolved?.approachRangeNm, attackHeadingDeg: g.attackHeadingDeg } : null,
       upHeadingDeg: topIpBottom ? Number(ar?.result?.resolved?.runInHeadingDeg ?? g?.runInHeadingDeg ?? 0) : 0,
     });
@@ -858,7 +892,7 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
     topSvg.__viewport?.refresh();
     if (!followerCard.hidden) renderFollowerRegion(); // #1's region is drawn in grey there
     const fitting = pts.filter((p) => p.level === "ok" || p.level === "warn").sort((a, b) => a.angleOffDeg - b.angleOffDeg);
-    if (region && !region.rollInFree) {
+    if (region) {
       // The sweep's range (any Offset Angle) first, then the Angle Offs that give the set one.
       const aoAll = span(sweep?.possible, "angleOff", deg0);
       const atkAll = span(sweep?.possible, "attackHeading", hdg3);
@@ -868,36 +902,22 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
       setOut("regionAo", !done ? (aoAll ?? "-") : `${aoAll ?? "없음"}${oaAll ? ` (OA ${oaAll})` : ""} · ${atOa}${fitting.length ? fitting.map((p) => `${deg1(p.angleOffDeg)}${p.level === "warn" ? " (WARNING)" : ""}`).join(" / ") : "없음"}`);
       const atks = fitting.map((p) => p.attackHeadingDeg).filter(Number.isFinite).map(hdg3);
       setOut("regionAtk", !done ? (atkAll ?? "-") : `${atkAll ?? "없음"} · ${atOa}${atks.length ? atks.join(" / ") : "없음"}`);
-      setOut("regionAlt", "고정");
     } else {
-      const a = span(summary?.possible, "angleOff", deg0);
-      const v = span(summary?.recommended, "angleOff", deg0);
-      setOut("regionAo", a ? `${a}${v && v !== a ? ` (VALID ${v})` : ""}` : done ? "없음" : "-");
-      setOut("regionAtk", span(summary?.possible, "attackHeading", hdg3) ?? (done ? "없음" : "-"));
-      const alts = fitting.map((p) => p.rollInAltitudeMslFt).filter(Number.isFinite);
-      setOut("regionAlt", alts.length ? `${ft(Math.min(...alts))}–${ft(Math.max(...alts))}` : done ? "없음" : "-");
+      setOut("regionAo", "-");
+      setOut("regionAtk", "-");
     }
-    const gaps = region && region.rollInFree && fitting.length > 1 && fitting.some((p, i) => i && p.angleOffDeg - fitting[i - 1].angleOffDeg > 5.01);
-    regionNote.textContent = !done || !g ? ""
-      : !fitting.length ? (region.rollInFree
-        ? `이 VRP와 Offset Angle ${region.offsetAngleDeg}°로는 Roll-in 고도를 바꿔도 맞는 Angle Off가 없습니다. Offset Angle이나 VRP Range를 바꿔 보세요.`
-        : `Roll-in 고도를 고정하면 Offset Angle ${region.offsetAngleDeg}°에 맞는 Angle Off가 없습니다. 2단계에서 Roll-in 고도 변경을 허용하거나 Offset Angle을 바꿔 보세요.`)
-      : gaps ? "가능 범위 중간에 비는 Angle Off가 있습니다 (Top View의 점 참고)." : "";
+    regionNote.textContent = !done || !g || fitting.length ? ""
+      : `지금 Roll-in 고도로는 Offset Angle ${region.offsetAngleDeg}°가 되는 Angle Off가 없습니다. 선 위에서 가까운 Angle Off를 고른 뒤 4단계 미세튜닝의 목표 "Offset Angle (Roll-in 고도)"로 맞추거나, VRP·Offset Angle을 바꿔 보세요.`;
     regionNote.dataset.level = regionNote.textContent ? "warn" : "none";
   }
-  // 확정 3: the Angle Off picked (or the nearest fitting one), its Roll-in Altitude first when the altitude is free.
+  // 확정 3: the Angle Off picked (or the nearest fitting one).
   async function applyAngleOff() {
     if (isVip() || !region) return;
     const fitting = drawnPoints().filter((p) => p.level === "ok" || p.level === "warn");
     let ao = Number(pickAo.value);
     if (!Number.isFinite(ao)) ao = fitting[0]?.angleOffDeg;
     if (!Number.isFinite(ao)) { regionNote.textContent = "Angle Off를 넣으세요."; return; }
-    if (!region.rollInFree && !pickEdited && fitting.length) ao = fitting.reduce((b, p) => (Math.abs(p.angleOffDeg - ao) < Math.abs(b.angleOffDeg - ao) ? p : b)).angleOffDeg;
-    if (region.rollInFree) {
-      const c = await regionPool.point(region.base, { angleOffDeg: ao, offsetAngleDeg: region.offsetAngleDeg, rollInFree: true }, "region");
-      if (!c?.fits || !Number.isFinite(c.rollInAltitudeMslFt)) { regionNote.textContent = `Angle Off ${deg1(ao)}에는 맞는 Roll-in 고도가 없습니다. 가능 범위 안에서 고르세요.`; regionNote.dataset.level = "warn"; return; }
-      await setField("rollInAltitudeMslFt", String(Math.round(c.rollInAltitudeMslFt)));
-    }
+    if (!pickEdited && fitting.length) ao = fitting.reduce((b, p) => (Math.abs(p.angleOffDeg - ao) < Math.abs(b.angleOffDeg - ao) ? p : b)).angleOffDeg;
     await press(mainLock("attackHeadingDeg"), false);
     await releaseSolved();
     await press(mainLock("angleOffDeg"), true);
@@ -1093,8 +1113,18 @@ export function mountOffsetDesignSteps({ host, offsetUi, regionPool = null, tune
   return {
     root,
     activate() { active = true; answer = offsetUi.flightAnswer?.() ?? answer; render(); scheduleRegion(); scheduleMap(); scheduleFollowerRegion(); renderFollowerRegion(); },
-    deactivate() { active = false; },
+    // Leaving the Design tab (owner 2026-11-28, "디자이너 빠져나가면 계산 중지"): the automatic calculations (step-3 region,
+    // VRP map, #2 Top View) stop and an unfinished one is dropped, so it runs again on the next entry. Fine tune and
+    // time matching, which the user started and which type into the page, finish.
+    deactivate() {
+      active = false;
+      clearTimeout(regionTimer); clearTimeout(mapTimer); clearTimeout(followerTimer);
+      if (region && !(region.ms > 0)) { regionJob += 1; region = null; }
+      if (vrpMap && !(vrpMap.ms > 0)) { mapJob += 1; vrpMap = null; }
+      if (followerRegion && !(followerRegion.ms > 0)) { followerJob += 1; followerRegion = null; }
+      regionPool?.stop?.(); mapPool?.stop?.(); followerPool?.stop?.();
+    },
     // Read-only hook for the browser checks.
-    state: () => ({ busy, map: vrpMap && { done: vrpMap.done, total: vrpMap.total, ms: vrpMap.ms, vrps: vrpMap.vrps, flying: vrpMap.cells.filter((c) => c.level !== "bad").length }, confirmed: { 1: confirmed[1](), 2: confirmed[2](), 3: confirmed[3]() }, region: region && { done: region.done, total: region.total, ms: region.ms, rollInFree: region.rollInFree, offsetAngleDeg: region.offsetAngleDeg, summary: regionSummary(drawnPoints()), solutions: region.solutions.map((p) => p.angleOffDeg), fitting: drawnPoints().filter((p) => p.level !== "bad").map((p) => [p.angleOffDeg, p.rollInAltitudeMslFt]) } }),
+    state: () => ({ busy, map: vrpMap && { done: vrpMap.done, total: vrpMap.total, ms: vrpMap.ms, vrps: vrpMap.vrps, flying: vrpMap.cells.filter((c) => c.level !== "bad").length }, confirmed: { 1: confirmed[1](), 2: confirmed[2](), 3: confirmed[3]() }, region: region && { done: region.done, total: region.total, ms: region.ms, rollInFree: region.rollInFree, offsetAngleDeg: region.offsetAngleDeg, summary: regionSummary(drawnPoints()), solutions: region.solutions.map((p) => p.angleOffDeg), fitting: drawnPoints().filter((p) => p.level !== "bad").map((p) => p.angleOffDeg) } }),
   };
 }

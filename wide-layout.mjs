@@ -7,12 +7,12 @@
 // SEM & Rejoin panel; it reaches the Offset controller only through offsetIndexUi.
 // Speed conversions under every kcas / Mach speed input (owner 2026-11-24), shared by all BE pages.
 import "./shared/speed-readout-v0.1.mjs?v=0.1.0";
-import { offsetIndexUi } from "./controller-v0.1.mjs?v=09c0bb62971d";
-import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=09c0bb62971d";
-import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=09c0bb62971d";
-import { mountWideWorkspace } from "./shared/wide-workspace-v0.1.mjs?v=0.1.3";
-import { mountPopupDesignGraph } from "./popup-design-graph-v0.1.mjs?v=0.1.13";
-import { mountOffsetDesignGraph } from "./offset-design-graph-v0.1.mjs?v=0.1.15";
+import { offsetIndexUi } from "./controller-v0.1.mjs?v=ec7d2332c7c7";
+import { mountSemRejoin } from "./sem-rejoin-controller-v0.1.mjs?v=ec7d2332c7c7";
+import { mountBmsMissionPanel } from "./bms-mission-panel-v0.1.mjs?v=ec7d2332c7c7";
+import { mountWideWorkspace } from "./shared/wide-workspace-v0.1.mjs?v=0.1.4";
+import { mountPopupDesignGraph } from "./popup-design-graph-v0.1.mjs?v=0.1.14";
+import { mountOffsetDesignGraph } from "./offset-design-graph-v0.1.mjs?v=0.1.17";
 
 const app = document.getElementById("offset-calculator");
 const followers = document.getElementById("flight-followers");
@@ -30,11 +30,9 @@ const OFFSET_TAB_LABEL = document.body.classList.contains("popup-page") ? "Pop-U
 const flightSizeSelect = document.getElementById("flight-size");
 const soloLead = (editAircraft) => editAircraft === 1 && Number(flightSizeSelect?.value ?? 1) < 2;
 const INPUT_TABS = [["bdp", "BDP"], ["offset", OFFSET_TAB_LABEL], ["sr", "S&R"], ["reference", "Formation", { hidden: soloLead }], ["save", "Save/Load"]];
-// An input tab brings its centre view with it (handoff 2026-10-13 §3): S&R → SEM & Rejoin, BDP → BDP,
-// Offset → Offset Top View. A centre tab changes the centre only (owner 2026-10-22). Formation, Save/Load
-// and the right-hand tabs keep the other panes.
-const INPUT_OF_CENTER = Object.freeze({ topview: "offset", bdp: "bdp", sem: "sr" });
-const CENTER_OF_INPUT = Object.freeze({ offset: "topview", bdp: "bdp", sr: "sem" });
+// Input and centre tabs are independent (owner 2026-11-28: "offset과 popup에서 입력값과 탑뷰 계열 연결 … 끊어주라"): an input
+// tab changes the left pane only, a centre tab the centre only (owner 2026-10-22). Previously (handoff 2026-10-13 §3)
+// S&R → SEM & Rejoin, BDP → BDP and Offset → Offset Top View.
 
 const workspace = mountWideWorkspace({
   app,
@@ -61,8 +59,6 @@ const workspace = mountWideWorkspace({
     // 2026-11-23, offset-design-graph-v0.1).
     ["design", "Design", { title: "Design · Graph (#1)", host: true }],
   ],
-  centerOfInput: CENTER_OF_INPUT,
-  inputOfCenter: INPUT_OF_CENTER,
   reviewTabs: [["result", "Result"], ["z", "Z-Diagram"], ["ded", "DED"]],
   statePill: (number) => document.getElementById(number === 1 ? "state-pill" : "flight-state-pill-" + number),
   statusMessage: (number) => document.getElementById(number === 1 ? "constraint-message" : "flight-status-" + number),
@@ -107,4 +103,4 @@ offsetIndexUi.installSectionDisclosure();
 
 // First entry (§2): input Offset, centre Offset Top View, right Result, edit #1, shown #1. A work
 // save brings back its edited aircraft and shown set (2026-10-12, user).
-workspace.start({ center: "topview", review: "result" });
+workspace.start({ input: "offset", center: "topview", review: "result" });

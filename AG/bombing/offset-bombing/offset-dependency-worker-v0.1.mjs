@@ -2,7 +2,7 @@
 // { id, point } — one direct Offset Flight solve of the sweep (offset-dependency-sweep-v0.1). Several run side by side.
 import { OFFSET_DEPENDENCY_SWEEP_V0_1, sweepPoint } from "./offset-dependency-sweep-v0.1.mjs?v=0.1.0";
 import { heldAltitudeSolutions, regionTask } from "./offset-design-region-v0.1.mjs?v=0.2.2";
-import { fineTune } from "./offset-fine-tune-v0.1.mjs?v=0.1.0";
+import { fineTune } from "./offset-fine-tune-v0.1.mjs?v=0.2.0";
 import { solveFollowerReleaseTime } from "./offset-follower-time-v0.1.mjs?v=0.1.5";
 import { followerRegionPoint } from "./offset-follower-region-v0.1.mjs?v=0.1.1";
 
@@ -19,7 +19,7 @@ import { followerRegionPoint } from "./offset-follower-region-v0.1.mjs?v=0.1.1";
 // 0.1.9 (owner 2026-11-24): offset-follower-time 0.1.4 (#2 Tracking Time / Dive knobs).
 // 0.1.10 (owner 2026-11-25, step 5 #2 Top View): "followerRegion" { number, angleOffDeg } with the whole Flight as base
 // answers one follower region point (offset-follower-region-v0.1).
-export const OFFSET_DEPENDENCY_WORKER_V0_1 = Object.freeze({ id: "offset-dependency-worker-v0.1", version: "0.1.11", sweep: OFFSET_DEPENDENCY_SWEEP_V0_1.version });
+export const OFFSET_DEPENDENCY_WORKER_V0_1 = Object.freeze({ id: "offset-dependency-worker-v0.1", version: "0.1.12", sweep: OFFSET_DEPENDENCY_SWEEP_V0_1.version });
 
 if (typeof self !== "undefined" && typeof self.postMessage === "function" && typeof window === "undefined") {
   self.onmessage = (event) => {
